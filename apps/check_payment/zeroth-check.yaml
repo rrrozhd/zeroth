@@ -1,0 +1,12 @@
+version: check.v1
+target: apps.check_payment.target:build_target
+tapes:
+  curated_dir: tapes
+replay:
+  runs: 3
+  quorum: 2
+faults:
+  required: all
+  additional: []
+reporting:
+  fail_on: [block, invalid]

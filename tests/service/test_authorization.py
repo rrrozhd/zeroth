@@ -42,6 +42,16 @@ def test_economic_administration_is_reserved_for_platform_admin() -> None:
     assert ROLE_PERMISSIONS[ServiceRole.ADMIN] < ROLE_PERMISSIONS[ServiceRole.PLATFORM_ADMIN]
 
 
+def test_evaluation_administration_is_reserved_for_platform_admin() -> None:
+    """Campaign fault injection must never inherit ordinary tenant administration."""
+    from zeroth.governance.identity import ServiceRole
+    from zeroth.service.api.authorization import ROLE_PERMISSIONS, Permission
+
+    for role in (ServiceRole.OPERATOR, ServiceRole.REVIEWER, ServiceRole.ADMIN):
+        assert Permission.EVALUATION_ADMIN not in ROLE_PERMISSIONS[role]
+    assert Permission.EVALUATION_ADMIN in ROLE_PERMISSIONS[ServiceRole.PLATFORM_ADMIN]
+
+
 def test_trusted_static_configuration_can_deliver_platform_admin() -> None:
     from zeroth.governance.identity import ServiceRole
     from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator

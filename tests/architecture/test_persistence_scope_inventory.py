@@ -96,7 +96,7 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
     },
     "src/zeroth/governance/audit/verifier.py": {
         (("AuditContinuityVerifier", "verify_deployment"), ("self", "_repository")): frozenset(
-            {"list_by_deployment"}
+            {"list_by_deployment", "list_by_run"}
         ),
         (("AuditContinuityVerifier", "verify_run"), ("self", "_repository")): frozenset(
             {"list_by_run"}
@@ -106,6 +106,10 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
         (("DeliveryWorker", "_attempt"), ("self", "_writer")): frozenset({"write"}),
     },
     "src/zeroth/governance/approvals/service.py": {
+        (
+            ("ApprovalService", "schedule_ancestor_continuation"),
+            ("self", "audit_repository"),
+        ): frozenset({"write_in_transaction"}),
         (("ApprovalService", "_record_api_audit"), ("self", "audit_repository")): frozenset(
             {"write"}
         ),
@@ -169,6 +173,10 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
         (("register_audit_routes", "list_audits"), ("bootstrap", "audit_repository")): frozenset(
             {"list"}
         ),
+        (
+            ("register_audit_routes", "list_tenant_audits"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list"}),
     },
     "src/zeroth/service/api/econ_analytics_api.py": {
         (("_windowed_runs_and_audits",), ("bootstrap", "audit_repository")): frozenset({"list"}),
@@ -4385,8 +4393,10 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "examples/24_audit_query.py::main::list_by_run",
     "src/zeroth/governance/approvals/service.py::_record_api_audit::write",
     "src/zeroth/governance/approvals/service.py::_record_decision_audit::write",
+    "src/zeroth/governance/approvals/service.py::schedule_ancestor_continuation::write_in_transaction",
     "src/zeroth/governance/audit/delivery_worker.py::_attempt::write",
     "src/zeroth/governance/audit/verifier.py::verify_deployment::list_by_deployment",
+    "src/zeroth/governance/audit/verifier.py::verify_deployment::list_by_run",
     "src/zeroth/governance/audit/verifier.py::verify_run::list_by_run",
     "src/zeroth/governance/retention/erasure_service.py::erase_run::crypto_erase_in_transaction",
     "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run",
@@ -4406,8 +4416,11 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/service/api/audit_api.py::get_run_evidence::list_by_run",
     "src/zeroth/service/api/audit_api.py::get_run_timeline::list_by_run",
     "src/zeroth/service/api/audit_api.py::list_audits::list",
+    "src/zeroth/service/api/audit_api.py::list_tenant_audits::list",
     "src/zeroth/service/api/authentication.py::record_service_denial::write",
     "src/zeroth/service/api/econ_analytics_api.py::_windowed_runs_and_audits::list",
+    "src/zeroth/service/api/manifest_api.py::list_manifest_runs::list",
+    "src/zeroth/service/api/operation_api.py::resolve_ambiguous_operation::write",
     "src/zeroth/service/api/retention_api.py::_erase_tenant::list_erasable",
     "src/zeroth/service/api/retention_api.py::_require_run_tenant::list",
     "src/zeroth/service/api/rightsizing_api.py::rightsizing_opportunities::list",
@@ -4422,6 +4435,7 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+    "src/zeroth/service/webhooks/repository.py::_write_audit::write_in_transaction",
 )
 
 
@@ -11491,6 +11505,7 @@ def test_audit_repository_public_surface_is_exhaustive_and_scope_is_required() -
         "list_erasable_in_transaction",
         "scoped",
         "write",
+        "write_in_transaction",
         "write_many",
     }
 
@@ -11839,8 +11854,10 @@ def test_service_workspace_scope_definitions_match_head_columns(
         "approvals",
         "deployment_versions",
         "graph_versions",
-        "node_audits",
-        "run_checkpoints",
+            "node_audits",
+            "prompt_templates",
+            "template_dependency_references",
+            "run_checkpoints",
         "runs",
         "side_effect_operations",
         "threads",
@@ -12659,6 +12676,9 @@ _CONTRACT_REGISTRY_BINDING_INVENTORY = frozenset(
         "examples/service/seed_deployment.py::main::default_compatibility",
         "apps/vendor_dd/entrypoint.py::contract_registry_for_deployment::scoped",
         "apps/vendor_dd/seed.py::main::scoped",
+        "release/live_evaluation/bootstrap.py::seed_campaign_bootstrap::scoped",
+        "release/live_evaluation/campaign_runtime.py::contract_registry::scoped",
+        "release/live_evaluation/context_compaction_checkpoint.py::seed_context_fixture::scoped",
         "src/zeroth/contracts/registry/registry.py::for_scope::scoped",
         "src/zeroth/service/persistence_isolation_probes.py::_drive_contract_versions::scoped",
         "src/zeroth/service/bootstrap/factory.py::bootstrap_scoped_service::scoped",

@@ -6,6 +6,9 @@ deployments by querying the Regulus backend as the source of truth.
 
 from __future__ import annotations
 
+import inspect
+from decimal import Decimal
+
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
@@ -14,10 +17,10 @@ from zeroth.integrations.http.factory import governed_async_client
 from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 from zeroth.service.api.authorization import (
     Permission,
-    require_deployment_scope,
     require_permission,
     require_resource_scope,
 )
+from zeroth.service.api.deployment_context import require_scoped_deployment
 
 
 class TenantCostResponse(BaseModel):
@@ -27,6 +30,14 @@ class TenantCostResponse(BaseModel):
 
     tenant_id: str
     total_cost_usd: float
+    actual_spend_usd: float = 0.0
+    paid_spend_usd: float = 0.0
+    estimated_spend_usd: float = 0.0
+    unmeasured_spend_usd: float = 0.0
+    active_exposure_usd: float = 0.0
+    ambiguous_exposure_usd: float = 0.0
+    budget_consumed_usd: float = 0.0
+    synthetic_control_usd: float = 0.0
     budget_cap_usd: float | None = None
     currency: str = "USD"
 
@@ -46,7 +57,62 @@ class DeploymentCostResponse(BaseModel):
 
     deployment_ref: str
     total_cost_usd: float
+    paid_spend_usd: float = 0.0
+    estimated_spend_usd: float = 0.0
+    unmeasured_spend_usd: float = 0.0
+    active_exposure_usd: float = 0.0
+    ambiguous_exposure_usd: float = 0.0
     currency: str = "USD"
+
+
+TenantCostResponse.__signature__ = inspect.signature(TenantCostResponse).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(TenantCostResponse).parameters.items()
+        if name
+        not in {
+            "actual_spend_usd",
+            "paid_spend_usd",
+            "estimated_spend_usd",
+            "unmeasured_spend_usd",
+            "active_exposure_usd",
+            "ambiguous_exposure_usd",
+            "budget_consumed_usd",
+            "synthetic_control_usd",
+        }
+    ]
+)
+DeploymentCostResponse.__signature__ = inspect.signature(DeploymentCostResponse).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(DeploymentCostResponse).parameters.items()
+        if name
+        not in {
+            "paid_spend_usd",
+            "estimated_spend_usd",
+            "unmeasured_spend_usd",
+            "active_exposure_usd",
+            "ambiguous_exposure_usd",
+        }
+    ]
+)
+
+
+def _tenant_cost_response(tenant_id: str, data: dict) -> TenantCostResponse:
+    """Map the canonical ledger status without dropping additive truth fields."""
+    return TenantCostResponse(
+        tenant_id=tenant_id,
+        total_cost_usd=float(data.get("total_cost_usd", 0)),
+        actual_spend_usd=float(data.get("actual_spend_usd", 0)),
+        paid_spend_usd=float(data.get("paid_spend_usd", 0)),
+        estimated_spend_usd=float(data.get("estimated_spend_usd", 0)),
+        unmeasured_spend_usd=float(data.get("unmeasured_spend_usd", 0)),
+        active_exposure_usd=float(data.get("active_exposure_usd", 0)),
+        ambiguous_exposure_usd=float(data.get("ambiguous_exposure_usd", 0)),
+        budget_consumed_usd=float(data.get("budget_consumed_usd", 0)),
+        synthetic_control_usd=float(data.get("synthetic_control_usd", 0)),
+        budget_cap_usd=data.get("budget_cap_usd"),
+    )
 
 
 def _regulus_self_auth_headers(request: Request) -> dict[str, str] | None:
@@ -105,11 +171,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
             )
             resp.raise_for_status()
             data = resp.json()
-            return TenantCostResponse(
-                tenant_id=tenant_id,
-                total_cost_usd=float(data.get("total_cost_usd", 0)),
-                budget_cap_usd=data.get("budget_cap_usd"),
-            )
+            return _tenant_cost_response(tenant_id, data)
         except httpx.HTTPError as exc:
             # A02-10: an httpx error's message carries the full URL it dialled,
             # which is the Regulus base URL -- internal infrastructure the caller
@@ -134,6 +196,20 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
             workspace_id=principal.workspace_id,
             not_found_detail="tenant not found",
         )
+        requested_cap = Decimal(str(body.budget_cap_usd))
+        if not requested_cap.is_finite() or requested_cap <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail="budget cap must be a positive finite USD amount",
+            )
+        bootstrap = getattr(request.app.state, "bootstrap", None)
+        campaign = getattr(bootstrap, "evaluation_campaign", None)
+        campaign_ceiling = getattr(campaign, "campaign_budget_usd", None)
+        if campaign_ceiling is not None and requested_cap > Decimal(str(campaign_ceiling)):
+            raise HTTPException(
+                status_code=422,
+                detail="budget cap exceeds the active campaign ceiling",
+            )
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:
@@ -147,11 +223,7 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
             )
             resp.raise_for_status()
             data = resp.json()
-            return TenantCostResponse(
-                tenant_id=tenant_id,
-                total_cost_usd=float(data.get("total_cost_usd", 0)),
-                budget_cap_usd=data.get("budget_cap_usd"),
-            )
+            return _tenant_cost_response(tenant_id, data)
         except httpx.HTTPError as exc:
             # A02-10: an httpx error's message carries the full URL it dialled,
             # which is the Regulus base URL -- internal infrastructure the caller
@@ -167,15 +239,11 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
     )
     async def get_deployment_cost(request: Request, deployment_ref: str) -> DeploymentCostResponse:
         """Return cumulative spend for a deployment (per D-15, D-16)."""
-        await require_permission(request, Permission.METRICS_READ)
-        # Scope isolation (audit F4 follow-up): this service serves exactly one
-        # deployment; only its owner may read its cost, and only for that ref.
-        # Otherwise any admin could read an arbitrary deployment's spend by ref.
-        bootstrap = getattr(request.app.state, "bootstrap", None)
-        deployment = getattr(bootstrap, "deployment", None)
-        if deployment is None or deployment_ref != getattr(deployment, "deployment_ref", None):
-            raise HTTPException(status_code=404, detail="deployment not found")
-        await require_deployment_scope(request, deployment)
+        # Execution is process-bound, but this is a control-plane read over the
+        # same scoped registry exposed by the deployment list.
+        _bootstrap, deployment, _principal = await require_scoped_deployment(
+            request, deployment_ref, Permission.METRICS_READ
+        )
         regulus_base_url = getattr(request.app.state, "regulus_base_url", None)
         regulus_timeout = getattr(request.app.state, "regulus_timeout", 5.0)
         if regulus_base_url is None:
@@ -183,15 +251,23 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
         try:
             client = await _regulus_client(request, regulus_timeout)
             resp = await client.get(
-                f"{regulus_base_url}/dashboard/kpis",
-                params={"deployment_ref": deployment_ref},
+                f"{regulus_base_url}/budget/status",
+                params={
+                    "tenant_id": deployment.tenant_id,
+                    "deployment_ref": deployment_ref,
+                },
                 headers=_regulus_self_auth_headers(request),
             )
             resp.raise_for_status()
             data = resp.json()
             return DeploymentCostResponse(
                 deployment_ref=deployment_ref,
-                total_cost_usd=float(data.get("total_cost_usd", 0)),
+                total_cost_usd=float(data.get("actual_spend_usd", 0)),
+                paid_spend_usd=float(data.get("paid_spend_usd", 0)),
+                estimated_spend_usd=float(data.get("estimated_spend_usd", 0)),
+                unmeasured_spend_usd=float(data.get("unmeasured_spend_usd", 0)),
+                active_exposure_usd=float(data.get("active_exposure_usd", 0)),
+                ambiguous_exposure_usd=float(data.get("ambiguous_exposure_usd", 0)),
             )
         except httpx.HTTPError as exc:
             # A02-10: an httpx error's message carries the full URL it dialled,

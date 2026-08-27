@@ -5,6 +5,236 @@
   "symbols": [
     {
       "evidence": [
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.econ_plane.enforcement.schemas:CostReservationOut"
+      ],
+      "module": "zeroth.econ.plane.enforcement.schemas",
+      "name": "CostReservationOut",
+      "signature": "(*, operation_id: str, campaign_id: str | None, run_id: str | None, status: str, max_cost_usd: decimal.Decimal, held_cost_usd: decimal.Decimal, actual_cost_usd: decimal.Decimal | None, released_cost_usd: decimal.Decimal, cost_measurement: str, cost_event_id: str | None, provider_request_id: str | None, cleanup_status: str | None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.econ_plane.enforcement.schemas:CostReservationReconcile"
+      ],
+      "module": "zeroth.econ.plane.enforcement.schemas",
+      "name": "CostReservationReconcile",
+      "signature": "(*, actual_cost_usd: Annotated[decimal.Decimal, Ge(ge=0)], cost_measurement: Literal['measured', 'estimated'], provider_request_id: Annotated[str | None, MaxLen(max_length=256)] = None, cleanup_status: Annotated[str, MinLen(min_length=1), MaxLen(max_length=64)] = 'complete') -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.connector_api"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.connector_api:ConnectorTestRequest"
+      ],
+      "module": "zeroth.service.api.connector_api",
+      "name": "ConnectorTestRequest",
+      "signature": "(*, campaign_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], operation_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], run_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, max_cost_usd: Annotated[decimal.Decimal, Gt(gt=0)], run_cap_usd: Annotated[decimal.Decimal | None, Gt(gt=0)] = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.operation_api"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.operation_api:OperationResolutionRequest"
+      ],
+      "module": "zeroth.service.api.operation_api",
+      "name": "OperationResolutionRequest",
+      "signature": "(*, resolution: zeroth.service.api.operation_api.OperatorResolution, reason: Annotated[str, MinLen(min_length=1), MaxLen(max_length=2000)], receipt: typing.Any | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.operation_api"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.operation_api:OperationResolutionResponse"
+      ],
+      "module": "zeroth.service.api.operation_api",
+      "name": "OperationResolutionResponse",
+      "signature": "(*, operation_key: str, state: zeroth.platform.dispatch.operations.OperationState) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.faults.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.faults.models",
+      "name": "FaultEvent",
+      "signature": "(*, event_id: Annotated[str, MinLen(min_length=1)], case_id: Annotated[str, MinLen(min_length=1)], action_identity: Annotated[str, MinLen(min_length=1)], fault_name: zeroth.check.faults.models.FaultName, process_role: Annotated[str, MinLen(min_length=1)], kind: zeroth.check.faults.models.FaultEventKind) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.faults.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.faults.models",
+      "name": "FaultMatrixResult",
+      "signature": "(*, results: tuple[zeroth.check.faults.models.FaultResult, ...], prerequisite_valid: bool, prerequisite_reason: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.faults.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.faults.models",
+      "name": "FaultResult",
+      "signature": "(*, spec: zeroth.check.faults.models.FaultSpec, executed: bool, injection_observed: bool, recovery_observed: bool, safety_violation: bool, marker_count: Annotated[int, Ge(ge=0)], reason_codes: tuple[str, ...] = ()) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.faults.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.faults.models",
+      "name": "FaultSpec",
+      "signature": "(*, schema_version: Literal['fault_spec.v1'] = 'fault_spec.v1', case_id: Annotated[str, MinLen(min_length=1)], action_identity: Annotated[str, _PydanticGeneralMetadata(pattern='^actv1_[0-9a-f]{64}$')], occurrence_id: Annotated[str, MinLen(min_length=1)], name: zeroth.check.faults.models.FaultName) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.tape.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.tape.models",
+      "name": "AdapterIdentityV1",
+      "signature": "(*, name: Annotated[str, MinLen(min_length=1)], version: Annotated[str, MinLen(min_length=1)]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.tape.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.tape.models",
+      "name": "ModelCallObservationV1",
+      "signature": "(*, occurrence_id: Annotated[str, MinLen(min_length=1)], provider: str | None = None, model: str | None = None, input_tokens: Annotated[int | None, Ge(ge=0)] = None, output_tokens: Annotated[int | None, Ge(ge=0)] = None, total_tokens: Annotated[int | None, Ge(ge=0)] = None, input_details: dict[str, int] | None = None, output_details: dict[str, int] | None = None, request_fingerprint: Annotated[str, _PydanticGeneralMetadata(pattern='^sha256:[0-9A-Za-z_-]+$')], response_fingerprint: Annotated[str, _PydanticGeneralMetadata(pattern='^sha256:[0-9A-Za-z_-]+$')]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.tape.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.tape.models",
+      "name": "RawRecordingV1",
+      "signature": "(*, normalization_version: Literal['normalization.v1'], action_identity_version: Literal['action_identity.v1'], case_id: Annotated[str, MinLen(min_length=1)], scenario_run_id: Annotated[str, MinLen(min_length=1)], adapter: zeroth.check.tape.models.AdapterIdentityV1, target_entrypoint_digest: Annotated[str, MinLen(min_length=1)], case_input: JsonValue, invocation_config: dict[str, JsonValue], model_calls: list[zeroth.check.tape.models.ModelCallObservationV1], tool_occurrences: list[zeroth.check.tape.models.ToolOccurrenceV1], safety_trajectory: list[zeroth.check.tape.models.SafetyTrajectoryEventV1], trajectory_digest: Annotated[str, MinLen(min_length=1)], schema_version: Literal['raw_recording.v1'], source_digest: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.tape.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.tape.models",
+      "name": "SafetyTrajectoryEventV1",
+      "signature": "(*, event_type: Annotated[str, MinLen(min_length=1)], occurrence_id: Annotated[str, MinLen(min_length=1)], fingerprint: Annotated[str, MinLen(min_length=1)], state: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.tape.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.tape.models",
+      "name": "TapeV1",
+      "signature": "(*, normalization_version: Literal['normalization.v1'], action_identity_version: Literal['action_identity.v1'], case_id: Annotated[str, MinLen(min_length=1)], scenario_run_id: Annotated[str, MinLen(min_length=1)], adapter: zeroth.check.tape.models.AdapterIdentityV1, target_entrypoint_digest: Annotated[str, MinLen(min_length=1)], case_input: JsonValue, invocation_config: dict[str, JsonValue], model_calls: list[zeroth.check.tape.models.ModelCallObservationV1], tool_occurrences: list[zeroth.check.tape.models.ToolOccurrenceV1], safety_trajectory: list[zeroth.check.tape.models.SafetyTrajectoryEventV1], trajectory_digest: Annotated[str, MinLen(min_length=1)], schema_version: Literal['tape.v1'], raw_source_digest: Annotated[str, MinLen(min_length=1)], scrubber_version: Annotated[str, MinLen(min_length=1)], secret_rules_version: Annotated[str, MinLen(min_length=1)], reviewer_id: Annotated[str, MinLen(min_length=1)], approved_at: Annotated[str, MinLen(min_length=1)], identity_changed_by_scrubbing: bool, curated_content_digest: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.tape.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.tape.models",
+      "name": "ToolOccurrenceV1",
+      "signature": "(*, occurrence_id: Annotated[str, MinLen(min_length=1)], name: Annotated[str, MinLen(min_length=1)], input_schema_digest: Annotated[str, MinLen(min_length=1)], tool_call_id: Annotated[str, MinLen(min_length=1)], arguments: dict[str, JsonValue], argument_fingerprint: Annotated[str, MinLen(min_length=1)], side_effect: Literal['read_only', 'side_effecting'], result_available: bool, result: Optional[JsonValue] = None, error_type: str | None = None, action_identity: Annotated[str, _PydanticGeneralMetadata(pattern='^actv1_[0-9a-f]{64}$')]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.verdict.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.verdict.models",
+      "name": "CheckEvidence",
+      "signature": "(*, schema_version: Literal['check_evidence.v1'] = 'check_evidence.v1', status: zeroth.check.verdict.models.CheckStatus, reason_code: zeroth.check.verdict.reasons.ReasonCode, scope_key: Annotated[str, MinLen(min_length=1)], summary: Annotated[str, MinLen(min_length=1)], details: dict[str, JsonValue] = <factory>, artifact_refs: tuple[str, ...] = ()) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.verdict.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.verdict.models",
+      "name": "CheckVerdict",
+      "signature": "(*, schema_version: Literal['check_verdict.v1'] = 'check_verdict.v1', status: zeroth.check.verdict.models.CheckStatus, exit_code: Literal[0, 10, 20, 30], reasons: tuple[zeroth.check.verdict.models.CheckEvidence, ...], prerequisites: zeroth.check.verdict.models.PrerequisiteSummary, ordinary: zeroth.check.verdict.models.OrdinarySummary, faults: zeroth.check.verdict.models.FaultSummary, usage: zeroth.check.verdict.models.UsageSummary, report: zeroth.check.verdict.models.ReportMetadata = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.verdict.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.verdict.models",
+      "name": "FaultSummary",
+      "signature": "(*, required: Annotated[int, Ge(ge=0)], executed: Annotated[int, Ge(ge=0)], safety_violations: Annotated[int, Ge(ge=0)]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.verdict.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.verdict.models",
+      "name": "OrdinarySummary",
+      "signature": "(*, runs: Annotated[int, Ge(ge=0)], matches: Annotated[int, Ge(ge=0)], required: Annotated[int, Ge(ge=0)]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.verdict.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.verdict.models",
+      "name": "PrerequisiteSummary",
+      "signature": "(*, valid: bool, cases: Annotated[int, Ge(ge=0)]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.verdict.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.verdict.models",
+      "name": "ReportMetadata",
+      "signature": "(*, generated_by: Literal['zeroth-core check'] = 'zeroth-core check', artifact_refs: tuple[str, ...] = ()) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.check.verdict.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.check.verdict.models",
+      "name": "UsageSummary",
+      "signature": "(*, model_calls: Annotated[int, Ge(ge=0)], complete: bool) -> None"
+    },
+    {
+      "evidence": [
         "__all__:zeroth.governance.audit.coordination",
         "package_export:zeroth.governance.audit.coordination"
       ],
@@ -5998,7 +6228,7 @@
       ],
       "module": "zeroth.contracts.graph",
       "name": "AgentNodeData",
-      "signature": "(*, instruction: str, model_provider: str, tool_refs: list[str] = <factory>, tool_bindings: list[zeroth.contracts.graph.models.AgentToolBinding] = <factory>, max_tool_calls: Annotated[int | None, Ge(ge=0)] = None, memory_refs: list[str] = <factory>, retry_policy: dict[str, typing.Any] = <factory>, timeout_seconds: Annotated[int | None, Ge(ge=1)] = None, state_persistence: dict[str, typing.Any] = <factory>, thread_participation: Literal['none', 'read', 'write', 'full'] = 'none', model_params: dict[str, typing.Any] = <factory>, mcp_servers: list[dict[str, typing.Any]] = <factory>, template_ref: zeroth.core.templates.models.TemplateReference | None = None, context_window: zeroth.contracts.graph.models.ContextWindowSettings | None = None, template_memory_bindings: list[zeroth.contracts.graph.models.TemplateMemoryBinding] = <factory>, input_messages_key: str | None = None, persist_conversation: bool = False, conversation_max_turns: Annotated[int | None, Ge(ge=1)] = None, criticality: Literal['low', 'medium', 'high'] = 'medium', cascade_enabled: bool = False, cheap_model: str | None = None) -> None"
+      "signature": "(*, instruction: str, model_provider: str, tool_refs: list[str] = <factory>, tool_bindings: list[zeroth.contracts.graph.models.AgentToolBinding] = <factory>, max_tool_calls: Annotated[int | None, Ge(ge=0)] = None, memory_refs: list[str] = <factory>, retry_policy: dict[str, typing.Any] = <factory>, timeout_seconds: Annotated[int | None, Ge(ge=1)] = None, state_persistence: dict[str, typing.Any] = <factory>, thread_participation: Literal['none', 'read', 'write', 'full'] = 'none', model_params: dict[str, typing.Any] = <factory>, mcp_servers: list[dict[str, typing.Any]] = <factory>, template_ref: zeroth.contracts.templates.models.TemplateReference | None = None, context_window: zeroth.contracts.graph.models.ContextWindowSettings | None = None, template_memory_bindings: list[zeroth.contracts.graph.models.TemplateMemoryBinding] = <factory>, input_messages_key: str | None = None, persist_conversation: bool = False, conversation_max_turns: Annotated[int | None, Ge(ge=1)] = None, criticality: Literal['low', 'medium', 'high'] = 'medium', cascade_enabled: bool = False, cheap_model: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -6082,7 +6312,7 @@
       ],
       "module": "zeroth.contracts.graph",
       "name": "Edge",
-      "signature": "(*, edge_id: str, source_node_id: str, target_node_id: str, kind: Literal['data', 'tool'] = 'data', mapping: zeroth.core.mappings.models.EdgeMapping | None = None, condition: zeroth.contracts.graph.models.Condition | None = None, enabled: bool = True, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, edge_id: str, source_node_id: str, target_node_id: str, kind: Literal['data', 'tool'] = 'data', mapping: zeroth.contracts.mappings.models.EdgeMapping | None = None, condition: zeroth.contracts.graph.models.Condition | None = None, enabled: bool = True, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -6418,7 +6648,7 @@
       ],
       "module": "zeroth.contracts.graph.models",
       "name": "AgentNodeData",
-      "signature": "(*, instruction: str, model_provider: str, tool_refs: list[str] = <factory>, tool_bindings: list[zeroth.contracts.graph.models.AgentToolBinding] = <factory>, max_tool_calls: Annotated[int | None, Ge(ge=0)] = None, memory_refs: list[str] = <factory>, retry_policy: dict[str, typing.Any] = <factory>, timeout_seconds: Annotated[int | None, Ge(ge=1)] = None, state_persistence: dict[str, typing.Any] = <factory>, thread_participation: Literal['none', 'read', 'write', 'full'] = 'none', model_params: dict[str, typing.Any] = <factory>, mcp_servers: list[dict[str, typing.Any]] = <factory>, template_ref: zeroth.core.templates.models.TemplateReference | None = None, context_window: zeroth.contracts.graph.models.ContextWindowSettings | None = None, template_memory_bindings: list[zeroth.contracts.graph.models.TemplateMemoryBinding] = <factory>, input_messages_key: str | None = None, persist_conversation: bool = False, conversation_max_turns: Annotated[int | None, Ge(ge=1)] = None, criticality: Literal['low', 'medium', 'high'] = 'medium', cascade_enabled: bool = False, cheap_model: str | None = None) -> None"
+      "signature": "(*, instruction: str, model_provider: str, tool_refs: list[str] = <factory>, tool_bindings: list[zeroth.contracts.graph.models.AgentToolBinding] = <factory>, max_tool_calls: Annotated[int | None, Ge(ge=0)] = None, memory_refs: list[str] = <factory>, retry_policy: dict[str, typing.Any] = <factory>, timeout_seconds: Annotated[int | None, Ge(ge=1)] = None, state_persistence: dict[str, typing.Any] = <factory>, thread_participation: Literal['none', 'read', 'write', 'full'] = 'none', model_params: dict[str, typing.Any] = <factory>, mcp_servers: list[dict[str, typing.Any]] = <factory>, template_ref: zeroth.contracts.templates.models.TemplateReference | None = None, context_window: zeroth.contracts.graph.models.ContextWindowSettings | None = None, template_memory_bindings: list[zeroth.contracts.graph.models.TemplateMemoryBinding] = <factory>, input_messages_key: str | None = None, persist_conversation: bool = False, conversation_max_turns: Annotated[int | None, Ge(ge=1)] = None, criticality: Literal['low', 'medium', 'high'] = 'medium', cascade_enabled: bool = False, cheap_model: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -6466,7 +6696,7 @@
       ],
       "module": "zeroth.contracts.graph.models",
       "name": "Edge",
-      "signature": "(*, edge_id: str, source_node_id: str, target_node_id: str, kind: Literal['data', 'tool'] = 'data', mapping: zeroth.core.mappings.models.EdgeMapping | None = None, condition: zeroth.contracts.graph.models.Condition | None = None, enabled: bool = True, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, edge_id: str, source_node_id: str, target_node_id: str, kind: Literal['data', 'tool'] = 'data', mapping: zeroth.contracts.mappings.models.EdgeMapping | None = None, condition: zeroth.contracts.graph.models.Condition | None = None, enabled: bool = True, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -12120,6 +12350,76 @@
       "module": "zeroth.service.api.health",
       "name": "AuditDeliveryHealth",
       "signature": "(*, queue_depth: int, queued: int, delivered: int, retried: int, rejected: int, failed: int, abandoned: int, losing_events: bool) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.contracts.graph.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.contracts.graph.models",
+      "name": "LoopNode",
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['loop'] = 'loop', loop: zeroth.contracts.graph.models.LoopNodeData) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.contracts.graph.models"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.contracts.graph.models",
+      "name": "LoopNodeData",
+      "signature": "(*, until: Annotated[str, MinLen(min_length=1)], max_retries: Annotated[int, Ge(ge=0), Le(le=100)] = 3) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.audit_api"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.service.api.audit_api",
+      "name": "TenantAuditRecordListResponse",
+      "signature": "(*, scope: str, records: list[zeroth.governance.audit.models.NodeAuditRecord] = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.econ_analytics_api"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.service.api.econ_analytics_api",
+      "name": "EconomicsConfigurationResponse",
+      "signature": "(*, tenant_id: str, deployment_ref: str, per_run_cap_usd: float | None, failure_mode: Literal['fail_open', 'fail_closed'], source: Literal['service_runtime'] = 'service_runtime') -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.run_api"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.service.api.run_api",
+      "name": "RoutingDecisionResponse",
+      "signature": "(*, condition_id: str, selected_edge_id: str | None = None, matched: bool, suppression_reason: Optional[Literal['edge_disabled', 'condition_false', 'visit_limit']] = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.run_api"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.service.api.run_api",
+      "name": "RunTraversalResponse",
+      "signature": "(*, node_visit_counts: dict[str, int] = <factory>, edge_visit_counts: dict[str, int] = <factory>, routing_decisions: list[zeroth.service.api.run_api.RoutingDecisionResponse] = <factory>, stop_reason: Optional[Literal['no_outgoing_edges', 'branch_suppressed']] = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.studio_schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.service.api.studio_schemas",
+      "name": "StudioExecutionSettings",
+      "signature": "(*, max_total_steps: Annotated[int, Ge(ge=1)] = 1000, max_total_runtime_seconds: Annotated[int | None, Ge(ge=1)] = None, max_visits_per_node: Annotated[int, Ge(ge=1)] = 10, max_visits_per_edge: Annotated[int | None, Ge(ge=1)] = None, default_timeout_seconds: Annotated[int | None, Ge(ge=1)] = None) -> None"
     }
   ]
 }

@@ -21,14 +21,23 @@ async def test_bootstrap_threads_self_auth_provider_when_regulus_enabled(
 ) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings.regulus, "enabled", True)
+    monkeypatch.setattr(settings.regulus, "per_run_cap_usd", 0.25)
 
     service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="regulus-bootstrap-wiring"))
     try:
         # The real wiring ran: both self-call clients carry a headers provider.
         assert service.regulus_client is not None
         assert service.regulus_client._client.transport._headers_provider is not None
+        assert service.regulus_client._client.transport._asgi_app is not None
+        assert service.regulus_client.base_url == "http://regulus.internal/v1"
         assert service.budget_enforcer is not None
         assert service.budget_enforcer._headers_provider is not None
+        assert service.probe_instrumentation is not None
+        assert service.orchestrator.cost_instrumentation is service.probe_instrumentation
+        assert service.memory_resolver._embedding_call_hooks is not None
+        dispatcher = service.orchestrator._node_dispatcher
+        assert dispatcher.cost_instrumentation is service.probe_instrumentation
+        assert dispatcher.per_run_cap_usd == settings.regulus.per_run_cap_usd
 
         # And the provider is built from the first configured Zeroth service key
         # (the X-API-Key that passes the gated /regulus mount). The econ Bearer is

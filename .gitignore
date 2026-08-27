@@ -29,7 +29,10 @@ zeroth_live.db
 zeroth_live.db-shm
 zeroth_live.db-wal
 econ_plane.db
+# Raw Check recordings may contain credentials and live tool data.
+.zeroth/check/recordings/
 .zeroth/
+.dev-secrets/
 release/evidence/
 
 # Regenerated at docs-build time by scripts/dump_openapi.py
@@ -69,6 +72,10 @@ examples_service.sqlite
 
 # Playwright MCP / browser verification artifacts
 .playwright-mcp/
+.playwright-cli/
+frontend/.playwright-cli/
+frontend/output/
+/output/
 *-mode.png
 /m?-*.png
 /crit-*.png

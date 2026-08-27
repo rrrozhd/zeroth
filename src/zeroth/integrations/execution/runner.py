@@ -9,6 +9,7 @@ management, and output extraction.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import math
 import tempfile
@@ -52,6 +53,25 @@ _DEFAULT_ALLOWED_ENV_KEYS = ("PATH", "PYTHONPATH", "HOME", "TMPDIR", "TMP", "TEM
 ProjectMaterializer = Callable[[ProjectUnitManifest, Path], None | Awaitable[None]]
 
 
+def _declared_cost_audit(manifest: ExecutableUnitManifest) -> dict[str, Any]:
+    """Measure zero only when the manifest explicitly declares no external calls."""
+    if manifest.metadata.get("external_calls") is not False:
+        return {}
+    return {
+        "cost_usd": 0.0,
+        "estimated_cost_usd": 0.0,
+        "cost_measurement": "measured",
+    }
+
+
+def _manifest_audit(manifest_ref: str) -> dict[str, str]:
+    """Correlate a unit without retaining its potentially operator-authored ref."""
+    return {
+        "manifest_ref": manifest_ref,
+        "manifest_ref_sha256": hashlib.sha256(manifest_ref.encode("utf-8")).hexdigest(),
+    }
+
+
 class ExecutableUnitError(RuntimeError):
     """Base error for anything that goes wrong when running an executable unit."""
 
@@ -76,6 +96,17 @@ class ExecutableUnitAdmissionError(ExecutableUnitExecutionError):
     def __init__(self, message: str, *, audit_record: Mapping[str, Any] | None = None) -> None:
         super().__init__(message)
         self.audit_record = dict(audit_record or {})
+
+
+def _execution_error(
+    message: str,
+    *,
+    audit_record: Mapping[str, Any] | None = None,
+) -> ExecutableUnitExecutionError:
+    """Attach additive evidence without changing the protected error constructor."""
+    error = ExecutableUnitExecutionError(message)
+    error.audit_record = dict(audit_record or {})
+    return error
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,10 +318,11 @@ class ExecutableUnitRunner:
                 output_data=output_model.model_dump(mode="json"),
                 audit_record={
                     **_operation_audit(operation_identity),
-                    "manifest_ref": binding.manifest_ref,
+                    **_manifest_audit(binding.manifest_ref),
                     "runtime": manifest.runtime.value,
                     "execution_mode": manifest.onboarding_mode.value,
                     "sandboxed": False,
+                    **_declared_cost_audit(manifest),
                     # Flat, like every other key here: the audit capture
                     # boundary drops nested dicts it has no declared kind for.
                     **_operation_audit(operation_identity),
@@ -497,9 +529,11 @@ class ExecutableUnitRunner:
                 sandbox_strictness_mode=sandbox_strictness_mode,
             )
             if sandbox_result.returncode != 0 and manifest.output_mode.value != "exit_code_only":
-                raise ExecutableUnitExecutionError(
+                command_output = sandbox_result.stderr or sandbox_result.stdout
+                raise _execution_error(
                     f"command failed for {binding.manifest_ref} with exit code "
-                    f"{sandbox_result.returncode}: {sandbox_result.stderr or sandbox_result.stdout}"
+                    f"{sandbox_result.returncode}: {command_output}",
+                    audit_record=_declared_cost_audit(manifest),
                 )
 
             extracted_output = extract_output(
@@ -519,13 +553,14 @@ class ExecutableUnitRunner:
                 sandbox_result=sandbox_result,
                 extracted_output=extracted_output,
                 audit_record={
-                    "manifest_ref": binding.manifest_ref,
+                    **_manifest_audit(binding.manifest_ref),
                     "runtime": manifest.runtime.value,
                     "execution_mode": manifest.onboarding_mode.value,
                     "cache_key": build_cache_key,
                     "sandboxed": True,
                     "backend": sandbox_result.backend,
                     "enforcement": dict(enforcement),
+                    **_declared_cost_audit(manifest),
                     **_operation_audit(operation_identity),
                 },
             )

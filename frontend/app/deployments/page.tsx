@@ -38,6 +38,7 @@ import {
   TONE,
 } from "@/app/components/primitives";
 import { useToast } from "@/app/components/Toast";
+import { fmtUsd } from "@/app/components/ui";
 import { useLoad, type Loadable } from "@/app/hooks/useLoad";
 import {
   createDeployment,
@@ -107,10 +108,6 @@ function nodeTypeOf(rec: NodeAuditRecord): string | null {
   return typeof t === "string" ? t : null;
 }
 
-function fmtCost(n: number): string {
-  return `$${n.toFixed(4)}`;
-}
-
 function fmtDateTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString([], { hour12: false });
@@ -172,6 +169,7 @@ export default function DeploymentsPage() {
 
   return (
     <div style={{ display: "flex", height: "100%", minHeight: 0 }}>
+      <h1 className="sr-only">Deployments</h1>
       <ListPane
         deployments={deployments}
         connected={connected}
@@ -180,7 +178,13 @@ export default function DeploymentsPage() {
         onSelect={select}
         onNew={openCreate}
       />
-      <div style={{ flex: 1, minWidth: 0, overflowY: "auto" }}>
+      <div
+        role="region"
+        aria-label="Deployment details"
+        data-evidence-id="deployments.region.details"
+        tabIndex={0}
+        style={{ flex: 1, minWidth: 0, overflowY: "auto" }}
+      >
         {creating ? (
           <CreateForm onCreated={onCreated} onCancel={() => setCreating(false)} />
         ) : selected ? (
@@ -219,6 +223,7 @@ function ListPane({
   const list = deployments.data ?? [];
   return (
     <aside
+      aria-label="Deployment list"
       style={{
         width: 300,
         flexShrink: 0,
@@ -240,7 +245,12 @@ function ListPane({
         }}
       >
         <MonoLabel>Deployments</MonoLabel>
-        <Button variant="primary" onClick={onNew} style={{ padding: "4px 9px" }}>
+        <Button
+          variant="primary"
+          onClick={onNew}
+          style={{ padding: "4px 9px" }}
+          data-evidence-id="deployments.new.open"
+        >
           + New
         </Button>
       </div>
@@ -293,6 +303,7 @@ function DeploymentRow({
   return (
     <button
       type="button"
+      data-evidence-id={`deployments.deployment.${d.deployment_ref}.version-${d.version}`}
       onClick={onSelect}
       style={{
         display: "block",
@@ -303,7 +314,7 @@ function DeploymentRow({
         border: "none",
         borderLeft: `2px solid ${selected ? "var(--accent)" : "transparent"}`,
         borderBottom: "1px solid var(--hair)",
-        background: selected ? "rgba(94,234,212,0.07)" : "transparent",
+        background: selected ? "color-mix(in srgb, var(--accent) 7%, transparent)" : "transparent",
         color: "inherit",
         transition: "background 120ms ease",
       }}
@@ -420,10 +431,16 @@ function CreateForm({
               onChange={setDeploymentRef}
               placeholder="my-deployment"
               autoFocus
+              evidenceId="deployments.new.deployment-ref"
             />
           </Field>
           <Field label="graph_id" hint="Id of a published graph from Studio.">
-            <TextInput value={graphId} onChange={setGraphId} placeholder="graph_abc123" />
+            <TextInput
+              value={graphId}
+              onChange={setGraphId}
+              placeholder="graph_abc123"
+              evidenceId="deployments.new.graph-id"
+            />
           </Field>
           <Field
             label="graph_version"
@@ -434,13 +451,25 @@ function CreateForm({
               onChange={setGraphVersion}
               placeholder="latest"
               inputMode="numeric"
+              evidenceId="deployments.new.graph-version"
             />
           </Field>
           <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-            <Button type="submit" variant="primary" disabled={!canSubmit}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!canSubmit}
+              data-evidence-id="deployments.new.submit"
+            >
               {busy ? "Registering…" : "Register deployment"}
             </Button>
-            <Button type="button" variant="neutral" onClick={onCancel} disabled={busy}>
+            <Button
+              type="button"
+              variant="neutral"
+              onClick={onCancel}
+              disabled={busy}
+              data-evidence-id="deployments.new.cancel"
+            >
               Cancel
             </Button>
           </div>
@@ -486,12 +515,14 @@ function TextInput({
   placeholder,
   autoFocus,
   inputMode,
+  evidenceId,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
   inputMode?: "numeric";
+  evidenceId: string;
 }) {
   return (
     <input
@@ -500,6 +531,7 @@ function TextInput({
       placeholder={placeholder}
       autoFocus={autoFocus}
       inputMode={inputMode}
+      data-evidence-id={evidenceId}
       style={{
         width: "100%",
         boxSizing: "border-box",
@@ -622,7 +654,11 @@ function RollbackControl({
 
   if (!open) {
     return (
-      <Button variant="neutral" onClick={() => setOpen(true)}>
+      <Button
+        variant="neutral"
+        onClick={() => setOpen(true)}
+        data-evidence-id={`deployments.rollback.${d.deployment_ref}.open`}
+      >
         Rollback
       </Button>
     );
@@ -637,6 +673,7 @@ function RollbackControl({
         max={maxTarget}
         value={target}
         onChange={(e) => setTarget(Math.trunc(Number(e.target.value)))}
+        data-evidence-id={`deployments.rollback.${d.deployment_ref}.target-version`}
         style={{
           width: 64,
           fontFamily: "var(--font-mono)",
@@ -650,10 +687,20 @@ function RollbackControl({
         }}
       />
       <span style={{ fontSize: 11, color: "var(--text-faint)" }}>(current v{current})</span>
-      <Button variant="danger" disabled={busy} onClick={doRollback}>
+      <Button
+        variant="danger"
+        disabled={busy}
+        onClick={doRollback}
+        data-evidence-id={`deployments.rollback.${d.deployment_ref}.confirm`}
+      >
         {busy ? "…" : "Confirm"}
       </Button>
-      <Button variant="neutral" disabled={busy} onClick={() => setOpen(false)}>
+      <Button
+        variant="neutral"
+        disabled={busy}
+        onClick={() => setOpen(false)}
+        data-evidence-id={`deployments.rollback.${d.deployment_ref}.cancel`}
+      >
         Cancel
       </Button>
     </div>
@@ -965,7 +1012,7 @@ function TimelineRow({ rec }: { rec: NodeAuditRecord }) {
         }}
       >
         {dur ?? ""}
-        {rec.cost_usd != null ? `  ${fmtCost(rec.cost_usd)}` : ""}
+        {rec.cost_usd != null ? `  ${fmtUsd(rec.cost_usd)}` : ""}
       </span>
     </div>
   );
@@ -986,7 +1033,7 @@ function CostPanel({ refId }: { refId: string }) {
       ) : cost.data ? (
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 600 }}>
-            {fmtCost(cost.data.total_cost_usd)}
+            {fmtUsd(cost.data.total_cost_usd)}
           </span>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-faint)" }}>
             {cost.data.currency} · cumulative

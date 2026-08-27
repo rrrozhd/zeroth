@@ -110,6 +110,39 @@ class RuntimeAuditRecorder:
         prior = sum(ref.startswith(prefix) for ref in run.audit_refs)
         return f"{prefix}{prior + len(ctx.audit_refs) + 1}"
 
+    async def next_main_audit_ref(self, run: Run) -> str:
+        """Allocate after both the checkpointed refs and durable audit tail.
+
+        A process can die after the append-only audit commits but before the run
+        checkpoint carries that ref. Recovery must retain the durable record and
+        append its replay outcome at the next mainline slot.
+        """
+        refs = list(run.audit_refs)
+        persisted: set[int] = set()
+        repository = self.audit_repository
+        list_by_run = getattr(repository, "list_by_run", None)
+        if callable(list_by_run):
+            records = await list_by_run(run.run_id)
+            prefix = f"{run.run_id}:audit:"
+            for record in records:
+                audit_id = getattr(record, "audit_id", "")
+                suffix = audit_id.removeprefix(prefix) if audit_id.startswith(prefix) else ""
+                if suffix.isdigit():
+                    persisted.add(int(suffix))
+        for sequence in sorted(persisted):
+            ref = f"audit:{sequence}"
+            if ref not in refs:
+                refs.append(ref)
+        sequences = [
+            int(ref.removeprefix("audit:"))
+            for ref in refs
+            if ref.startswith("audit:") and ref.removeprefix("audit:").isdigit()
+        ]
+        audit_ref = f"audit:{max(sequences, default=0) + 1}"
+        refs.append(audit_ref)
+        run.audit_refs = refs
+        return audit_ref
+
     @staticmethod
     def typed_fields(
         record: Mapping[str, Any],
@@ -233,10 +266,7 @@ class RuntimeAuditRecorder:
         redacted_input = self.redact(dict(input_payload))
         redacted_output = self.redact(dict(output_payload))
         redacted_audit_record = self.redact(dict(audit_record))
-        audit_refs = list(run.audit_refs)
-        audit_ref = f"audit:{len(audit_refs) + 1}"
-        audit_refs.append(audit_ref)
-        run.audit_refs = audit_refs
+        audit_ref = await self.next_main_audit_ref(run)
         # started_at is the node's dispatch time (captured by the caller); without
         # it completed_at==started_at and the record reports a zero duration.
         completed_at = datetime.now(UTC)
@@ -258,6 +288,11 @@ class RuntimeAuditRecorder:
                     thread_id=run.thread_id,
                     tenant_id=run.tenant_id,
                     workspace_id=run.workspace_id,
+                    campaign_id=(
+                        str(run.metadata["campaign_id"])
+                        if run.metadata.get("campaign_id") is not None
+                        else None
+                    ),
                     node_id=node_id,
                     node_version=node.node_version,
                     graph_version_ref=run.graph_version_ref,
@@ -285,6 +320,8 @@ class RuntimeAuditRecorder:
                 input_snapshot=redacted_input,
                 output_snapshot=redacted_output,
                 audit_ref=audit_ref,
+                started_at=node_started_at,
+                completed_at=completed_at,
                 # Promote per-node cost so _sum_run_cost can aggregate the run's
                 # spend from its own history (basis for the per-run ceiling).
                 cost_usd=redacted_audit_record.get("cost_usd"),
@@ -320,10 +357,7 @@ class RuntimeAuditRecorder:
         operation_audit = getattr(error, "operation_audit", None)
         if isinstance(operation_audit, Mapping):
             audit_record.update(operation_audit)
-        audit_refs = list(run.audit_refs)
-        audit_ref = f"audit:{len(audit_refs) + 1}"
-        audit_refs.append(audit_ref)
-        run.audit_refs = audit_refs
+        audit_ref = await self.next_main_audit_ref(run)
         completed_at = datetime.now(UTC)
         node_started_at = started_at or completed_at
         redacted_audit_record = self.redact(audit_record)
@@ -346,6 +380,11 @@ class RuntimeAuditRecorder:
                     thread_id=run.thread_id,
                     tenant_id=run.tenant_id,
                     workspace_id=run.workspace_id,
+                    campaign_id=(
+                        str(run.metadata["campaign_id"])
+                        if run.metadata.get("campaign_id") is not None
+                        else None
+                    ),
                     node_id=node_id,
                     node_version=node.node_version,
                     graph_version_ref=run.graph_version_ref,
@@ -396,10 +435,7 @@ class RuntimeAuditRecorder:
         repository is configured, so the run's ref sequence is identical either
         way — matching the completed and failed paths.
         """
-        audit_refs = list(run.audit_refs)
-        audit_ref = f"audit:{len(audit_refs) + 1}"
-        audit_refs.append(audit_ref)
-        run.audit_refs = audit_refs
+        audit_ref = await self.next_main_audit_ref(run)
         if self.audit_repository is None:
             return
         await self.audit_repository.write(
@@ -409,6 +445,11 @@ class RuntimeAuditRecorder:
                 thread_id=run.thread_id,
                 tenant_id=run.tenant_id,
                 workspace_id=run.workspace_id,
+                campaign_id=(
+                    str(run.metadata["campaign_id"])
+                    if run.metadata.get("campaign_id") is not None
+                    else None
+                ),
                 node_id=node.node_id,
                 node_version=node.node_version,
                 graph_version_ref=run.graph_version_ref,
@@ -433,6 +474,8 @@ class RuntimeAuditRecorder:
         input_payload: Mapping[str, Any],
         error: Exception,
         ctx: BranchContext,
+        *,
+        started_at: datetime | None = None,
     ) -> None:
         """Persist a branch-scoped audit record for a failed branch-node dispatch.
 
@@ -461,6 +504,7 @@ class RuntimeAuditRecorder:
         # Promote cost/token fields so spend incurred before the failure stays
         # visible in the audit trail (and to econ.waste.analyze_run).
         completed_at = datetime.now(UTC)
+        node_started_at = started_at or completed_at
         redacted_input = self.redact(dict(input_payload))
         if self.audit_repository is not None:
             token_usage_data = redacted_audit_record.get("token_usage")
@@ -477,12 +521,18 @@ class RuntimeAuditRecorder:
                     thread_id=run.thread_id,
                     tenant_id=run.tenant_id,
                     workspace_id=run.workspace_id,
+                    campaign_id=(
+                        str(run.metadata["campaign_id"])
+                        if run.metadata.get("campaign_id") is not None
+                        else None
+                    ),
                     node_id=node_id,
                     node_version=node.node_version,
                     graph_version_ref=run.graph_version_ref,
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="rejected" if is_rejection else "failed",
+                    started_at=node_started_at,
                     completed_at=completed_at,
                     input_snapshot=redacted_input,
                     output_snapshot={},
@@ -503,6 +553,7 @@ class RuntimeAuditRecorder:
             input_snapshot=redacted_input,
             output_snapshot={},
             audit_ref=audit_ref,
+            started_at=node_started_at,
             completed_at=completed_at,
             cost_usd=redacted_audit_record.get("cost_usd"),
             estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from zeroth.integrations.langgraph._tool_errors import (
@@ -22,6 +22,9 @@ from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
 )
 from zeroth.integrations.langgraph._tool_normalize import argument_fingerprint
+
+if TYPE_CHECKING:
+    from zeroth.integrations.langgraph._repository_protocols import ApprovalRepository
 
 _VERSION = 1
 _REQUEST_KIND = "tool_approval"
@@ -1005,7 +1008,7 @@ def _langgraph_command(resume: Mapping[str, Any]) -> Any:
 class ApprovalCoordinator:
     """Confirm checkpoints and deliver decisions to their original threads."""
 
-    def __init__(self, repository: SQLiteApprovalRepository) -> None:
+    def __init__(self, repository: ApprovalRepository) -> None:
         self._repository = repository
 
     @staticmethod

@@ -23,10 +23,24 @@
 //   - Policy       — enforcement policy timeline (PolicyTimelineRow[]) as a table.
 
 import { useEffect, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import { Button, Card, Pill, Skeleton, StatusDot } from "@/app/components/primitives";
+import type { ReactNode } from "react";
+import {
+  Button,
+  ConsoleMetric,
+  ConsoleMetricBand,
+  ConsoleNotice,
+  ConsolePage,
+  ConsolePageHeader,
+  ConsoleSection,
+  ConsoleSurface,
+  Pill,
+  Skeleton,
+  StatusDot,
+} from "@/app/components/primitives";
 import { useLoad, type Loadable } from "@/app/hooks/useLoad";
 import { useRegulus } from "@/app/components/regulusContext";
+import { EconomicsWorkspaceNav } from "@/app/components/EconomicsWorkspaceNav";
+import { fmtUsd } from "@/app/components/ui";
 import { isConfigured } from "@/app/lib/config";
 import {
   rgActionSuppression,
@@ -48,24 +62,13 @@ import {
   type PolicyTimelineRow,
   type TrendPoint,
 } from "@/app/lib/regulusApi";
+import styles from "./economics.module.css";
 
-const MONO = "var(--font-mono)";
-const TRACK = "#1a1f29"; // bar-track color shared with the Cost screen
 
 // --------------------------------------------------------------------------
 // Formatters (all client-side — panels only render after a client fetch, so
 // locale formatting can't cause a hydration mismatch).
 // --------------------------------------------------------------------------
-
-function fmtUsd(n: number): string {
-  if (!Number.isFinite(n)) return "$0.00";
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 /** Compact number: thousands-separated, ≤2 decimals, tiny values → exponent. */
 function fmtNum(n: number): string {
@@ -177,53 +180,53 @@ export default function RegulusEconDashboard() {
   const reg = useRegulus();
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
-      <header style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 22 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Econ Dashboard</h1>
-            <Pill tone="accent">Global</Pill>
-          </div>
-          <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
-            Platform economic control plane — global across tenants.
-          </p>
-        </div>
-        {connected && (
-          <Button variant="neutral" onClick={reloadAll} disabled={anyLoading} style={{ flexShrink: 0 }}>
+    <ConsolePage>
+      <ConsolePageHeader
+        title="Economics"
+        description="Platform economic control plane across tenants."
+        actions={connected ? (
+          <Button variant="neutral" onClick={reloadAll} disabled={anyLoading}>
             {anyLoading ? "Refreshing…" : "Refresh"}
           </Button>
-        )}
-      </header>
+        ) : undefined}
+      />
+
+      <EconomicsWorkspaceNav active="workflows" />
+
+      <ConsoleNotice title="Data context">
+        Scope: platform-wide across authorized tenants · Window: latest control-plane snapshot ·
+        Source: Regulus · Freshness: current request.
+      </ConsoleNotice>
+
+      <ConsoleNotice title="Valuation model, not the spend ledger">
+        Regulus totals come from explicit cost/value estimates and outcome valuations. They do not
+        mirror production provider charges from Spend &amp; budgets. No synthetic or measured outcomes
+        have been valued in this campaign yet, so value and margin correctly remain zero.
+      </ConsoleNotice>
 
       {!connected ? (
         <ConnectNote />
       ) : reg === "absent" ? (
         <EconAbsentNote />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className={styles.stack}>
           <KpiRow load={kpis} />
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-              gap: 12,
-            }}
-          >
+          <div className={styles.trendGrid}>
             <TrendPanel label="Confidence" load={confTrend} />
             <TrendPanel label="Efficiency" load={effTrend} />
             <TrendPanel label="Calibration" load={calibTrend} />
             <TrendPanel label="Action suppression" load={suppTrend} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12 }}>
+          <div className={styles.pairGrid}>
             <ValueRankPanel label="Top creators" load={topCreators} order="desc" />
             <ValueRankPanel label="Capital destroyers" load={destroyers} order="asc" />
           </div>
 
           <CapabilityRankingPanel load={ranking} />
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12 }}>
+          <div className={styles.pairGrid}>
             <ConfidenceGatePanel load={gate} />
             <DataQualityPanel load={dqMix} />
           </div>
@@ -231,7 +234,7 @@ export default function RegulusEconDashboard() {
           <PolicyTimelinePanel load={policy} />
         </div>
       )}
-    </div>
+    </ConsolePage>
   );
 }
 
@@ -240,69 +243,44 @@ export default function RegulusEconDashboard() {
 // --------------------------------------------------------------------------
 
 function KpiRow({ load }: { load: Loadable<KPIResponse> }) {
-  const gridStyle: CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 12,
-  };
-
   if (load.loading && !load.data) {
     return (
-      <div style={gridStyle}>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Card key={i} pad={16} style={{ minWidth: 0 }}>
-            <Skeleton height={11} width={90} />
-            <div style={{ marginTop: 12 }}>
+      <div className={styles.loadingBand}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className={styles.loadingMetric}>
+              <Skeleton height={11} width={90} />
               <Skeleton height={26} width={120} />
             </div>
-          </Card>
-        ))}
+          ))}
       </div>
     );
   }
   if (load.error && !load.data) {
     return (
-      <Card pad={16}>
-        <InlineError message={load.error} onRetry={load.reload} />
-      </Card>
+      <InlineError message={load.error} onRetry={load.reload} />
     );
   }
   const k = load.data;
   if (!k) {
     return (
-      <Card pad={16}>
-        <Empty>No KPIs yet.</Empty>
-      </Card>
+      <ConsoleSurface><Empty>No KPIs yet.</Empty></ConsoleSurface>
     );
   }
 
-  const tiles: { label: string; value: string; tone?: string }[] = [
-    { label: "Total AI spend", value: fmtUsd(k.total_ai_spend_usd) },
-    { label: "Total AI value", value: fmtUsd(k.total_ai_value_usd) },
-    { label: "Net AI margin", value: fmtUsd(k.net_ai_margin_usd), tone: marginColor(k.net_ai_margin_usd) },
+  const tiles: { label: string; value: string; tone?: "default" | "danger" | "success" }[] = [
+    { label: "Valued execution cost", value: fmtUsd(k.total_ai_spend_usd) },
+    { label: "Recorded outcome value", value: fmtUsd(k.total_ai_value_usd) },
+    { label: "Net AI margin", value: fmtUsd(k.net_ai_margin_usd), tone: k.net_ai_margin_usd > 0 ? "success" : k.net_ai_margin_usd < 0 ? "danger" : "default" },
     { label: "Portfolio confidence", value: fmtScore(k.portfolio_confidence_score) },
     { label: "Efficiency index", value: fmtNum(k.efficiency_index) },
   ];
 
   return (
-    <div style={gridStyle}>
-      {tiles.map((t) => (
-        <Card key={t.label} label={t.label} pad={16} style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontFamily: MONO,
-              fontSize: 26,
-              fontWeight: 600,
-              lineHeight: 1.1,
-              color: t.tone ?? "var(--text-primary)",
-              overflowWrap: "anywhere",
-            }}
-          >
-            {t.value}
-          </div>
-        </Card>
-      ))}
-    </div>
+    <ConsoleMetricBand columns={5} ariaLabel="Economics totals">
+        {tiles.map((t) => (
+          <ConsoleMetric key={t.label} label={t.label} value={t.value} tone={t.tone} />
+        ))}
+    </ConsoleMetricBand>
   );
 }
 
@@ -312,11 +290,12 @@ function KpiRow({ load }: { load: Loadable<KPIResponse> }) {
 
 function TrendPanel({ label, load }: { label: string; load: Loadable<TrendPoint[]> }) {
   return (
-    <Card label={label} pad={16} style={{ minWidth: 0 }}>
+    <ConsoleSection title={label} className={styles.panel}>
+      <ConsoleSurface>
       {load.loading && !load.data ? (
         <div>
           <Skeleton height={20} width={70} />
-          <div style={{ marginTop: 12 }}>
+          <div className={styles.chart}>
             <Skeleton height={32} />
           </div>
         </div>
@@ -327,7 +306,8 @@ function TrendPanel({ label, load }: { label: string; load: Loadable<TrendPoint[
       ) : (
         <Empty>No data yet.</Empty>
       )}
-    </Card>
+      </ConsoleSurface>
+    </ConsoleSection>
   );
 }
 
@@ -335,15 +315,15 @@ function TrendBody({ points }: { points: TrendPoint[] }) {
   const latest = points[points.length - 1];
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-        <span style={{ fontFamily: MONO, fontSize: 20, fontWeight: 600, lineHeight: 1.1, color: "var(--text-primary)" }}>
+      <div className={styles.trendHeader}>
+        <span className={styles.trendValue}>
           {fmtNum(latest.y)}
         </span>
-        <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--text-faint)", whiteSpace: "nowrap" }}>
+        <span className={styles.trendDate}>
           {shortX(latest.x)}
         </span>
       </div>
-      <div style={{ marginTop: 10 }}>
+      <div className={styles.chart}>
         <Sparkline points={points} />
       </div>
     </div>
@@ -418,13 +398,16 @@ function ValueRankPanel({
   order: "asc" | "desc";
 }) {
   return (
-    <Card label={label} pad={16} style={{ minWidth: 0 }}>
+    <ConsoleSection title={label} className={styles.panel}>
+      <ConsoleSurface>
       {load.loading && !load.data ? (
         <SkeletonRows n={5} />
       ) : load.error && !load.data ? (
         <InlineError message={load.error} onRetry={load.reload} />
       ) : load.data && load.data.length > 0 ? (
         <MiniTable<CapabilityValueRow>
+          ariaLabel={`${label} capabilities`}
+          evidenceId={`regulus.table.${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
           minWidth={280}
           rows={[...load.data]
             .sort((a, b) => (order === "asc" ? a.net_margin_usd - b.net_margin_usd : b.net_margin_usd - a.net_margin_usd))
@@ -450,21 +433,25 @@ function ValueRankPanel({
           ]}
         />
       ) : (
-        <Empty>No capabilities yet.</Empty>
+        <Empty>No valued capabilities yet. Registry records remain available under Capabilities.</Empty>
       )}
-    </Card>
+      </ConsoleSurface>
+    </ConsoleSection>
   );
 }
 
 function CapabilityRankingPanel({ load }: { load: Loadable<CapabilityRankingRow[]> }) {
   return (
-    <Card label="Capability ranking" pad={16} style={{ minWidth: 0 }}>
+    <ConsoleSection title="Capability ranking" className={styles.panel}>
+      <ConsoleSurface>
       {load.loading && !load.data ? (
         <SkeletonRows n={6} />
       ) : load.error && !load.data ? (
         <InlineError message={load.error} onRetry={load.reload} />
       ) : load.data && load.data.length > 0 ? (
         <MiniTable<CapabilityRankingRow>
+          ariaLabel="Capability ranking"
+          evidenceId="regulus.table.capability-ranking"
           minWidth={560}
           rows={[...load.data].sort((a, b) => b.net_margin_usd - a.net_margin_usd).slice(0, 20)}
           rowKey={(r) => r.capability_id}
@@ -499,9 +486,10 @@ function CapabilityRankingPanel({ load }: { load: Loadable<CapabilityRankingRow[
           ]}
         />
       ) : (
-        <Empty>No ranked capabilities yet.</Empty>
+        <Empty>No valued capabilities are rankable yet. Record an outcome valuation first.</Empty>
       )}
-    </Card>
+      </ConsoleSurface>
+    </ConsoleSection>
   );
 }
 
@@ -511,7 +499,8 @@ function CapabilityRankingPanel({ load }: { load: Loadable<CapabilityRankingRow[
 
 function ConfidenceGatePanel({ load }: { load: Loadable<ConfidenceGateStatus> }) {
   return (
-    <Card label="Confidence gate" pad={16} style={{ minWidth: 0 }}>
+    <ConsoleSection title="Confidence gate" className={styles.panel}>
+      <ConsoleSurface>
       {load.loading && !load.data ? (
         <SkeletonRows n={3} />
       ) : load.error && !load.data ? (
@@ -521,7 +510,8 @@ function ConfidenceGatePanel({ load }: { load: Loadable<ConfidenceGateStatus> })
       ) : (
         <Empty>No confidence-gate evaluations yet.</Empty>
       )}
-    </Card>
+      </ConsoleSurface>
+    </ConsoleSection>
   );
 }
 
@@ -529,11 +519,11 @@ function GateBody({ g }: { g: ConfidenceGateStatus }) {
   const total = g.passed + g.blocked;
   return (
     <div>
-      <div style={{ display: "flex", gap: 28 }}>
+      <div className={styles.gateStats}>
         <Stat label="Passed" value={g.passed.toLocaleString()} tone="var(--success)" />
         <Stat label="Blocked" value={g.blocked.toLocaleString()} tone="var(--danger)" />
       </div>
-      <div style={{ marginTop: 14 }}>
+      <div className={styles.gateChart}>
         <StackedBar
           segments={[
             { value: g.passed, color: "var(--success)" },
@@ -541,7 +531,7 @@ function GateBody({ g }: { g: ConfidenceGateStatus }) {
           ]}
         />
       </div>
-      <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 11, color: "var(--text-faint)" }}>
+      <div className={styles.gateMeta}>
         {fmtPct(g.passed / total)} passed of {total.toLocaleString()} evaluated
       </div>
     </div>
@@ -551,7 +541,8 @@ function GateBody({ g }: { g: ConfidenceGateStatus }) {
 function DataQualityPanel({ load }: { load: Loadable<DataQualityMix> }) {
   const total = load.data ? load.data.measured + load.data.inferred + load.data.mixed : 0;
   return (
-    <Card label="Data-quality mix" pad={16} style={{ minWidth: 0 }}>
+    <ConsoleSection title="Data-quality mix" className={styles.panel}>
+      <ConsoleSurface>
       {load.loading && !load.data ? (
         <SkeletonRows n={3} />
       ) : load.error && !load.data ? (
@@ -561,7 +552,8 @@ function DataQualityPanel({ load }: { load: Loadable<DataQualityMix> }) {
       ) : (
         <Empty>No outcome provenance recorded yet.</Empty>
       )}
-    </Card>
+      </ConsoleSurface>
+    </ConsoleSection>
   );
 }
 
@@ -575,7 +567,7 @@ function DqBody({ m, total }: { m: DataQualityMix; total: number }) {
           { value: m.mixed, color: "var(--info)" },
         ]}
       />
-      <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: "8px 18px" }}>
+      <div className={styles.legend}>
         <Legend color="var(--success)" label="Measured" value={m.measured} total={total} />
         <Legend color="var(--warning)" label="Inferred" value={m.inferred} total={total} />
         <Legend color="var(--info)" label="Mixed" value={m.mixed} total={total} />
@@ -590,13 +582,16 @@ function DqBody({ m, total }: { m: DataQualityMix; total: number }) {
 
 function PolicyTimelinePanel({ load }: { load: Loadable<PolicyTimelineRow[]> }) {
   return (
-    <Card label="Policy timeline" pad={16} style={{ minWidth: 0 }}>
+    <ConsoleSection title="Policy timeline" className={styles.panel}>
+      <ConsoleSurface>
       {load.loading && !load.data ? (
         <SkeletonRows n={5} />
       ) : load.error && !load.data ? (
         <InlineError message={load.error} onRetry={load.reload} />
       ) : load.data && load.data.length > 0 ? (
         <MiniTable<PolicyTimelineRow>
+          ariaLabel="Policy timeline"
+          evidenceId="regulus.table.policy-timeline"
           minWidth={640}
           rows={[...load.data]
             .sort((a, b) => new Date(b.proposed_at).getTime() - new Date(a.proposed_at).getTime())
@@ -633,33 +628,14 @@ function PolicyTimelinePanel({ load }: { load: Loadable<PolicyTimelineRow[]> }) 
       ) : (
         <Empty>No policy actions yet.</Empty>
       )}
-    </Card>
+      </ConsoleSurface>
+    </ConsoleSection>
   );
 }
 
 // --------------------------------------------------------------------------
 // Small shared pieces
 // --------------------------------------------------------------------------
-
-const TH_STYLE: CSSProperties = {
-  fontFamily: MONO,
-  fontSize: 10,
-  fontWeight: 500,
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
-  color: "var(--text-faint)",
-  padding: "0 8px 8px 0",
-  whiteSpace: "nowrap",
-};
-
-const TD_STYLE: CSSProperties = {
-  fontFamily: MONO,
-  fontSize: 12,
-  color: "var(--text-secondary)",
-  padding: "8px 8px 8px 0",
-  borderTop: "1px solid var(--hair)",
-  overflow: "hidden",
-};
 
 type Col<T> = {
   header: string;
@@ -673,19 +649,29 @@ function MiniTable<T>({
   rows,
   rowKey,
   minWidth,
+  ariaLabel,
+  evidenceId,
 }: {
   cols: Col<T>[];
   rows: T[];
   rowKey: (row: T, i: number) => string | number;
   minWidth?: number;
+  ariaLabel: string;
+  evidenceId: string;
 }) {
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", minWidth, borderCollapse: "collapse", tableLayout: "fixed" }}>
+    <div
+      className={styles.tableScroll}
+      role="region"
+      aria-label={ariaLabel}
+      data-evidence-id={evidenceId}
+      tabIndex={0}
+    >
+      <table className={styles.table} style={{ minWidth }}>
         <thead>
           <tr>
             {cols.map((c, i) => (
-              <th key={i} style={{ ...TH_STYLE, width: c.width, textAlign: c.align ?? "left" }}>
+              <th key={i} style={{ width: c.width, textAlign: c.align ?? "left" }}>
                 {c.header}
               </th>
             ))}
@@ -695,7 +681,7 @@ function MiniTable<T>({
           {rows.map((r, ri) => (
             <tr key={rowKey(r, ri)}>
               {cols.map((c, ci) => (
-                <td key={ci} style={{ ...TD_STYLE, textAlign: c.align ?? "left" }}>
+                <td key={ci} style={{ textAlign: c.align ?? "left" }}>
                   {c.render(r)}
                 </td>
               ))}
@@ -709,16 +695,7 @@ function MiniTable<T>({
 
 function Trunc({ children, title }: { children: ReactNode; title?: string }) {
   return (
-    <span
-      title={title}
-      style={{
-        display: "block",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        color: "var(--text-primary)",
-      }}
-    >
+    <span title={title} className={styles.truncate}>
       {children}
     </span>
   );
@@ -727,19 +704,10 @@ function Trunc({ children, title }: { children: ReactNode; title?: string }) {
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div>
-      <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 600, lineHeight: 1.1, color: tone ?? "var(--text-primary)" }}>
+      <div className={styles.statValue} style={{ color: tone }}>
         {value}
       </div>
-      <div
-        style={{
-          marginTop: 4,
-          fontFamily: MONO,
-          fontSize: 10,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          color: "var(--text-faint)",
-        }}
-      >
+      <div className={styles.statLabel}>
         {label}
       </div>
     </div>
@@ -749,7 +717,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 function StackedBar({ segments }: { segments: { value: number; color: string }[] }) {
   const total = segments.reduce((a, s) => a + s.value, 0);
   return (
-    <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", background: TRACK }}>
+    <div className={styles.bar}>
       {total > 0
         ? segments.map((s, i) =>
             s.value > 0 ? <div key={i} style={{ width: `${(s.value / total) * 100}%`, background: s.color }} /> : null,
@@ -761,10 +729,10 @@ function StackedBar({ segments }: { segments: { value: number; color: string }[]
 
 function Legend({ color, label, value, total }: { color: string; label: string; value: number; total: number }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+    <span className={styles.legendItem}>
       <StatusDot tone={color} />
-      <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--text-secondary)" }}>{label}</span>
-      <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--text-faint)" }}>
+      <span>{label}</span>
+      <span className={styles.legendValue}>
         {value.toLocaleString()} · {fmtPct(total > 0 ? value / total : 0)}
       </span>
     </span>
@@ -773,7 +741,7 @@ function Legend({ color, label, value, total }: { color: string; label: string; 
 
 function SkeletonRows({ n }: { n: number }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div className={styles.skeletonRows}>
       {Array.from({ length: n }).map((_, i) => (
         <Skeleton key={i} height={16} />
       ))}
@@ -782,61 +750,34 @@ function SkeletonRows({ n }: { n: number }) {
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <div style={{ fontSize: 12.5, color: "var(--text-faint)", lineHeight: 1.55 }}>{children}</div>;
+  return <p className={styles.empty}>{children}</p>;
 }
 
 function ConnectNote() {
   return (
-    <Card pad={20}>
-      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-        Not connected. Open <span style={{ color: "var(--accent)" }}>Connect</span> (bottom-left) to set the API base and
-        key.
-      </div>
-    </Card>
+    <ConsoleNotice title="Not connected">
+      Open Connect from the navigation to set the API base and key.
+    </ConsoleNotice>
   );
 }
 
 function EconAbsentNote() {
   return (
-    <Card pad={20}>
-      <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.55 }}>
-        The econ control plane is not available for this connection — the Regulus mount is disabled, or the API key lacks
-        the platform-admin role. Global econ metrics appear here once an admin-scoped key reaches a Regulus-enabled
-        deployment.
-      </div>
-    </Card>
+    <ConsoleNotice title="Economics unavailable">
+      The Regulus mount is disabled or this API key lacks the platform-admin role. Global metrics appear when an
+      admin-scoped key reaches a Regulus-enabled deployment.
+    </ConsoleNotice>
   );
 }
 
 function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "rgba(248,113,113,0.08)",
-        border: "1px solid rgba(248,113,113,0.3)",
-        borderRadius: 8,
-        padding: "10px 12px",
-      }}
+    <ConsoleNotice
+      tone="danger"
+      title="Economics data unavailable"
+      actions={<Button variant="neutral" onClick={onRetry}>Retry</Button>}
     >
-      <span
-        style={{
-          fontSize: 12.5,
-          color: "var(--danger)",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {message}
-      </span>
-      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Retry
-      </Button>
-    </div>
+      {message}
+    </ConsoleNotice>
   );
 }

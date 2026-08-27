@@ -474,6 +474,8 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
         run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
+    webhook_service = _RecordingWebhookService(journal)
+    approval_service.webhook_service = webhook_service
     graph = Graph(
         graph_id="graph-char",
         name="characterization",
@@ -492,7 +494,12 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
         ],
         edges=[Edge(edge_id="edge-1", source_node_id="first", target_node_id="gate")],
     )
-    orchestrator = _orchestrator(sqlite_db, journal, approval_service=approval_service)
+    orchestrator = _orchestrator(
+        sqlite_db,
+        journal,
+        approval_service=approval_service,
+        webhook_service=webhook_service,
+    )
 
     paused = await orchestrator.run_graph(graph, {"value": 3})
 

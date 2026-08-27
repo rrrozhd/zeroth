@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.contracts.governed import RunStatus
 from zeroth.governance.approvals import ApprovalDecision, ApprovalRecord, ApprovalStatus
@@ -35,6 +35,7 @@ class ApprovalResolutionRequest(BaseModel):
 
     decision: ApprovalDecision
     edited_payload: dict[str, Any] | None = None
+    reason: str | None = Field(default=None, min_length=1, max_length=1000)
 
 
 class ApprovalResolutionResponse(BaseModel):
@@ -74,7 +75,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                 )
             return [record]
 
-        approvals = await bootstrap.approval_service.list_pending(
+        approvals = await bootstrap.approval_service.list_pending_visible_to_deployment(
             run_id=run_id,
             thread_id=thread_id,
             deployment_ref=deployment.deployment_ref,
@@ -113,6 +114,14 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
         bootstrap, deployment = await _deployment_context(request, deployment_ref)
         principal = await require_permission(request, Permission.APPROVAL_RESOLVE)
         existing = await _require_visible_approval(request, bootstrap, deployment, approval_id)
+        visible_ancestor = await bootstrap.approval_service.visible_ancestor_run(
+            existing,
+            deployment_ref=deployment.deployment_ref,
+            graph_version_ref=deployment.graph_version_ref,
+        )
+        if visible_ancestor is None:  # pragma: no cover - helper above already proved it
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
+        is_child_approval = visible_ancestor.run_id != existing.run_id
         was_pending = existing.status is ApprovalStatus.PENDING
 
         try:
@@ -121,10 +130,11 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                 decision=payload.decision,
                 actor=principal.to_actor(),
                 edited_payload=payload.edited_payload,
-                tenant_id=deployment.tenant_id,
-                workspace_id=deployment.workspace_id,
-                deployment_ref=deployment.deployment_ref,
-                graph_version_ref=deployment.graph_version_ref,
+                reason=payload.reason,
+                tenant_id=existing.tenant_id,
+                workspace_id=existing.workspace_id,
+                deployment_ref=existing.deployment_ref,
+                graph_version_ref=existing.graph_version_ref,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -138,7 +148,49 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
         if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
 
-        if was_pending and _run_is_waiting_for_approval(run):
+        if is_child_approval:
+            # The child keeps its own graph/deployment identity.  The worker
+            # attached to this API serves the ancestor, so notify that exact
+            # ancestor instead of putting the child onto a queue nobody here
+            # is authorized to claim.  Replays return the already-scheduled or
+            # terminal ancestor without minting a second notification.
+            current_ancestor = await bootstrap.run_repository.get(visible_ancestor.run_id)
+            if current_ancestor is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+            has_worker = getattr(bootstrap, "worker", None) is not None
+            try:
+                if current_ancestor.status is RunStatus.WAITING_APPROVAL:
+                    current_ancestor = (
+                        await bootstrap.approval_service.schedule_ancestor_continuation(
+                            approval_id,
+                            deployment_ref=deployment.deployment_ref,
+                            graph_version_ref=deployment.graph_version_ref,
+                        )
+                    )
+                    if has_worker:
+                        await _wake_worker(bootstrap, current_ancestor.run_id)
+                    else:
+                        current_ancestor = await bootstrap.orchestrator.resume_graph(
+                            bootstrap.graph,
+                            current_ancestor.run_id,
+                        )
+                if has_worker and current_ancestor.status in {
+                    RunStatus.PENDING,
+                    RunStatus.RUNNING,
+                }:
+                    current_ancestor = await _wait_for_worker_run(
+                        bootstrap,
+                        current_ancestor,
+                    )
+            except KeyError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="run not found",
+                ) from exc
+            except (RuntimeError, ValueError) as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            run = current_ancestor
+        elif was_pending and _run_is_waiting_for_approval(run):
             # When the durable worker is active, hand off to it via schedule_continuation,
             # then wait up to ~5 s for it to finish. That wait is BEST EFFORT: if the
             # budget expires the run is returned as-is, so the response may still carry
@@ -149,28 +201,8 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
             try:
                 if has_worker:
                     run = await bootstrap.approval_service.schedule_continuation(approval_id)
-                    # Phase 16: ARQ wakeup for approval continuation.
-                    arq_pool = getattr(bootstrap, "arq_pool", None)
-                    if arq_pool is not None:
-                        from zeroth.platform.dispatch.arq_wakeup import enqueue_wakeup
-
-                        await enqueue_wakeup(arq_pool, run.run_id)
-                    # Yield to the event loop so the worker can claim and drive the run.
-                    import asyncio as _asyncio
-
-                    for _ in range(100):  # up to ~5 s
-                        await _asyncio.sleep(0.05)
-                        current = await bootstrap.run_repository.get(run.run_id)
-                        if current is not None and current.status not in {
-                            RunStatus.PENDING,
-                            RunStatus.RUNNING,
-                        }:
-                            run = current
-                            break
-                    else:
-                        current = await bootstrap.run_repository.get(run.run_id)
-                        if current is not None:
-                            run = current
+                    await _wake_worker(bootstrap, run.run_id)
+                    run = await _wait_for_worker_run(bootstrap, run)
                 else:
                     run = await bootstrap.approval_service.continue_run(
                         approval_id,
@@ -216,7 +248,7 @@ async def _require_visible_approval(
     deployment: object,
     approval_id: str,
 ) -> ApprovalRecord:
-    record = await bootstrap.approval_service.get(
+    record = await bootstrap.approval_service.get_visible_to_deployment(
         approval_id,
         tenant_id=deployment.tenant_id,
         workspace_id=deployment.workspace_id,
@@ -259,3 +291,29 @@ def _approval_matches_filters(
 
 def _run_is_waiting_for_approval(run: object) -> bool:
     return getattr(run, "status", None) == RunStatus.WAITING_APPROVAL
+
+
+async def _wake_worker(bootstrap: ApprovalApiBootstrapLike, run_id: str) -> None:
+    """Best-effort ARQ wakeup; the database queue remains authoritative."""
+    arq_pool = getattr(bootstrap, "arq_pool", None)
+    if arq_pool is None:
+        return
+    from zeroth.platform.dispatch.arq_wakeup import enqueue_wakeup
+
+    await enqueue_wakeup(arq_pool, run_id)
+
+
+async def _wait_for_worker_run(bootstrap: ApprovalApiBootstrapLike, run: Any) -> Any:
+    """Wait briefly for a scheduled run, returning the latest durable view."""
+    import asyncio as _asyncio
+
+    for _ in range(100):  # up to ~5 s
+        await _asyncio.sleep(0.05)
+        current = await bootstrap.run_repository.get(run.run_id)
+        if current is not None and current.status not in {
+            RunStatus.PENDING,
+            RunStatus.RUNNING,
+        }:
+            return current
+    current = await bootstrap.run_repository.get(run.run_id)
+    return current if current is not None else run

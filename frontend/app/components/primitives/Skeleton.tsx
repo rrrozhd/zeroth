@@ -11,7 +11,7 @@ type SkeletonProps = Omit<React.HTMLAttributes<HTMLDivElement>, "className"> & {
 export function Skeleton({
   width = "100%",
   height = 14,
-  radius = 6,
+  radius = 8,
   className = "",
   style,
   ...rest

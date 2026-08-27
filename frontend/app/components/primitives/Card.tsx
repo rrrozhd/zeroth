@@ -1,4 +1,4 @@
-// UI primitive: a surface card. bg-card on a hairline border, radius 8.
+// UI primitive matching the approved Console v2 white rounded surfaces.
 // Optional mono-uppercase `label` header slot. Thin styled wrapper — no logic.
 
 type CardProps = React.HTMLAttributes<HTMLElement> & {
@@ -13,8 +13,8 @@ export function Card({ label, pad = 16, style, children, ...rest }: CardProps) {
     <section
       style={{
         background: "var(--bg-card)",
-        border: "1px solid var(--hair)",
-        borderRadius: 8,
+        border: "1px solid #e4e3ed",
+        borderRadius: 12,
         padding: pad,
         ...style,
       }}
@@ -23,13 +23,11 @@ export function Card({ label, pad = 16, style, children, ...rest }: CardProps) {
       {label != null && (
         <div
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10.5,
+            fontFamily: "var(--font-sans)",
+            fontSize: 11.5,
             fontWeight: 500,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
             color: "var(--text-muted)",
-            marginBottom: 10,
+            marginBottom: 8,
           }}
         >
           {label}

@@ -9,6 +9,7 @@ from zeroth.contracts.graph.validation.capabilities import (
     CapabilityChecks,
     NullCapabilityChecks,
 )
+from zeroth.contracts.graph.validation.control_nodes import validate_control_nodes
 from zeroth.contracts.graph.validation.cycles import validate_cycles
 from zeroth.contracts.graph.validation.edges import validate_edges
 from zeroth.contracts.graph.validation.issues import append_issue
@@ -77,6 +78,7 @@ class ContractValidator:
             issues,
             mapping_validator=self._mapping_validator,
         )
+        validate_control_nodes(graph, node_map, issues)
         validate_tool_attachments(
             graph,
             node_map,

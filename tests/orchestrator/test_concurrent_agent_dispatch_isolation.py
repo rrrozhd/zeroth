@@ -291,6 +291,7 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
     budget = _BudgetEnforcer()
     regulus = _RegulusClient()
     tool_runner = _ToolRunner()
+    persistent_cost_instrumentation = object()
     orchestrator = RuntimeOrchestrator(
         run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"agent": prototype},
@@ -299,6 +300,7 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
         budget_enforcer=budget,
         cost_estimator=_CostEstimator(),
         regulus_client=regulus,
+        cost_instrumentation=persistent_cost_instrumentation,
         deployment_ref="deployment",
         template_registry=templates,
         template_renderer=TemplateRenderer(),
@@ -334,6 +336,7 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
         "tenant-A",
         "tenant-B",
     }
+    assert all(snapshot.provider._cost_instrumentation is None for snapshot in snapshots)
     assert all(snapshot.memory_resolver is resolver for snapshot in snapshots)
     assert all(snapshot.budget_enforcer is budget for snapshot in snapshots)
     assert len({id(snapshot.context_tracker) for snapshot in snapshots}) == 2

@@ -19,6 +19,7 @@ import base64
 import copy
 import logging
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from zeroth.governance.audit.models import NodeAuditRecord
@@ -31,6 +32,7 @@ _ARTIFACT_REF_FIELDS = frozenset({"store", "key", "content_type", "size"})
 _DENIED_DECISIONS = frozenset({"deny", "denied", "block", "blocked", "reject", "rejected"})
 # The record status a governance rejection is persisted under.
 _REJECTED_STATUS = "rejected"
+_COST_QUANTUM = Decimal("0.00000001")
 
 
 def build_summary(
@@ -39,18 +41,88 @@ def build_summary(
     *,
     resolve_artifacts: bool = False,
     artifact_store: Any | None = None,
-) -> dict[str, int | bool]:
+) -> dict[str, int | float | str | bool]:
     """Summarize the key governance signals in a bundle.
 
     When ``resolve_artifacts`` is True and an ``artifact_store`` is provided,
     the summary includes an ``artifacts_resolved`` flag to indicate that
     artifact payloads have been resolved in the evidence export.
     """
-    result: dict[str, int | bool] = {
+    priced_records = [
+        record
+        for record in audits
+        if record.token_usage is not None
+        or record.cost_event_id is not None
+        or float(record.cost_usd or 0.0) > 0.0
+        or float(record.estimated_cost_usd or 0.0) > 0.0
+    ]
+    # One provider call can legitimately emit more than one audit record: the
+    # provider lifecycle record and the runtime-node record.  ``cost_event_id``
+    # is the durable call identity, so summary counts and totals must be based
+    # on that identity rather than on the number of audit rows.
+    priced_calls: dict[str, list[NodeAuditRecord]] = {}
+    for record in priced_records:
+        identity = (
+            f"cost:{record.cost_event_id}"
+            if record.cost_event_id is not None
+            else f"audit:{record.audit_id}"
+        )
+        priced_calls.setdefault(identity, []).append(record)
+    cost_event_count = len(
+        {record.cost_event_id for record in priced_records if record.cost_event_id is not None}
+    )
+    conflicting_cost_event = False
+    total_cost_usd = Decimal("0")
+    for records in priced_calls.values():
+        # ``audit_<cost_event_id>`` is the canonical one-row-per-provider-call
+        # lifecycle record. Runtime-node audits are signed projections and may
+        # aggregate several calls while carrying only the final call's identity
+        # (for example, the two turns around one tool invocation). Prefer the
+        # lifecycle source when present; legacy groups without one retain the
+        # settled-before-fallback rule and still fail closed on disagreement.
+        lifecycle_records = [
+            record
+            for record in records
+            if record.cost_event_id is not None
+            and record.audit_id == f"audit_{record.cost_event_id}"
+        ]
+        amount_records = lifecycle_records or records
+        amounts = {
+            Decimal(
+                str(
+                    record.cost_usd
+                    if record.cost_usd is not None
+                    else record.estimated_cost_usd or 0.0
+                )
+            ).quantize(_COST_QUANTUM)
+            for record in amount_records
+        }
+        if len(amounts) > 1:
+            conflicting_cost_event = True
+        total_cost_usd += max(amounts, default=0.0)
+    if not priced_calls and not cost_event_count and total_cost_usd == 0:
+        cost_identity_state = "not_applicable_no_priced_call"
+        reconciliation_state = "reconciled_zero_activity"
+    elif conflicting_cost_event:
+        cost_identity_state = "conflicting_cost_event"
+        reconciliation_state = "incomplete"
+    elif len(priced_calls) == cost_event_count:
+        cost_identity_state = "correlated"
+        reconciliation_state = "reconciled"
+    else:
+        cost_identity_state = "missing_cost_event"
+        reconciliation_state = "incomplete"
+
+    result: dict[str, int | float | str | bool] = {
         "audit_count": len(audits),
         "approval_count": len(approvals),
         "tool_call_count": sum(len(record.tool_calls) for record in audits),
         "memory_interaction_count": sum(len(record.memory_interactions) for record in audits),
+        "priced_call_count": len(priced_calls),
+        "cost_event_count": cost_event_count,
+        "total_cost_usd": float(total_cost_usd),
+        "cost_identity_state": cost_identity_state,
+        "reconciliation_state": reconciliation_state,
     }
     if resolve_artifacts and artifact_store is not None:
         result["artifacts_resolved"] = True

@@ -1,0 +1,30 @@
+.nav {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 3px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-surface);
+  background: var(--bg-raised);
+}
+
+.link {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.link:hover,
+.link:focus-visible {
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+.active {
+  color: var(--text-primary);
+  background: var(--bg-card);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -26,6 +27,7 @@ class InstrumentationClient:
         buffer_max_events: int = 1000,
         flush_interval_ms: int = 500,
         headers_provider: Optional[Callable[[], dict[str, Any]]] = None,
+        _asgi_app: Any | None = None,
     ):
         self.config = InstrumentationConfig(
             base_url=base_url.rstrip("/"),
@@ -36,14 +38,32 @@ class InstrumentationClient:
         )
         # headers_provider (Zeroth vendor addition): forwarded to the transport so
         # each flush can attach fresh auth headers. See VENDOR.md.
-        self.transport = TelemetryTransport(self.config, headers_provider=headers_provider)
+        self.transport = TelemetryTransport(
+            self.config,
+            headers_provider=headers_provider,
+            _asgi_app=_asgi_app,
+        )
         self.transport.start()
 
     def track_execution(self, event: ExecutionEvent) -> None:
         self.transport.enqueue_execution(event)
 
+    def track_execution_confirmed(self, event: ExecutionEvent) -> None:
+        """Persist one execution synchronously or raise on rejected delivery."""
+        self.transport.deliver_execution_confirmed(event)
+
     def track_outcome(self, outcome: OutcomeEvent) -> None:
         self.transport.enqueue_outcome(outcome)
+
+
+_instrumentation_client_parameters = inspect.signature(InstrumentationClient).parameters
+InstrumentationClient.__signature__ = inspect.signature(InstrumentationClient).replace(
+    parameters=[
+        parameter
+        for name, parameter in _instrumentation_client_parameters.items()
+        if name != "_asgi_app"
+    ]
+)
 
 
 _current_join_key: ContextVar[str | None] = ContextVar("ecp_join_key", default=None)

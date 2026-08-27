@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from tests.service.helpers import agent_graph, deploy_service, operator_headers
+from tests.service.helpers import agent_graph, deploy_service, operator_headers, reviewer_headers
+from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.integrations.execution.models import (
     InputMode,
     NativeUnitManifest,
@@ -82,3 +85,102 @@ async def test_list_manifests_requires_auth(sqlite_db) -> None:
         r = client.get("/v1/manifests")
 
     assert r.status_code == 401
+
+
+async def test_manifest_detail_exposes_safe_operator_metadata(sqlite_db) -> None:
+    service, _ = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="graph-manifest-detail"),
+        deployment_ref=DEPLOYMENT + "-detail",
+    )
+    service.orchestrator.executable_unit_runner.registry.register(_native_binding())
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/v1/manifests/eu%3A%2F%2Fnative-unit",
+            headers=operator_headers(),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["manifest_ref"] == "eu://native-unit"
+    assert body["kind"] == "executable_unit"
+    assert body["runtime"] == "python"
+    assert body["version"] == 1
+    assert body["input_contract_ref"] == "contract://input"
+    assert body["output_contract_ref"] == "contract://output"
+    assert body["input_schema"]["properties"]["name"]["type"] == "string"
+    assert body["output_schema"]["properties"]["name"]["type"] == "string"
+    serialized = response.text
+    assert "environment_variables" not in serialized
+    assert "run_config" not in serialized
+    assert "callable_ref" not in serialized
+
+
+async def test_manifest_run_linkage_is_audit_scoped(sqlite_db) -> None:
+    service, _ = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="graph-manifest-runs"),
+        deployment_ref=DEPLOYMENT + "-runs",
+    )
+    service.orchestrator.executable_unit_runner.registry.register(_native_binding())
+    await service.audit_repository.write(
+        NodeAuditRecord(
+            audit_id="audit-manifest-run",
+            run_id="run-manifest-linked",
+            node_id="native-node",
+            graph_version_ref=service.deployment.graph_version_ref,
+            deployment_ref=service.deployment.deployment_ref,
+            tenant_id=service.deployment.tenant_id,
+            workspace_id=service.deployment.workspace_id,
+            status="completed",
+            execution_metadata={
+                "manifest_ref_sha256": hashlib.sha256(b"eu://native-unit").hexdigest()
+            },
+        )
+    )
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        denied = client.get(
+            "/v1/manifests/eu%3A%2F%2Fnative-unit/runs",
+            headers=operator_headers(),
+        )
+        allowed = client.get(
+            "/v1/manifests/eu%3A%2F%2Fnative-unit/runs",
+            headers=reviewer_headers(),
+        )
+
+    assert denied.status_code == 403
+    assert allowed.status_code == 200
+    assert allowed.json() == {
+        "manifest_ref": "eu://native-unit",
+        "runs": [
+            {
+                "run_id": "run-manifest-linked",
+                "node_id": "native-node",
+                "status": "completed",
+            }
+        ],
+    }
+
+
+async def test_manifest_detail_returns_not_found_for_unknown_ref(sqlite_db) -> None:
+    service, _ = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="graph-manifest-missing"),
+        deployment_ref=DEPLOYMENT + "-missing",
+    )
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/v1/manifests/eu%3A%2F%2Fmissing",
+            headers=operator_headers(),
+        )
+
+    assert response.status_code == 404

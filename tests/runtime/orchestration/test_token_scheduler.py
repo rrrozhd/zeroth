@@ -14,12 +14,15 @@ from zeroth.contracts.graph import (
     CancellationFence,
     DispatchLifecycleState,
     ForkLifecycleState,
+    ForkObligationOutcome,
     InFlightDispatch,
     IterationFrame,
     IterationFrameState,
     IterationMember,
     IterationMemberState,
     IterationMembership,
+    JoinLifecycleState,
+    JoinObligationOutcome,
     LoopEnclosingOwner,
     LoopInstance,
     LoopLifecycleState,
@@ -40,6 +43,7 @@ from zeroth.runtime.orchestration import (
     apply_token_transition,
     claim_next_token,
     complete_dispatch,
+    deliver_to_join,
     enqueue_dispatch,
     fail_dispatch,
     fan_out_dispatch,
@@ -50,6 +54,7 @@ from zeroth.runtime.orchestration import (
 from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
 )
+from zeroth.runtime.orchestration.token_lifecycle import request_cancellation
 
 
 def _root(*, payload: object = None) -> TokenEngineSnapshot:
@@ -487,6 +492,87 @@ def test_failure_settlement_retires_dispatch_without_losing_envelope() -> None:
     assert failed.tokens[0].payload == claim.dispatch.token.payload
     assert failed.tokens[0].scheduling_state is SchedulingState.SETTLED
     assert failed.in_flight_dispatches == ()
+
+
+def test_failure_settlement_atomically_resolves_existing_join_obligation() -> None:
+    root_claim = _claim(_root(payload="approval-and-durable-child"))
+    fanned_out = fan_out_dispatch(
+        root_claim.snapshot,
+        dispatch_id=root_claim.dispatch.dispatch_id,
+        attempt=0,
+        cancellation_generation=0,
+        branches=(
+            FanOutBranch(
+                node_id="durable-child",
+                inbound_edge_id="edge-durable",
+                payload={"branch": "durable"},
+            ),
+            FanOutBranch(
+                node_id="approval-child",
+                inbound_edge_id="edge-approval",
+                payload={"branch": "approval"},
+            ),
+        ),
+    )
+    fork = fanned_out.forks[0]
+    routes = {child.token_id: f"collect-{child.creation_ordinal}" for child in fork.children}
+
+    durable_claim = claim_next_token(fanned_out)
+    waiting = deliver_to_join(
+        durable_claim.snapshot,
+        dispatch_id=durable_claim.dispatch.dispatch_id,
+        attempt=0,
+        cancellation_generation=0,
+        target_node_id="collect",
+        inbound_edge_id=routes[durable_claim.dispatch.token.token_id],
+        cohort_inbound_edges=routes,
+        payload={"durable": "complete"},
+    )
+    approval_claim = claim_next_token(waiting)
+
+    failed = fail_dispatch(
+        approval_claim.snapshot,
+        dispatch_id=approval_claim.dispatch.dispatch_id,
+        attempt=0,
+        cancellation_generation=0,
+    )
+
+    join = failed.joins[0]
+    obligation_by_token = {
+        obligation.source_token_id: obligation for obligation in join.obligations
+    }
+    assert join.lifecycle_state is JoinLifecycleState.READY
+    assert (
+        obligation_by_token[durable_claim.dispatch.token.token_id].outcome
+        is JoinObligationOutcome.DELIVERED
+    )
+    assert (
+        obligation_by_token[approval_claim.dispatch.token.token_id].outcome
+        is JoinObligationOutcome.FAILED
+    )
+    assert (
+        next(
+            obligation
+            for obligation in failed.forks[0].obligations
+            if obligation.child_token_id == approval_claim.dispatch.token.token_id
+        ).outcome
+        is ForkObligationOutcome.FAILED
+    )
+    assert (
+        next(
+            token
+            for token in failed.tokens
+            if token.token_id == approval_claim.dispatch.token.token_id
+        ).scheduling_state
+        is SchedulingState.SETTLED
+    )
+    assert failed.in_flight_dispatches == ()
+    assert TokenEngineSnapshot.model_validate_json(failed.model_dump_json()) == failed
+
+    cancelled = request_cancellation(failed)
+    assert cancelled.state is TokenEngineSnapshotState.CANCELLED
+    assert cancelled.joins[0].lifecycle_state is JoinLifecycleState.CANCELLED
+    assert TokenEngineSnapshot.model_validate_json(cancelled.model_dump_json()) == cancelled
 
 
 def _loop_claim() -> DispatchClaim:

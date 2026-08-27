@@ -372,9 +372,7 @@ class ParallelExecutor:
                     task.cancel()
             drained = await asyncio.gather(*tasks, return_exceptions=True)
             pause_signals = [
-                result
-                for result in drained
-                if isinstance(result, BranchApprovalPauseSignal)
+                result for result in drained if isinstance(result, BranchApprovalPauseSignal)
             ]
             if len(pause_signals) > 1:
                 error = MultipleBranchPauseError(
@@ -415,7 +413,8 @@ class ParallelExecutor:
                     task.cancel()
             # Wait for cancellations to complete
             await asyncio.gather(*tasks, return_exceptions=True)
-            msg = f"parallel execution failed (fail-fast): {exc}"
+            detail = str(exc) or type(exc).__name__
+            msg = f"parallel execution failed (fail-fast): {detail}"
             error = ParallelExecutionError(msg)
             error.branch_histories = [  # type: ignore[attr-defined]
                 (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts

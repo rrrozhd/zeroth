@@ -23,6 +23,7 @@ import pytest
 
 from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration import RuntimeParallelExecutor
+from zeroth.runtime.parallel.errors import ParallelExecutionError
 from zeroth.runtime.parallel.models import BranchResult, FanInResult
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, RunStatus
 from zeroth.runtime.subgraphs.errors import SubgraphExecutionError
@@ -225,6 +226,12 @@ async def test_cancelled_approval_sibling_keeps_fan_in_unmeasured() -> None:
     cancelled = result.results[2]
     assert cancelled.cost_usd is None
     assert cancelled.cost_measurement is MeasurementState.UNMEASURED
+    (resumed_history,) = result.results[1].execution_history
+    assert resumed_history.completed_at is not None
+    assert resumed_history.completed_at >= resumed_history.started_at
+    (cancelled_history,) = cancelled.execution_history
+    assert cancelled_history.completed_at is not None
+    assert cancelled_history.completed_at >= cancelled_history.started_at
     assert result.total_cost_usd == pytest.approx(0.7)
     assert result.cost_measurement is MeasurementState.UNMEASURED
 
@@ -269,6 +276,7 @@ async def test_failed_resumed_parallel_child_rolls_once_and_propagates() -> None
             step_tracker=None,
         )
 
+    assert isinstance(raised.value, ParallelExecutionError)
     assert raised.value.audit_record["cost_usd"] == pytest.approx(0.3)
     assert raised.value.audit_record["cost_measurement"] is MeasurementState.MEASURED
 

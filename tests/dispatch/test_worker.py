@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -92,6 +94,8 @@ class _BlockingOrchestrator(_FakeOrchestrator):
 class _FakeGraph:
     nodes: list = []
     entry_step: str = "start"
+    graph_id: str = "g"
+    version: int = 1
 
 
 async def _worker_tick(worker: RunWorker) -> None:
@@ -163,6 +167,34 @@ async def test_worker_drives_pending_run_to_completed(sqlite_db) -> None:
     assert final is not None
     assert final.status is RunStatus.COMPLETED
     assert run.run_id in orchestrator.driven
+
+
+async def test_worker_start_reconciles_resolved_child_approval_notifications(sqlite_db) -> None:
+    """A restart repairs a resolution committed before its parent notification."""
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
+    approval_service = AsyncMock()
+
+    class _ApprovalOrchestrator(_FakeOrchestrator):
+        @property
+        def approval_service(self):
+            return approval_service
+
+    orchestrator = _ApprovalOrchestrator(run_repo)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=LeaseManager(sqlite_db),
+    )
+    worker._schedule_orphan_recovery = AsyncMock()
+
+    await worker.start()
+
+    approval_service.reconcile_ancestor_continuations.assert_awaited_once_with(
+        deployment_ref=DEPLOYMENT,
+        graph_version_ref="g:v1",
+    )
 
 
 async def test_worker_respects_concurrency_semaphore(sqlite_db) -> None:
@@ -412,6 +444,51 @@ async def test_worker_recovers_orphaned_run(sqlite_db) -> None:
     final = await _wait_for_status(run_repo, run.run_id, RunStatus.COMPLETED)
     assert final is not None
     assert final.status is RunStatus.COMPLETED
+
+
+async def test_worker_recovers_run_whose_lease_expires_after_startup(sqlite_db) -> None:
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
+    lease_manager = LeaseManager(sqlite_db)
+    orchestrator = _FakeOrchestrator(run_repo)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=lease_manager,
+        poll_interval=0.01,
+        orphan_sweep_interval=0.01,
+    )
+
+    run = await _make_run(run_repo)
+    await run_repo.transition(run.run_id, RunStatus.RUNNING)
+    expires_after_startup = datetime.now(UTC) + timedelta(milliseconds=50)
+    async with sqlite_db.transaction() as conn:
+        await conn.execute(
+            """UPDATE runs
+               SET lease_worker_id = 'dead-worker',
+                   lease_expires_at = ?
+               WHERE run_id = ?""",
+            (expires_after_startup.isoformat(), run.run_id),
+        )
+
+    await worker.start()
+    poll_task = asyncio.create_task(worker.poll_loop())
+    try:
+        final = await _wait_for_status(
+            run_repo,
+            run.run_id,
+            RunStatus.COMPLETED,
+            timeout=0.4,
+        )
+    finally:
+        poll_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await poll_task
+
+    assert final is not None
+    assert final.status is RunStatus.COMPLETED
+    assert orchestrator.driven == [run.run_id]
 
 
 async def test_worker_does_not_claim_more_runs_than_available_capacity(

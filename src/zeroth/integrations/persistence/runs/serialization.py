@@ -58,6 +58,7 @@ def row_to_run(row: dict[str, Any]) -> Run:
         metadata=load_typed_value(row["metadata"], dict[str, Any]) or {},
         graph_version_ref=row["graph_version_ref"],
         deployment_ref=row["deployment_ref"],
+        parent_run_id=row["parent_run_id"],
         tenant_id=row["tenant_id"] or "default",
         workspace_id=row["workspace_id"],
         submitted_by=load_typed_value(row["submitted_by"], dict[str, Any]),

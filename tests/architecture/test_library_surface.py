@@ -543,7 +543,13 @@ def _discover_schema_models() -> set[str]:
 
 
 def test_every_discovered_schema_model_is_in_legacy_and_canonical_surfaces() -> None:
-    """Reverse coverage prevents schema modules from being silently omitted."""
+    """Reverse coverage prevents schema modules from being silently omitted.
+
+    Additive models created after the legacy snapshot have no historical import
+    identity to preserve. They must still be pinned in the evolving canonical
+    surface, with an explicitly empty legacy mapping; inventing a legacy ID
+    would weaken rather than preserve the immutable contract.
+    """
     legacy = _load("backend_surface_legacy.json")
     canonical = _load("backend_surface_canonical.json")
     legacy_ids = {entry["id"] for entry in legacy["capabilities"]}
@@ -563,6 +569,20 @@ def test_every_discovered_schema_model_is_in_legacy_and_canonical_surfaces() -> 
     missing_legacy = sorted(
         current_id
         for current_id in discovered
+        if canonical_by_current_id[current_id]["legacy_ids"]
         if not (set(canonical_by_current_id[current_id]["legacy_ids"]) & legacy_ids)
     )
     assert not missing_legacy, f"schema models missing protected legacy IDs: {missing_legacy}"
+
+    invented_legacy_ids = sorted(
+        current_id
+        for current_id in discovered
+        if any(
+            legacy_id not in legacy_ids
+            for legacy_id in canonical_by_current_id[current_id]["legacy_ids"]
+        )
+    )
+    assert not invented_legacy_ids, (
+        "new schemas must not claim invented legacy identities: "
+        f"{invented_legacy_ids}"
+    )

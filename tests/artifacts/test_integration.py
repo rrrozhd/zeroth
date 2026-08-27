@@ -17,7 +17,7 @@ from zeroth.governance.audit.evidence import (
     build_summary,
     resolve_artifact_references,
 )
-from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
 from zeroth.platform.artifacts.helpers import extract_artifact_refs, refresh_artifact_ttls
 from zeroth.platform.artifacts.models import ArtifactReference
 from zeroth.platform.artifacts.store import FilesystemArtifactStore
@@ -149,6 +149,225 @@ class TestAuditEvidenceArtifactIntegration:
         """When resolve_artifacts=False (default), no artifacts_resolved key."""
         result = build_summary([], [])
         assert "artifacts_resolved" not in result
+        assert result["priced_call_count"] == 0
+        assert result["cost_event_count"] == 0
+        assert result["total_cost_usd"] == 0.0
+        assert result["cost_identity_state"] == "not_applicable_no_priced_call"
+        assert result["reconciliation_state"] == "reconciled_zero_activity"
+
+    def test_build_summary_correlates_priced_calls_with_cost_events(self) -> None:
+        result = build_summary(
+            [
+                NodeAuditRecord(
+                    audit_id="audit-priced",
+                    tenant_id="tenant-priced",
+                    run_id="run-priced",
+                    thread_id="thread-priced",
+                    deployment_ref="deployment-priced",
+                    graph_version_ref="graph-priced@1",
+                    node_id="agent",
+                    status="completed",
+                    cost_usd=0.125,
+                    cost_event_id="cost-event-1",
+                )
+            ],
+            [],
+        )
+
+        assert result["priced_call_count"] == 1
+        assert result["cost_event_count"] == 1
+        assert result["total_cost_usd"] == 0.125
+        assert result["cost_identity_state"] == "correlated"
+        assert result["reconciliation_state"] == "reconciled"
+
+    def test_build_summary_deduplicates_audits_for_the_same_cost_event(self) -> None:
+        shared = {
+            "tenant_id": "tenant-priced",
+            "run_id": "run-priced",
+            "thread_id": "thread-priced",
+            "deployment_ref": "deployment-priced",
+            "graph_version_ref": "graph-priced@1",
+            "status": "completed",
+            "estimated_cost_usd": 0.00011655,
+            "cost_event_id": "cost-event-shared",
+        }
+        result = build_summary(
+            [
+                NodeAuditRecord(
+                    audit_id="audit-cost-event-shared",
+                    node_id="provider_probe",
+                    **shared,
+                ),
+                NodeAuditRecord(
+                    audit_id="run-priced:audit:2",
+                    node_id="agent",
+                    **shared,
+                ),
+            ],
+            [],
+        )
+
+        assert result["audit_count"] == 2
+        assert result["priced_call_count"] == 1
+        assert result["cost_event_count"] == 1
+        assert result["total_cost_usd"] == pytest.approx(0.00011655)
+        assert result["cost_identity_state"] == "correlated"
+        assert result["reconciliation_state"] == "reconciled"
+
+    def test_build_summary_reconciles_legacy_multi_call_agent_rollup(self) -> None:
+        common = {
+            "tenant_id": "evaluation-studio-v1",
+            "run_id": "run-tool-loop",
+            "thread_id": "thread-tool-loop",
+            "deployment_ref": "grounded-researcher",
+            "graph_version_ref": "grounded-researcher@1",
+            "status": "completed",
+        }
+        result = build_summary(
+            [
+                NodeAuditRecord(
+                    audit_id="audit_cost-embedding",
+                    node_id="memory.embedding.retrieve",
+                    cost_event_id="cost-embedding",
+                    cost_usd=0.00000014,
+                    **common,
+                ),
+                NodeAuditRecord(
+                    audit_id="audit_cost-tool-selection",
+                    node_id="zeroth-capability",
+                    cost_event_id="cost-tool-selection",
+                    cost_usd=0.00011430,
+                    token_usage=TokenUsage(
+                        input_tokens=682,
+                        output_tokens=20,
+                        total_tokens=702,
+                        model_name="provider-capability",
+                    ),
+                    **common,
+                ),
+                NodeAuditRecord(
+                    audit_id="audit_cost-final-answer",
+                    node_id="zeroth-capability",
+                    cost_event_id="cost-final-answer",
+                    cost_usd=0.00014415,
+                    token_usage=TokenUsage(
+                        input_tokens=789,
+                        output_tokens=43,
+                        total_tokens=832,
+                        model_name="provider-capability",
+                    ),
+                    **common,
+                ),
+                NodeAuditRecord(
+                    audit_id="audit-agent-rollup",
+                    node_id="grounded-agent",
+                    cost_event_id="cost-final-answer",
+                    estimated_cost_usd=0.00025845,
+                    token_usage=TokenUsage(
+                        input_tokens=1471,
+                        output_tokens=63,
+                        total_tokens=1534,
+                        model_name="openai/gpt-4o-mini",
+                    ),
+                    **common,
+                ),
+            ],
+            [],
+        )
+
+        assert result["priced_call_count"] == 3
+        assert result["cost_event_count"] == 3
+        assert result["total_cost_usd"] == 0.00025859
+        assert result["cost_identity_state"] == "correlated"
+        assert result["reconciliation_state"] == "reconciled"
+
+    def test_build_summary_prefers_canonical_lifecycle_amount_for_call_identity(self) -> None:
+        common = {
+            "tenant_id": "tenant-priced",
+            "run_id": "run-priced",
+            "thread_id": "thread-priced",
+            "deployment_ref": "deployment-priced",
+            "graph_version_ref": "graph-priced@1",
+            "status": "completed",
+            "cost_event_id": "cost-event-canonical",
+        }
+        result = build_summary(
+            [
+                NodeAuditRecord(
+                    audit_id="audit_cost-event-canonical",
+                    node_id="provider-lifecycle",
+                    estimated_cost_usd=0.125,
+                    **common,
+                ),
+                NodeAuditRecord(
+                    audit_id="run-priced:audit:2",
+                    node_id="agent-rollup",
+                    cost_usd=0.250,
+                    **common,
+                ),
+            ],
+            [],
+        )
+
+        assert result["priced_call_count"] == 1
+        assert result["cost_event_count"] == 1
+        assert result["total_cost_usd"] == pytest.approx(0.125)
+        assert result["cost_identity_state"] == "correlated"
+        assert result["reconciliation_state"] == "reconciled"
+
+    def test_build_summary_rejects_divergent_non_lifecycle_amounts(self) -> None:
+        common = {
+            "tenant_id": "tenant-priced",
+            "run_id": "run-priced",
+            "thread_id": "thread-priced",
+            "deployment_ref": "deployment-priced",
+            "graph_version_ref": "graph-priced@1",
+            "status": "completed",
+            "cost_event_id": "cost-event-legacy",
+        }
+        result = build_summary(
+            [
+                NodeAuditRecord(
+                    audit_id="run-priced:audit:1",
+                    node_id="provider-projection",
+                    estimated_cost_usd=0.125,
+                    **common,
+                ),
+                NodeAuditRecord(
+                    audit_id="run-priced:audit:2",
+                    node_id="agent-rollup",
+                    cost_usd=0.250,
+                    **common,
+                ),
+            ],
+            [],
+        )
+
+        assert result["cost_identity_state"] == "conflicting_cost_event"
+        assert result["reconciliation_state"] == "incomplete"
+
+    def test_build_summary_fails_closed_when_priced_call_has_no_cost_event(self) -> None:
+        result = build_summary(
+            [
+                NodeAuditRecord(
+                    audit_id="audit-missing-event",
+                    tenant_id="tenant-priced",
+                    run_id="run-missing-event",
+                    thread_id="thread-missing-event",
+                    deployment_ref="deployment-missing-event",
+                    graph_version_ref="graph-missing-event@1",
+                    node_id="agent",
+                    status="completed",
+                    cost_usd=0.125,
+                )
+            ],
+            [],
+        )
+
+        assert result["priced_call_count"] == 1
+        assert result["cost_event_count"] == 0
+        assert result["cost_identity_state"] == "missing_cost_event"
+        assert result["reconciliation_state"] == "incomplete"
 
     @pytest.mark.anyio()
     async def test_resolve_artifact_references(self) -> None:

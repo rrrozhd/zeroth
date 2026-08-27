@@ -10,10 +10,11 @@
 //      budget_cap_usd (nullable — "no cap set"), tenant_id.
 //   2. Budget cap (USD) — a mono input + Set that PUTs { budget_cap_usd } via
 //      setTenantBudget(getTenant(), body) (the sole TenantBudgetRequest field), then
-//      reloads. Note covers the fail-open default / ZEROTH_REGULUS__FAIL_CLOSED=true.
-//   3. Per-run ceiling — the documented $2.00 default with a note pointing at
-//      ZEROTH_REGULUS__PER_RUN_CAP_USD. This is a deployment env knob, NOT a field on
-//      TenantCostResponse, so it is framed as the config default, never as live data.
+//      reloads. Its note reflects the effective runtime failure mode rather than
+//      presenting a design default as live configuration.
+//   3. Per-run ceiling — the effective value returned by the scoped runtime
+//      configuration endpoint. An unavailable or unconfigured value is labeled as
+//      such; this screen never substitutes a design-document default.
 //
 // Below: two cards.
 //   - Spend by deployment — listDeployments() then getCostOf(ref) per unique
@@ -32,51 +33,49 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, NODE_TYPE_COLOR, Pill, Skeleton } from "@/app/components/primitives";
+import {
+  Button,
+  ConsoleField,
+  ConsoleInput,
+  ConsoleMeta,
+  ConsoleNotice,
+  ConsolePage,
+  ConsolePageHeader,
+  ConsoleSection,
+  ConsoleSurface,
+  Skeleton,
+} from "@/app/components/primitives";
 import { useToast } from "@/app/components/Toast";
+import { EconomicsWorkspaceNav } from "@/app/components/EconomicsWorkspaceNav";
+import { fmtUsd } from "@/app/components/ui";
 import { useLoad, type Loadable } from "@/app/hooks/useLoad";
 import {
   errMsg,
   getCostOf,
+  getEconomicsConfiguration,
   getTenantCost,
   getUnitEconomics,
   listDeployments,
   setTenantBudget,
   type DeploymentSummary,
+  type EconomicsConfiguration,
   type TenantBudgetRequest,
   type TenantCost,
   type UnitEconomicsReport,
 } from "@/app/lib/api";
 import { getTenant, isConfigured } from "@/app/lib/config";
+import { isForbiddenSurface, surfaceAccessMessage } from "@/app/lib/surfaceAccess";
+import styles from "./cost.module.css";
+import { budgetFailureModeCopy, reconcileEconomics } from "./economicsTruth";
 
-const MONO = "var(--font-mono)";
 
-// The design-doc default surfaced by the handoff. The effective ceiling is a
-// deployment env var (ZEROTH_REGULUS__PER_RUN_CAP_USD) and is not carried on the
-// cost API, so it is shown as a labeled default, not tenant-specific live data.
-const PER_RUN_CEILING_DEFAULT = "$2.00";
-
-// Distinct bar colors so deployments read apart at a glance (handoff palette).
-const BAR_COLORS = [
-  "var(--accent)",
-  "var(--agent)",
-  "var(--info)",
-  "var(--success)",
-  "var(--warning)",
-  "var(--neutral)",
-];
-
-/** USD with 2 decimals at/above a dollar, 4 below — matches the Deployments/Runs
- *  screens so sub-cent attributed spend stays legible. */
-function fmtUsd(n: number): string {
-  if (!Number.isFinite(n)) return "$0.00";
-  if (n === 0) return "$0.00";
-  return n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
-}
-
-/** Ratio (0..1) -> whole-percent string. */
+/** Ratio (0..1) with enough precision to keep small, real spend visible. */
 function fmtRatioPct(r: number): string {
-  return `${Math.round((Number.isFinite(r) ? r : 0) * 100)}%`;
+  const pct = (Number.isFinite(r) ? r : 0) * 100;
+  if (pct === 0) return "0%";
+  if (Math.abs(pct) < 0.1) return pct > 0 ? "<0.1%" : ">-0.1%";
+  if (Math.abs(pct) < 10) return `${pct.toFixed(1).replace(/\.0$/, "")}%`;
+  return `${Math.round(pct)}%`;
 }
 
 // --------------------------------------------------------------------------
@@ -85,6 +84,7 @@ function fmtRatioPct(r: number): string {
 
 export default function CostPage() {
   const tenantCost = useLoad<TenantCost>(() => getTenantCost(getTenant()));
+  const configuration = useLoad<EconomicsConfiguration>(getEconomicsConfiguration);
   const deployments = useLoad<DeploymentSummary[]>(listDeployments);
   const econ = useLoad<UnitEconomicsReport>(getUnitEconomics);
 
@@ -99,50 +99,63 @@ export default function CostPage() {
   // when the deployment list itself is unchanged.
   const [refreshNonce, setRefreshNonce] = useState(0);
 
-  const anyLoading = tenantCost.loading || deployments.loading || econ.loading;
+  const anyLoading = tenantCost.loading || configuration.loading || deployments.loading || econ.loading;
 
   function refreshAll() {
     tenantCost.reload();
+    configuration.reload();
     deployments.reload();
     econ.reload();
     setRefreshNonce((n) => n + 1);
   }
 
-  const mtd = tenantCost.data?.total_cost_usd ?? null;
+  const mtd = tenantCost.data?.actual_spend_usd ?? null;
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
-      <header style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 22 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Cost</h1>
-          <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
-            Budget governance and attributed spend — enforced before LLM calls by the econ
-            plane (/regulus).
-          </p>
-        </div>
-        {connected && (
-          <Button variant="neutral" onClick={refreshAll} disabled={anyLoading} style={{ flexShrink: 0 }}>
+    <ConsolePage>
+      <ConsolePageHeader
+        title="Economics"
+        description="Spend, budgets, unit economics, cost models, and reconciliation in one governed workspace."
+        actions={connected ? (
+          <Button variant="neutral" onClick={refreshAll} disabled={anyLoading}>
             {anyLoading ? "Refreshing…" : "Refresh"}
           </Button>
-        )}
-      </header>
+        ) : undefined}
+      />
+
+      <EconomicsWorkspaceNav active="spend" />
 
       {!connected ? (
         <ConnectNote />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 12 }}>
-            <MtdCard load={tenantCost} />
-            <BudgetCard load={tenantCost} />
-            <PerRunCeilingCard />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12 }}>
+        <div className={styles.stack}>
+          <ConsoleSection
+            title="Budget exposure"
+            meta="Tenant scope · production ledger · month to date"
+          >
+            <ConsoleSurface density="flush">
+            <div className={styles.controlBand}>
+              <MtdCard load={tenantCost} />
+              <ExposureCard load={tenantCost} />
+              <BudgetCard load={tenantCost} configuration={configuration} />
+              <PerRunCeilingCard load={configuration} />
+            </div>
+            </ConsoleSurface>
+          </ConsoleSection>
+          {tenantCost.data && tenantCost.data.synthetic_control_usd > 0 ? (
+            <ConsoleNotice title="Control proofs excluded">
+              {fmtUsd(tenantCost.data.synthetic_control_usd)} belongs to synthetic budget-gate
+              verification. It remains inspectable evidence but is excluded from actual provider
+              spend, deployment attribution, and budget consumption.
+            </ConsoleNotice>
+          ) : null}
+          <div className={styles.pairGrid}>
             <SpendByDeployment deployments={deployments} mtd={mtd} refreshNonce={refreshNonce} />
-            <TopNodesCard econ={econ} />
+            <TopNodesCard econ={econ} tenantCost={tenantCost} />
           </div>
         </div>
       )}
-    </div>
+    </ConsolePage>
   );
 }
 
@@ -152,9 +165,9 @@ export default function CostPage() {
 
 function MtdCard({ load }: { load: Loadable<TenantCost> }) {
   return (
-    <Card label="Month-to-date spend" pad={16} style={{ minWidth: 0 }}>
+    <BudgetCell label="Actual provider spend">
       {load.loading && !load.data ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className={styles.loadingStack}>
           <Skeleton height={30} width={130} />
           <Skeleton height={6} />
           <Skeleton height={12} width={160} />
@@ -166,63 +179,64 @@ function MtdCard({ load }: { load: Loadable<TenantCost> }) {
       ) : (
         <EmptyInline>No spend recorded.</EmptyInline>
       )}
-    </Card>
+    </BudgetCell>
   );
 }
 
 function MtdBody({ c }: { c: TenantCost }) {
   // Narrow to a positive number (or null) so arithmetic below is null-safe.
   const cap = c.budget_cap_usd != null && c.budget_cap_usd > 0 ? c.budget_cap_usd : null;
-  const ratio = cap != null ? c.total_cost_usd / cap : 0;
-  const over = cap != null && c.total_cost_usd > cap;
+  const ratio = cap != null ? c.budget_consumed_usd / cap : 0;
+  const over = cap != null && c.budget_consumed_usd > cap;
 
   return (
     <>
-      <div
-        style={{
-          fontFamily: MONO,
-          fontSize: 26,
-          fontWeight: 600,
-          lineHeight: 1.1,
-          color: over ? "var(--danger)" : "var(--text-primary)",
-        }}
-      >
-        {fmtUsd(c.total_cost_usd)}
+      <div className={`${styles.metricValue} ${over ? styles.metricDanger : ""}`}>
+        {fmtUsd(c.actual_spend_usd)}
       </div>
 
-      <div
-        style={{
-          marginTop: 12,
-          height: 6,
-          borderRadius: 3,
-          background: "#1a1f29",
-          overflow: "hidden",
-        }}
-      >
+      <div className={styles.progressTrack}>
         <div
+          className={`${styles.progressFill} ${over ? styles.progressFillDanger : ""}`}
           style={{
-            height: "100%",
-            width: `${Math.max(0, Math.min(100, ratio * 100))}%`,
-            background: over ? "var(--danger)" : "var(--accent)",
-            borderRadius: 3,
-            transition: "width 0.4s ease",
+            transform: `scaleX(${Math.max(0, Math.min(1, ratio))})`,
           }}
         />
       </div>
 
-      <div
-        style={{
-          marginTop: 8,
-          fontFamily: MONO,
-          fontSize: 11,
-          color: "var(--text-faint)",
-          overflowWrap: "anywhere",
-        }}
-      >
+      <div className={styles.controlMeta}>
         {cap != null ? `${fmtRatioPct(ratio)} of ${fmtUsd(cap)} cap` : "no cap set"} ·{" "}
         {c.tenant_id}
       </div>
+      <div className={styles.controlMeta}>
+        {fmtUsd(c.paid_spend_usd)} measured · {fmtUsd(c.estimated_spend_usd)} estimated<br />
+        Budget consumed: {fmtUsd(c.budget_consumed_usd)} including open exposure
+      </div>
     </>
+  );
+}
+
+function ExposureCard({ load }: { load: Loadable<TenantCost> }) {
+  const active = load.data?.active_exposure_usd ?? 0;
+  const ambiguous = load.data?.ambiguous_exposure_usd ?? 0;
+  return (
+    <BudgetCell label="Reserved exposure">
+      {load.loading && !load.data ? (
+        <Skeleton height={30} width={130} />
+      ) : load.error ? (
+        <InlineError message={load.error} onRetry={load.reload} />
+      ) : load.data ? (
+        <>
+          <div className={styles.metricValue}>{fmtUsd(active + ambiguous)}</div>
+          <div className={styles.controlMeta}>
+            {fmtUsd(active)} active · {fmtUsd(ambiguous)} ambiguous<br />
+            Reserved or unresolved maxima · not yet spend
+          </div>
+        </>
+      ) : (
+        <EmptyInline>Not measured</EmptyInline>
+      )}
+    </BudgetCell>
   );
 }
 
@@ -230,7 +244,13 @@ function MtdBody({ c }: { c: TenantCost }) {
 // 2. Budget cap (USD)
 // --------------------------------------------------------------------------
 
-function BudgetCard({ load }: { load: Loadable<TenantCost> }) {
+function BudgetCard({
+  load,
+  configuration,
+}: {
+  load: Loadable<TenantCost>;
+  configuration: Loadable<EconomicsConfiguration>;
+}) {
   const toast = useToast();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -264,22 +284,10 @@ function BudgetCard({ load }: { load: Loadable<TenantCost> }) {
   }
 
   return (
-    <Card label="Budget cap (USD)" pad={16} style={{ minWidth: 0 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            flex: 1,
-            minWidth: 0,
-            background: "var(--bg-code)",
-            border: "1px solid var(--hair-strong)",
-            borderRadius: 6,
-            paddingLeft: 10,
-          }}
-        >
-          <span style={{ fontFamily: MONO, fontSize: 13, color: "var(--text-faint)" }}>$</span>
-          <input
+    <BudgetCell label="Budget cap (USD)">
+      <div className={styles.controlForm}>
+        <ConsoleField label="Amount">
+          <ConsoleInput
             value={value}
             onChange={(e) => {
               touched.current = true;
@@ -291,73 +299,69 @@ function BudgetCard({ load }: { load: Loadable<TenantCost> }) {
             placeholder="e.g. 500"
             inputMode="decimal"
             aria-label="Budget cap in USD"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontFamily: MONO,
-              fontSize: 13,
-              color: "var(--text-primary)",
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              padding: "8px 10px 8px 6px",
-            }}
           />
-        </div>
+        </ConsoleField>
         <Button variant="primary" onClick={submit} disabled={busy}>
           {busy ? "Setting…" : "Set"}
         </Button>
       </div>
 
-      <div
-        style={{
-          marginTop: 8,
-          fontSize: 11,
-          color: "var(--text-faint)",
-          lineHeight: 1.5,
-          overflowWrap: "anywhere",
-        }}
-      >
-        Fail-open by default — a Regulus outage will not block runs. Deny on an unavailable
-        enforcement path with{" "}
-        <code style={{ fontFamily: MONO, color: "var(--text-muted)" }}>
-          ZEROTH_REGULUS__FAIL_CLOSED=true
-        </code>
-        .
+      <div className={styles.controlMeta}>
+        {budgetFailureModeCopy(configuration.data?.failure_mode)}
       </div>
-    </Card>
+    </BudgetCell>
   );
 }
 
 // --------------------------------------------------------------------------
-// 3. Per-run ceiling (config default — not a cost-API field)
+// 3. Per-run ceiling (effective service-runtime configuration)
 // --------------------------------------------------------------------------
 
-function PerRunCeilingCard() {
+function PerRunCeilingCard({ load }: { load: Loadable<EconomicsConfiguration> }) {
+  const restricted = load.error != null && load.error.startsWith("403");
   return (
-    <Card label="Per-run ceiling" pad={16} style={{ minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span style={{ fontFamily: MONO, fontSize: 26, fontWeight: 600 }}>
-          {PER_RUN_CEILING_DEFAULT}
-        </span>
-        <Pill tone="neutral">default</Pill>
+    <BudgetCell label="Per-run ceiling">
+      {load.loading && !load.data ? (
+        <Skeleton height={30} width={130} />
+      ) : load.error ? (
+        <div className={styles.stateBlock}>
+          <strong>{restricted ? "Access restricted" : "Fetch failed"}</strong>
+          <span>
+            {restricted
+              ? "This API key cannot read effective economics configuration. Connect with a metrics-read credential."
+              : load.error}
+          </span>
+          {!restricted && <Button variant="neutral" onClick={load.reload}>Retry</Button>}
+        </div>
+      ) : load.data ? (
+        <>
+          <div className={styles.metricLine}>
+            <span className={styles.metricValue}>
+              {load.data.per_run_cap_usd == null ? "Not configured" : fmtUsd(load.data.per_run_cap_usd)}
+            </span>
+            <ConsoleMeta>{load.data.failure_mode.replace("_", "-")}</ConsoleMeta>
+          </div>
+          <div className={styles.controlMeta}>
+            Scope: {load.data.tenant_id} / {load.data.deployment_ref}<br />
+            Source: service runtime · Freshness: current request
+          </div>
+        </>
+      ) : (
+        <EmptyInline>Not measured</EmptyInline>
+      )}
+      <div className={styles.controlMeta}>
+        This is the effective runtime value, not a documented default.
       </div>
-      <div
-        style={{
-          marginTop: 12,
-          fontSize: 11,
-          color: "var(--text-faint)",
-          lineHeight: 1.5,
-          overflowWrap: "anywhere",
-        }}
-      >
-        Set per deployment via{" "}
-        <code style={{ fontFamily: MONO, color: "var(--text-muted)" }}>
-          ZEROTH_REGULUS__PER_RUN_CAP_USD
-        </code>{" "}
-        — locally enforced from audited run cost, independent of the tenant cap.
-      </div>
-    </Card>
+    </BudgetCell>
+  );
+}
+
+function BudgetCell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <section className={styles.controlCell}>
+      <h3 className={styles.controlLabel}>{label}</h3>
+      {children}
+    </section>
   );
 }
 
@@ -380,7 +384,7 @@ function SpendByDeployment({
   const refs = useMemo(() => Array.from(new Set(list.map((d) => d.deployment_ref))), [list]);
   const refsKey = refs.join("|");
 
-  // undefined = not fetched yet, null = fetch failed for that ref, number = cost.
+  // undefined = not measured yet, null = fetch failed for that ref, number = measured cost.
   const [costs, setCosts] = useState<Record<string, number | null>>({});
   const [costLoading, setCostLoading] = useState(false);
 
@@ -418,18 +422,22 @@ function SpendByDeployment({
   const denom = Math.max(mtd ?? 0, sumCosts, 1e-9);
 
   const ordered = [...refs].sort((a, b) => (costs[b] ?? -1) - (costs[a] ?? -1));
+  const visible = ordered.filter((ref) => costs[ref] == null || (costs[ref] ?? 0) > 0);
+  const zeroCostCount = ordered.length - visible.length;
 
   return (
-    <Card label="Spend by deployment" pad={16} style={{ minWidth: 0 }}>
-      <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
-        Cumulative attributed cost per deployment; the bar is its share of month-to-date tenant
-        spend.
+    <ConsoleSection title="Actual spend by deployment">
+      <ConsoleSurface>
+      <p className={styles.sectionNote}>
+        Committed production cost per deployment; the bar is its share of month-to-date actual
+        spend. Control proofs are excluded. Scope: connected tenant · Source: production cost ledger ·
+        Window: month to date · Freshness: current request.
       </p>
 
       {deployments.loading && !deployments.data ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className={styles.loadingStack}>
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div key={i} className={styles.loadingStack}>
               <Skeleton height={14} />
               <Skeleton height={4} />
             </div>
@@ -440,76 +448,59 @@ function SpendByDeployment({
       ) : ordered.length === 0 ? (
         <EmptyInline>
           No deployments yet — register one in{" "}
-          <Link href="/deployments" style={{ color: "var(--accent)", textDecoration: "none" }}>
+          <Link href="/deployments" className={styles.link}>
             Deployments
           </Link>
           .
         </EmptyInline>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {ordered.map((ref, i) => {
+        <div className={styles.deploymentList}>
+          {visible.map((ref) => {
             const cost = costs[ref]; // undefined | null | number
             const width = typeof cost === "number" ? Math.min(100, (cost / denom) * 100) : 0;
             return (
-              <div key={ref}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <div key={ref} className={styles.deploymentRow}>
+                <div className={styles.deploymentLine}>
                   <span
                     title={ref}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontFamily: MONO,
-                      fontSize: 12,
-                      color: "var(--text-primary)",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
+                    className={styles.deploymentName}
                   >
                     {ref}
                   </span>
                   <span
-                    style={{
-                      fontFamily: MONO,
-                      fontSize: 12,
-                      color: cost == null ? "var(--text-faint)" : "var(--text-secondary)",
-                      flexShrink: 0,
-                    }}
+                    className={styles.deploymentCost}
+                    style={{ color: cost == null ? "var(--text-faint)" : undefined }}
                   >
                     {cost === undefined
                       ? costLoading
-                        ? "…"
-                        : "—"
+                        ? "Loading…"
+                        : "Not measured"
                       : cost === null
-                        ? "—"
+                        ? "Fetch failed"
                         : fmtUsd(cost)}
                   </span>
                 </div>
-                <div
-                  style={{
-                    marginTop: 6,
-                    height: 4,
-                    borderRadius: 2,
-                    background: "#1a1f29",
-                    overflow: "hidden",
-                  }}
-                >
+                <div className={styles.progressTrack}>
                   <div
+                    className={styles.progressFill}
                     style={{
-                      height: "100%",
-                      width: `${width}%`,
-                      background: BAR_COLORS[i % BAR_COLORS.length],
-                      borderRadius: 2,
-                      transition: "width 0.4s ease",
+                      transform: `scaleX(${Math.max(0, Math.min(100, width)) / 100})`,
                     }}
                   />
                 </div>
               </div>
             );
           })}
+          {zeroCostCount > 0 ? (
+            <p className={styles.zeroCostSummary}>
+              {zeroCostCount} other {zeroCostCount === 1 ? "deployment has" : "deployments have"}{" "}
+              no recorded provider spend in the production ledger.
+            </p>
+          ) : null}
         </div>
       )}
-    </Card>
+      </ConsoleSurface>
+    </ConsoleSection>
   );
 }
 
@@ -520,16 +511,24 @@ function SpendByDeployment({
 
 type WorkflowRow = UnitEconomicsReport["by_workflow"][number];
 
-function TopNodesCard({ econ }: { econ: Loadable<UnitEconomicsReport> }) {
+function TopNodesCard({
+  econ,
+  tenantCost,
+}: {
+  econ: Loadable<UnitEconomicsReport>;
+  tenantCost: Loadable<TenantCost>;
+}) {
   return (
-    <Card label="Top nodes by attributed cost" pad={16} style={{ minWidth: 0 }}>
-      <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
-        Attributed at the workflow level — per-node cost is not exposed by unit economics, so
-        these are workflow totals over the last window.
+    <ConsoleSection title="Run-attributed economics">
+      <ConsoleSurface>
+      <p className={styles.sectionNote}>
+        Workflow totals for the latest unit-economics window. Per-node cost is not exposed.
+        {" "}Scope: connected tenant · Window: latest 200 runs · Source: audit and run records ·
+        Freshness: current request.
       </p>
 
       {econ.loading && !econ.data ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className={styles.loadingStack}>
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} height={18} />
           ))}
@@ -537,88 +536,107 @@ function TopNodesCard({ econ }: { econ: Loadable<UnitEconomicsReport> }) {
       ) : econ.error ? (
         <InlineError message={econ.error} onRetry={econ.reload} />
       ) : econ.data ? (
-        <TopNodesBody report={econ.data} />
+        <TopNodesBody
+          report={econ.data}
+          ledgerActualUsd={tenantCost.data?.actual_spend_usd ?? null}
+        />
       ) : (
         <EmptyInline>No unit-economics data.</EmptyInline>
       )}
-    </Card>
+      </ConsoleSurface>
+    </ConsoleSection>
   );
 }
 
-function TopNodesBody({ report }: { report: UnitEconomicsReport }) {
+function TopNodesBody({
+  report,
+  ledgerActualUsd,
+}: {
+  report: UnitEconomicsReport;
+  ledgerActualUsd: number | null;
+}) {
   const rows: WorkflowRow[] = [...(report.by_workflow ?? [])]
-    .filter((w) => w.terminal_cost_usd > 0)
-    .sort((a, b) => b.terminal_cost_usd - a.terminal_cost_usd)
+    .filter(
+      (row) =>
+        row.terminal_cost_usd > 0 || row.estimated_terminal_cost_usd > 0,
+    )
+    .sort(
+      (a, b) =>
+        Math.max(b.terminal_cost_usd, b.estimated_terminal_cost_usd) -
+        Math.max(a.terminal_cost_usd, a.estimated_terminal_cost_usd),
+    )
     .slice(0, 8);
 
+  const reconciliation = ledgerActualUsd == null
+    ? null
+    : reconcileEconomics(ledgerActualUsd, report.total_cost_usd);
+
   if (rows.length === 0) {
-    return <EmptyInline>{report.note || "No attributed cost yet."}</EmptyInline>;
+    return (
+      <div className={styles.reconciliationStack}>
+        <p className={styles.emptyTitle}>No priced workflow runs in this window</p>
+        <EmptyInline>{report.note || "No attributed run cost yet."}</EmptyInline>
+        {reconciliation ? <ReconciliationSummary value={reconciliation} /> : null}
+      </div>
+    );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
-      {rows.map((w, i) => (
-        <div
-          key={w.workflow_name}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "9px 0",
-            borderTop: i === 0 ? "none" : "1px solid var(--hair)",
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 2,
-              flexShrink: 0,
-              background: NODE_TYPE_COLOR.subgraph,
-            }}
-          />
-          <span
-            title={w.workflow_name}
-            style={{
-              fontFamily: MONO,
-              fontSize: 12,
-              color: "var(--text-primary)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              minWidth: 0,
-              flexShrink: 1,
-            }}
+    <div className={styles.reconciliationStack}>
+      <div className={styles.workflowList}>
+        {rows.map((w) => (
+          <div
+            key={w.workflow_name}
+            className={styles.workflowRow}
           >
-            {w.workflow_name}
-          </span>
-          <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontFamily: MONO,
-              fontSize: 11,
-              color: "var(--text-faint)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {w.runs} run{w.runs === 1 ? "" : "s"} · {fmtRatioPct(w.success_rate)} ok
-          </span>
-          <span
-            style={{
-              fontFamily: MONO,
-              fontSize: 12,
-              color: "var(--text-secondary)",
-              flexShrink: 0,
-            }}
-          >
-            {fmtUsd(w.terminal_cost_usd)}
-          </span>
-        </div>
-      ))}
+            <span
+              title={w.workflow_name}
+              className={styles.workflowName}
+            >
+              {w.workflow_name}
+            </span>
+            <span className={styles.workflowMeta}>
+              {w.runs} run{w.runs === 1 ? "" : "s"} · {fmtRatioPct(w.success_rate)} ok
+            </span>
+            <span className={styles.workflowCost}>
+              {w.terminal_cost_usd > 0
+                ? `${fmtUsd(w.terminal_cost_usd)} measured`
+                : null}
+              {w.terminal_cost_usd > 0 && w.estimated_terminal_cost_usd > 0
+                ? " · "
+                : null}
+              {w.estimated_terminal_cost_usd > 0
+                ? `${fmtUsd(w.estimated_terminal_cost_usd)} estimated`
+                : null}
+            </span>
+          </div>
+        ))}
+      </div>
+      {reconciliation ? <ReconciliationSummary value={reconciliation} /> : null}
+    </div>
+  );
+}
+
+function ReconciliationSummary({
+  value,
+}: {
+  value: ReturnType<typeof reconcileEconomics>;
+}) {
+  return (
+    <div className={styles.reconciliation} data-evidence-id="economics-run-ledger-reconciliation">
+      <div className={styles.reconciliationLine}>
+        <span>Month-to-date production ledger</span>
+        <strong>{fmtUsd(value.ledgerActualUsd)}</strong>
+      </div>
+      <div className={styles.reconciliationLine}>
+        <span>Latest-window run attribution</span>
+        <strong>{fmtUsd(value.runAttributedUsd)}</strong>
+      </div>
+      <div className={styles.reconciliationLine}>
+        <span>Window / operation difference</span>
+        <strong>{fmtUsd(value.differenceUsd)}</strong>
+      </div>
+      <p>{value.explanation}</p>
     </div>
   );
 }
@@ -629,48 +647,25 @@ function TopNodesBody({ report }: { report: UnitEconomicsReport }) {
 
 function ConnectNote() {
   return (
-    <Card pad={20}>
-      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-        Not connected. Open <span style={{ color: "var(--accent)" }}>Connect</span> (bottom-left) to
-        set the API base and key.
-      </div>
-    </Card>
+    <ConsoleNotice title="Not connected">
+      Open Connect from the navigation to set the API base and key.
+    </ConsoleNotice>
   );
 }
 
 function EmptyInline({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 12.5, color: "var(--text-faint)", lineHeight: 1.55 }}>{children}</div>;
+  return <p className={styles.inlineEmpty}>{children}</p>;
 }
 
 function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const restricted = isForbiddenSurface(message);
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "rgba(248,113,113,0.08)",
-        border: "1px solid rgba(248,113,113,0.3)",
-        borderRadius: 8,
-        padding: "10px 12px",
-      }}
+    <ConsoleNotice
+      tone={restricted ? "neutral" : "danger"}
+      title={restricted ? "Access restricted" : "Cost data unavailable"}
+      actions={restricted ? undefined : <Button variant="neutral" onClick={onRetry}>Retry</Button>}
     >
-      <span
-        style={{
-          fontSize: 12.5,
-          color: "var(--danger)",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {message}
-      </span>
-      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Retry
-      </Button>
-    </div>
+      {surfaceAccessMessage(message, "Cost data")}
+    </ConsoleNotice>
   );
 }

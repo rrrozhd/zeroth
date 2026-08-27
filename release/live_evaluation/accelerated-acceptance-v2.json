@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "profile_id": "evaluation-studio-v1-accelerated-demo-v2",
+  "status": "proposed_unarmed",
+  "claim_label": "demo_ready_not_full_campaign_accepted",
+  "campaign_id": "evaluation-studio-v1",
+  "authorization_phrase": "AUTHORIZE_ACCELERATED_DEMO_ACCEPTANCE_V2",
+  "supersedes_for_future_execution_only": "evaluation-studio-v1-accelerated-demo",
+  "budgets": {
+    "tenant_ceiling_usd": "10.00",
+    "per_run_ceiling_usd": "0.25",
+    "accelerated_incremental_ceiling_usd": "1.00",
+    "maximum_new_live_runs": 3,
+    "maximum_new_provider_calls": 15
+  },
+  "preconditions": [
+    "retrieval embedding settlement remediation tests pass",
+    "connector eval_chroma_v1 targets the seeded zeroth_memory collection",
+    "Redis database and Regulus readiness are all ok",
+    "primary service identity exactly matches the gate deployment before each run",
+    "historical synthetic nonterminal fixture identities are snapshotted and excluded",
+    "no new active or ambiguous provider reservation exists",
+    "all failure evidence from accelerated acceptance v1 remains immutable"
+  ],
+  "gates": [
+    {
+      "gate_id": "accelerated-v2.workflow1.live-grounded-run",
+      "maximum_new_live_runs": 1,
+      "maximum_provider_calls": 3,
+      "required_results": [
+        "successful structured answer and source_ids",
+        "tenant-scoped Chroma retrieval IDs",
+        "signed run and node audit chain",
+        "provider model usage and cost identities",
+        "reconciled local Audit Economics and Regulus totals",
+        "run cost at or below 0.25 USD"
+      ],
+      "original_criteria_eligible": [
+        "workflow1.happy-1",
+        "workflow1.semantic-retrieval",
+        "workflow1.structured-payload",
+        "workflow1.final-output",
+        "workflow1.audit-chain",
+        "workflow1.economics"
+      ]
+    },
+    {
+      "gate_id": "accelerated-v2.workflow2.third-repetition",
+      "maximum_new_live_runs": 1,
+      "maximum_provider_calls": 8,
+      "required_results": [
+        "eight isolated successful child runs",
+        "configured and observed concurrency four",
+        "ordered join indexes zero through seven",
+        "signed parent and child audit chains",
+        "one unique cost event per non-cache child call",
+        "three-repetition aggregate economics reconciled"
+      ],
+      "original_criteria_eligible": [
+        "workflow2.happy-3",
+        "workflow2.aggregate-economics"
+      ]
+    },
+    {
+      "gate_id": "accelerated-v2.rightsizing.one-case-plumbing",
+      "maximum_new_live_runs": 1,
+      "maximum_provider_calls": 4,
+      "maximum_candidates": 1,
+      "maximum_cases": 1,
+      "minimum_cases_for_confirmation": 5,
+      "required_results": [
+        "experiment submitted from the real Rightsizing interface",
+        "one eligible recorded live node input replayed",
+        "one incumbent and one candidate replay each judged when successful",
+        "exactly four attempted non-cache calls evidenced after successful completion",
+        "verdict remains flagged and is not accepted as model-quality equivalence",
+        "operation audit cost reservation and provider identities reconcile",
+        "completed result restored from durable run state after refresh"
+      ],
+      "original_criteria_eligible": []
+    },
+    {
+      "gate_id": "accelerated-v2.audit-economics.closeout",
+      "maximum_new_live_runs": 0,
+      "maximum_provider_calls": 0,
+      "required_results": [
+        "every accelerated non-cache call has exactly one cost event",
+        "operation run audit and cost identities are unique",
+        "provider model and usage identities are present where exposed",
+        "Audit local Economics and Regulus totals reconcile within tolerance",
+        "failed provider spend appears as measured or estimated failure tax",
+        "no composed-parent cost is double counted",
+        "historical synthetic fixture identities remain unchanged and excluded"
+      ],
+      "original_criteria_eligible": [
+        "audit.provider-model-usage-cost-identity",
+        "audit.operation-and-cost-identities"
+      ]
+    },
+    {
+      "gate_id": "accelerated-v2.ui.persistence-evidence",
+      "maximum_new_live_runs": 0,
+      "maximum_provider_calls": 0,
+      "required_results": [
+        "Runs shows authoritative attributed cost with sub-cent precision",
+        "Economics shows deployment and failure-tax attribution",
+        "Rightsizing shows live attributed spend and the one-case measured result",
+        "configured result and durable refresh-restored screenshots exist",
+        "the 8122 connection and tenant scope survive reload without key re-entry",
+        "read-only GET transport recovery emits no visible fetch error"
+      ],
+      "original_criteria_eligible": []
+    }
+  ],
+  "stop_conditions": [
+    "secret or authorization material retained in evidence",
+    "broken or unsigned required audit chain",
+    "ambiguous provider outcome or reservation",
+    "cross-tenant data exposure",
+    "unexplained economics discrepancy",
+    "tenant per-run or accelerated incremental ceiling exceeded",
+    "historical synthetic fixture identity changes during the gate",
+    "a mutation is automatically retried after a transport error"
+  ],
+  "deferred_original_criteria": [
+    "workflow1.happy-2",
+    "workflow1.happy-3",
+    "economics.one-event-per-noncache-call",
+    "economics.reconciled-totals",
+    "economics.shared-provider-window-upper-bound",
+    "stop.audit-complete-and-valid",
+    "stop.no-economic-double-count",
+    "check.after-workflow-gates"
+  ],
+  "invariants": {
+    "mutates_original_acceptance_catalog": false,
+    "permits_full_campaign_acceptance_claim": false,
+    "automatic_retry_after_ambiguous_outcome": false,
+    "provider_calls_before_explicit_authorization": false,
+    "one_case_rightsizing_proves_model_quality": false,
+    "mutates_accelerated_v1_evidence": false
+  }
+}

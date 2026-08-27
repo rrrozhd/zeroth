@@ -25,6 +25,8 @@ from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
+from zeroth.runtime.orchestration.token_runtime import TokenRuntimeCoordinator
 from zeroth.runtime.orchestration.token_lifecycle import request_cancellation, stop_snapshot
 from zeroth.runtime.orchestration.token_runtime_support import TokenRuntimeSupport
 from zeroth.runtime.orchestration.token_scheduler import (
@@ -36,7 +38,8 @@ from zeroth.runtime.orchestration.token_scheduler import (
 )
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 from zeroth.runtime.parallel.models import JoinConfig
-from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.parallel.errors import ParallelExecutionError
+from zeroth.runtime.runs import Run, RunFailureState, RunStatus
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
 
@@ -107,6 +110,55 @@ class RunOnlyRepository:
         if name in {"get_token_snapshot", "compare_and_swap_token_snapshot"}:
             raise AttributeError(name)
         return getattr(self.inner, name)
+
+
+async def test_parallel_resume_error_settles_parent_with_parallel_reason(monkeypatch) -> None:
+    driver = MagicMock()
+
+    async def fail_run(run: Run, reason: str, message: str) -> Run:
+        run.status = RunStatus.FAILED
+        run.failure_state = RunFailureState(reason=reason, message=message)
+        return run
+
+    driver.fail_run = AsyncMock(side_effect=fail_run)
+    coordinator = TokenRuntimeCoordinator(driver, MagicMock())
+    coordinator._dispatch_claim = AsyncMock(  # type: ignore[method-assign]
+        side_effect=ParallelExecutionError("parallel child ended FAILED: approval_rejected")
+    )
+    cancel = AsyncMock()
+    monkeypatch.setattr(TokenLifecycleAdapter, "cancel", cancel)
+    source = _node("source")
+    graph = Graph(
+        graph_id="rejected-resume",
+        name="rejected-resume",
+        entry_step="source",
+        nodes=[source],
+        edges=[],
+    )
+    run = Run(
+        graph_version_ref="rejected-resume@1",
+        deployment_ref="parent",
+        metadata={
+            "pending_parallel_subgraph": {"node_id": "source"},
+            "token_dispatch": {"owned": True},
+            "in_flight_dispatch": {"owned": True},
+        },
+        current_node_ids=["source"],
+        current_step="source",
+    )
+    claim = MagicMock()
+    claim.dispatch.token.current_node_id = "source"
+
+    failed = await coordinator._dispatch_or_settle_parallel_failure(graph, run, claim)
+
+    assert failed is run
+    assert failed.failure_state is not None
+    assert failed.failure_state.reason == "parallel_execution_failed"
+    assert "approval_rejected" in failed.failure_state.message
+    assert "pending_parallel_subgraph" in failed.metadata
+    assert "token_dispatch" not in failed.metadata
+    assert "in_flight_dispatch" not in failed.metadata
+    cancel.assert_awaited_once_with(run.run_id)
 
 
 def _node(node_id: str) -> AgentNode:

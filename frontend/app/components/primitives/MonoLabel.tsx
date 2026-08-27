@@ -6,11 +6,9 @@ export function MonoLabel({ style, children, ...rest }: MonoLabelProps) {
   return (
     <span
       style={{
-        fontFamily: "var(--font-mono)",
-        fontSize: 10.5,
+        fontFamily: "var(--font-sans)",
+        fontSize: 11,
         fontWeight: 500,
-        textTransform: "uppercase",
-        letterSpacing: "0.08em",
         color: "var(--text-muted)",
         ...style,
       }}

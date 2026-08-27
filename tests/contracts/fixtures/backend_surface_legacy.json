@@ -2,6 +2,46 @@
   "baseline": "backend architecture refactor pre-move surface, 2026-07-18",
   "capabilities": [
     {
+      "evidence": ["schema_model:zeroth.econ.plane.enforcement.schemas"],
+      "id": "zeroth.econ_plane.enforcement.schemas:CostReservationOut",
+      "kind": "class",
+      "legacy_module": "zeroth.econ_plane.enforcement.schemas",
+      "legacy_name": "CostReservationOut",
+      "signature": "(*, operation_id: str, campaign_id: str | None, run_id: str | None, status: str, max_cost_usd: decimal.Decimal, held_cost_usd: decimal.Decimal, actual_cost_usd: decimal.Decimal | None, released_cost_usd: decimal.Decimal, cost_measurement: str, cost_event_id: str | None, provider_request_id: str | None, cleanup_status: str | None) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.enforcement.schemas"],
+      "id": "zeroth.econ_plane.enforcement.schemas:CostReservationReconcile",
+      "kind": "class",
+      "legacy_module": "zeroth.econ_plane.enforcement.schemas",
+      "legacy_name": "CostReservationReconcile",
+      "signature": "(*, actual_cost_usd: Annotated[decimal.Decimal, Ge(ge=0)], cost_measurement: Literal['measured', 'estimated'], provider_request_id: Annotated[str | None, MaxLen(max_length=256)] = None, cleanup_status: Annotated[str, MinLen(min_length=1), MaxLen(max_length=64)] = 'complete') -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.service.api.connector_api"],
+      "id": "zeroth.core.service.connector_api:ConnectorTestRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.core.service.connector_api",
+      "legacy_name": "ConnectorTestRequest",
+      "signature": "(*, campaign_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], operation_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], run_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, max_cost_usd: Annotated[decimal.Decimal, Gt(gt=0)], run_cap_usd: Annotated[decimal.Decimal | None, Gt(gt=0)] = None) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.service.api.operation_api"],
+      "id": "zeroth.core.service.operation_api:OperationResolutionRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.core.service.operation_api",
+      "legacy_name": "OperationResolutionRequest",
+      "signature": "(*, resolution: zeroth.service.api.operation_api.OperatorResolution, reason: Annotated[str, MinLen(min_length=1), MaxLen(max_length=2000)], receipt: typing.Any | None = None) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.service.api.operation_api"],
+      "id": "zeroth.core.service.operation_api:OperationResolutionResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.core.service.operation_api",
+      "legacy_name": "OperationResolutionResponse",
+      "signature": "(*, operation_key: str, state: zeroth.platform.dispatch.operations.OperationState) -> None"
+    },
+    {
       "evidence": [
         "__all__:zeroth.core",
         "package_export:zeroth.core"

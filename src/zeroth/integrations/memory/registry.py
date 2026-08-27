@@ -13,6 +13,12 @@ from typing import Any
 from zeroth.governance.audit.emitter import AuditEmitter
 from zeroth.governance.policy.models import Capability
 from zeroth.integrations.memory.capability_guard import CapabilityEnforcingMemoryConnector
+from zeroth.integrations.memory.embedding_calls import (
+    EmbeddingCallHooks,
+    EmbeddingCallIdentity,
+    EmbeddingOperation,
+    EmbeddingReservationMemoryConnector,
+)
 from zeroth.integrations.memory.governed.auditing import AuditingMemoryConnector
 from zeroth.integrations.memory.governed.models import MemoryScope
 from zeroth.integrations.memory.governed.scoped import ScopedMemoryConnector
@@ -81,6 +87,34 @@ class MemoryConnectorResolver:
         self.thread_repository = thread_repository
         self._audit_emitter = audit_emitter
         self._workflow_name = workflow_name
+        self._embedding_call_hooks: EmbeddingCallHooks | None = None
+
+    def set_embedding_call_hooks(self, hooks: EmbeddingCallHooks | None) -> None:
+        """Wire the shared control plane used by per-resolve campaign wrappers."""
+        self._embedding_call_hooks = hooks
+
+    async def consume_embedding_call_costs(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        node_id: str,
+        campaign_id: str,
+        operation: EmbeddingOperation,
+    ) -> tuple[dict[str, Any], ...]:
+        """Consume settled embedding costs once for the owning runtime node."""
+        consumer = getattr(self._embedding_call_hooks, "consume_call_costs", None)
+        if not callable(consumer):
+            return ()
+        return await consumer(
+            EmbeddingCallIdentity(
+                tenant_id=tenant_id,
+                run_id=run_id,
+                node_id=node_id,
+                campaign_id=campaign_id,
+                operation=operation,
+            )
+        )
 
     async def resolve(
         self,
@@ -125,6 +159,18 @@ class MemoryConnectorResolver:
 
             # Wrap with AuditingMemoryConnector if emitter is available
             wrapped = raw_connector
+            campaign_id = runtime_context.get("campaign_id")
+            campaign_strict = bool(runtime_context.get("campaign_strict", False))
+            if campaign_id is not None:
+                wrapped = EmbeddingReservationMemoryConnector(
+                    wrapped,
+                    hooks=self._embedding_call_hooks,
+                    tenant_id=str(tenant_id or ""),
+                    run_id=str(run_id),
+                    node_id=node_id or str(run_id),
+                    campaign_id=str(campaign_id or ""),
+                    strict=campaign_strict,
+                )
             if self._audit_emitter is not None:
                 wrapped = AuditingMemoryConnector(
                     wrapped,

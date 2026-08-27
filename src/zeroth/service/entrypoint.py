@@ -98,6 +98,7 @@ async def _bootstrap():
             secret_provider=secret_provider,
             allow_env_fallback=settings.secrets.allow_env_fallback,
             llm_key_map=settings.secrets.llm_key_map,
+            llm_base_url_map=settings.secrets.llm_base_url_map,
         )
         if agent_runners:
             logger.info(

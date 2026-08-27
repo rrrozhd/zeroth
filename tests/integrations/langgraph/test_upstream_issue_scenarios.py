@@ -144,6 +144,93 @@ async def test_7417_duplicate_delivery_applies_one_business_side_effect(tmp_path
     assert record.tool_call_id == "call-long-running-41"
 
 
+@pytest.mark.asyncio
+async def test_timeout_after_effect_is_ambiguous_in_a_compiled_graph(tmp_path: Any) -> None:
+    repository = SQLiteActionExecutionRepository(tmp_path / "timeout-actions.sqlite3")
+    effects: list[str] = []
+
+    async def charge(order_id: str) -> dict[str, str]:
+        effects.append(order_id)
+        raise TimeoutError("receipt was not observed")
+
+    tool = StructuredTool.from_function(
+        coroutine=charge,
+        name="charge_timeout",
+        description="Charge and lose the receipt.",
+    )
+    [governed] = govern_tools(
+        [tool],
+        context=CONTEXT,
+        client=AllowClient(),
+        side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+        action_lifecycle=repository,
+    )
+    builder = StateGraph(MessagesState)
+    builder.add_node("tools", ToolNode([governed]))
+    builder.add_edge(START, "tools")
+    builder.add_edge("tools", END)
+    graph = builder.compile()
+    payload = _tool_input(
+        "charge_timeout", {"order_id": "order-timeout"}, "call-timeout"
+    )
+
+    with pytest.raises(TimeoutError):
+        await graph.ainvoke(payload)
+    with pytest.raises(DuplicateToolExecutionError):
+        await graph.ainvoke(payload)
+
+    assert effects == ["order-timeout"]
+    assert repository.records()[0].state is ActionExecutionState.AMBIGUOUS
+
+
+@pytest.mark.asyncio
+async def test_cancellation_after_effect_propagates_in_a_compiled_graph(
+    tmp_path: Any,
+) -> None:
+    repository = SQLiteActionExecutionRepository(tmp_path / "cancel-actions.sqlite3")
+    started = asyncio.Event()
+    never = asyncio.Event()
+    effects: list[str] = []
+
+    async def charge(order_id: str) -> dict[str, str]:
+        effects.append(order_id)
+        started.set()
+        await never.wait()
+        return {"receipt": order_id}
+
+    tool = StructuredTool.from_function(
+        coroutine=charge,
+        name="charge_cancel",
+        description="Charge and wait before returning the receipt.",
+    )
+    [governed] = govern_tools(
+        [tool],
+        context=CONTEXT,
+        client=AllowClient(),
+        side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+        action_lifecycle=repository,
+    )
+    builder = StateGraph(MessagesState)
+    builder.add_node("tools", ToolNode([governed]))
+    builder.add_edge(START, "tools")
+    builder.add_edge("tools", END)
+    graph = builder.compile()
+    payload = _tool_input(
+        "charge_cancel", {"order_id": "order-cancel"}, "call-cancel"
+    )
+
+    run = asyncio.create_task(graph.ainvoke(payload))
+    await asyncio.wait_for(started.wait(), timeout=2)
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    with pytest.raises(DuplicateToolExecutionError):
+        await graph.ainvoke(payload)
+
+    assert effects == ["order-cancel"]
+    assert repository.records()[0].state is ActionExecutionState.AMBIGUOUS
+
+
 def test_8304_approval_evidence_binds_call_actor_decision_and_result(tmp_path: Any) -> None:
     """A real interrupt/resume retains the call id without out-of-band recovery."""
     approvals = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -34,6 +36,9 @@ class _CollectingAuditRepository:
     async def write(self, record: Any) -> Any:
         self.records.append(record)
         return record
+
+    async def list_by_run(self, run_id: str) -> list[Any]:
+        return [record for record in self.records if record.run_id == run_id]
 
 
 class _StubRedactor:
@@ -140,6 +145,7 @@ async def test_record_history_writes_one_redacted_audit_and_appends_history() ->
         secret_resolver=_StubSecretResolver(),
     )
     run = _run()
+    run.metadata.update({"campaign_id": "campaign-live-1", "campaign_strict": True})
 
     await recorder.record_history(
         run,
@@ -155,6 +161,7 @@ async def test_record_history_writes_one_redacted_audit_and_appends_history() ->
     assert record.audit_id == f"{run.run_id}:audit:1"
     assert record.status == "completed"
     assert record.input_snapshot == {"secret": "***"}
+    assert record.campaign_id == "campaign-live-1"
     assert record.cost_usd == 0.5
     assert [entry.node_id for entry in run.execution_history] == ["n1"]
     assert run.execution_history[0].audit_ref == "audit:1"
@@ -169,6 +176,32 @@ async def test_record_history_without_a_repository_still_tracks_refs() -> None:
 
     assert run.audit_refs == ["audit:1"]
     assert [entry.node_id for entry in run.execution_history] == ["n1"]
+
+
+async def test_record_history_repairs_audit_refs_that_lag_durable_audits() -> None:
+    repository = _CollectingAuditRepository()
+    run = _run()
+    run.audit_refs = ["audit:1", "audit:2"]
+    repository.records.append(
+        SimpleNamespace(
+            audit_id=f"{run.run_id}:audit:3",
+            run_id=run.run_id,
+        )
+    )
+    recorder = RuntimeAuditRecorder(audit_repository=repository)
+
+    await recorder.record_history(
+        run,
+        _node(),
+        "n1",
+        {},
+        {"receipt": "durable"},
+        {"operation_replay_suppressed": True},
+    )
+
+    assert run.audit_refs == ["audit:1", "audit:2", "audit:3", "audit:4"]
+    assert repository.records[-1].audit_id == f"{run.run_id}:audit:4"
+    assert run.execution_history[-1].audit_ref == "audit:4"
 
 
 async def test_failed_execution_records_a_normalized_reason_code_for_a_bare_error() -> None:
@@ -305,12 +338,24 @@ async def test_failed_branch_execution_appends_cost_history_without_a_repository
         "cost_measurement": MeasurementState.MEASURED,
     }
 
-    await recorder.record_failed_branch_execution(run, _node(), "n1", {}, error, ctx)
+    started_at = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+    await recorder.record_failed_branch_execution(
+        run,
+        _node(),
+        "n1",
+        {},
+        error,
+        ctx,
+        started_at=started_at,
+    )
 
     (history,) = ctx.execution_history
     assert history.status == "failed"
     assert history.cost_usd == 0.5
     assert history.cost_measurement is MeasurementState.MEASURED
+    assert history.started_at == started_at
+    assert history.completed_at is not None
+    assert history.completed_at >= history.started_at
 
 
 @pytest.mark.parametrize(

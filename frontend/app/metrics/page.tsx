@@ -44,6 +44,7 @@ import {
   type MetricsResponse,
 } from "@/app/lib/api";
 import { getApiBase, getApiKey, isConfigured } from "@/app/lib/config";
+import { ManifestInspector } from "./ManifestInspector";
 
 // --------------------------------------------------------------------------
 // Open-payload normalization — the whole point of this screen's defensiveness.
@@ -146,7 +147,7 @@ export default function MetricsPage() {
   const connected = mounted && isConfigured();
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: "28px 28px 48px" }}>
       <header style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Metrics</h1>
         <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
@@ -170,7 +171,7 @@ function MetricsSection({ connected, mounted }: { connected: boolean; mounted: b
   const view = useMemo(() => readMetrics(metrics.data), [metrics.data]);
 
   return (
-    <section>
+    <section data-evidence-scope="runtime-metrics">
       <SectionHead label="Metrics">
         {connected && (
           <Button
@@ -266,9 +267,9 @@ function StatTile({ label, value }: { label: string; value: string }) {
       <div
         title={value}
         style={{
-          fontFamily: "var(--font-mono)",
+          fontFamily: "var(--font-sans)",
           fontSize: 18,
-          fontWeight: 600,
+          fontWeight: 500,
           color: "var(--text-primary)",
           fontVariantNumeric: "tabular-nums",
           whiteSpace: "nowrap",
@@ -282,11 +283,9 @@ function StatTile({ label, value }: { label: string; value: string }) {
         title={label}
         style={{
           marginTop: 4,
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontFamily: "var(--font-sans)",
+          fontSize: 11,
           fontWeight: 500,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
           color: "var(--text-faint)",
           whiteSpace: "nowrap",
           overflow: "hidden",
@@ -306,14 +305,16 @@ function StatTile({ label, value }: { label: string; value: string }) {
 // forcing horizontal page scroll.
 // --------------------------------------------------------------------------
 
-const MANIFEST_COLS = "minmax(0,1.6fr) minmax(0,1.15fr) minmax(0,0.9fr) minmax(0,1.9fr)";
+const MANIFEST_COLS =
+  "minmax(0,1.6fr) minmax(0,1.15fr) minmax(0,0.9fr) minmax(0,1.9fr) minmax(84px,auto)";
 
 function ManifestsSection({ connected, mounted }: { connected: boolean; mounted: boolean }) {
   const manifests = useLoad<ManifestSummary[]>(listManifests);
   const rows = manifests.data ?? [];
+  const [selectedRef, setSelectedRef] = useState<string | null>(null);
 
   return (
-    <section>
+    <section data-evidence-scope="manifests">
       <SectionHead label="Manifests">
         {connected && (
           <Button
@@ -365,9 +366,17 @@ function ManifestsSection({ connected, mounted }: { connected: boolean; mounted:
             <ColHead>kind</ColHead>
             <ColHead>runtime</ColHead>
             <ColHead>description</ColHead>
+            <span />
           </div>
           {rows.map((m) => (
-            <ManifestRow key={m.manifest_ref} manifest={m} />
+            <ManifestRow
+              key={m.manifest_ref}
+              manifest={m}
+              selected={selectedRef === m.manifest_ref}
+              onInspect={() =>
+                setSelectedRef((current) => current === m.manifest_ref ? null : m.manifest_ref)
+              }
+            />
           ))}
         </Card>
       )}
@@ -385,19 +394,30 @@ function kindTone(kind: string): string {
   return "neutral";
 }
 
-function ManifestRow({ manifest: m }: { manifest: ManifestSummary }) {
+function ManifestRow({
+  manifest: m,
+  selected,
+  onInspect,
+}: {
+  manifest: ManifestSummary;
+  selected: boolean;
+  onInspect: () => void;
+}) {
   const tone = kindTone(m.kind);
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: MANIFEST_COLS,
-        gap: 12,
-        alignItems: "center",
-        padding: "11px 16px",
-        borderBottom: "1px solid var(--hair)",
-      }}
-    >
+    <>
+      <div
+        data-evidence-scope={`manifest-row-${m.manifest_ref}`}
+        style={{
+          display: "grid",
+          gridTemplateColumns: MANIFEST_COLS,
+          gap: 12,
+          alignItems: "center",
+          padding: "11px 16px",
+          borderBottom: "1px solid var(--hair)",
+          background: selected ? "color-mix(in srgb, var(--accent) 5%, transparent)" : undefined,
+        }}
+      >
       {/* name (manifest_ref) */}
       <span
         title={m.manifest_ref}
@@ -429,8 +449,23 @@ function ManifestRow({ manifest: m }: { manifest: ManifestSummary }) {
       </CellText>
 
       {/* description (nullable) */}
-      <CellText title={m.description ?? undefined}>{m.description ?? "—"}</CellText>
-    </div>
+        <CellText title={m.description ?? undefined}>{m.description ?? "—"}</CellText>
+
+        {m.kind === "executable_unit" ? (
+          <Button
+            onClick={onInspect}
+            aria-expanded={selected}
+            aria-label={`${selected ? "Close" : "Inspect"} ${m.manifest_ref}`}
+            style={{ padding: "4px 9px" }}
+          >
+            {selected ? "Close" : "Inspect"}
+          </Button>
+        ) : (
+          <span aria-hidden="true" style={{ color: "var(--text-faint)" }}>—</span>
+        )}
+      </div>
+      {selected && <ManifestInspector manifestRef={m.manifest_ref} />}
+    </>
   );
 }
 

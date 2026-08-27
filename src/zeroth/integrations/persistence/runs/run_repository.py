@@ -154,6 +154,7 @@ def _run_values(run: Run) -> dict[str, object]:
         "metadata": to_json_value(run.metadata),
         "graph_version_ref": run.graph_version_ref,
         "deployment_ref": run.deployment_ref,
+        "parent_run_id": run.parent_run_id,
         "submitted_by": _dump_model(run.submitted_by),
         "thread_id": run.thread_id,
         "current_node_ids": to_json_value(run.current_node_ids),
@@ -391,6 +392,33 @@ class _RunThreadStore:
         if row is None:
             return None
         return row_to_run(row)
+
+    async def merge_terminal_metadata(self, run_id: str, patch: dict[str, Any]) -> Run:
+        """Merge annotation metadata without rewriting execution state.
+
+        Review verdicts interpret an already-terminal outcome. They must not
+        advance the run timestamp, thread, checkpoint, or replay state. The
+        terminal check and metadata-only update share one write transaction so
+        a failed run cannot be requeued between eligibility and annotation.
+        """
+        if not patch:
+            raise ValueError("metadata patch must not be empty")
+        async with self.runs.transaction(write_lock=True) as runs:
+            row = await runs.select_one(where={"run_id": run_id}, for_update=True)
+            if row is None:
+                raise KeyError(run_id)
+            run = row_to_run(row)
+            if run.status not in {RunStatus.COMPLETED, RunStatus.FAILED}:
+                raise ValueError("run is not terminal yet")
+            merged = {**(run.metadata or {}), **patch}
+            await runs.update(
+                {"metadata": to_json_value(merged)},
+                where={"run_id": run_id},
+            )
+        persisted = await self.get_run(run_id)
+        if persisted is None:  # pragma: no cover - row is locked through update
+            raise KeyError(run_id)
+        return persisted
 
     async def get_thread(
         self,
@@ -738,6 +766,36 @@ class _RunThreadStore:
             )
         return [row_to_run(row) for row in rows]
 
+    async def list_runs_for_scope(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Run]:
+        """Return runs across deployments in this repository's tenant scope."""
+        limit = max(1, min(limit, _LIST_RUNS_MAX_LIMIT))
+        offset = max(0, offset)
+        where = {"status": status} if status is not None else None
+        async with self.runs.transaction() as runs:
+            rows = await runs.select(
+                where=where,
+                order_by_desc=("started_at",),
+                limit=limit,
+                offset=offset,
+            )
+        return [row_to_run(row) for row in rows]
+
+    async def list_child_runs(self, parent_run_id: str) -> list[Run]:
+        """Return direct children of one parent within this repository's scope."""
+        async with self.runs.transaction() as runs:
+            rows = await runs.select(
+                where={"parent_run_id": parent_run_id},
+                order_by_desc=("started_at",),
+                limit=_LIST_RUNS_MAX_LIMIT,
+            )
+        return [row_to_run(row) for row in rows]
+
     async def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
         """Return runs that have been dead-lettered (failed with dead_letter reason)."""
         async with self.runs.transaction() as runs:
@@ -764,8 +822,11 @@ class _RunThreadStore:
             "create",
             "get",
             "list_runs",
+            "list_runs_for_scope",
+            "list_child_runs",
             "list_dead_letter_runs",
             "put",
+            "merge_terminal_metadata",
             "transition",
             "record_history",
             "record_condition_result",
@@ -779,6 +840,7 @@ class _RunThreadStore:
             "list_erasable_run_ids",
             "lock_and_recheck_erasable_run",
             "fence_token_snapshot_writes_in_transaction",
+            "schedule_child_approval_continuation_in_transaction",
         }
     ),
 )
@@ -890,6 +952,11 @@ class RunRepository:
         preserves the no-filter behaviour internal callers rely on.
         """
         return await self._store.get_run(run_id)
+
+    @persistence_operation(ResourceOperation.UPDATE)
+    async def merge_terminal_metadata(self, run_id: str, patch: dict[str, Any]) -> Run:
+        """Merge out-of-band metadata without touching execution persistence."""
+        return await self._store.merge_terminal_metadata(run_id, patch)
 
     @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, run_id: str) -> None:
@@ -1064,6 +1131,100 @@ class RunRepository:
         return await self._store.list_runs(
             deployment_ref, status=status, limit=limit, offset=offset
         )
+
+    @persistence_operation(ResourceOperation.ENUMERATE)
+    async def list_runs_for_scope(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Run]:
+        """Return runs across deployments within the bound tenant scope."""
+        return await self._store.list_runs_for_scope(
+            status=status, limit=limit, offset=offset
+        )
+
+    @persistence_operation(ResourceOperation.ENUMERATE)
+    async def list_child_runs(self, parent_run_id: str) -> list[Run]:
+        """Return direct child runs within the bound tenant/workspace scope."""
+        return await self._store.list_child_runs(parent_run_id)
+
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
+    async def schedule_child_approval_continuation_in_transaction(
+        self,
+        connection: AsyncConnection,
+        *,
+        run_id: str,
+        direct_child_run_id: str,
+        approval_id: str,
+        approval_child_run_id: str,
+        approval_child_deployment_ref: str,
+        deployment_ref: str,
+        graph_version_ref: str,
+    ) -> tuple[Run, bool]:
+        """CAS one waiting ancestor back to its deployment worker's queue.
+
+        The parent row and the signed notification audit are committed by the
+        caller through the same ``connection``.  Only the exact paused child
+        named in the parent's durable metadata is eligible; a sibling approval
+        therefore cannot wake or replay this branch.  Repeating the same
+        notification is an idempotent read, while any conflicting marker fails
+        closed.
+        """
+        runs = self._store.runs.in_transaction(connection)
+        row = await runs.select_one(where={"run_id": run_id}, for_update=True)
+        if row is None:
+            raise KeyError(run_id)
+        run = row_to_run(row)
+        self._store.validate_owner(run.tenant_id, run.workspace_id)
+        if run.deployment_ref != deployment_ref or run.graph_version_ref != graph_version_ref:
+            raise ValueError("continuation ancestor does not match the active deployment")
+
+        marker = {
+            "approval_id": approval_id,
+            "child_run_id": approval_child_run_id,
+            "child_deployment_ref": approval_child_deployment_ref,
+        }
+        current_marker = run.metadata.get("child_approval_continuation")
+        if current_marker is not None:
+            if current_marker != marker:
+                raise ValueError("a different child approval continuation is already scheduled")
+            if run.status in {RunStatus.PENDING, RunStatus.RUNNING}:
+                return run, False
+
+        pending_subgraph = run.metadata.get("pending_subgraph")
+        pending_parallel = run.metadata.get("pending_parallel_subgraph")
+        paused_child_id = None
+        if isinstance(pending_subgraph, dict):
+            paused_child_id = pending_subgraph.get("child_run_id")
+        if paused_child_id is None and isinstance(pending_parallel, dict):
+            paused_branch = pending_parallel.get("paused_branch")
+            if isinstance(paused_branch, dict):
+                paused_child_id = paused_branch.get("child_run_id")
+        if run.status is not RunStatus.WAITING_APPROVAL or paused_child_id != direct_child_run_id:
+            raise ValueError("ancestor is not waiting for the approved child continuation")
+
+        run.metadata["child_approval_continuation"] = marker
+        run.status = RunStatus.PENDING
+        run.touch()
+        updated = await runs.update_if_matches(
+            {
+                "status": run.status.value,
+                "metadata": to_json_value(run.metadata),
+                "updated_at": run.updated_at.isoformat(),
+            },
+            where={
+                "run_id": run.run_id,
+                "status": RunStatus.WAITING_APPROVAL.value,
+                "deployment_ref": deployment_ref,
+                "graph_version_ref": graph_version_ref,
+            },
+            returning="run_id",
+        )
+        if not updated:
+            raise ValueError("ancestor continuation lost its compare-and-set claim")
+        return run, True
 
     @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:

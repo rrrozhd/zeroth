@@ -1,12 +1,11 @@
 "use client";
 
-// The console's left navigation rail. 212px, dark chrome, right hairline.
+// The approved Console v2 navigation rail.
 // Brand block at the top, grouped nav in the middle (the Regulus group appears
 // only when the econ plane is actually mounted), and a connection footer that
 // opens the Connect bar.
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV } from "./nav";
@@ -16,7 +15,13 @@ import { useRegulus } from "./regulusContext";
 import { ConnectBar } from "./ConnectBar";
 import { StatusDot } from "./primitives";
 
-export function Sidebar({ pendingApprovals = 0 }: { pendingApprovals?: number }) {
+export function Sidebar({
+  collapsed,
+  pendingApprovals = 0,
+}: {
+  collapsed: boolean;
+  pendingApprovals?: number;
+}) {
   const raw = usePathname() ?? "/";
   // Normalize the trailing slash (next.config sets trailingSlash: true) so exact
   // matches against the hrefs in nav.ts work.
@@ -35,107 +40,98 @@ export function Sidebar({ pendingApprovals = 0 }: { pendingApprovals?: number })
   }, []);
 
   return (
-    <aside
-      style={{
-        width: 212,
-        minWidth: 212,
-        height: "100%",
-        background: "var(--bg-chrome)",
-        borderRight: "1px solid var(--hair)",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className={`console-sidebar-frame${collapsed ? " is-collapsed" : ""}`}>
+      <aside
+        aria-label="Primary navigation"
+        aria-hidden={collapsed}
+        className="console-sidebar"
+        style={{
+          height: "100%",
+          background: "var(--bg-chrome)",
+          borderRight: "1px solid var(--hair)",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
       {/* Brand */}
-      <div style={{ padding: "16px 16px 12px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* next/image so the src is prefixed with the configured basePath
-              (/console); a plain <img> would not be and would 404. */}
-          <Image
-            src="/zeroth-mark.svg"
-            alt=""
-            width={14}
-            height={14}
-            style={{ display: "block", borderRadius: 3 }}
-          />
+      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "16px 16px 18px" }}>
           <span
+            aria-hidden
             style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 15,
-              fontWeight: 600,
-              color: "var(--text-primary)",
+              display: "inline-grid",
+              width: 22,
+              height: 22,
+              placeItems: "center",
+              borderRadius: 6,
+              background: "var(--text-primary)",
             }}
           >
-            zeroth<span style={{ color: "var(--text-faint)" }}>/core</span>
+            <svg viewBox="0 0 24 24" style={{ width: 13, height: 13 }}>
+              <circle cx="12" cy="12" r="7" fill="none" stroke="#f8f8fb" strokeWidth="2" />
+              <line x1="19.5" y1="4.5" x2="4.5" y2="19.5" stroke="#f8f8fb" strokeWidth="2" strokeLinecap="round" />
+            </svg>
           </span>
-        </div>
-        <div
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            Zeroth
+          </span>
+        <span
+          className="console-sidebar-version"
           style={{
-            fontFamily: "var(--font-mono)",
+            marginLeft: "auto",
             fontSize: 10.5,
             color: "var(--text-faint)",
-            marginTop: 6,
-            paddingLeft: 22,
           }}
         >
-          v{VERSION} · console
-        </div>
+          v{VERSION}
+        </span>
       </div>
 
       {/* Nav groups */}
-      <nav style={{ flex: 1, overflowY: "auto", padding: "4px 10px 12px" }}>
+      <nav
+        className="console-sidebar-nav"
+        style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 18 }}
+      >
         {NAV.map((group) => {
           if (group.gated === "regulus" && regulus !== "enabled") return null;
           return (
-            <div key={group.heading} style={{ marginBottom: 14 }}>
+            <div key={group.heading}>
               <div
                 style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
+                  fontSize: 11,
+                  fontWeight: 500,
                   color: "var(--text-faint)",
-                  padding: "4px 8px",
+                  padding: "0 8px 5px",
                 }}
               >
                 {group.heading}
               </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
               {group.items.map((item) => {
                 const active = pathname === item.href;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 9,
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      textDecoration: "none",
-                      background: active ? "rgba(94,234,212,0.09)" : "transparent",
-                      color: active ? "var(--accent)" : "var(--text-secondary)",
-                    }}
+                    className={`console-sidebar-link${active ? " is-active" : ""}`}
+                    aria-current={active ? "page" : undefined}
                   >
-                    <span
-                      aria-hidden
-                      style={{
-                        display: "inline-block",
-                        width: 5,
-                        height: 5,
-                        borderRadius: 1,
-                        background: active ? "var(--accent)" : "var(--text-faint)",
-                      }}
-                    />
-                    <span style={{ fontSize: 13, flex: 1 }}>{item.label}</span>
+                    <span className="console-sidebar-link-label">
+                      {item.label}
+                    </span>
                     {item.badge === "approvals" && pendingApprovals > 0 && (
                       <span
                         style={{
-                          fontFamily: "var(--font-mono)",
+                          fontVariantNumeric: "tabular-nums",
                           fontSize: 10.5,
                           fontWeight: 600,
-                          color: "var(--warning)",
+                            color: "var(--warning)",
                         }}
                       >
                         {pendingApprovals}
@@ -144,6 +140,7 @@ export function Sidebar({ pendingApprovals = 0 }: { pendingApprovals?: number })
                   </Link>
                 );
               })}
+              </div>
             </div>
           );
         })}
@@ -160,7 +157,7 @@ export function Sidebar({ pendingApprovals = 0 }: { pendingApprovals?: number })
           gap: 8,
           width: "100%",
           textAlign: "left",
-          padding: "10px 14px",
+          padding: "12px 16px",
           background: "transparent",
           border: "none",
           borderTop: "1px solid var(--hair)",
@@ -172,9 +169,8 @@ export function Sidebar({ pendingApprovals = 0 }: { pendingApprovals?: number })
           <span
             style={{
               display: "block",
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              color: "var(--text-secondary)",
+              fontSize: 12,
+              color: "var(--text-muted)",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -182,20 +178,12 @@ export function Sidebar({ pendingApprovals = 0 }: { pendingApprovals?: number })
           >
             {conn.host}
           </span>
-          <span
-            style={{
-              display: "block",
-              fontFamily: "var(--font-mono)",
-              fontSize: 10.5,
-              color: "var(--text-faint)",
-            }}
-          >
-            {conn.key.slice(0, 13)}••••
-          </span>
         </span>
       </button>
 
-      {connectOpen && <ConnectBar onClose={() => setConnectOpen(false)} />}
-    </aside>
+        {connectOpen && <ConnectBar onClose={() => setConnectOpen(false)} />}
+      </aside>
+
+    </div>
   );
 }

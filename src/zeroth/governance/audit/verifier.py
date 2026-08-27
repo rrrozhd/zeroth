@@ -131,7 +131,11 @@ class AuditContinuityVerifier:
 
         Chains are per-run: each run is ordered and verified independently,
         with per-run signature states aggregated into one three-state result.
-        The first failing run short-circuits into a failed deployment report.
+        Verification loads the complete tenant/workspace-scoped run chain because
+        legacy service-request identities were shared across deployments.  The
+        response count remains the number of records attributed to this
+        deployment; no records from another deployment are returned.  The first
+        failing run short-circuits into a failed deployment report.
         """
         scope = {}
         if tenant_id is not None or workspace_scoped:
@@ -156,8 +160,9 @@ class AuditContinuityVerifier:
         total_unsigned = 0
         signature_states: list[bool | None] = []
         for run_id in sorted(by_run):
+            run_records = await self._repository.list_by_run(run_id, **scope)
             try:
-                ordered = order_audit_records(by_run[run_id], strict=True)
+                ordered = order_audit_records(run_records, strict=True)
             except AuditChainOrderingError as exc:
                 return AuditContinuityReport(
                     scope=f"deployment:{deployment_ref}",
@@ -170,8 +175,11 @@ class AuditContinuityVerifier:
                 scope=f"run:{run_id}",
                 records=ordered,
             )
-            total += report.record_count
-            total_unsigned += report.unsigned_record_count
+            deployment_records = by_run[run_id]
+            total += len(deployment_records)
+            total_unsigned += sum(
+                record.signing_key_id is None for record in deployment_records
+            )
             signature_states.append(report.signature_verified)
             if not report.verified:
                 return AuditContinuityReport(

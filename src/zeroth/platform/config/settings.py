@@ -238,6 +238,11 @@ class SecretsSettings(BaseModel):
     # ``{"openai": "llm.openai_prod"}``. When a provider prefix is absent the
     # adapter derives the logical name as ``llm.<provider>``.
     llm_key_map: dict[str, str] = Field(default_factory=dict)
+    # Trusted process-level provider endpoints. This supports private gateways
+    # and controlled local evaluation sinks without accepting request-supplied
+    # URLs. The provider adapter rejects non-HTTP URLs, URL credentials,
+    # fragments, and queries before constructing a client.
+    llm_base_url_map: dict[str, str] = Field(default_factory=dict)
 
 
 class ProvenanceSigningSettings(BaseModel):
@@ -296,9 +301,9 @@ class RetentionSettings(BaseModel):
     enabled: bool = False
     # Interval, not a persisted TTL — stays a positive float.
     worker_poll_interval: float = Field(default=3600.0, gt=0)
-    # Whole positive seconds, like the per-tenant policy TTLs.
-    default_audit_ttl_seconds: int | None = Field(default=None, ge=1)
-    default_run_ttl_seconds: int | None = Field(default=None, ge=1)
+    # Matches the PostgreSQL INTEGER columns created by service migration 008.
+    default_audit_ttl_seconds: int | None = Field(default=None, ge=1, le=2_147_483_647)
+    default_run_ttl_seconds: int | None = Field(default=None, ge=1, le=2_147_483_647)
 
 
 class PolicySettings(BaseModel):
@@ -452,6 +457,7 @@ class ZerothSettings(BaseSettings):
         extra="ignore",
     )
 
+    deployment_mode: Literal["local", "production"] = "local"
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
@@ -501,7 +507,7 @@ ZerothSettings.__signature__ = inspect.signature(ZerothSettings).replace(
     parameters=[
         parameter
         for name, parameter in _settings_parameters.items()
-        if name not in {"approval_notifications", "langgraph_gateway"}
+        if name not in {"approval_notifications", "deployment_mode", "langgraph_gateway"}
     ]
 )
 

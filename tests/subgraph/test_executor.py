@@ -9,6 +9,7 @@ import pytest
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
+    ExecutionSettings,
     Graph,
     SubgraphNode,
 )
@@ -117,6 +118,18 @@ def _make_orchestrator(
     orch.run_repository.put = AsyncMock(side_effect=lambda r: r)
     orch.run_repository.write_checkpoint = AsyncMock()
     orch._entry_step = MagicMock(return_value=entry_step)
+    orch._initial_metadata = MagicMock(
+        side_effect=lambda graph, payload: {
+            "graph_id": graph.graph_id,
+            "graph_name": graph.name,
+            "edge_visit_counts": {},
+            "path": [],
+            "audits": {},
+            "initial_input": dict(payload),
+            "node_payloads": {},
+            "node_tags": {},
+        }
+    )
 
     if child_run_result is not None:
         orch._drive = AsyncMock(return_value=child_run_result)
@@ -266,6 +279,114 @@ class TestSubgraphExecutorHappyPath:
         assert child_run_arg.metadata["parent_node_id"] == "s1"
 
     @pytest.mark.asyncio
+    async def test_execute_child_run_inherits_strict_campaign_identity(self) -> None:
+        child_graph = _make_child_graph()
+        deployment = _make_child_deployment(child_graph)
+        resolver = MagicMock(spec=SubgraphResolver)
+        resolver.resolve = AsyncMock(return_value=(child_graph, deployment))
+        executor = SubgraphExecutor(resolver=resolver)
+        orch = _make_orchestrator()
+        parent_graph = _make_parent_graph()
+        parent_run = _make_parent_run(
+            metadata={"campaign_id": "campaign-live-1", "campaign_strict": True}
+        )
+
+        await executor.execute(
+            orchestrator=orch,
+            parent_graph=parent_graph,
+            parent_run=parent_run,
+            node=parent_graph.nodes[0],
+            node_id="s1",
+            input_payload={"x": 1},
+            step_tracker=None,
+        )
+
+        child_run = orch.run_repository.create.call_args[0][0]
+        assert child_run.metadata["campaign_id"] == "campaign-live-1"
+        assert child_run.metadata["campaign_strict"] is True
+
+    @pytest.mark.asyncio
+    async def test_execute_token_child_seeds_structured_initial_input_without_legacy_queue(
+        self,
+    ) -> None:
+        child_graph = _make_child_graph()
+        deployment = _make_child_deployment(child_graph)
+        resolver = MagicMock(spec=SubgraphResolver)
+        resolver.resolve = AsyncMock(return_value=(child_graph, deployment))
+
+        executor = SubgraphExecutor(resolver=resolver)
+        orch = _make_orchestrator()
+        parent_graph = _make_parent_graph()
+        parent_run = _make_parent_run()
+
+        await executor.execute(
+            orchestrator=orch,
+            parent_graph=parent_graph,
+            parent_run=parent_run,
+            node=parent_graph.nodes[0],
+            node_id="s1",
+            input_payload={"index": 3, "value": "deterministic-item-3"},
+            step_tracker=None,
+        )
+
+        child_run = orch.run_repository.create.call_args.args[0]
+        assert child_run.metadata["initial_input"] == {
+            "index": 3,
+            "value": "deterministic-item-3",
+        }
+        assert child_run.metadata["node_payloads"] == {}
+        assert child_run.pending_node_ids == []
+
+    @pytest.mark.asyncio
+    async def test_execute_legacy_child_preserves_entry_queue_and_payload(self) -> None:
+        child_graph = _make_child_graph().model_copy(
+            update={"execution_settings": ExecutionSettings(sequential_join_enabled=False)}
+        )
+        deployment = _make_child_deployment(child_graph)
+        resolver = MagicMock(spec=SubgraphResolver)
+        resolver.resolve = AsyncMock(return_value=(child_graph, deployment))
+
+        executor = SubgraphExecutor(resolver=resolver)
+        orch = _make_orchestrator()
+        orch._initial_metadata = MagicMock(
+            return_value={
+                "graph_id": child_graph.graph_id,
+                "graph_name": child_graph.name,
+                "edge_visit_counts": {},
+                "path": [],
+                "audits": {},
+                "node_payloads": {
+                    "subgraph:child-g:1:c1": {
+                        "index": 4,
+                        "value": "deterministic-item-4",
+                    }
+                },
+            }
+        )
+        parent_graph = _make_parent_graph()
+        parent_run = _make_parent_run()
+
+        await executor.execute(
+            orchestrator=orch,
+            parent_graph=parent_graph,
+            parent_run=parent_run,
+            node=parent_graph.nodes[0],
+            node_id="s1",
+            input_payload={"index": 4, "value": "deterministic-item-4"},
+            step_tracker=None,
+        )
+
+        child_run = orch.run_repository.create.call_args.args[0]
+        assert child_run.pending_node_ids == ["subgraph:child-g:1:c1"]
+        assert child_run.metadata["node_payloads"] == {
+            "subgraph:child-g:1:c1": {
+                "index": 4,
+                "value": "deterministic-item-4",
+            }
+        }
+        assert "initial_input" not in child_run.metadata
+
+    @pytest.mark.asyncio
     async def test_execute_returns_child_run(self) -> None:
         child_graph = _make_child_graph()
         deployment = _make_child_deployment(child_graph)
@@ -408,9 +529,7 @@ class TestSubgraphExecutorCycleDetection:
         executor = SubgraphExecutor(resolver=resolver)
         orch = _make_orchestrator()
         parent_graph = _make_parent_graph()
-        parent_run = _make_parent_run(
-            metadata={"visited_subgraph_refs": ["child-g"]}
-        )
+        parent_run = _make_parent_run(metadata={"visited_subgraph_refs": ["child-g"]})
         node = parent_graph.nodes[0]
 
         with pytest.raises(SubgraphCycleError, match="circular subgraph reference"):
@@ -434,9 +553,7 @@ class TestSubgraphExecutorCycleDetection:
         executor = SubgraphExecutor(resolver=resolver)
         orch = _make_orchestrator()
         parent_graph = _make_parent_graph()
-        parent_run = _make_parent_run(
-            metadata={"visited_subgraph_refs": ["other-graph"]}
-        )
+        parent_run = _make_parent_run(metadata={"visited_subgraph_refs": ["other-graph"]})
         node = parent_graph.nodes[0]
 
         # Should not raise
@@ -461,9 +578,7 @@ class TestSubgraphExecutorCycleDetection:
         executor = SubgraphExecutor(resolver=resolver)
         orch = _make_orchestrator()
         parent_graph = _make_parent_graph()
-        parent_run = _make_parent_run(
-            metadata={"visited_subgraph_refs": ["other-graph"]}
-        )
+        parent_run = _make_parent_run(metadata={"visited_subgraph_refs": ["other-graph"]})
         node = parent_graph.nodes[0]
 
         await executor.execute(

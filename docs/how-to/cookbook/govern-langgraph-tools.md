@@ -261,8 +261,32 @@ governed = govern_tools(
 The originating LangGraph `tool_call_id`, run identity, tool fingerprint, and
 argument fingerprint form one logical action. The first worker claims it. A
 concurrent duplicate raises `DuplicateToolExecutionError` and executes zero
-additional side effects; a completed duplicate receives the stored result. A
-body failure records `FAILED` and permits an explicit redelivery.
+additional side effects; a completed duplicate receives the stored result. Once
+dispatch begins, a timeout, cancellation, or untyped tool exception records
+`AMBIGUOUS`, closes the claim, and refuses automatic redelivery. Only a failure
+positively identified before dispatch records `FAILED` and permits retry.
+
+`AMBIGUOUS` is deliberately not an at-most-once claim. An external effect may
+have landed before its receipt was stored. Reconcile it only after checking the
+downstream system, and always retain the incident or operator reference:
+
+```python
+# A downstream receipt proves the effect completed. Later deliveries replay it.
+actions.reconcile_completed(
+    action_key,
+    {"charge_id": "ch_123", "status": "captured"},
+    operator_ref="incident-42",
+)
+
+# A downstream idempotency lookup proves no effect occurred. This alone makes
+# a later delivery eligible for a fresh claim.
+actions.reconcile_no_effect(action_key, operator_ref="incident-43")
+```
+
+Never use `reconcile_no_effect` merely because no receipt is visible locally.
+The operator is asserting verified external absence; a wrong assertion can
+duplicate an irreversible effect. Conflicting receipts and reconciliation of a
+non-ambiguous record fail closed.
 
 This store is opt-in because it changes retry behavior and requires JSON-shaped
 tool results for durable replay. Its path must be stable and shared by every
@@ -303,8 +327,8 @@ than optional. The public surface is:
 | Connect to Zeroth | `LangGraphGatewayClient`, `LangGraphGatewayError` |
 | Describe a call | `ToolGovernanceContext`, `ToolIdentity`, `ToolAction`, `SideEffectClass` |
 | Decide a call | `ToolDecisionClient`, `ToolDecision`, `ToolDecisionKind`, `FailClosedToolDecisionClient`, `UnknownSideEffectPolicy`, `ToolAuditSubmitter` |
-| Resume approvals | `SQLiteApprovalRepository`, `ApprovalCoordinator`, `ApprovalIntent`, `ApprovalResolution`, `ApprovalDecision`, `ApprovalState`, `ApprovalRecord`, `ApprovalTransition` |
-| Fence side effects | `SQLiteActionExecutionRepository`, `ActionExecutionRecord`, `ActionExecutionState` |
+| Resume approvals | `ApprovalRepository`, `SQLiteApprovalRepository`, `ApprovalCoordinator`, `ApprovalIntent`, `ApprovalResolution`, `ApprovalDecision`, `ApprovalState`, `ApprovalRecord`, `ApprovalTransition` |
+| Fence side effects | `ActionExecutionRepository`, `SQLiteActionExecutionRepository`, `ActionExecutionClaim`, `ActionExecutionRecord`, `ActionExecutionState`, `ReconciliationRecord` |
 | Inspect usage | `UsageObservation`, `GovernedGraph.usage_observations` |
 | Typed refusals | `ToolGovernanceError`, `PolicyViolation`, `GovernanceContextError`, `UnstableToolIdentityError`, `ApprovalRequiresThreadError`, `DuplicateToolExecutionError` |
 | Read the surface | `ToolInventory`, `ToolInventoryEntry`, `InventoryCoverage`, `ToolInventoryMatch`, `ToolEnforcementReport`, `record_tool_inventory`, `report_tool_enforcement`, `match_tool_inventory`, `attest_complete_inventory` |

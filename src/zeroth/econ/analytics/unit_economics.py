@@ -80,6 +80,10 @@ class WorkflowEconomics(BaseModel):
     cost_per_successful_run_usd: float | None = None
     # Spend on failed runs -- money that bought no usable outcome.
     failure_tax_usd: float = 0.0
+    # Locally priced estimates remain separate from provider-measured dollars.
+    estimated_terminal_cost_usd: float = 0.0
+    estimated_cost_per_successful_run_usd: float | None = None
+    estimated_failure_tax_usd: float = 0.0
 
 
 class TenantEconomics(BaseModel):
@@ -99,6 +103,9 @@ class TenantEconomics(BaseModel):
     terminal_cost_usd: float = 0.0
     cost_per_successful_run_usd: float | None = None
     failure_tax_usd: float = 0.0
+    estimated_terminal_cost_usd: float = 0.0
+    estimated_cost_per_successful_run_usd: float | None = None
+    estimated_failure_tax_usd: float = 0.0
 
 
 class UnitEconomicsReport(BaseModel):
@@ -133,9 +140,22 @@ class UnitEconomicsReport(BaseModel):
     # Fraction of *terminal* spend that bought no usable outcome.
     failure_tax_ratio: float = 0.0
 
+    # Local model-price estimates are a distinct provenance channel. They are never
+    # folded into the measured fields above, even when both appear in one window.
+    estimated_total_cost_usd: float = 0.0
+    estimated_terminal_cost_usd: float = 0.0
+    estimated_cost_on_successful_usd: float = 0.0
+    estimated_cost_on_failed_usd: float = 0.0
+    estimated_cost_on_in_flight_usd: float = 0.0
+    estimated_cost_per_successful_run_usd: float | None = None
+    estimated_mean_cost_per_successful_run_usd: float | None = None
+    estimated_failure_tax_usd: float = 0.0
+    estimated_failure_tax_ratio: float = 0.0
+
     # How many in-window runs had any attributed cost -- 0 while window_runs > 0 means
     # cost tracking is almost certainly off.
     runs_with_cost: int = 0
+    runs_with_estimated_cost: int = 0
 
     by_workflow: list[WorkflowEconomics] = Field(default_factory=list)
     by_tenant: list[TenantEconomics] = Field(default_factory=list)
@@ -163,44 +183,80 @@ def unit_economics(
     # Per-run spend, exactly as waste.analyze_run attributes it: sum of the run's own
     # audit records' cost_usd (None -> 0).
     cost_by_run: dict[str, float] = {}
+    estimated_cost_by_run: dict[str, float] = {}
     for record in audits:
         cost_by_run[record.run_id] = cost_by_run.get(record.run_id, 0.0) + (record.cost_usd or 0.0)
+        estimated_cost_by_run[record.run_id] = estimated_cost_by_run.get(
+            record.run_id, 0.0
+        ) + (record.estimated_cost_usd or 0.0)
 
     top_level = [r for r in runs if r.parent_run_id is None]
 
-    successful = failed = in_flight = runs_with_cost = 0
+    successful = failed = in_flight = runs_with_cost = runs_with_estimated_cost = 0
     cost_ok = cost_bad = cost_flight = 0.0
+    estimated_cost_ok = estimated_cost_bad = estimated_cost_flight = 0.0
     # key -> [runs, successful, failed, terminal_cost, successful_cost, failed_cost]
     wf: dict[str, list[float]] = {}
     tn: dict[str, list[float]] = {}
+    estimated_wf: dict[str, list[float]] = {}
+    estimated_tn: dict[str, list[float]] = {}
 
     for run in top_level:
         status = _status(run)
         run_cost = cost_by_run.get(run.run_id, 0.0)
+        estimated_run_cost = estimated_cost_by_run.get(run.run_id, 0.0)
         if run_cost > 0:
             runs_with_cost += 1
+        if estimated_run_cost > 0:
+            runs_with_estimated_cost += 1
 
         _bump(wf.setdefault(run.workflow_name, [0.0] * 6), status, run_cost)
         _bump(tn.setdefault(run.tenant_id, [0.0] * 6), status, run_cost)
+        _bump(
+            estimated_wf.setdefault(run.workflow_name, [0.0] * 6),
+            status,
+            estimated_run_cost,
+        )
+        _bump(
+            estimated_tn.setdefault(run.tenant_id, [0.0] * 6),
+            status,
+            estimated_run_cost,
+        )
 
         if status == _SUCCESS:
             successful += 1
             cost_ok += run_cost
+            estimated_cost_ok += estimated_run_cost
         elif status == _FAILED:
             failed += 1
             cost_bad += run_cost
+            estimated_cost_bad += estimated_run_cost
         else:
             in_flight += 1
             cost_flight += run_cost
+            estimated_cost_flight += estimated_run_cost
 
     terminal_runs = successful + failed
     terminal_cost = cost_ok + cost_bad
     total_cost = terminal_cost + cost_flight
+    estimated_terminal_cost = estimated_cost_ok + estimated_cost_bad
+    estimated_total_cost = estimated_terminal_cost + estimated_cost_flight
 
     cost_per_success = round(terminal_cost / successful, 6) if successful else None
     mean_per_success = round(cost_ok / successful, 6) if successful else None
     success_rate = round(successful / terminal_runs, 4) if terminal_runs else 0.0
     failure_tax_ratio = round(cost_bad / terminal_cost, 4) if terminal_cost > 0 else 0.0
+    estimated_cost_per_success = (
+        round(estimated_terminal_cost / successful, 6) if successful else None
+    )
+    estimated_mean_per_success = (
+        round(estimated_cost_ok / successful, 6) if successful else None
+    )
+    estimated_failure_tax_ratio = (
+        round(estimated_cost_bad / estimated_terminal_cost, 4)
+        if estimated_terminal_cost > 0
+        else 0.0
+    )
 
     by_workflow = [
         WorkflowEconomics(
@@ -212,10 +268,18 @@ def unit_economics(
             terminal_cost_usd=round(a[3], 6),
             cost_per_successful_run_usd=round(a[3] / a[1], 6) if a[1] else None,
             failure_tax_usd=round(a[5], 6),
+            estimated_terminal_cost_usd=round(estimated_wf[name][3], 6),
+            estimated_cost_per_successful_run_usd=(
+                round(estimated_wf[name][3] / a[1], 6) if a[1] else None
+            ),
+            estimated_failure_tax_usd=round(estimated_wf[name][5], 6),
         )
         for name, a in wf.items()
     ]
-    by_workflow.sort(key=lambda w: w.terminal_cost_usd, reverse=True)
+    by_workflow.sort(
+        key=lambda w: max(w.terminal_cost_usd, w.estimated_terminal_cost_usd),
+        reverse=True,
+    )
     by_workflow = by_workflow[:workflow_limit]
 
     by_tenant = [
@@ -228,10 +292,18 @@ def unit_economics(
             terminal_cost_usd=round(a[3], 6),
             cost_per_successful_run_usd=round(a[3] / a[1], 6) if a[1] else None,
             failure_tax_usd=round(a[5], 6),
+            estimated_terminal_cost_usd=round(estimated_tn[name][3], 6),
+            estimated_cost_per_successful_run_usd=(
+                round(estimated_tn[name][3] / a[1], 6) if a[1] else None
+            ),
+            estimated_failure_tax_usd=round(estimated_tn[name][5], 6),
         )
         for name, a in tn.items()
     ]
-    by_tenant.sort(key=lambda t: t.terminal_cost_usd, reverse=True)
+    by_tenant.sort(
+        key=lambda t: max(t.terminal_cost_usd, t.estimated_terminal_cost_usd),
+        reverse=True,
+    )
     by_tenant = by_tenant[:tenant_limit]
 
     report = UnitEconomicsReport(
@@ -249,7 +321,17 @@ def unit_economics(
         mean_cost_per_successful_run_usd=mean_per_success,
         failure_tax_usd=round(cost_bad, 6),
         failure_tax_ratio=failure_tax_ratio,
+        estimated_total_cost_usd=round(estimated_total_cost, 6),
+        estimated_terminal_cost_usd=round(estimated_terminal_cost, 6),
+        estimated_cost_on_successful_usd=round(estimated_cost_ok, 6),
+        estimated_cost_on_failed_usd=round(estimated_cost_bad, 6),
+        estimated_cost_on_in_flight_usd=round(estimated_cost_flight, 6),
+        estimated_cost_per_successful_run_usd=estimated_cost_per_success,
+        estimated_mean_cost_per_successful_run_usd=estimated_mean_per_success,
+        estimated_failure_tax_usd=round(estimated_cost_bad, 6),
+        estimated_failure_tax_ratio=estimated_failure_tax_ratio,
         runs_with_cost=runs_with_cost,
+        runs_with_estimated_cost=runs_with_estimated_cost,
         by_workflow=by_workflow,
         by_tenant=by_tenant,
     )
@@ -262,16 +344,36 @@ def _note(report: UnitEconomicsReport) -> str:
     """Honest one-line reading of the report -- never oversell, never fake a number."""
     if report.window_runs == 0:
         return "No runs on record yet — invoke a workflow to build unit-economics history."
-    if report.runs_with_cost == 0:
+    if report.runs_with_cost == 0 and report.runs_with_estimated_cost == 0:
         return (
             f"The last {report.window_runs} run(s) are recorded but none has any attributed "
             "cost — they made no priced model calls (tool/code-only nodes, an unpriced model, "
             "or a run that failed before any spend)."
         )
     if report.successful_runs == 0:
+        estimate = (
+            f" Estimated failure tax is ${report.estimated_failure_tax_usd:.4f} from "
+            "local model-price estimates, not measured provider spend."
+            if report.estimated_failure_tax_usd > 0
+            else ""
+        )
         return (
             f"None of the last {report.window_runs} run(s) succeeded — "
             "cost per successful outcome is undefined until at least one succeeds."
+            f"{estimate}"
+        )
+    if report.runs_with_cost == 0 and report.runs_with_estimated_cost > 0:
+        tax = (
+            f" Estimated failure tax is ${report.estimated_failure_tax_usd:.4f} "
+            f"({report.estimated_failure_tax_ratio:.0%} of terminal estimated spend)."
+            if report.estimated_failure_tax_usd > 0
+            else ""
+        )
+        return (
+            f"{report.success_rate:.0%} of terminal runs succeeded; local model-price "
+            f"estimated cost puts each successful outcome at "
+            f"~${report.estimated_cost_per_successful_run_usd:.4f}.{tax} "
+            "These estimates are not measured provider dollars."
         )
     tax = ""
     if report.failure_tax_usd > 0:
@@ -279,7 +381,13 @@ def _note(report: UnitEconomicsReport) -> str:
             f" ${report.failure_tax_usd:.4f} ({report.failure_tax_ratio:.0%} of terminal "
             "spend) was spent on failed runs."
         )
+    estimate = ""
+    if report.runs_with_estimated_cost > 0:
+        estimate = (
+            f" Local model-price estimates add ${report.estimated_terminal_cost_usd:.4f} "
+            "of terminal estimated spend; estimates are not measured provider dollars."
+        )
     return (
         f"{report.success_rate:.0%} of terminal runs succeeded; each successful outcome "
-        f"costs ~${report.cost_per_successful_run_usd:.4f} fully loaded.{tax}"
+        f"costs ~${report.cost_per_successful_run_usd:.4f} fully loaded.{tax}{estimate}"
     )

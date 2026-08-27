@@ -158,9 +158,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 else:
                     claim = None
                 if claim is not None:
-                    terminal = await self._dispatch_or_settle_parallel_failure(
-                        graph, run, claim
-                    )
+                    terminal = await self._dispatch_or_settle_parallel_failure(graph, run, claim)
                     if terminal is not None:
                         return terminal
                     continue
@@ -491,6 +489,22 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         await self.driver.run_repository.put(run)
         await self.driver.run_repository.write_checkpoint(run)
         node_started_at = datetime.now(UTC)
+        pending_parallel = run.metadata.get("pending_parallel_subgraph")
+        if (
+            getattr(node, "parallel_config", None) is not None
+            and not envelope.fork_lineage
+            and isinstance(pending_parallel, Mapping)
+            and pending_parallel.get("node_id") == node.node_id
+        ):
+            return await self._resume_parallel_claim(
+                graph,
+                run,
+                claim,
+                node,
+                input_payload,
+                pending_parallel,
+                node_started_at,
+            )
         approval_result = run.metadata.get("token_approval_result")
         if isinstance(node, HumanApprovalNode) and approval_result is None:
             approval_id = None
@@ -560,6 +574,9 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 if side_effect_gate is not None:
                     return side_effect_gate
                 if isinstance(node, SubgraphNode):
+                    branch_context = (
+                        self._branch_context(run, envelope) if envelope.fork_lineage else None
+                    )
                     subgraph_result = await dispatch_subgraph_node(
                         executor=self.driver.subgraph_executor,
                         orchestrator=self.driver.orchestrator,
@@ -567,6 +584,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         parent_run=run,
                         node=node,
                         input_payload=input_payload,
+                        branch_context=branch_context,
                         # Explicit, not defaulted: token scheduling owns the
                         # aggregate work queue (see ``_drive``), so there is no
                         # step tracker on this path to hand down.
@@ -590,6 +608,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         input_payload,
                         exc,
                         branch_context,
+                        started_at=node_started_at,
                     )
                     fork_id = envelope.fork_lineage[-1].fork_id
                     fork = next(item for item in claim.snapshot.forks if item.fork_id == fork_id)
@@ -660,6 +679,18 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 return await self.driver._settle_failed_dispatch(
                     run, node, node.node_id, input_payload, exc, node_started_at
                 )
+
+        if getattr(node, "parallel_config", None) is not None and not envelope.fork_lineage:
+            return await self._execute_parallel_claim(
+                graph,
+                run,
+                claim,
+                node,
+                input_payload,
+                output_data,
+                audit_record,
+                node_started_at,
+            )
 
         lifecycle_stop = await self._settle_cancellation_requests(run)
         if lifecycle_stop is not None:
@@ -1005,6 +1036,238 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             # already-owned structured work must continue until its durable
             # fork/join/loop frontier is settled.
             return None
+        run.status = RunStatus.RUNNING
+        run.current_node_ids = []
+        run.current_step = None
+        run.touch()
+        await self.driver.run_repository.put(run)
+        await self.driver.run_repository.write_checkpoint(run)
+        await self.driver.refresh_artifact_ttls(run)
+        return None
+
+    async def _execute_parallel_claim(
+        self,
+        graph: Graph,
+        run: Run,
+        claim: DispatchClaim,
+        node: Any,
+        input_payload: dict[str, Any],
+        output_data: dict[str, Any],
+        audit_record: dict[str, Any],
+        node_started_at: datetime,
+    ) -> Run | None:
+        """Run sibling work concurrently without sharing mutable parent state.
+
+        The token snapshot remains the durable owner of one source dispatch.
+        Branch execution is delegated to the existing isolation engine, which
+        owns bounded concurrency, per-branch history/audit state, child Runs,
+        timeout/failure semantics, and deterministic branch-index fan-in.
+        """
+        try:
+            with start_span(
+                "zeroth.fanout",
+                {"zeroth.node_id": node.node_id, "zeroth.run_id": run.run_id},
+            ):
+                fan_in = await self.driver.parallel_runtime.execute_fan_out(
+                    graph,
+                    run,
+                    node,
+                    node.node_id,
+                    input_payload,
+                    output_data,
+                    audit_record,
+                    node.parallel_config,
+                    step_tracker=None,
+                )
+        except ParallelExecutionError:
+            # The branch engine has already preserved any completed/failed
+            # branch history. Persist the source hop exactly once before the
+            # outer token failure path cancels the snapshot and fails the run.
+            await self.driver.audit_recorder.record_history(
+                run,
+                node,
+                node.node_id,
+                input_payload,
+                output_data,
+                audit_record,
+                started_at=node_started_at,
+            )
+            self._increment_node_visit(run, node.node_id, claim.dispatch.token)
+            raise
+        if fan_in.pause_state is not None:
+            return await self.driver.parallel_runtime.handle_subgraph_pause(
+                run,
+                node,
+                node.node_id,
+                input_payload,
+                output_data,
+                fan_in,
+            )
+        return await self._settle_parallel_fan_in(
+            graph,
+            run,
+            claim,
+            node,
+            input_payload,
+            output_data,
+            audit_record,
+            fan_in,
+            node_started_at,
+        )
+
+    async def _resume_parallel_claim(
+        self,
+        graph: Graph,
+        run: Run,
+        claim: DispatchClaim,
+        node: Any,
+        input_payload: dict[str, Any],
+        pending: Mapping[str, Any],
+        node_started_at: datetime,
+    ) -> Run | None:
+        """Resume only the paused child owned by this recovered source claim."""
+        fan_in = await self.driver.parallel_runtime.execute_fan_out_resume(
+            graph,
+            run,
+            node,
+            node.node_id,
+            dict(pending),
+            step_tracker=None,
+        )
+        source_output = dict(pending.get("split_input", input_payload))
+        source_input = dict(pending.get("source_input", input_payload))
+        source_audit = dict(pending.get("source_audit") or {"resumed_parallel_fan_out": True})
+        if fan_in.pause_state is not None:
+            return await self.driver.parallel_runtime.handle_subgraph_pause(
+                run,
+                node,
+                node.node_id,
+                source_input,
+                source_output,
+                fan_in,
+            )
+        run.metadata.pop("pending_parallel_subgraph", None)
+        run.status = RunStatus.RUNNING
+        return await self._settle_parallel_fan_in(
+            graph,
+            run,
+            claim,
+            node,
+            source_input,
+            source_output,
+            source_audit,
+            fan_in,
+            node_started_at,
+        )
+
+    async def _settle_parallel_fan_in(
+        self,
+        graph: Graph,
+        run: Run,
+        claim: DispatchClaim,
+        node: Any,
+        input_payload: dict[str, Any],
+        source_output: dict[str, Any],
+        audit_record: dict[str, Any],
+        fan_in: Any,
+        node_started_at: datetime,
+    ) -> Run | None:
+        """Publish one ordered fan-in and settle the durable source claim."""
+        lifecycle_stop = await self._settle_cancellation_requests(run)
+        if lifecycle_stop is not None:
+            return lifecycle_stop
+        await self.driver.audit_recorder.record_history(
+            run,
+            node,
+            node.node_id,
+            input_payload,
+            source_output,
+            audit_record,
+            started_at=node_started_at,
+        )
+        self._increment_node_visit(run, node.node_id, claim.dispatch.token)
+        self.driver.parallel_runtime.merge_fan_in_state(run, fan_in)
+        merged_output = fan_in.merged_output
+
+        # The branch engine already executed each direct downstream node. Move
+        # the source token to their post-fan-in successors, in graph order.
+        source_plan = self.driver.run_branch_planner(graph, run, node.node_id, source_output)
+        downstream = [
+            edge.target_node_id
+            for edge in graph.edges
+            if edge.kind != "tool" and edge.edge_id in source_plan.branch_resolution.active_edge_ids
+        ]
+        successor_edges = []
+        for downstream_node_id in downstream:
+            self.driver.increment_node_visit(run, downstream_node_id)
+            plan = self.driver.run_branch_planner(graph, run, downstream_node_id, merged_output)
+            successor_edges.extend(
+                edge
+                for edge in graph.edges
+                if edge.kind != "tool" and edge.edge_id in plan.branch_resolution.active_edge_ids
+            )
+
+        dispatch = claim.dispatch
+        if not successor_edges:
+            transition = partial(
+                complete_dispatch,
+                dispatch_id=dispatch.dispatch_id,
+                attempt=dispatch.attempt,
+                cancellation_generation=dispatch.cancellation_generation,
+            )
+        elif len(successor_edges) == 1:
+            edge = successor_edges[0]
+            transition = partial(
+                enqueue_dispatch,
+                dispatch_id=dispatch.dispatch_id,
+                attempt=dispatch.attempt,
+                cancellation_generation=dispatch.cancellation_generation,
+                next_node_id=edge.target_node_id,
+                inbound_edge_id=edge.edge_id,
+                payload=cast(
+                    JsonValue,
+                    self.driver.edge_payload(
+                        graph,
+                        run,
+                        edge.source_node_id,
+                        edge.target_node_id,
+                        merged_output,
+                        edge,
+                    ),
+                ),
+            )
+        else:
+            transition = partial(
+                self._fan_out,
+                dispatch_id=dispatch.dispatch_id,
+                attempt=dispatch.attempt,
+                cancellation_generation=dispatch.cancellation_generation,
+                branches=tuple(
+                    FanOutBranch(
+                        node_id=edge.target_node_id,
+                        inbound_edge_id=edge.edge_id,
+                        payload=cast(
+                            JsonValue,
+                            self.driver.edge_payload(
+                                graph,
+                                run,
+                                edge.source_node_id,
+                                edge.target_node_id,
+                                merged_output,
+                                edge,
+                            ),
+                        ),
+                    )
+                    for edge in successor_edges
+                ),
+            )
+        committed = await self._transition(claim.snapshot, transition)
+        run.metadata["last_output"] = merged_output
+        run.metadata.pop("token_dispatch", None)
+        run.metadata.pop("in_flight_dispatch", None)
+        stopped = await self.driver.external_stop(run)
+        if stopped is not None and committed.state is not TokenEngineSnapshotState.STOPPING:
+            return stopped
         run.status = RunStatus.RUNNING
         run.current_node_ids = []
         run.current_step = None

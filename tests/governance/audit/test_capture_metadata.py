@@ -146,6 +146,120 @@ def test_an_unrecognised_metadata_key_is_dropped_rather_than_scrubbed() -> None:
     assert SECRET not in captured.model_dump_json()
 
 
+def test_campaign_provider_identity_stays_first_class_not_raw_metadata() -> None:
+    secret_shaped = "ghp_abcdefghijklmnopqrstuvwxyz012345"
+    captured = _captured(
+        cost_event_id="cost-event-1",
+        execution_metadata={
+            "campaign_id": secret_shaped,
+            "operation_id": secret_shaped,
+            "provider_request_id": secret_shaped,
+            "cleanup_status": secret_shaped,
+        },
+    )
+
+    # cost_event_id is a typed, signed field; the externally/client-authored
+    # identities are correlated transitively through the authoritative ledgers.
+    assert captured.cost_event_id == "cost-event-1"
+    assert (
+        not {
+            "campaign_id",
+            "operation_id",
+            "provider_request_id",
+            "cleanup_status",
+        }
+        & captured.execution_metadata.keys()
+    )
+    assert secret_shaped not in captured.model_dump_json()
+
+
+def test_safe_template_digests_survive_metadata_only_capture() -> None:
+    rendered_digest = hashlib.sha256(b"Hello safe operator").hexdigest()
+    template_digest = hashlib.sha256(b"template-name").hexdigest()
+
+    captured = _captured(
+        execution_metadata={
+            "rendered_prompt_sha256": rendered_digest,
+            "template_name_sha256": template_digest,
+            "template_version": 3,
+            "rendered_prompt": "Hello safe operator",
+            "template_ref": {"name": "template-name", "version": 3},
+        }
+    )
+
+    assert captured.execution_metadata == {
+        "rendered_prompt_sha256": rendered_digest,
+        "template_name_sha256": template_digest,
+        "template_version": 3,
+        CAPTURE_METADATA_KEY: captured.execution_metadata[CAPTURE_METADATA_KEY],
+    }
+    assert "Hello safe operator" not in captured.model_dump_json()
+
+
+def test_webhook_transition_identity_survives_metadata_only_capture() -> None:
+    captured = _captured(
+        execution_metadata={
+            "webhook_subscription_id": "sub-1",
+            "webhook_delivery_id": "delivery-1",
+            "webhook_event_id": "event-1",
+            "webhook_dead_letter_id": "dead-1",
+            "webhook_event_type": "approval.resolved",
+            "webhook_transition": "replay_authorized",
+            "target_url_sha256": hashlib.sha256(b"https://example.com/private").hexdigest(),
+        }
+    )
+
+    assert captured.execution_metadata["webhook_subscription_id"] == "sub-1"
+    assert captured.execution_metadata["webhook_delivery_id"] == "delivery-1"
+    assert captured.execution_metadata["webhook_event_id"] == "event-1"
+    assert captured.execution_metadata["webhook_dead_letter_id"] == "dead-1"
+    assert captured.execution_metadata["webhook_event_type"] == "approval.resolved"
+    assert captured.execution_metadata["webhook_transition"] == "replay_authorized"
+    assert (
+        captured.execution_metadata["target_url_sha256"]
+        == hashlib.sha256(b"https://example.com/private").hexdigest()
+    )
+
+
+@pytest.mark.parametrize(
+    "transition",
+    ["subscription_created", "subscription_deactivated"],
+)
+def test_webhook_subscription_outcome_survives_metadata_only_capture(transition: str) -> None:
+    captured = _captured(
+        execution_metadata={
+            "webhook_subscription_id": "sub-1",
+            "webhook_transition": transition,
+        }
+    )
+
+    assert captured.execution_metadata["webhook_transition"] == transition
+
+
+def test_thread_compaction_checkpoint_facts_survive_metadata_only_capture() -> None:
+    captured = _captured(
+        execution_metadata={
+            "thread_state_checkpointed": True,
+            "compacted_thread_state_saved": True,
+            "context_compaction_applied": True,
+            "context_compaction_strategy": "truncation",
+            "context_tokens_before": 48,
+            "context_tokens_after": 19,
+            "context_messages_before": 7,
+            "context_messages_after": 3,
+        }
+    )
+
+    assert captured.execution_metadata["thread_state_checkpointed"] is True
+    assert captured.execution_metadata["compacted_thread_state_saved"] is True
+    assert captured.execution_metadata["context_compaction_applied"] is True
+    assert captured.execution_metadata["context_compaction_strategy"] == "truncation"
+    assert captured.execution_metadata["context_tokens_before"] == 48
+    assert captured.execution_metadata["context_tokens_after"] == 19
+    assert captured.execution_metadata["context_messages_before"] == 7
+    assert captured.execution_metadata["context_messages_after"] == 3
+
+
 def test_a_container_under_an_allowlisted_key_is_summarized_not_retained() -> None:
     # A tuple is not a bounded scalar, and its contents are not metadata.
     captured = _captured(execution_metadata={"operation": ("credential", SECRET)})

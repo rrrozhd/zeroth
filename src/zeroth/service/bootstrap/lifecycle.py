@@ -73,6 +73,7 @@ async def _service_runtime_lifespan(app: FastAPI):
     the ARQ wakeup consumer, and the single-owner close of the shared
     secret provider.
     """
+    original_regulus_scope: tuple[str, str | None] | None = None
     # When the bundled Regulus control plane is mounted in-process, initialize
     # its own schema + seed data here: Starlette does not run a mounted
     # sub-app's startup events, so econ_plane.main's on_startup never fires.
@@ -124,11 +125,39 @@ async def _service_runtime_lifespan(app: FastAPI):
             if not ecp_settings.service_principal_tenant_id.strip():
                 raise RuntimeError("ECP_SERVICE_PRINCIPAL_TENANT_ID must be non-empty")
 
+            deployment = getattr(app.state.bootstrap, "deployment", None)
+            if deployment is not None:
+                # A service instance serves one trusted deployment scope. Bind
+                # the bundled principal to that scope before any token is
+                # minted, rather than leaving the default tenant hard-coded.
+                original_regulus_scope = (
+                    ecp_settings.service_principal_tenant_id,
+                    ecp_settings.service_principal_workspace_id,
+                )
+                ecp_settings.service_principal_tenant_id = deployment.tenant_id
+                ecp_settings.service_principal_workspace_id = deployment.workspace_id
+
             econ_plane_bootstrap()
+            graph = getattr(app.state.bootstrap, "graph", None)
+            if graph is not None and deployment is not None:
+                from zeroth.econ.analytics.registration import register_graph_economics
+
+                register_graph_economics(
+                    graph,
+                    deployment_ref=deployment.deployment_ref,
+                    tenant_id=deployment.tenant_id,
+                )
+            app.state.regulus_registration_ready = True
             init_otel_metrics()  # no-op unless ECP_OTEL_METRICS_ENABLED
             logger.info("Initialized bundled Regulus control plane")
         except ImportError:
             pass
+        except Exception as exc:  # noqa: BLE001 - economics degrades without blocking runs
+            app.state.regulus_registration_ready = False
+            logger.error(
+                "Bundled Regulus registration degraded exception_type=%s",
+                type(exc).__name__,
+            )
 
     worker = getattr(app.state.bootstrap, "worker", None)
     poll_task: asyncio.Task | None = None
@@ -240,10 +269,23 @@ async def _service_runtime_lifespan(app: FastAPI):
     if webhook_http_client is not None:
         await webhook_http_client.aclose()
 
+    # Close the managed resilient HTTP client used by HttpRequestNode. It has
+    # its own pool and is distinct from the webhook worker's raw client.
+    managed_http_client = getattr(app.state.bootstrap, "http_client", None)
+    if managed_http_client is not None and managed_http_client is not webhook_http_client:
+        await managed_http_client.aclose()
+
     # Flush and stop Regulus telemetry transport (Pitfall 2).
     regulus_client = getattr(app.state.bootstrap, "regulus_client", None)
     if regulus_client is not None:
         regulus_client.stop()
+    if original_regulus_scope is not None:
+        from zeroth.econ.plane.config import settings as ecp_settings
+
+        (
+            ecp_settings.service_principal_tenant_id,
+            ecp_settings.service_principal_workspace_id,
+        ) = original_regulus_scope
 
     # Close the shared secret provider's pooled HTTP client (Vault). The
     # lifespan is the single owner of this shutdown: entrypoints and

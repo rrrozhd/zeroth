@@ -145,6 +145,10 @@ def resolve_outbound_url(url: str, *, context: str) -> ResolvedOutboundURL:
         )
     if not host:
         raise OutboundDestinationError(f"{context}: destination has no host")
+    if parts.username is not None or parts.password is not None:
+        raise OutboundDestinationError(
+            f"{context}: credentials in destination URLs are not permitted"
+        )
 
     try:
         normalized = host.lower().rstrip(".").encode("idna").decode("ascii")
@@ -177,9 +181,7 @@ def resolve_outbound_url(url: str, *, context: str) -> ResolvedOutboundURL:
     address_text = str(approved_address)
     if isinstance(approved_address, ipaddress.IPv6Address):
         address_text = f"[{address_text}]"
-    raw_userinfo, separator, _authority = parts.netloc.rpartition("@")
-    userinfo = f"{raw_userinfo}@" if separator else ""
-    connect_netloc = f"{userinfo}{address_text}"
+    connect_netloc = address_text
     if port is not None:
         connect_netloc += f":{port}"
 

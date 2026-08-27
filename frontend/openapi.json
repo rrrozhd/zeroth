@@ -433,6 +433,19 @@
             ],
             "title": "Edited Payload"
           },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
           "resolved_at": {
             "format": "date-time",
             "title": "Resolved At",
@@ -464,6 +477,19 @@
               }
             ],
             "title": "Edited Payload"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           }
         },
         "required": [
@@ -675,6 +701,51 @@
           "losing_events"
         ],
         "title": "AuditDeliveryHealth",
+        "type": "object"
+      },
+      "AuditReadinessResponse": {
+        "additionalProperties": false,
+        "description": "Whether this deployment may make its configured audit-integrity claim.",
+        "properties": {
+          "consequential_actions": {
+            "title": "Consequential Actions",
+            "type": "boolean"
+          },
+          "deployment_mode": {
+            "title": "Deployment Mode",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "signer_available": {
+            "title": "Signer Available",
+            "type": "boolean"
+          },
+          "signing_required": {
+            "title": "Signing Required",
+            "type": "boolean"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ready",
+          "state",
+          "deployment_mode",
+          "signing_required",
+          "signer_available",
+          "consequential_actions",
+          "message"
+        ],
+        "title": "AuditReadinessResponse",
         "type": "object"
       },
       "AuditRecordListResponse": {
@@ -892,6 +963,97 @@
         "title": "CandidateOutcome",
         "type": "object"
       },
+      "ChildRunSummaryResponse": {
+        "additionalProperties": false,
+        "description": "Payload-free direct-child identity exposed for lineage inspection.",
+        "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "deployment_ref": {
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "graph_version_ref": {
+            "title": "Graph Version Ref",
+            "type": "string"
+          },
+          "parent_run_id": {
+            "title": "Parent Run Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunPublicStatus"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "deployment_ref",
+          "graph_version_ref",
+          "thread_id",
+          "parent_run_id"
+        ],
+        "title": "ChildRunSummaryResponse",
+        "type": "object"
+      },
+      "Condition": {
+        "description": "A rule that decides whether an edge should be followed.\n\nConditions are attached to edges and evaluated at runtime to determine\nwhich path the execution should take next.",
+        "properties": {
+          "allow_cycle_traversal": {
+            "default": false,
+            "title": "Allow Cycle Traversal",
+            "type": "boolean"
+          },
+          "branch_rule": {
+            "default": "expression",
+            "enum": [
+              "all",
+              "any",
+              "expression"
+            ],
+            "title": "Branch Rule",
+            "type": "string"
+          },
+          "expression": {
+            "title": "Expression",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "operand_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Operand Refs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expression"
+        ],
+        "title": "Condition",
+        "type": "object"
+      },
       "ConnectorCreateRequest": {
         "additionalProperties": false,
         "description": "Payload for creating a runtime-managed connector.",
@@ -975,10 +1137,132 @@
         "title": "ConnectorSummaryResponse",
         "type": "object"
       },
+      "ConnectorTestRequest": {
+        "additionalProperties": false,
+        "description": "Optional cost boundary for a connector test that may call a provider.",
+        "properties": {
+          "campaign_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Max Cost Usd"
+          },
+          "operation_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "run_cap_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Cap Usd"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "operation_id",
+          "max_cost_usd"
+        ],
+        "title": "ConnectorTestRequest",
+        "type": "object"
+      },
       "ConnectorTestResponse": {
         "additionalProperties": false,
         "description": "Result of a live connectivity probe against a registered connector.",
         "properties": {
+          "audit_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Event Id"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "cleanup_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleanup Status"
+          },
+          "cost_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Event Id"
+          },
+          "cost_measurement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Measurement"
+          },
           "detail": {
             "anyOf": [
               {
@@ -990,6 +1274,18 @@
             ],
             "title": "Detail"
           },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Usd"
+          },
           "latency_ms": {
             "title": "Latency Ms",
             "type": "number"
@@ -997,6 +1293,28 @@
           "ok": {
             "title": "Ok",
             "type": "boolean"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Request Id"
           }
         },
         "required": [
@@ -1024,6 +1342,31 @@
           "backend_type"
         ],
         "title": "ConnectorUpdateRequest",
+        "type": "object"
+      },
+      "ConstantMappingOperation": {
+        "additionalProperties": false,
+        "description": "Set a target field to a fixed value, ignoring the input entirely.\n\nUseful when you always want a specific value in the output regardless of\nwhat the input contains.",
+        "properties": {
+          "operation": {
+            "const": "constant",
+            "default": "constant",
+            "title": "Operation",
+            "type": "string"
+          },
+          "target_path": {
+            "title": "Target Path",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "target_path",
+          "value"
+        ],
+        "title": "ConstantMappingOperation",
         "type": "object"
       },
       "CreateContractRequest": {
@@ -1090,22 +1433,30 @@
         "description": "Request body for creating a webhook subscription.",
         "properties": {
           "deployment_ref": {
+            "maxLength": 512,
+            "minLength": 1,
             "title": "Deployment Ref",
             "type": "string"
           },
           "event_types": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/WebhookEventType"
             },
+            "maxItems": 5,
+            "minItems": 1,
             "title": "Event Types",
             "type": "array"
           },
           "target_url": {
+            "maxLength": 2048,
+            "minLength": 1,
             "title": "Target Url",
             "type": "string"
           },
           "tenant_id": {
             "default": "default",
+            "maxLength": 512,
+            "minLength": 1,
             "title": "Tenant Id",
             "type": "string"
           }
@@ -1124,27 +1475,35 @@
         "properties": {
           "description": {
             "default": "",
+            "maxLength": 2000,
             "title": "Description",
             "type": "string"
           },
           "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
             "title": "Name",
             "type": "string"
           },
           "template_str": {
+            "maxLength": 100000,
+            "minLength": 1,
             "title": "Template Str",
             "type": "string"
           },
           "variables": {
-            "default": [],
             "items": {
               "type": "string"
             },
+            "maxItems": 256,
             "title": "Variables",
             "type": "array"
           },
           "version": {
             "default": 1,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
             "title": "Version",
             "type": "integer"
           }
@@ -1404,6 +1763,42 @@
         "title": "DecisionSubmission",
         "type": "object"
       },
+      "DefaultMappingOperation": {
+        "additionalProperties": false,
+        "description": "Copy a value from the input, falling back to a default if it is missing.\n\nIf ``source_path`` is ``None``, the default value is always used. Otherwise\nthe source is looked up first, and the default is only used when the source\npath does not exist in the input.",
+        "properties": {
+          "default_value": {
+            "title": "Default Value"
+          },
+          "operation": {
+            "const": "default",
+            "default": "default",
+            "title": "Operation",
+            "type": "string"
+          },
+          "source_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Path"
+          },
+          "target_path": {
+            "title": "Target Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "default_value"
+        ],
+        "title": "DefaultMappingOperation",
+        "type": "object"
+      },
       "DependencyStatus": {
         "additionalProperties": false,
         "description": "Status of a single dependency check.",
@@ -1593,6 +1988,16 @@
         "additionalProperties": false,
         "description": "Response for GET /v1/deployments/{deployment_ref}/cost (per D-15).",
         "properties": {
+          "active_exposure_usd": {
+            "default": 0.0,
+            "title": "Active Exposure Usd",
+            "type": "number"
+          },
+          "ambiguous_exposure_usd": {
+            "default": 0.0,
+            "title": "Ambiguous Exposure Usd",
+            "type": "number"
+          },
           "currency": {
             "default": "USD",
             "title": "Currency",
@@ -1602,8 +2007,23 @@
             "title": "Deployment Ref",
             "type": "string"
           },
+          "estimated_spend_usd": {
+            "default": 0.0,
+            "title": "Estimated Spend Usd",
+            "type": "number"
+          },
+          "paid_spend_usd": {
+            "default": 0.0,
+            "title": "Paid Spend Usd",
+            "type": "number"
+          },
           "total_cost_usd": {
             "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "unmeasured_spend_usd": {
+            "default": 0.0,
+            "title": "Unmeasured Spend Usd",
             "type": "number"
           }
         },
@@ -1948,6 +2368,154 @@
         "title": "DeploymentVersionMetadataResponse",
         "type": "object"
       },
+      "EconomicsConfigurationResponse": {
+        "additionalProperties": false,
+        "description": "Non-secret runtime economics controls visible to scoped operators.",
+        "properties": {
+          "deployment_ref": {
+            "title": "Deployment Ref",
+            "type": "string"
+          },
+          "failure_mode": {
+            "enum": [
+              "fail_open",
+              "fail_closed"
+            ],
+            "title": "Failure Mode",
+            "type": "string"
+          },
+          "per_run_cap_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Run Cap Usd"
+          },
+          "source": {
+            "const": "service_runtime",
+            "default": "service_runtime",
+            "title": "Source",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "deployment_ref",
+          "per_run_cap_usd",
+          "failure_mode"
+        ],
+        "title": "EconomicsConfigurationResponse",
+        "type": "object"
+      },
+      "EdgeMapping": {
+        "additionalProperties": false,
+        "description": "A complete set of mapping operations that describe one edge's data transform.\n\nAn ``EdgeMapping`` groups together all the individual operations that should\nrun when data crosses a particular edge in the graph.",
+        "properties": {
+          "operations": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "constant": "#/components/schemas/ConstantMappingOperation",
+                  "default": "#/components/schemas/DefaultMappingOperation",
+                  "passthrough": "#/components/schemas/PassthroughMappingOperation",
+                  "rename": "#/components/schemas/RenameMappingOperation",
+                  "transform": "#/components/schemas/TransformMappingOperation"
+                },
+                "propertyName": "operation"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/PassthroughMappingOperation"
+                },
+                {
+                  "$ref": "#/components/schemas/RenameMappingOperation"
+                },
+                {
+                  "$ref": "#/components/schemas/ConstantMappingOperation"
+                },
+                {
+                  "$ref": "#/components/schemas/DefaultMappingOperation"
+                },
+                {
+                  "$ref": "#/components/schemas/TransformMappingOperation"
+                }
+              ]
+            },
+            "title": "Operations",
+            "type": "array"
+          }
+        },
+        "title": "EdgeMapping",
+        "type": "object"
+      },
+      "ErasureHistoryEntry": {
+        "additionalProperties": false,
+        "description": "Tenant-scoped durable Retention activity exposed for operator inspection.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "log_id": {
+            "title": "Log Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "required": [
+          "log_id",
+          "action",
+          "created_at"
+        ],
+        "title": "ErasureHistoryEntry",
+        "type": "object"
+      },
       "ErasureRequestBody": {
         "additionalProperties": false,
         "description": "Request body for POST /retention/erasure-requests.\n\nExactly one of ``run_id`` (erase one run) or ``tenant_id`` (erase every\nnon-held run for the tenant) must be supplied.",
@@ -2014,10 +2582,30 @@
             "title": "Audits Erased",
             "type": "integer"
           },
+          "authorization_log_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorization Log Id"
+          },
           "checkpoints_deleted": {
             "default": 0,
             "title": "Checkpoints Deleted",
             "type": "integer"
+          },
+          "cleanup_state": {
+            "enum": [
+              "complete",
+              "failed",
+              "pending"
+            ],
+            "title": "Cleanup State",
+            "type": "string"
           },
           "econ_events_deleted": {
             "anyOf": [
@@ -2030,6 +2618,17 @@
             ],
             "title": "Econ Events Deleted"
           },
+          "retry_log_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Log Id"
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
@@ -2041,7 +2640,8 @@
           }
         },
         "required": [
-          "run_id"
+          "run_id",
+          "cleanup_state"
         ],
         "title": "ErasureRunResult",
         "type": "object"
@@ -2060,18 +2660,208 @@
             "title": "Audit Count",
             "type": "integer"
           },
+          "cost_event_count": {
+            "default": 0,
+            "title": "Cost Event Count",
+            "type": "integer"
+          },
+          "cost_identity_state": {
+            "default": "not_applicable_no_priced_call",
+            "title": "Cost Identity State",
+            "type": "string"
+          },
           "memory_interaction_count": {
             "default": 0,
             "title": "Memory Interaction Count",
             "type": "integer"
           },
+          "priced_call_count": {
+            "default": 0,
+            "title": "Priced Call Count",
+            "type": "integer"
+          },
+          "reconciliation_state": {
+            "default": "reconciled_zero_activity",
+            "title": "Reconciliation State",
+            "type": "string"
+          },
           "tool_call_count": {
             "default": 0,
             "title": "Tool Call Count",
             "type": "integer"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
           }
         },
         "title": "EvidenceSummaryResponse",
+        "type": "object"
+      },
+      "ExperimentCallEvidence": {
+        "additionalProperties": false,
+        "description": "Credential-free provider identity and economics for one measured call.",
+        "properties": {
+          "audit_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Event Id"
+          },
+          "cache_hit": {
+            "title": "Cache Hit",
+            "type": "boolean"
+          },
+          "cleanup_status": {
+            "title": "Cleanup Status",
+            "type": "string"
+          },
+          "cost_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Event Id"
+          },
+          "cost_measurement": {
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Usd"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "measured_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Cost Usd"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "provider_call_attempted": {
+            "title": "Provider Call Attempted",
+            "type": "boolean"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Request Id"
+          }
+        },
+        "required": [
+          "operation_id",
+          "model",
+          "cost_measurement",
+          "cleanup_status",
+          "provider_call_attempted",
+          "cache_hit"
+        ],
+        "title": "ExperimentCallEvidence",
+        "type": "object"
+      },
+      "ExperimentExecutionEvidence": {
+        "additionalProperties": false,
+        "description": "Additive run/cost correlation returned by a live measured experiment.",
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/ExperimentCallEvidence"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "estimated_cost_usd": {
+            "default": 0.0,
+            "title": "Estimated Cost Usd",
+            "type": "number"
+          },
+          "measured_cost_usd": {
+            "default": 0.0,
+            "title": "Measured Cost Usd",
+            "type": "number"
+          },
+          "provider_call_count": {
+            "default": 0,
+            "title": "Provider Call Count",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "ExperimentExecutionEvidence",
         "type": "object"
       },
       "ExperimentReport": {
@@ -2082,6 +2872,16 @@
             "default": 0,
             "title": "Cases",
             "type": "integer"
+          },
+          "execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExperimentExecutionEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "harvest": {
             "anyOf": [
@@ -2250,6 +3050,18 @@
             "title": "Node Id",
             "type": "string"
           },
+          "source_deployment_ref": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Deployment Ref"
+          },
           "tolerance_pct": {
             "default": 5.0,
             "maximum": 100.0,
@@ -2350,6 +3162,17 @@
                 "type": "null"
               }
             ]
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
           },
           "deployment_ref": {
             "title": "Deployment Ref",
@@ -2524,6 +3347,45 @@
         ],
         "title": "HumanInteractionType",
         "type": "string"
+      },
+      "IdentityResponse": {
+        "additionalProperties": false,
+        "description": "The scope and roles actually carried by the presented credential.",
+        "properties": {
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "subject",
+          "roles",
+          "tenant_id"
+        ],
+        "title": "IdentityResponse",
+        "type": "object"
       },
       "InventoryAck": {
         "additionalProperties": false,
@@ -2898,6 +3760,284 @@
         "title": "LegalHoldResponse",
         "type": "object"
       },
+      "LiveProviderProbe": {
+        "properties": {
+          "audit_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Event Id"
+          },
+          "cleanup_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleanup Status"
+          },
+          "cost_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Event Id"
+          },
+          "cost_measurement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Measurement"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Usd"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Request Id"
+          }
+        },
+        "required": [
+          "model",
+          "ok",
+          "latency_ms"
+        ],
+        "title": "LiveProviderProbe",
+        "type": "object"
+      },
+      "LiveProviderVerificationRequest": {
+        "properties": {
+          "acknowledge_external_call": {
+            "default": false,
+            "title": "Acknowledge External Call",
+            "type": "boolean"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd"
+          },
+          "max_models": {
+            "default": 3,
+            "maximum": 3.0,
+            "minimum": 1.0,
+            "title": "Max Models",
+            "type": "integer"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "run_cap_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Cap Usd"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "timeout_seconds": {
+            "default": 15.0,
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "title": "LiveProviderVerificationRequest",
+        "type": "object"
+      },
+      "LiveProviderVerificationResponse": {
+        "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "probes": {
+            "items": {
+              "$ref": "#/components/schemas/LiveProviderProbe"
+            },
+            "title": "Probes",
+            "type": "array"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "verified",
+          "probes"
+        ],
+        "title": "LiveProviderVerificationResponse",
+        "type": "object"
+      },
       "LivenessResponse": {
         "additionalProperties": false,
         "description": "Response payload for the liveness probe.",
@@ -2909,6 +4049,268 @@
           }
         },
         "title": "LivenessResponse",
+        "type": "object"
+      },
+      "ManifestDetailResponse": {
+        "additionalProperties": false,
+        "description": "Secret-free executable-unit configuration suitable for operator inspection.",
+        "properties": {
+          "artifact_source_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Source Kind"
+          },
+          "capability_requests": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capability Requests",
+            "type": "array"
+          },
+          "content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Hash"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "entrypoint_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entrypoint Type"
+          },
+          "execution_placement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Placement"
+          },
+          "input_contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Contract Ref"
+          },
+          "input_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Mode"
+          },
+          "input_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Schema"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "manifest_ref": {
+            "title": "Manifest Ref",
+            "type": "string"
+          },
+          "onboarding_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onboarding Mode"
+          },
+          "output_contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Contract Ref"
+          },
+          "output_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Mode"
+          },
+          "output_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
+          },
+          "resource_limits": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Limits"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime"
+          },
+          "side_effect": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side Effect"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "manifest_ref",
+          "kind"
+        ],
+        "title": "ManifestDetailResponse",
+        "type": "object"
+      },
+      "ManifestRunLinkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "node_id",
+          "status"
+        ],
+        "title": "ManifestRunLinkResponse",
+        "type": "object"
+      },
+      "ManifestRunListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest_ref": {
+            "title": "Manifest Ref",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestRunLinkResponse"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "manifest_ref"
+        ],
+        "title": "ManifestRunListResponse",
         "type": "object"
       },
       "ManifestSummaryResponse": {
@@ -3102,6 +4504,17 @@
           "audit_id": {
             "title": "Audit Id",
             "type": "string"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
           },
           "chain_sequence": {
             "anyOf": [
@@ -3477,9 +4890,25 @@
             "title": "Mean Cost Per Call Usd",
             "type": "number"
           },
+          "mean_estimated_cost_per_call_usd": {
+            "default": 0.0,
+            "title": "Mean Estimated Cost Per Call Usd",
+            "type": "number"
+          },
           "node_id": {
             "title": "Node Id",
             "type": "string"
+          },
+          "projected_estimated_savings_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Estimated Savings Usd"
           },
           "projected_savings_usd": {
             "anyOf": [
@@ -3497,6 +4926,17 @@
             "title": "Runs",
             "type": "integer"
           },
+          "source_deployment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Deployment Ref"
+          },
           "tool_free_runs": {
             "default": 0,
             "title": "Tool Free Runs",
@@ -3505,6 +4945,11 @@
           "total_cost_usd": {
             "default": 0.0,
             "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_estimated_cost_usd": {
+            "default": 0.0,
+            "title": "Total Estimated Cost Usd",
             "type": "number"
           },
           "uses_tools": {
@@ -3616,6 +5061,99 @@
           "arguments_digest"
         ],
         "title": "NormalizedAction",
+        "type": "object"
+      },
+      "OperationResolutionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "receipt": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt"
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/OperatorResolution"
+          }
+        },
+        "required": [
+          "resolution",
+          "reason"
+        ],
+        "title": "OperationResolutionRequest",
+        "type": "object"
+      },
+      "OperationResolutionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_key": {
+            "title": "Operation Key",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OperationState"
+          }
+        },
+        "required": [
+          "operation_key",
+          "state"
+        ],
+        "title": "OperationResolutionResponse",
+        "type": "object"
+      },
+      "OperationState": {
+        "description": "The five outcomes a side-effecting operation can be in.\n\n``NOT_STARTED`` is deliberately not a stored row.  Writing one before the\neffect is attempted would itself be a durable act that recovery could not\ntell apart from a real attempt, so absence *is* the not-started state.",
+        "enum": [
+          "NOT_STARTED",
+          "IN_FLIGHT",
+          "COMPLETED",
+          "FAILED",
+          "AMBIGUOUS"
+        ],
+        "title": "OperationState",
+        "type": "string"
+      },
+      "OperatorResolution": {
+        "enum": [
+          "completed",
+          "failed"
+        ],
+        "title": "OperatorResolution",
+        "type": "string"
+      },
+      "PassthroughMappingOperation": {
+        "additionalProperties": false,
+        "description": "Copy a value from the input to the output without changing it.\n\nThe source and target paths are the same logical field, just moved across\nthe edge boundary.",
+        "properties": {
+          "operation": {
+            "const": "passthrough",
+            "default": "passthrough",
+            "title": "Operation",
+            "type": "string"
+          },
+          "source_path": {
+            "title": "Source Path",
+            "type": "string"
+          },
+          "target_path": {
+            "title": "Target Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "source_path"
+        ],
+        "title": "PassthroughMappingOperation",
         "type": "object"
       },
       "PortDefinitionResponse": {
@@ -3904,6 +5442,32 @@
         "title": "RegisteredTool",
         "type": "object"
       },
+      "RenameMappingOperation": {
+        "additionalProperties": false,
+        "description": "Copy a value from the input to the output under a different name.\n\nWorks just like passthrough, but the target path can differ from the source\npath, effectively renaming the field.",
+        "properties": {
+          "operation": {
+            "const": "rename",
+            "default": "rename",
+            "title": "Operation",
+            "type": "string"
+          },
+          "source_path": {
+            "title": "Source Path",
+            "type": "string"
+          },
+          "target_path": {
+            "title": "Target Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "source_path"
+        ],
+        "title": "RenameMappingOperation",
+        "type": "object"
+      },
       "RetentionPolicyBody": {
         "additionalProperties": false,
         "description": "Request body for PUT /retention/policy.",
@@ -3911,6 +5475,7 @@
           "audit_ttl_seconds": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -3928,6 +5493,7 @@
           "run_ttl_seconds": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -3948,6 +5514,7 @@
           "audit_ttl_seconds": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -3965,6 +5532,7 @@
           "run_ttl_seconds": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -4108,6 +5676,53 @@
           "target_graph_version"
         ],
         "title": "RollbackDeploymentRequest",
+        "type": "object"
+      },
+      "RoutingDecisionResponse": {
+        "additionalProperties": false,
+        "description": "Content-free record of one persisted conditional-route decision.",
+        "properties": {
+          "condition_id": {
+            "title": "Condition Id",
+            "type": "string"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "boolean"
+          },
+          "selected_edge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Edge Id"
+          },
+          "suppression_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "edge_disabled",
+                  "condition_false",
+                  "visit_limit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suppression Reason"
+          }
+        },
+        "required": [
+          "condition_id",
+          "matched"
+        ],
+        "title": "RoutingDecisionResponse",
         "type": "object"
       },
       "RunAttestationV1": {
@@ -4350,6 +5965,26 @@
         "additionalProperties": false,
         "description": "Request body for creating a new run.",
         "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "campaign_strict": {
+            "const": true,
+            "default": true,
+            "title": "Campaign Strict",
+            "type": "boolean"
+          },
           "input_payload": {
             "additionalProperties": true,
             "title": "Input Payload",
@@ -4391,6 +6026,17 @@
             "title": "Audit Refs",
             "type": "array"
           },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
           "current_step": {
             "anyOf": [
               {
@@ -4430,6 +6076,17 @@
           "graph_version_ref": {
             "title": "Graph Version Ref",
             "type": "string"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Run Id"
           },
           "run_id": {
             "title": "Run Id",
@@ -4476,6 +6133,9 @@
               }
             ],
             "title": "Timeline Ref"
+          },
+          "traversal": {
+            "$ref": "#/components/schemas/RunTraversalResponse"
           },
           "workspace_id": {
             "anyOf": [
@@ -4611,6 +6271,17 @@
             "title": "Audit Refs",
             "type": "array"
           },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
           "current_step": {
             "anyOf": [
               {
@@ -4650,6 +6321,17 @@
           "graph_version_ref": {
             "title": "Graph Version Ref",
             "type": "string"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Run Id"
           },
           "run_id": {
             "title": "Run Id",
@@ -4697,6 +6379,9 @@
             ],
             "title": "Timeline Ref"
           },
+          "traversal": {
+            "$ref": "#/components/schemas/RunTraversalResponse"
+          },
           "workspace_id": {
             "anyOf": [
               {
@@ -4717,6 +6402,50 @@
           "thread_id"
         ],
         "title": "RunStatusResponse",
+        "type": "object"
+      },
+      "RunTraversalResponse": {
+        "additionalProperties": false,
+        "description": "Sanitized traversal proof for loops and conditional routing.",
+        "properties": {
+          "edge_visit_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Edge Visit Counts",
+            "type": "object"
+          },
+          "node_visit_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Node Visit Counts",
+            "type": "object"
+          },
+          "routing_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/RoutingDecisionResponse"
+            },
+            "title": "Routing Decisions",
+            "type": "array"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_outgoing_edges",
+                  "branch_suppressed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          }
+        },
+        "title": "RunTraversalResponse",
         "type": "object"
       },
       "SchemaRevision": {
@@ -4804,6 +6533,11 @@
             "default": 0.0,
             "title": "Total Cost Usd",
             "type": "number"
+          },
+          "total_estimated_cost_usd": {
+            "default": 0.0,
+            "title": "Total Estimated Cost Usd",
+            "type": "number"
           }
         },
         "title": "SpendReport",
@@ -4833,9 +6567,24 @@
         "title": "StudioContractResponse",
         "type": "object"
       },
-      "StudioEdgeResponse": {
-        "description": "An edge as represented in the Studio frontend.\n\n``kind=\"tool\"`` marks a tool attachment (agent \u2192 executable unit)\nrather than a control-flow connection.",
+      "StudioEdgeInput": {
+        "description": "An edge accepted from the Studio frontend.\n\n``kind=\"tool\"`` marks a tool attachment (agent \u2192 executable unit)\nrather than a control-flow connection.",
         "properties": {
+          "condition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -4848,6 +6597,96 @@
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeMapping"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Handle"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "target_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Handle"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "target"
+        ],
+        "title": "StudioEdgeInput",
+        "type": "object"
+      },
+      "StudioEdgeResponse": {
+        "description": "An edge returned to the Studio frontend.",
+        "properties": {
+          "condition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "data",
+            "enum": [
+              "data",
+              "tool"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeMapping"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "source": {
             "title": "Source",
@@ -4886,6 +6725,61 @@
           "target"
         ],
         "title": "StudioEdgeResponse",
+        "type": "object"
+      },
+      "StudioExecutionSettings": {
+        "description": "Authorable graph safety ceilings exposed by Studio.\n\nRuntime-mode, failure-policy, and audit controls deliberately remain outside\nthe canvas contract. Studio authors only the bounds needed to make cycles\nand long-running graphs fail closed.",
+        "properties": {
+          "default_timeout_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Timeout Seconds"
+          },
+          "max_total_runtime_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Total Runtime Seconds"
+          },
+          "max_total_steps": {
+            "default": 1000,
+            "minimum": 1.0,
+            "title": "Max Total Steps",
+            "type": "integer"
+          },
+          "max_visits_per_edge": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Visits Per Edge"
+          },
+          "max_visits_per_node": {
+            "default": 10,
+            "minimum": 1.0,
+            "title": "Max Visits Per Node",
+            "type": "integer"
+          }
+        },
+        "title": "StudioExecutionSettings",
         "type": "object"
       },
       "StudioNodeResponse": {
@@ -5009,6 +6903,28 @@
         "title": "TemplateResponse",
         "type": "object"
       },
+      "TenantAuditRecordListResponse": {
+        "additionalProperties": false,
+        "description": "Tenant-scoped audit records across all deployments visible to the caller.",
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/NodeAuditRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "TenantAuditRecordListResponse",
+        "type": "object"
+      },
       "TenantBudgetRequest": {
         "additionalProperties": false,
         "description": "Request body for PUT /v1/tenants/{tenant_id}/budget.",
@@ -5028,6 +6944,21 @@
         "additionalProperties": false,
         "description": "Response for GET /v1/tenants/{tenant_id}/cost (per D-14).",
         "properties": {
+          "active_exposure_usd": {
+            "default": 0.0,
+            "title": "Active Exposure Usd",
+            "type": "number"
+          },
+          "actual_spend_usd": {
+            "default": 0.0,
+            "title": "Actual Spend Usd",
+            "type": "number"
+          },
+          "ambiguous_exposure_usd": {
+            "default": 0.0,
+            "title": "Ambiguous Exposure Usd",
+            "type": "number"
+          },
           "budget_cap_usd": {
             "anyOf": [
               {
@@ -5039,10 +6970,30 @@
             ],
             "title": "Budget Cap Usd"
           },
+          "budget_consumed_usd": {
+            "default": 0.0,
+            "title": "Budget Consumed Usd",
+            "type": "number"
+          },
           "currency": {
             "default": "USD",
             "title": "Currency",
             "type": "string"
+          },
+          "estimated_spend_usd": {
+            "default": 0.0,
+            "title": "Estimated Spend Usd",
+            "type": "number"
+          },
+          "paid_spend_usd": {
+            "default": 0.0,
+            "title": "Paid Spend Usd",
+            "type": "number"
+          },
+          "synthetic_control_usd": {
+            "default": 0.0,
+            "title": "Synthetic Control Usd",
+            "type": "number"
           },
           "tenant_id": {
             "title": "Tenant Id",
@@ -5050,6 +7001,11 @@
           },
           "total_cost_usd": {
             "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "unmeasured_spend_usd": {
+            "default": 0.0,
+            "title": "Unmeasured Spend Usd",
             "type": "number"
           }
         },
@@ -5074,6 +7030,27 @@
               }
             ],
             "title": "Cost Per Successful Run Usd"
+          },
+          "estimated_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Per Successful Run Usd"
+          },
+          "estimated_failure_tax_usd": {
+            "default": 0.0,
+            "title": "Estimated Failure Tax Usd",
+            "type": "number"
+          },
+          "estimated_terminal_cost_usd": {
+            "default": 0.0,
+            "title": "Estimated Terminal Cost Usd",
+            "type": "number"
           },
           "failed_runs": {
             "default": 0,
@@ -5279,6 +7256,17 @@
             ],
             "title": "Outcome"
           },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Id"
+          },
           "tool_ref": {
             "title": "Tool Ref",
             "type": "string"
@@ -5300,6 +7288,32 @@
         ],
         "title": "ToolDecisionKind",
         "type": "string"
+      },
+      "TransformMappingOperation": {
+        "additionalProperties": false,
+        "description": "Evaluate an expression and write the computed result to target_path.\n\nThe expression is evaluated using the safe AST-based evaluator against a\nnamespace containing ``payload``, ``state``, ``variables``, and other\nruntime context. This enables side-effect-free data transformation\nbetween nodes.",
+        "properties": {
+          "expression": {
+            "title": "Expression",
+            "type": "string"
+          },
+          "operation": {
+            "const": "transform",
+            "default": "transform",
+            "title": "Operation",
+            "type": "string"
+          },
+          "target_path": {
+            "title": "Target Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "expression"
+        ],
+        "title": "TransformMappingOperation",
+        "type": "object"
       },
       "UnitEconomicsReport": {
         "additionalProperties": false,
@@ -5344,6 +7358,63 @@
               }
             ],
             "title": "Cost Per Successful Run Usd"
+          },
+          "estimated_cost_on_failed_usd": {
+            "default": 0.0,
+            "title": "Estimated Cost On Failed Usd",
+            "type": "number"
+          },
+          "estimated_cost_on_in_flight_usd": {
+            "default": 0.0,
+            "title": "Estimated Cost On In Flight Usd",
+            "type": "number"
+          },
+          "estimated_cost_on_successful_usd": {
+            "default": 0.0,
+            "title": "Estimated Cost On Successful Usd",
+            "type": "number"
+          },
+          "estimated_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Per Successful Run Usd"
+          },
+          "estimated_failure_tax_ratio": {
+            "default": 0.0,
+            "title": "Estimated Failure Tax Ratio",
+            "type": "number"
+          },
+          "estimated_failure_tax_usd": {
+            "default": 0.0,
+            "title": "Estimated Failure Tax Usd",
+            "type": "number"
+          },
+          "estimated_mean_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Mean Cost Per Successful Run Usd"
+          },
+          "estimated_terminal_cost_usd": {
+            "default": 0.0,
+            "title": "Estimated Terminal Cost Usd",
+            "type": "number"
+          },
+          "estimated_total_cost_usd": {
+            "default": 0.0,
+            "title": "Estimated Total Cost Usd",
+            "type": "number"
           },
           "failed_runs": {
             "default": 0,
@@ -5396,6 +7467,11 @@
             "title": "Runs With Cost",
             "type": "integer"
           },
+          "runs_with_estimated_cost": {
+            "default": 0,
+            "title": "Runs With Estimated Cost",
+            "type": "integer"
+          },
           "success_rate": {
             "default": 0.0,
             "title": "Success Rate",
@@ -5432,7 +7508,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/StudioEdgeResponse"
+                  "$ref": "#/components/schemas/StudioEdgeInput"
                 },
                 "type": "array"
               },
@@ -5452,6 +7528,16 @@
               }
             ],
             "title": "Entry Step"
+          },
+          "execution_settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudioExecutionSettings"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "name": {
             "anyOf": [
@@ -5755,6 +7841,17 @@
         "additionalProperties": false,
         "description": "Response for a single dead-letter entry.",
         "properties": {
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
           "attempt_count": {
             "title": "Attempt Count",
             "type": "integer"
@@ -5805,6 +7902,17 @@
             ],
             "title": "Last Status Code"
           },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
           "subscription_id": {
             "title": "Subscription Id",
             "type": "string"
@@ -5824,6 +7932,142 @@
         ],
         "title": "WebhookDeadLetterResponse",
         "type": "object"
+      },
+      "WebhookDeliveryListResponse": {
+        "additionalProperties": false,
+        "description": "Response for listing scoped webhook delivery state.",
+        "properties": {
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryResponse"
+            },
+            "title": "Deliveries",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deliveries",
+          "total"
+        ],
+        "title": "WebhookDeliveryListResponse",
+        "type": "object"
+      },
+      "WebhookDeliveryResponse": {
+        "additionalProperties": false,
+        "description": "Safe operator view of one delivery; payload and secret are intentionally absent.",
+        "properties": {
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
+          "attempt_count": {
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "delivery_id": {
+            "title": "Delivery Id",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_status_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status Code"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription_id": {
+            "title": "Subscription Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delivery_id",
+          "subscription_id",
+          "event_type",
+          "event_id",
+          "status",
+          "attempt_count",
+          "max_attempts",
+          "last_error",
+          "last_status_code",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WebhookDeliveryResponse",
+        "type": "object"
+      },
+      "WebhookEventType": {
+        "description": "Types of events that can trigger webhook deliveries.",
+        "enum": [
+          "run.completed",
+          "run.failed",
+          "approval.requested",
+          "approval.resolved",
+          "approval.escalated"
+        ],
+        "title": "WebhookEventType",
+        "type": "string"
       },
       "WebhookSubscriptionListResponse": {
         "additionalProperties": false,
@@ -5927,6 +8171,9 @@
             ],
             "title": "Entry Step"
           },
+          "execution_settings": {
+            "$ref": "#/components/schemas/StudioExecutionSettings"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -5986,6 +8233,27 @@
             ],
             "title": "Cost Per Successful Run Usd"
           },
+          "estimated_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Per Successful Run Usd"
+          },
+          "estimated_failure_tax_usd": {
+            "default": 0.0,
+            "title": "Estimated Failure Tax Usd",
+            "type": "number"
+          },
+          "estimated_terminal_cost_usd": {
+            "default": 0.0,
+            "title": "Estimated Terminal Cost Usd",
+            "type": "number"
+          },
           "failed_runs": {
             "default": 0,
             "title": "Failed Runs",
@@ -6025,6 +8293,94 @@
           "workflow_name"
         ],
         "title": "WorkflowEconomics",
+        "type": "object"
+      },
+      "WorkflowPreflightIssue": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "edge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edge Id"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "title": "WorkflowPreflightIssue",
+        "type": "object"
+      },
+      "WorkflowPreflightResponse": {
+        "properties": {
+          "checks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowPreflightIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "version",
+          "ready",
+          "checks",
+          "issues"
+        ],
+        "title": "WorkflowPreflightResponse",
         "type": "object"
       },
       "WorkflowSummaryResponse": {
@@ -6462,6 +8818,49 @@
         ]
       }
     },
+    "/api/studio/v1/workflows/{workflow_id}/preflight": {
+      "post": {
+        "description": "Prove structural and dependency readiness without executing any node.\n\nThis deliberately does not call models, tools, connectors, or child graphs.\nConnectivity and live-provider verification remain separately labelled\nevidence because a preflight must be safe to run against side-effecting\nworkflows.",
+        "operationId": "preflight_workflow_api_studio_v1_workflows__workflow_id__preflight_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowPreflightResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preflight Workflow",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
     "/api/studio/v1/workflows/{workflow_id}/publish": {
       "post": {
         "description": "Validate and publish the draft, making it immutable and deployable.\n\nValidation failures return 422 with the structured issue list so the\ncanvas can point at the offending node/edge.",
@@ -6500,6 +8899,59 @@
           }
         },
         "summary": "Publish Workflow",
+        "tags": [
+          "studio"
+        ]
+      }
+    },
+    "/api/studio/v1/workflows/{workflow_id}/verify-provider": {
+      "post": {
+        "description": "Run a bounded, explicitly consented probe against each distinct agent model.",
+        "operationId": "verify_workflow_providers_api_studio_v1_workflows__workflow_id__verify_provider_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveProviderVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveProviderVerificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Workflow Providers",
         "tags": [
           "studio"
         ]
@@ -6557,6 +9009,28 @@
           }
         },
         "summary": "Health Ready"
+      }
+    },
+    "/v1/admin/audits": {
+      "get": {
+        "description": "List audit records across the caller's tenant-visible deployments.",
+        "operationId": "list_tenant_audits_v1_admin_audits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantAuditRecordListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Tenant Audits",
+        "tags": [
+          "v1"
+        ]
       }
     },
     "/v1/admin/runs": {
@@ -6800,6 +9274,27 @@
         ]
       }
     },
+    "/v1/audit-readiness": {
+      "get": {
+        "operationId": "audit_readiness_v1_audit_readiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Audit Readiness",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/connectors": {
       "get": {
         "description": "All memory connectors registered for this deployment, by ref.\n\nThese are the values a retrieval node's ``connector_ref`` (and an\nagent's ``memory_refs``) can resolve at run time. Runtime-managed\nconnectors include their backend_type and secret-masked params;\nenv-sourced connectors return ``params=None``.",
@@ -6968,6 +9463,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectorTestRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -7674,6 +10186,67 @@
         ]
       }
     },
+    "/v1/deployments/{deployment_ref}/operations/{operation_key}/resolve": {
+      "post": {
+        "operationId": "resolve_ambiguous_operation_v1_deployments__deployment_ref__operations__operation_key__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "operation_key",
+            "required": true,
+            "schema": {
+              "title": "Operation Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationResolutionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResolutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Ambiguous Operation",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/deployments/{deployment_ref}/output-contract": {
       "get": {
         "operationId": "get_output_contract_v1_deployments__deployment_ref__output_contract_get",
@@ -7902,6 +10475,28 @@
           }
         },
         "summary": "Post Verify Attestation",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/configuration": {
+      "get": {
+        "description": "Return effective, non-secret economics controls for this deployment.\n\nThe values are read from the already-built runtime rather than reloading\nprocess environment, so the console shows what this process enforces.",
+        "operationId": "get_economics_configuration_v1_econ_configuration_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomicsConfigurationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Economics Configuration",
         "tags": [
           "v1"
         ]
@@ -8735,6 +11330,36 @@
         ]
       }
     },
+    "/v1/econ/rightsizing/experiment/latest": {
+      "get": {
+        "description": "Restore the latest completed measured result in the caller's deployment scope.",
+        "operationId": "get_latest_rightsizing_experiment_v1_econ_rightsizing_experiment_latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ExperimentReport"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Latest Rightsizing Experiment V1 Econ Rightsizing Experiment Latest Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Latest Rightsizing Experiment",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/econ/rightsizing/opportunities": {
       "get": {
         "description": "Rank this deployment's agent nodes by right-sizing opportunity (spend \u00d7 savings).\n\nRead-only aggregation over the audit trail \u2014 no LLM calls. Surfaces which nodes are\nworth a measured experiment. Returns an empty report (200) when no spend is on record.",
@@ -8772,6 +11397,20 @@
               "minimum": 1,
               "title": "Window",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "deployment",
+              "enum": [
+                "deployment",
+                "tenant"
+              ],
+              "title": "Scope",
+              "type": "string"
             }
           }
         ],
@@ -8830,6 +11469,20 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "deployment",
+              "enum": [
+                "deployment",
+                "tenant"
+              ],
+              "title": "Scope",
+              "type": "string"
             }
           }
         ],
@@ -9124,6 +11777,27 @@
         ]
       }
     },
+    "/v1/identity": {
+      "get": {
+        "operationId": "get_identity_v1_identity_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Identity",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/langgraph/deployments/{deployment_ref}/attestations": {
       "post": {
         "operationId": "attest_v1_langgraph_deployments__deployment_ref__attestations_post",
@@ -9344,6 +12018,92 @@
         ]
       }
     },
+    "/v1/manifests/{manifest_ref}": {
+      "get": {
+        "description": "Return a safe manifest projection; commands, source and environment stay hidden.",
+        "operationId": "get_manifest_v1_manifests__manifest_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "manifest_ref",
+            "required": true,
+            "schema": {
+              "title": "Manifest Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManifestDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Manifest",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/manifests/{manifest_ref}/runs": {
+      "get": {
+        "description": "Recent run/node identities linked to a manifest through scoped audit evidence.",
+        "operationId": "list_manifest_runs_v1_manifests__manifest_ref__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "manifest_ref",
+            "required": true,
+            "schema": {
+              "title": "Manifest Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManifestRunListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Manifest Runs",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/metrics": {
       "get": {
         "operationId": "get_metrics_v1_metrics_get",
@@ -9360,6 +12120,56 @@
           }
         },
         "summary": "Get Metrics",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/retention/erasure-history": {
+      "get": {
+        "description": "Return recent append-only Retention activity for the caller's tenant.",
+        "operationId": "list_erasure_history_v1_retention_erasure_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ErasureHistoryEntry"
+                  },
+                  "title": "Response List Erasure History V1 Retention Erasure History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Erasure History",
         "tags": [
           "v1"
         ]
@@ -9408,6 +12218,30 @@
       }
     },
     "/v1/retention/legal-holds": {
+      "get": {
+        "description": "List active legal holds for the caller's tenant.",
+        "operationId": "list_legal_holds_v1_retention_legal_holds_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LegalHoldResponse"
+                  },
+                  "title": "Response List Legal Holds V1 Retention Legal Holds Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Legal Holds",
+        "tags": [
+          "v1"
+        ]
+      },
       "post": {
         "description": "Place a run-scoped or tenant-wide legal hold for the caller's tenant.",
         "operationId": "place_legal_hold_v1_retention_legal_holds_post",
@@ -9677,6 +12511,53 @@
           }
         },
         "summary": "Verify Run Audit Chain",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/children": {
+      "get": {
+        "description": "Return payload-free direct-child linkage within the caller's scope.",
+        "operationId": "list_child_runs_v1_runs__run_id__children_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChildRunSummaryResponse"
+                  },
+                  "title": "Response List Child Runs V1 Runs  Run Id  Children Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Child Runs",
         "tags": [
           "v1"
         ]
@@ -10186,6 +13067,67 @@
           }
         },
         "summary": "Replay Dead Letter",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/webhooks/deliveries": {
+      "get": {
+        "operationId": "list_deliveries_v1_webhooks_deliveries_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subscription_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subscription Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDeliveryListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Deliveries",
         "tags": [
           "v1"
         ]

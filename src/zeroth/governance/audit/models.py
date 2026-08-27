@@ -155,6 +155,9 @@ class NodeAuditRecord(BaseModel):
     deployment_ref: str
     tenant_id: str
     workspace_id: str | None = None
+    # First-class campaign correlation survives metadata-only capture. Provider
+    # request identities deliberately remain outside this free-form model.
+    campaign_id: str | None = None
     attempt: int = 1
     status: str
     actor: ActorIdentity | None = None
@@ -227,7 +230,7 @@ NodeAuditRecord.__signature__ = inspect.signature(NodeAuditRecord).replace(
     parameters=[
         parameter
         for name, parameter in inspect.signature(NodeAuditRecord).parameters.items()
-        if name not in {"estimated_cost_usd", "cost_measurement"}
+        if name not in {"campaign_id", "estimated_cost_usd", "cost_measurement"}
     ]
 )
 

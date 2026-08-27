@@ -137,6 +137,31 @@ def test_llm_key_map_overrides_logical_name() -> None:
     assert captured["logical"] == "llm.openai_prod"
 
 
+def test_provider_base_url_map_pins_trusted_local_endpoint() -> None:
+    adapter = LiteLLMProviderAdapter(
+        secret_provider=_FakeSecretProvider("invalid-evaluation-value"),
+        tenant_id="acme",
+        llm_base_url_map={"openai": "http://127.0.0.1:18124/v1"},
+    )
+
+    client = adapter._get_client("openai/gpt-4o-mini")
+
+    assert client.api_base == "http://127.0.0.1:18124/v1"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "file:///tmp/provider.sock",
+        "http://user:pass@127.0.0.1:18124/v1",
+        "http://127.0.0.1:18124/v1#fragment",
+    ],
+)
+def test_provider_base_url_map_rejects_unsafe_urls(base_url: str) -> None:
+    with pytest.raises(ValueError, match="provider base URL"):
+        LiteLLMProviderAdapter(llm_base_url_map={"openai": base_url})
+
+
 # --- async resolution path (WS: MCP/Vault hardening) --------------------------
 
 

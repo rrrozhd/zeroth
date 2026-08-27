@@ -9,6 +9,7 @@ that run inside a caller-supplied transaction.
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -84,6 +85,42 @@ async def test_create_persists_a_run_and_reads_it_back(
     assert (await repository.get("run-1")) is not None
 
 
+async def test_parent_run_id_round_trips_for_composed_runs(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    """Child lineage must survive persistence and UI refresh."""
+    repository = _repository(sqlite_db)
+    child = _make_run("child-run")
+    child.parent_run_id = "parent-run"
+
+    await repository.create(child)
+
+    persisted = await repository.get(child.run_id)
+    assert persisted is not None
+    assert persisted.parent_run_id == "parent-run"
+
+
+async def test_list_child_runs_is_parent_filtered_and_tenant_scoped(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    repository = _repository(sqlite_db, "tenant-1")
+    foreign = _repository(sqlite_db, "tenant-2")
+    await repository.create(_make_run("parent-a", tenant_id="tenant-1"))
+    await repository.create(_make_run("parent-b", tenant_id="tenant-1"))
+    for run_id, parent_run_id in (("child-a-1", "parent-a"), ("child-a-2", "parent-a"), ("child-b", "parent-b")):
+        child = _make_run(run_id, tenant_id="tenant-1")
+        child.parent_run_id = parent_run_id
+        await repository.create(child)
+    foreign_child = _make_run("foreign-child", tenant_id="tenant-2")
+    foreign_child.parent_run_id = "parent-a"
+    await foreign.create(foreign_child)
+
+    children = await repository.list_child_runs("parent-a")
+
+    assert {child.run_id for child in children} == {"child-a-1", "child-a-2"}
+    assert {child.parent_run_id for child in children} == {"parent-a"}
+
+
 async def test_list_runs_clamps_non_positive_limit(sqlite_db: AsyncSQLiteDatabase) -> None:
     """A02-12: list_runs is called beyond the FastAPI route layer's Query bound.
 
@@ -152,6 +189,59 @@ async def test_create_preserves_both_owners_when_tenants_share_a_run_id(
     foreign_persisted = await foreign_repository.get("guessed-run")
     assert foreign_persisted is not None
     assert foreign_persisted.metadata == {"owner": "tenant-b"}
+
+
+async def test_merge_terminal_metadata_does_not_rewrite_execution_state(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    """Reviewer annotations change one run column, never execution evidence.
+
+    Quality verdicts are an out-of-band interpretation of a completed outcome.
+    Attaching one must not mint a checkpoint, advance a thread timestamp, change
+    the run timestamp, or rewrite the terminal output that the verdict evaluates.
+    """
+    repository = _repository(sqlite_db)
+    run = _make_run(status=RunStatus.COMPLETED)
+    run.metadata = {"existing": "kept"}
+    run.final_output = {"answer": "durable"}
+    created = await repository.create(run)
+
+    async def snapshot() -> tuple[dict, dict, list[dict]]:
+        async with sqlite_db.transaction() as connection:
+            run_row = await connection.fetch_one(
+                "SELECT * FROM runs WHERE tenant_id = ? AND run_id = ?",
+                ("tenant-1", created.run_id),
+            )
+            thread_row = await connection.fetch_one(
+                "SELECT * FROM threads WHERE tenant_id = ? AND thread_id = ?",
+                ("tenant-1", created.thread_id),
+            )
+            checkpoint_rows = await connection.fetch_all(
+                "SELECT * FROM run_checkpoints WHERE tenant_id = ? AND run_id = ? "
+                "ORDER BY checkpoint_order",
+                ("tenant-1", created.run_id),
+            )
+        assert run_row is not None
+        assert thread_row is not None
+        return dict(run_row), dict(thread_row), [dict(row) for row in checkpoint_rows]
+
+    before_run, before_thread, before_checkpoints = await snapshot()
+
+    updated = await repository.merge_terminal_metadata(
+        created.run_id,
+        {"quality_verdict": {"verdict": "good", "source": "human:console"}},
+    )
+
+    after_run, after_thread, after_checkpoints = await snapshot()
+    assert updated.metadata == {
+        "existing": "kept",
+        "quality_verdict": {"verdict": "good", "source": "human:console"},
+    }
+    assert json.loads(after_run.pop("metadata")) == updated.metadata
+    before_run.pop("metadata")
+    assert after_run == before_run
+    assert after_thread == before_thread
+    assert after_checkpoints == before_checkpoints
 
 
 async def test_racing_tenants_can_create_the_same_run_id(

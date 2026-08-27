@@ -9,6 +9,7 @@ from pathlib import Path
 BACKEND_DOMAINS = frozenset(
     {
         "contracts",
+        "check",
         "econ",
         "eval",
         "governance",
@@ -21,6 +22,7 @@ BACKEND_DOMAINS = frozenset(
 
 ALLOWED_DEPENDENCIES = {
     "platform": frozenset(),
+    "check": frozenset({"contracts", "integrations", "platform"}),
     "contracts": frozenset({"platform"}),
     "governance": frozenset({"contracts", "platform"}),
     "runtime": frozenset({"contracts", "governance", "platform"}),

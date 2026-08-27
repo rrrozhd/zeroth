@@ -7,9 +7,11 @@ and handles retries with exponential backoff and jitter.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import random
 from dataclasses import dataclass
+from uuid import uuid4
 
 import httpx
 
@@ -17,6 +19,7 @@ from zeroth.platform.primitives.boundary import (
     OutboundDestinationError,
     resolve_outbound_url,
 )
+from zeroth.service.service_audit import ServiceAuditRecorder, webhook_event_identity
 from zeroth.service.webhooks.models import WebhookDelivery
 from zeroth.service.webhooks.repository import WebhookRepository
 from zeroth.service.webhooks.signing import sign_payload
@@ -39,6 +42,7 @@ class WebhookDeliveryWorker:
 
     repository: WebhookRepository
     http_client: httpx.AsyncClient
+    audit_recorder: ServiceAuditRecorder | None = None
     poll_interval: float = 2.0
     max_concurrency: int = 16
     retry_base_delay: float = 1.0
@@ -85,12 +89,15 @@ class WebhookDeliveryWorker:
                 delivery.subscription_id,
                 delivery.delivery_id,
             )
+            audit_record, audit_repository = self._transition_audit(delivery, "delivery_failed")
             await self.repository.mark_failed(
                 delivery.delivery_id,
                 generation,
                 error="subscription not found",
                 status_code=None,
                 retry_delay=0,
+                audit_record=audit_record,
+                audit_repository=audit_repository,
             )
             return
         # A02-6, defence in depth: creation-time validation cannot reach a row
@@ -106,7 +113,19 @@ class WebhookDeliveryWorker:
                 delivery.delivery_id,
                 sub.subscription_id,
             )
-            await self.repository.dead_letter(delivery.delivery_id, generation)
+            dead_letter_id = uuid4().hex
+            audit_record, audit_repository = self._transition_audit(
+                delivery,
+                "delivery_dead_lettered",
+                dead_letter_id=dead_letter_id,
+            )
+            await self.repository.dead_letter(
+                delivery.delivery_id,
+                generation,
+                dead_letter_id=dead_letter_id,
+                audit_record=audit_record,
+                audit_repository=audit_repository,
+            )
             return
         payload_bytes = delivery.payload_json.encode("utf-8")
         signature = sign_payload(payload_bytes, sub.secret)
@@ -130,7 +149,17 @@ class WebhookDeliveryWorker:
                 extensions={"sni_hostname": approved.sni_hostname},
             )
             if 200 <= response.status_code < 300:
-                await self.repository.mark_delivered(delivery.delivery_id, generation)
+                audit_record, audit_repository = self._transition_audit(
+                    delivery,
+                    "delivery_delivered",
+                    upstream_status_code=response.status_code,
+                )
+                await self.repository.mark_delivered(
+                    delivery.delivery_id,
+                    generation,
+                    audit_record=audit_record,
+                    audit_repository=audit_repository,
+                )
             else:
                 await self._handle_failure(
                     delivery,
@@ -153,17 +182,36 @@ class WebhookDeliveryWorker:
     ) -> None:
         """Handle a failed delivery: retry or dead-letter."""
         if delivery.attempt_count >= delivery.max_attempts:
-            await self.repository.dead_letter(delivery.delivery_id, generation)
-            logger.warning(
-                "webhook delivery %s dead-lettered after %d attempts",
-                delivery.delivery_id,
-                delivery.attempt_count,
+            dead_letter_id = uuid4().hex
+            audit_record, audit_repository = self._transition_audit(
+                delivery,
+                "delivery_dead_lettered",
+                dead_letter_id=dead_letter_id,
+                upstream_status_code=status_code,
             )
+            transitioned_id = await self.repository.dead_letter(
+                delivery.delivery_id,
+                generation,
+                dead_letter_id=dead_letter_id,
+                audit_record=audit_record,
+                audit_repository=audit_repository,
+            )
+            if transitioned_id is not None:
+                logger.warning(
+                    "webhook delivery %s dead-lettered after %d attempts",
+                    delivery.delivery_id,
+                    delivery.attempt_count,
+                )
         else:
             delay = next_retry_delay(
                 max(0, delivery.attempt_count - 1),
                 self.retry_base_delay,
                 self.retry_max_delay,
+            )
+            audit_record, audit_repository = self._transition_audit(
+                delivery,
+                "delivery_failed",
+                upstream_status_code=status_code,
             )
             await self.repository.mark_failed(
                 delivery.delivery_id,
@@ -171,4 +219,45 @@ class WebhookDeliveryWorker:
                 error=error,
                 status_code=status_code,
                 retry_delay=delay,
+                audit_record=audit_record,
+                audit_repository=audit_repository,
             )
+
+    def _transition_audit(
+        self,
+        delivery: WebhookDelivery,
+        transition: str,
+        *,
+        dead_letter_id: str | None = None,
+        upstream_status_code: int | None = None,
+    ):
+        """Build metadata-only audit input before the fenced state mutation."""
+        if self.audit_recorder is None:
+            return None, None
+        identity = webhook_event_identity(delivery.payload_json)
+        record = self.audit_recorder.build_webhook_event(
+            node_id=f"webhook.delivery.{transition.removeprefix('delivery_').replace('_', '-')}",
+            actor=None,
+            subscription_id=delivery.subscription_id,
+            delivery_id=delivery.delivery_id,
+            event_id=delivery.event_id,
+            dead_letter_id=dead_letter_id,
+            event_type=delivery.event_type.value,
+            transition=transition,
+            run_id=identity["run_id"],
+            approval_id=identity["approval_id"],
+            thread_id=identity["thread_id"],
+            graph_version_ref=identity["graph_version_ref"],
+            attempt=delivery.attempt_count,
+            upstream_status_code=upstream_status_code,
+        )
+        return record, self.audit_recorder.repository
+
+
+WebhookDeliveryWorker.__signature__ = inspect.signature(WebhookDeliveryWorker).replace(  # type: ignore[attr-defined]
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(WebhookDeliveryWorker).parameters.items()
+        if name != "audit_recorder"
+    ]
+)

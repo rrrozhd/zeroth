@@ -351,11 +351,56 @@ async def test_deployment_verifier_sorts_each_run_by_chain_sequence() -> None:
             assert deployment_ref == "deployment:v1"
             return [second, first]
 
+        async def list_by_run(self, run_id: str) -> list[NodeAuditRecord]:
+            assert run_id == "run:deployment"
+            return [second, first]
+
     report = await AuditContinuityVerifier(ReversedDeploymentRepository()).verify_deployment(
         "deployment:v1"
     )
     assert report.verified is True
     assert report.record_count == 2
+
+
+async def test_deployment_verifier_checks_the_complete_scoped_run_chain() -> None:
+    """A deployment slice may begin after records written under an older deployment."""
+    timestamp = datetime(2026, 7, 12, tzinfo=UTC)
+    first = compute_chained_record(
+        _record(
+            audit_id="service:old", run_id="service:GET:/runs", started_at=timestamp
+        ).model_copy(update={"chain_sequence": 1, "deployment_ref": "deployment:old"}),
+        None,
+    )
+    second = compute_chained_record(
+        _record(
+            audit_id="service:current",
+            run_id="service:GET:/runs",
+            started_at=timestamp + timedelta(seconds=1),
+        ).model_copy(update={"chain_sequence": 2, "deployment_ref": "deployment:v1"}),
+        first.record_digest,
+    )
+
+    class ScopedRepository:
+        async def list_by_deployment(self, deployment_ref: str, **scope) -> list[NodeAuditRecord]:
+            assert deployment_ref == "deployment:v1"
+            assert scope["tenant_id"] == "default"
+            return [second]
+
+        async def list_by_run(self, run_id: str, **scope) -> list[NodeAuditRecord]:
+            assert run_id == "service:GET:/runs"
+            assert scope["tenant_id"] == "default"
+            assert "deployment_ref" not in scope
+            return [first, second]
+
+    report = await AuditContinuityVerifier(ScopedRepository()).verify_deployment(
+        "deployment:v1",
+        tenant_id="default",
+        workspace_id=None,
+        workspace_scoped=True,
+    )
+
+    assert report.verified is True
+    assert report.record_count == 1
 
 
 @pytest.mark.postgres

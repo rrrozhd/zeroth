@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "profile_id": "evaluation-studio-v1-accelerated-demo",
+  "status": "proposed_unarmed",
+  "claim_label": "demo_ready_not_full_campaign_accepted",
+  "campaign_id": "evaluation-studio-v1",
+  "authorization_phrase": "AUTHORIZE_ACCELERATED_DEMO_ACCEPTANCE",
+  "budgets": {
+    "tenant_ceiling_usd": "10.00",
+    "per_run_ceiling_usd": "0.25",
+    "accelerated_incremental_ceiling_usd": "1.00",
+    "maximum_new_live_runs": 3,
+    "maximum_new_provider_calls": 17
+  },
+  "gates": [
+    {
+      "gate_id": "accelerated.workflow1.live-grounded-run",
+      "maximum_new_live_runs": 1,
+      "maximum_provider_calls": 3,
+      "required_results": [
+        "successful structured answer and source_ids",
+        "tenant-scoped Chroma retrieval IDs",
+        "signed run and node audit chain",
+        "provider model usage and cost identities",
+        "reconciled local Audit Economics and Regulus totals",
+        "run cost at or below 0.25 USD"
+      ],
+      "original_criteria_eligible": [
+        "workflow1.happy-1",
+        "workflow1.semantic-retrieval",
+        "workflow1.structured-payload",
+        "workflow1.final-output",
+        "workflow1.audit-chain",
+        "workflow1.economics"
+      ]
+    },
+    {
+      "gate_id": "accelerated.workflow2.third-repetition",
+      "maximum_new_live_runs": 1,
+      "maximum_provider_calls": 8,
+      "required_results": [
+        "eight isolated successful child runs",
+        "configured and observed concurrency four",
+        "ordered join indexes zero through seven",
+        "signed parent and child audit chains",
+        "one unique cost event per non-cache child call",
+        "three-repetition aggregate economics reconciled"
+      ],
+      "original_criteria_eligible": [
+        "workflow2.happy-3",
+        "workflow2.aggregate-economics"
+      ]
+    },
+    {
+      "gate_id": "accelerated.rightsizing.measured-ui",
+      "maximum_new_live_runs": 1,
+      "maximum_provider_calls": 6,
+      "maximum_candidates": 1,
+      "maximum_cases": 3,
+      "required_results": [
+        "experiment submitted from the real Rightsizing interface",
+        "recorded live node inputs replayed",
+        "candidate and judge calls correlated when applicable",
+        "quality verdict persisted without rewriting economics history",
+        "actual or estimated provider cost reconciled",
+        "result restored after refresh"
+      ],
+      "original_criteria_eligible": []
+    },
+    {
+      "gate_id": "accelerated.audit-economics.closeout",
+      "maximum_new_live_runs": 0,
+      "maximum_provider_calls": 0,
+      "required_results": [
+        "every accelerated non-cache call has exactly one cost event",
+        "operation run audit and cost identities are unique",
+        "provider model and usage identities are present where exposed",
+        "Audit local Economics and Regulus totals reconcile within tolerance",
+        "failed provider spend appears as measured or estimated failure tax",
+        "no composed-parent cost is double counted"
+      ],
+      "original_criteria_eligible": [
+        "audit.provider-model-usage-cost-identity",
+        "audit.operation-and-cost-identities"
+      ]
+    },
+    {
+      "gate_id": "accelerated.ui.persistence-evidence",
+      "maximum_new_live_runs": 0,
+      "maximum_provider_calls": 0,
+      "required_results": [
+        "Runs shows authoritative attributed cost with sub-cent precision",
+        "Economics shows deployment and failure-tax attribution",
+        "Rightsizing shows live attributed spend and measured result",
+        "configured result and refresh-restored screenshots exist",
+        "the 8122 connection and tenant scope survive reload without key re-entry"
+      ],
+      "original_criteria_eligible": []
+    }
+  ],
+  "stop_conditions": [
+    "secret or authorization material retained in evidence",
+    "broken or unsigned required audit chain",
+    "ambiguous provider outcome or reservation",
+    "cross-tenant data exposure",
+    "unexplained economics discrepancy",
+    "tenant per-run or accelerated incremental ceiling exceeded"
+  ],
+  "deferred_original_criteria": [
+    "workflow1.happy-2",
+    "workflow1.happy-3",
+    "economics.one-event-per-noncache-call",
+    "economics.reconciled-totals",
+    "economics.shared-provider-window-upper-bound",
+    "stop.audit-complete-and-valid",
+    "stop.no-economic-double-count",
+    "check.after-workflow-gates"
+  ],
+  "invariants": {
+    "mutates_original_acceptance_catalog": false,
+    "permits_full_campaign_acceptance_claim": false,
+    "automatic_retry_after_ambiguous_outcome": false,
+    "provider_calls_before_explicit_authorization": false
+  }
+}

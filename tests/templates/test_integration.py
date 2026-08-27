@@ -8,6 +8,7 @@ template_ref.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -331,6 +332,27 @@ class TestOrchestratorTemplateResolution:
         assert inner_meta["template_ref"]["version"] == 1
 
     @pytest.mark.asyncio()
+    async def test_audit_promotes_safe_template_identity_and_render_digest(
+        self, registry, renderer, runner
+    ):
+        graph = self._make_graph(template_ref=TemplateReference(name="greeting", version=2))
+        audit_repo = _FakeAuditRepository()
+        orchestrator = _token_orchestrator(
+            agent_runners={"agent1": runner},
+            executable_unit_runner=None,
+            audit_repository=audit_repo,
+            template_registry=registry,
+            template_renderer=renderer,
+        )
+
+        await orchestrator.run_graph(graph, {"name": "Charlie"})
+
+        metadata = audit_repo.records[0].execution_metadata
+        assert metadata["rendered_prompt_sha256"] == hashlib.sha256(b"Hi Charlie!").hexdigest()
+        assert metadata["template_name_sha256"] == hashlib.sha256(b"greeting").hexdigest()
+        assert metadata["template_version"] == 2
+
+    @pytest.mark.asyncio()
     async def test_template_variables_include_input_and_state(self, renderer, runner):
         """Template variables should include input payload and run state metadata."""
         from zeroth.contracts.templates.registry import TemplateRegistry
@@ -437,6 +459,46 @@ class TestAuditRedaction:
         assert "sk-secret-123" not in rendered
         assert "***REDACTED***" in rendered
         # Non-secret values should remain.
+        assert "Alice" in rendered
+
+    @pytest.mark.asyncio()
+    async def test_nested_secret_variable_redacted_in_audit(self, renderer, runner):
+        """Secret leaves below a namespace remain absent from rendered audit content."""
+        from zeroth.contracts.templates.registry import TemplateRegistry
+
+        reg = TemplateRegistry()
+        reg.register(
+            "nested_secret_test",
+            1,
+            "Hello {{ input.name }}! Key={{ input.credentials.api_key }}",
+            variables=["input"],
+        )
+        graph = self._make_graph(
+            template_ref=TemplateReference(name="nested_secret_test", version=1),
+        )
+        audit_repo = _FakeAuditRepository()
+        orchestrator = _token_orchestrator(
+            agent_runners={"agent1": runner},
+            executable_unit_runner=None,
+            audit_repository=audit_repo,
+            template_registry=reg,
+            template_renderer=renderer,
+        )
+
+        await orchestrator.run_graph(
+            graph,
+            {
+                "name": "Alice",
+                "credentials": {"api_key": "nested-secret-value-90817263"},
+            },
+        )
+
+        assert len(audit_repo.records) == 1
+        exec_meta = audit_repo.records[0].execution_metadata
+        inner_meta = exec_meta.get("execution_metadata", exec_meta)
+        rendered = inner_meta["rendered_prompt"]
+        assert "nested-secret-value-90817263" not in rendered
+        assert "***REDACTED***" in rendered
         assert "Alice" in rendered
 
     @pytest.mark.asyncio()

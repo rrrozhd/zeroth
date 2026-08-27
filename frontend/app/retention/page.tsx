@@ -15,9 +15,8 @@
 //     readability and show the resolved value as a mono-teal humanized readout.
 //   RetentionPolicyBody (PUT): { enabled, run_ttl_seconds?, audit_ttl_seconds? }.
 //   LegalHoldResponse: { hold_id, tenant_id, run_id?, reason?, placed_by?, active }.
-//     There is NO list endpoint — only place (POST) and release (DELETE {hold_id}).
-//     So the holds card tracks holds placed in THIS session (client state); a page
-//     reload starts empty. An omitted run_id = a tenant-wide hold.
+//     Active holds are loaded from persistent tenant storage; an omitted run_id
+//     places a tenant-wide hold.
 //   LegalHoldBody (POST): { run_id?, reason? }.
 //   ErasureRequestBody (POST): { run_id? } XOR { tenant_id? } — exactly one. There
 //     is no subject/fields/note field; the "note" input below is a LOCAL operator
@@ -45,22 +44,28 @@ import {
   TONE,
 } from "@/app/components/primitives";
 import { useToast } from "@/app/components/Toast";
-import { useLoad } from "@/app/hooks/useLoad";
+import { useLoad, type Loadable } from "@/app/hooks/useLoad";
 import {
   errMsg,
   getRetentionPolicy,
+  listErasureHistory,
+  listLegalHolds,
   placeLegalHold,
   putRetentionPolicy,
   releaseLegalHold,
   requestErasure,
   type ErasureResult,
+  type ErasureHistoryEntry,
   type LegalHold,
   type RetentionPolicy,
   type RetentionPolicyBody,
 } from "@/app/lib/api";
 import { getTenant, isConfigured } from "@/app/lib/config";
+import { isForbiddenSurface, surfaceAccessMessage } from "@/app/lib/surfaceAccess";
 
 const DAY = 86_400;
+const MAX_TTL_SECONDS = 2_147_483_647;
+const MAX_TTL_DAYS = MAX_TTL_SECONDS / DAY;
 
 // --------------------------------------------------------------------------
 // TTL helpers — the policy stores seconds; the UI edits days and reads back a
@@ -87,16 +92,18 @@ function humanizeTtl(sec: number | null | undefined): string {
 function secToDaysField(sec: number | null | undefined): string {
   if (sec == null) return "";
   if (sec % DAY === 0) return String(sec / DAY);
-  return String(Number((sec / DAY).toFixed(4)));
+  const precision = sec < DAY ? 10 : 4;
+  return String(Number((sec / DAY).toFixed(precision)));
 }
 
-/** Days input -> seconds. "" = null (no expiry); an invalid/negative value = "err". */
+/** Days input -> seconds. "" = null (no expiry); values below one second are invalid. */
 function daysFieldToSec(s: string): number | null | "err" {
   const t = s.trim();
   if (t === "") return null;
   const n = Number(t);
-  if (!Number.isFinite(n) || n < 0) return "err";
-  return Math.round(n * DAY);
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_TTL_DAYS) return "err";
+  const seconds = Math.round(n * DAY);
+  return seconds >= 1 && seconds <= MAX_TTL_SECONDS ? seconds : "err";
 }
 
 // --------------------------------------------------------------------------
@@ -109,9 +116,12 @@ export default function RetentionPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const connected = mounted && isConfigured();
+  const policy = useLoad<RetentionPolicy>(getRetentionPolicy);
+  const accessResolving = !mounted || (connected && policy.loading && !policy.data && !policy.error);
+  const accessError = policy.error;
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: "28px 28px 48px" }}>
       <header style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>
           Retention &amp; Compliance
@@ -130,10 +140,22 @@ export default function RetentionPage() {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <RetentionPolicyCard connected={connected} mounted={mounted} />
-          <LegalHoldsCard connected={connected} mounted={mounted} />
+          <RetentionPolicyCard connected={connected} mounted={mounted} policy={policy} />
+          <LegalHoldsCard
+            connected={connected}
+            mounted={mounted}
+            accessResolving={accessResolving}
+            accessError={accessError}
+            reloadAccess={policy.reload}
+          />
         </div>
-        <ErasureCard connected={connected} mounted={mounted} />
+        <ErasureCard
+          connected={connected}
+          mounted={mounted}
+          accessResolving={accessResolving}
+          accessError={accessError}
+          reloadAccess={policy.reload}
+        />
       </div>
     </div>
   );
@@ -143,9 +165,16 @@ export default function RetentionPage() {
 // Retention policy — the two governed TTLs + master enable, editable inline.
 // --------------------------------------------------------------------------
 
-function RetentionPolicyCard({ connected, mounted }: { connected: boolean; mounted: boolean }) {
+function RetentionPolicyCard({
+  connected,
+  mounted,
+  policy,
+}: {
+  connected: boolean;
+  mounted: boolean;
+  policy: Loadable<RetentionPolicy>;
+}) {
   const toast = useToast();
-  const policy = useLoad<RetentionPolicy>(getRetentionPolicy);
 
   const [enabled, setEnabled] = useState(true);
   const [runDays, setRunDays] = useState("");
@@ -193,7 +222,7 @@ function RetentionPolicyCard({ connected, mounted }: { connected: boolean; mount
   }
 
   return (
-    <Card pad={16}>
+    <Card pad={16} data-evidence-id="retention.policy.card">
       <SectionHead label="Retention policy">
         {p && <Pill tone="muted">tenant {p.tenant_id}</Pill>}
       </SectionHead>
@@ -225,6 +254,8 @@ function RetentionPolicyCard({ connected, mounted }: { connected: boolean; mount
           >
             <input
               type="checkbox"
+              aria-label="Retention enforcement enabled"
+              data-evidence-id="retention.policy.enabled"
               checked={enabled}
               onChange={(e) => setEnabled(e.target.checked)}
               style={{ accentColor: "var(--accent)", width: 15, height: 15 }}
@@ -259,15 +290,20 @@ function RetentionPolicyCard({ connected, mounted }: { connected: boolean; mount
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14 }}>
-            <Button variant="primary" onClick={save} disabled={!dirty || !valid || saving}>
+            <Button
+              variant="primary"
+              onClick={save}
+              disabled={!dirty || !valid || saving}
+              data-evidence-id="retention.policy.save"
+            >
               {saving ? "Saving…" : "Save policy"}
             </Button>
             {dirty && !saving && (
               <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Unsaved changes</span>
             )}
             {!valid && (
-              <span style={{ fontSize: 11, color: "var(--danger)" }}>
-                TTL must be a non-negative number of days (blank = no expiry).
+              <span id="retention-policy-ttl-error" role="alert" style={{ fontSize: 11, color: "var(--danger)" }}>
+                TTL must resolve to 1–2147483647 seconds (max 24855.1348 days; blank = no expiry).
               </span>
             )}
           </div>
@@ -292,6 +328,7 @@ function TtlRow({
   seconds: number | null | "err";
 }) {
   const err = seconds === "err";
+  const inputId = `retention-${scope.toLowerCase().replaceAll(" ", "-")}-ttl-days`;
   return (
     <div
       style={{
@@ -319,10 +356,16 @@ function TtlRow({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <input
+          id={inputId}
+          aria-label={`${scope} TTL in days`}
+          data-evidence-id={`retention.policy.${scope.toLowerCase().replaceAll(" ", "-")}-ttl`}
+          aria-invalid={err}
+          aria-describedby={err ? "retention-policy-ttl-error" : undefined}
           value={days}
           onChange={(e) => onDays(e.target.value)}
           placeholder="∞"
           inputMode="decimal"
+          min={1 / DAY}
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -330,7 +373,7 @@ function TtlRow({
             fontSize: 12.5,
             textAlign: "right",
             color: "var(--text-primary)",
-            background: "var(--bg-code)",
+            background: "var(--bg-card)",
             border: `1px solid ${err ? "var(--danger)" : "var(--hair-strong)"}`,
             borderRadius: 6,
             padding: "7px 9px",
@@ -346,13 +389,25 @@ function TtlRow({
 }
 
 // --------------------------------------------------------------------------
-// Legal holds — session-local list (no GET endpoint), place + release.
+// Legal holds — persistent tenant-scoped list, place + release.
 // Amber-tinted: a hold suspends TTL expiry & erasure for its scope.
 // --------------------------------------------------------------------------
 
-function LegalHoldsCard({ connected, mounted }: { connected: boolean; mounted: boolean }) {
+function LegalHoldsCard({
+  connected,
+  mounted,
+  accessResolving,
+  accessError,
+  reloadAccess,
+}: {
+  connected: boolean;
+  mounted: boolean;
+  accessResolving: boolean;
+  accessError: string | null;
+  reloadAccess: () => void;
+}) {
   const toast = useToast();
-  const [holds, setHolds] = useState<LegalHold[]>([]);
+  const holds = useLoad<LegalHold[]>(listLegalHolds);
   const [runId, setRunId] = useState("");
   const [reason, setReason] = useState("");
   const [placing, setPlacing] = useState(false);
@@ -367,10 +422,10 @@ function LegalHoldsCard({ connected, mounted }: { connected: boolean; mounted: b
         run_id: runId.trim() || null,
         reason: reason.trim() || null,
       });
-      setHolds((h) => [hold, ...h.filter((x) => x.hold_id !== hold.hold_id)]);
       toast(`Legal hold placed · ${hold.hold_id}`);
       setRunId("");
       setReason("");
+      holds.reload();
     } catch (err) {
       toast(`Place hold failed: ${errMsg(err)}`);
     } finally {
@@ -383,8 +438,8 @@ function LegalHoldsCard({ connected, mounted }: { connected: boolean; mounted: b
     setReleasing(holdId);
     try {
       await releaseLegalHold(holdId);
-      setHolds((h) => h.filter((x) => x.hold_id !== holdId));
       toast(`Legal hold released · ${holdId}`);
+      holds.reload();
     } catch (err) {
       toast(`Release failed: ${errMsg(err)}`);
       setReleasing(null);
@@ -396,6 +451,7 @@ function LegalHoldsCard({ connected, mounted }: { connected: boolean; mounted: b
   return (
     <Card
       pad={16}
+      data-evidence-id="retention.legal-holds.card"
       style={{
         border: `1px solid color-mix(in srgb, ${amber} 32%, transparent)`,
         background: `color-mix(in srgb, ${amber} 6%, var(--bg-card))`,
@@ -406,19 +462,27 @@ function LegalHoldsCard({ connected, mounted }: { connected: boolean; mounted: b
       </SectionHead>
 
       <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.55 }}>
-        A hold suspends TTL sweeps and erasure for its scope until released. This registry has no
-        list endpoint — holds placed this session are shown below; a reload starts fresh.
+        A hold suspends TTL sweeps and erasure for its scope until released. Active holds are
+        persisted and reloaded from tenant-scoped storage.
       </p>
 
       {mounted && !connected ? (
         <EmptyInline>Connect to the API (top bar) to place legal holds.</EmptyInline>
+      ) : accessResolving ? (
+        <Skeleton height={54} />
+      ) : accessError ? (
+        <InlineError message={accessError} onRetry={reloadAccess} />
+      ) : holds.loading && !holds.data ? (
+        <Skeleton height={54} />
+      ) : holds.error ? (
+        <InlineError message={holds.error} onRetry={holds.reload} />
       ) : (
         <>
-          {holds.length === 0 ? (
-            <EmptyInline>No legal holds placed this session.</EmptyInline>
+          {(holds.data?.length ?? 0) === 0 ? (
+            <EmptyInline>No active legal holds.</EmptyInline>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-              {holds.map((h) => (
+              {holds.data?.map((h) => (
                 <div
                   key={h.hold_id}
                   style={{
@@ -459,6 +523,8 @@ function LegalHoldsCard({ connected, mounted }: { connected: boolean; mounted: b
                   <Button
                     onClick={() => release(h.hold_id)}
                     disabled={releasing === h.hold_id}
+                    aria-label={`Release legal hold ${h.hold_id}`}
+                    data-evidence-id={`retention.legal-holds.release.${h.hold_id}`}
                     style={{ padding: "5px 9px", flexShrink: 0 }}
                   >
                     {releasing === h.hold_id ? "…" : "Release"}
@@ -470,13 +536,30 @@ function LegalHoldsCard({ connected, mounted }: { connected: boolean; mounted: b
 
           <form onSubmit={place} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Field label="run_id" hint="Blank places a tenant-wide hold (freezes every run).">
-              <TextInput value={runId} onChange={setRunId} placeholder="run_… (optional)" />
+              <TextInput
+                value={runId}
+                onChange={setRunId}
+                placeholder="run_… (optional)"
+                ariaLabel="Legal hold run ID"
+                evidenceId="retention.legal-holds.run-id"
+              />
             </Field>
             <Field label="reason" hint="Recorded on the hold for the audit trail.">
-              <TextInput value={reason} onChange={setReason} placeholder="e.g. litigation ref #4821" />
+              <TextInput
+                value={reason}
+                onChange={setReason}
+                placeholder="e.g. litigation ref #4821"
+                ariaLabel="Legal hold reason"
+                evidenceId="retention.legal-holds.reason"
+              />
             </Field>
             <div>
-              <Button type="submit" variant="primary" disabled={placing}>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={placing}
+                data-evidence-id="retention.legal-holds.place"
+              >
                 {placing ? "Placing…" : "Place hold"}
               </Button>
             </div>
@@ -505,8 +588,21 @@ type ErasureItem = {
   error?: string;
 };
 
-function ErasureCard({ connected, mounted }: { connected: boolean; mounted: boolean }) {
+function ErasureCard({
+  connected,
+  mounted,
+  accessResolving,
+  accessError,
+  reloadAccess,
+}: {
+  connected: boolean;
+  mounted: boolean;
+  accessResolving: boolean;
+  accessError: string | null;
+  reloadAccess: () => void;
+}) {
   const toast = useToast();
+  const history = useLoad<ErasureHistoryEntry[]>(() => listErasureHistory(25));
   const seq = useRef(0);
   const [items, setItems] = useState<ErasureItem[]>([]);
 
@@ -572,6 +668,7 @@ function ErasureCard({ connected, mounted }: { connected: boolean; mounted: bool
       );
       const n = result.runs?.length ?? 0;
       toast(`Erased ${n} run${n === 1 ? "" : "s"} · chain-safe: audit tombstones preserve digest continuity`);
+      history.reload();
     } catch (e) {
       const msg = errMsg(e);
       setItems((xs) =>
@@ -581,26 +678,41 @@ function ErasureCard({ connected, mounted }: { connected: boolean; mounted: bool
       );
       // 409 = a legal hold blocks the erasure; surface it verbatim.
       toast(`Erasure failed: ${msg}`);
+      history.reload();
     }
   }
 
   return (
-    <Card pad={16}>
+    <Card pad={16} data-evidence-id="retention.erasure.card">
       <SectionHead label="Erasure requests">
         <Pill tone="accent">right-to-erasure</Pill>
       </SectionHead>
 
       {mounted && !connected ? (
         <EmptyInline>Connect to the API (top bar) to request erasure.</EmptyInline>
+      ) : accessResolving ? (
+        <Skeleton height={120} />
+      ) : accessError ? (
+        <InlineError message={accessError} onRetry={reloadAccess} />
       ) : (
         <>
           <form onSubmit={stage} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Field label="scope" hint="Erase a single run, or every non-held run of a tenant.">
               <div style={{ display: "flex", gap: 6 }}>
-                <ScopeToggle active={scope === "run"} onClick={() => setScope("run")}>
+                <ScopeToggle
+                  active={scope === "run"}
+                  onClick={() => setScope("run")}
+                  ariaLabel="single run"
+                  evidenceId="retention.erasure.scope.run"
+                >
                   single run
                 </ScopeToggle>
-                <ScopeToggle active={scope === "tenant"} onClick={() => setScope("tenant")}>
+                <ScopeToggle
+                  active={scope === "tenant"}
+                  onClick={() => setScope("tenant")}
+                  ariaLabel="entire tenant"
+                  evidenceId="retention.erasure.scope.tenant"
+                >
                   entire tenant
                 </ScopeToggle>
               </div>
@@ -608,20 +720,41 @@ function ErasureCard({ connected, mounted }: { connected: boolean; mounted: bool
 
             {scope === "run" ? (
               <Field label="run_id" hint="The run whose payloads & audit records to erase.">
-                <TextInput value={runId} onChange={setRunId} placeholder="run_…" autoFocus />
+                <TextInput
+                  value={runId}
+                  onChange={setRunId}
+                  placeholder="run_…"
+                  autoFocus
+                  evidenceId="retention.erasure.run-id"
+                />
               </Field>
             ) : (
               <Field label="tenant_id" hint="Erases every run not under legal hold.">
-                <TextInput value={tenantId} onChange={setTenantId} placeholder="default" />
+                <TextInput
+                  value={tenantId}
+                  onChange={setTenantId}
+                  placeholder="default"
+                  evidenceId="retention.erasure.tenant-id"
+                />
               </Field>
             )}
 
             <Field label="note" hint="Local memo — attached to this card only, never sent to the API.">
-              <TextInput value={note} onChange={setNote} placeholder="e.g. DSAR-2026-114 (optional)" />
+              <TextInput
+                value={note}
+                onChange={setNote}
+                placeholder="e.g. DSAR-2026-114 (optional)"
+                evidenceId="retention.erasure.note"
+              />
             </Field>
 
             <div>
-              <Button type="submit" variant="neutral" disabled={!canStage}>
+              <Button
+                type="submit"
+                variant="neutral"
+                disabled={!canStage}
+                data-evidence-id="retention.erasure.stage"
+              >
                 Stage erasure request
               </Button>
             </div>
@@ -636,6 +769,38 @@ function ErasureCard({ connected, mounted }: { connected: boolean; mounted: bool
                   onExecute={() => execute(item)}
                   onDiscard={() => discard(item.localId)}
                 />
+              ))}
+            </div>
+          )}
+
+          {history.data && history.data.length > 0 && (
+            <div
+              data-evidence-id="retention.erasure.history"
+              style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16 }}
+            >
+              <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Recent durable activity</div>
+              {history.data.slice(0, 8).map((entry) => (
+                <div
+                  key={entry.log_id}
+                  data-evidence-id={`retention.erasure.history.${entry.log_id}`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) auto",
+                    gap: 8,
+                    padding: "8px 10px",
+                    border: "1px solid var(--hair)",
+                    borderRadius: 8,
+                    background: "var(--bg-raised)",
+                    fontSize: 11,
+                  }}
+                >
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {entry.action} · {entry.run_id ?? "tenant"}
+                  </span>
+                  <span style={{ color: "var(--text-faint)" }}>
+                    {new Date(entry.created_at).toLocaleString()}
+                  </span>
+                </div>
               ))}
             </div>
           )}
@@ -692,11 +857,12 @@ function ErasureRow({
 
   return (
     <div
+      data-evidence-id={`retention.erasure.item.${item.localId}`}
       style={{
         padding: "12px 14px",
         borderRadius: 8,
         border: "1px solid var(--hair)",
-        background: "var(--bg-code)",
+        background: "var(--bg-raised)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -753,6 +919,7 @@ function ErasureRow({
             variant="primary"
             onClick={onExecute}
             disabled={item.status === "erasing"}
+            data-evidence-id={`retention.erasure.execute.${item.localId}`}
             style={{ padding: "5px 10px" }}
           >
             {item.status === "erasing"
@@ -762,7 +929,12 @@ function ErasureRow({
                 : "Execute erasure"}
           </Button>
           {item.status !== "erasing" && (
-            <Button variant="neutral" onClick={onDiscard} style={{ padding: "5px 10px" }}>
+            <Button
+              variant="neutral"
+              onClick={onDiscard}
+              data-evidence-id={`retention.erasure.discard.${item.localId}`}
+              style={{ padding: "5px 10px" }}
+            >
               Discard
             </Button>
           )}
@@ -848,12 +1020,12 @@ function SectionHead({ label, children }: { label: string; children?: React.Reac
   );
 }
 
-/** A small mono count chip, e.g. "audits 3". */
+/** A small factual count chip, e.g. "audits 3". */
 function Metric({ label, value }: { label: string; value: number }) {
   return (
     <span
       style={{
-        fontFamily: "var(--font-mono)",
+        fontFamily: "var(--font-sans)",
         fontSize: 10.5,
         color: "var(--text-secondary)",
         background: "var(--bg-raised)",
@@ -891,26 +1063,33 @@ function ScopeTag({ children }: { children: React.ReactNode }) {
 function ScopeToggle({
   active,
   onClick,
+  ariaLabel,
+  evidenceId,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  ariaLabel: string;
+  evidenceId: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-label={ariaLabel}
+      aria-pressed={active}
+      data-evidence-id={evidenceId}
       style={{
         flex: 1,
-        fontFamily: "var(--font-mono)",
+        fontFamily: "var(--font-sans)",
         fontSize: 12,
         fontWeight: 500,
         padding: "7px 10px",
         borderRadius: 6,
         cursor: "pointer",
         color: active ? "var(--accent)" : "var(--text-secondary)",
-        background: active ? "rgba(94,234,212,0.12)" : "transparent",
+        background: active ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "transparent",
         border: `1px solid ${active ? "transparent" : "var(--hair-strong)"}`,
         transition: "background 120ms ease, color 120ms ease",
       }}
@@ -955,11 +1134,15 @@ function TextInput({
   onChange,
   placeholder,
   autoFocus,
+  ariaLabel,
+  evidenceId,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  ariaLabel?: string;
+  evidenceId?: string;
 }) {
   return (
     <input
@@ -967,6 +1150,8 @@ function TextInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       autoFocus={autoFocus}
+      aria-label={ariaLabel}
+      data-evidence-id={evidenceId}
       autoComplete="off"
       style={{
         width: "100%",
@@ -974,7 +1159,7 @@ function TextInput({
         fontFamily: "var(--font-mono)",
         fontSize: 12.5,
         color: "var(--text-primary)",
-        background: "var(--bg-code)",
+        background: "var(--bg-card)",
         border: "1px solid var(--hair-strong)",
         borderRadius: 6,
         padding: "8px 10px",
@@ -989,6 +1174,7 @@ function EmptyInline({ children }: { children: React.ReactNode }) {
 }
 
 function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const restricted = isForbiddenSurface(message);
   return (
     <div
       style={{
@@ -1012,11 +1198,13 @@ function InlineError({ message, onRetry }: { message: string; onRetry: () => voi
           whiteSpace: "nowrap",
         }}
       >
-        {message}
+        {surfaceAccessMessage(message, "Retention controls")}
       </span>
-      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Retry
-      </Button>
+      {!restricted && (
+        <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
+          Retry
+        </Button>
+      )}
     </div>
   );
 }

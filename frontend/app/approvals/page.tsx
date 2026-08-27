@@ -54,7 +54,7 @@ export default function ApprovalsPage() {
   const approvals = load.data ?? [];
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: "28px 28px 48px" }}>
       <header style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Approvals</h1>
         <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
@@ -99,6 +99,7 @@ function ApprovalCard({
   const toast = useToast();
   const [busy, setBusy] = useState<Decision | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
   // Optimistic flip: show the decided state the instant the reviewer clicks,
   // before the refetch replaces it with the canonical resolved record.
   const [optimistic, setOptimistic] = useState<Decision | null>(null);
@@ -117,9 +118,11 @@ function ApprovalCard({
     setError(null);
     setOptimistic(decision);
     try {
-      // ApprovalResolutionRequest carries `decision` (+ optional `edited_payload`);
-      // there is no free-text note field on the request.
-      await resolveApproval(approval.approval_id, { decision });
+      const trimmedReason = reason.trim();
+      await resolveApproval(approval.approval_id, {
+        decision,
+        ...(trimmedReason ? { reason: trimmedReason } : {}),
+      });
       toast(
         decision === "approve"
           ? "Approved — the run resumes past the gate"
@@ -140,6 +143,7 @@ function ApprovalCard({
 
   return (
     <Card
+      data-evidence-id={`approvals.card.${approval.approval_id}`}
       pad={16}
       style={{
         border: view.decided ? "1px solid var(--hair)" : "1px solid rgba(252,211,77,0.35)",
@@ -198,10 +202,43 @@ function ApprovalCard({
             <DecisionRecord approval={approval} optimistic={optimistic} label={view.label} />
           ) : (
             <>
+              <label
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 5,
+                  fontSize: 11.5,
+                  color: "var(--text-muted)",
+                }}
+              >
+                Decision reason
+                <textarea
+                  aria-label="Decision reason"
+                  data-evidence-id={`approvals.reason.${approval.approval_id}`}
+                  value={reason}
+                  maxLength={1000}
+                  rows={3}
+                  onChange={(event) => setReason(event.target.value)}
+                  placeholder="Record why this branch is approved or rejected"
+                  style={{
+                    width: "100%",
+                    resize: "vertical",
+                    minHeight: 62,
+                    border: "1px solid var(--hair-strong)",
+                    borderRadius: 8,
+                    background: "var(--bg-card)",
+                    color: "var(--text-primary)",
+                    font: "inherit",
+                    lineHeight: 1.45,
+                    padding: "8px 9px",
+                  }}
+                />
+              </label>
               <Button
                 variant="primary"
                 onClick={() => resolve("approve")}
                 disabled={busy !== null}
+                data-evidence-id={`approvals.approve.${approval.approval_id}`}
                 style={{ width: "100%" }}
               >
                 {busy === "approve" ? "Approving…" : "Approve"}
@@ -210,6 +247,7 @@ function ApprovalCard({
                 variant="danger"
                 onClick={() => resolve("reject")}
                 disabled={busy !== null}
+                data-evidence-id={`approvals.reject.${approval.approval_id}`}
                 style={{ width: "100%" }}
               >
                 {busy === "reject" ? "Rejecting…" : "Reject"}
@@ -251,6 +289,11 @@ function DecisionRecord({
       {res?.edited_payload != null && (
         <div style={{ fontSize: 11, color: "var(--text-faint)", lineHeight: 1.5 }}>
           Payload edited before approval.
+        </div>
+      )}
+      {res?.reason && (
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
+          {res.reason}
         </div>
       )}
     </div>

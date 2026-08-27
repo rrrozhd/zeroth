@@ -14,13 +14,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import re
 import time
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from zeroth.integrations.memory.embedding_calls import EmbeddingReservationMemoryConnector
 from zeroth.integrations.memory.factory import build_connector
 from zeroth.integrations.memory.governed.models import MemoryScope
 from zeroth.platform.primitives.error_vocabulary import safe_error_detail
@@ -77,6 +80,46 @@ class ConnectorTestResponse(BaseModel):
     ok: bool
     detail: str | None = None
     latency_ms: float
+    campaign_id: str | None = None
+    operation_id: str | None = None
+    cost_event_id: str | None = None
+    audit_event_id: str | None = None
+    cost_measurement: str | None = None
+    estimated_cost_usd: Decimal | None = None
+    provider_request_id: str | None = None
+    cleanup_status: str | None = None
+
+
+class ConnectorTestRequest(BaseModel):
+    """Optional cost boundary for a connector test that may call a provider."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    campaign_id: str = Field(min_length=1, max_length=128)
+    operation_id: str = Field(min_length=1, max_length=128)
+    run_id: str | None = Field(default=None, min_length=1, max_length=128)
+    max_cost_usd: Decimal = Field(gt=0)
+    run_cap_usd: Decimal | None = Field(default=None, gt=0)
+
+
+_connector_test_response_parameters = inspect.signature(ConnectorTestResponse).parameters
+ConnectorTestResponse.__signature__ = inspect.signature(ConnectorTestResponse).replace(
+    parameters=[
+        parameter
+        for name, parameter in _connector_test_response_parameters.items()
+        if name
+        not in {
+            "campaign_id",
+            "operation_id",
+            "cost_event_id",
+            "audit_event_id",
+            "cost_measurement",
+            "estimated_cost_usd",
+            "provider_request_id",
+            "cleanup_status",
+        }
+    ]
+)
 
 
 def _mask_secret_string(value: str) -> str:
@@ -133,6 +176,19 @@ def _tenant(request: Request) -> str:
     bootstrap = request.app.state.bootstrap
     deployment = getattr(bootstrap, "deployment", None)
     return getattr(deployment, "tenant_id", None) or "default"
+
+
+def _build_scoped_connector(
+    request: Request, backend_type: str, params: dict[str, Any]
+) -> tuple[Any, Any]:
+    bootstrap = request.app.state.bootstrap
+    return build_connector(
+        backend_type,
+        params,
+        secret_provider=getattr(bootstrap, "secret_provider", None),
+        tenant_id=_tenant(request),
+        allow_env_fallback=getattr(bootstrap, "evaluation_campaign_id", None) is None,
+    )
 
 
 def _validate_ref(ref: str) -> None:
@@ -237,7 +293,9 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
                 detail=f"ref {payload.ref!r} collides with an env-sourced connector",
             )
         try:
-            manifest, connector = build_connector(payload.backend_type, payload.params)
+            manifest, connector = _build_scoped_connector(
+                request, payload.backend_type, payload.params
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -268,7 +326,9 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
                 detail=f"runtime connector {ref!r} not found",
             )
         try:
-            manifest, connector = build_connector(payload.backend_type, payload.params)
+            manifest, connector = _build_scoped_connector(
+                request, payload.backend_type, payload.params
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -304,7 +364,9 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post("/connectors/{ref}/test", response_model=ConnectorTestResponse)
-    async def test_connector(request: Request, ref: str) -> ConnectorTestResponse:
+    async def test_connector(
+        request: Request, ref: str, body: ConnectorTestRequest | None = None
+    ) -> ConnectorTestResponse:
         """Probe the LIVE connector with a tiny write+read round-trip.
 
         Works for both env-sourced and runtime connectors. Connection
@@ -315,6 +377,14 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
         probing a pgvector connector performs one (tiny) embedding API call.
         """
         await require_permission(request, Permission.CONNECTOR_ADMIN)
+        strict_campaign_id = getattr(request.app.state.bootstrap, "evaluation_campaign_id", None)
+        if strict_campaign_id is not None and (
+            body is None or body.campaign_id != strict_campaign_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="strict evaluation requires the configured campaign identity",
+            )
         registry, _ = _registry_and_repo(request)
         # G9: route the probe through the resolver so it runs behind the
         # TenantScopedMemoryConnector wrapper — two tenants sharing one physical
@@ -340,6 +410,109 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"connector {ref!r} not found",
             ) from None
+        instrumentation = None
+        embedding_model = None
+        embedding_hooks = None
+        if body is not None:
+            instrumentation = getattr(request.app.state.bootstrap, "probe_instrumentation", None)
+            if instrumentation is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="cost reservation control plane unavailable; failing closed",
+                )
+            underlying = connector
+            seen: set[int] = set()
+            while id(underlying) not in seen:
+                seen.add(id(underlying))
+                embedding_model = getattr(underlying, "_embedding_model", None)
+                if embedding_model is not None:
+                    break
+                nested = getattr(underlying, "_inner", None) or getattr(
+                    underlying, "_connector", None
+                )
+                if nested is None:
+                    break
+                underlying = nested
+            server_max_cost = Decimal("0")
+            if embedding_model is not None:
+                estimator = getattr(request.app.state.bootstrap, "cost_estimator", None)
+                if estimator is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="connector probe maximum cannot be priced; failing closed",
+                    )
+                server_max_cost = estimator.estimate(
+                    embedding_model, input_tokens=256, output_tokens=0
+                )
+                if server_max_cost is None or server_max_cost <= 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="connector probe maximum is unknown; failing closed",
+                    )
+            if server_max_cost > body.max_cost_usd:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="server-calculated connector maximum exceeds acknowledged ceiling",
+                )
+            server_run_cap = getattr(
+                getattr(request.app.state.bootstrap, "orchestrator", None),
+                "per_run_cap_usd",
+                None,
+            )
+            if server_run_cap is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="server-owned per-run ceiling is not configured; failing closed",
+                )
+            if body.run_cap_usd is not None and body.run_cap_usd != server_run_cap:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="requested run ceiling does not match the server-owned ceiling",
+                )
+            try:
+                await instrumentation.reserve_probe(
+                    tenant_id=_tenant(request),
+                    campaign_id=body.campaign_id,
+                    operation_id=body.operation_id,
+                    run_id=body.run_id,
+                    max_cost_usd=str(server_max_cost),
+                    run_cap_usd=str(server_run_cap),
+                    capability_id="connector.probe",
+                    # The execution event is emitted by the embedding hook
+                    # under the model identity. Register that same identity at
+                    # admission so confirmed Regulus delivery cannot violate
+                    # the implementation foreign key after the provider call.
+                    implementation_id=embedding_model or ref,
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="cost reservation refused or unavailable; failing closed",
+                ) from exc
+            if embedding_model is not None:
+                from zeroth.service.probe_instrumentation import (
+                    ReservedProbeEmbeddingInstrumentation,
+                )
+
+                embedding_hooks = ReservedProbeEmbeddingInstrumentation(
+                    instrumentation=instrumentation,
+                    cost_estimator=estimator,
+                    tenant_id=_tenant(request),
+                    campaign_id=body.campaign_id,
+                    operation_id=body.operation_id,
+                    run_id=body.run_id,
+                    capability_id="connector.probe",
+                    implementation_id=embedding_model,
+                )
+                connector = EmbeddingReservationMemoryConnector(
+                    connector,
+                    hooks=embedding_hooks,
+                    tenant_id=_tenant(request),
+                    run_id=body.run_id or f"probe:{body.operation_id}",
+                    node_id="connector-probe",
+                    campaign_id=body.campaign_id,
+                    strict=True,
+                )
         start = time.perf_counter()
         ok = True
         detail: str | None = None
@@ -355,4 +528,46 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
             # WHY the probe failed, not the connection string it failed against.
             detail = safe_error_detail(exc, context="connector probe")
         latency_ms = (time.perf_counter() - start) * 1000.0
-        return ConnectorTestResponse(ok=ok, detail=detail, latency_ms=round(latency_ms, 2))
+        evidence = None
+        if body is not None and instrumentation is not None:
+            try:
+                if embedding_model is None:
+                    evidence = await instrumentation.release_probe(
+                        tenant_id=_tenant(request),
+                        operation_id=body.operation_id,
+                        cleanup_status="complete",
+                    )
+                elif embedding_hooks is not None and embedding_hooks.evidence is not None:
+                    evidence = embedding_hooks.evidence
+                else:
+                    # The connector failed before reaching its provider boundary.
+                    # No provider outcome exists, so the full reservation can be
+                    # released instead of being mislabeled ambiguous.
+                    evidence = await instrumentation.release_probe(
+                        tenant_id=_tenant(request),
+                        operation_id=body.operation_id,
+                        cleanup_status="provider_not_called",
+                    )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="probe reconciliation persistence failed; reservation retained",
+                ) from exc
+        return ConnectorTestResponse(
+            ok=ok,
+            detail=detail,
+            latency_ms=round(latency_ms, 2),
+            campaign_id=body.campaign_id if body is not None else None,
+            operation_id=body.operation_id if body is not None else None,
+            cost_event_id=getattr(evidence, "cost_event_id", None),
+            audit_event_id=(f"audit_{evidence.cost_event_id}" if evidence is not None else None),
+            cost_measurement=getattr(evidence, "cost_measurement", None),
+            estimated_cost_usd=(
+                embedding_hooks.estimated_cost_usd
+                if embedding_hooks is not None
+                and getattr(evidence, "cost_measurement", None) == "estimated"
+                else None
+            ),
+            provider_request_id=getattr(evidence, "provider_request_id", None),
+            cleanup_status=getattr(evidence, "cleanup_status", None),
+        )

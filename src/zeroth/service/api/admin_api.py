@@ -17,6 +17,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.contracts.governed import RunStatus
+from zeroth.governance.audit.readiness import signer_is_available
 from zeroth.platform.primitives.clock import utc_now
 from zeroth.runtime.orchestration.interrupts import InterruptManager
 from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
@@ -31,6 +32,7 @@ from zeroth.service.api.authorization import (
     require_permission,
 )
 from zeroth.service.api.run_api import RunStatusResponse, _serialize_run
+from zeroth.service.service_audit import ServiceAuditRecorder
 
 
 class AdminRunListResponse(BaseModel):
@@ -74,9 +76,7 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
         # Mutations below (cancel/replay/interrupt) stay RUN_ADMIN.
         await require_permission(request, Permission.RUN_READ)
         await require_deployment_scope(request, bootstrap.deployment)
-        deployment_ref = bootstrap.deployment.deployment_ref
-        runs = await bootstrap.run_repository.list_runs(
-            deployment_ref,
+        runs = await bootstrap.run_repository.list_runs_for_scope(
             status=status_filter,
             limit=limit,
             offset=offset,
@@ -89,12 +89,41 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
     @app.post("/admin/runs/{run_id}/cancel", response_model=RunStatusResponse)
     async def cancel_run(request: Request, run_id: str) -> RunStatusResponse:
         bootstrap = _bootstrap(request)
-        await require_permission(request, Permission.RUN_ADMIN)
+        principal = await require_permission(request, Permission.RUN_ADMIN)
         await require_deployment_scope(request, bootstrap.deployment)
         run = await bootstrap.run_repository.get(run_id)
         if run is None or run.deployment_ref != bootstrap.deployment.deployment_ref:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+        audit = _run_control_audit_recorder(bootstrap)
+        try:
+            audit.ensure_signing_available()
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="run control audit signing is unavailable",
+            ) from exc
         if run.status in {RunStatus.COMPLETED, RunStatus.FAILED}:
+            # Cancellation is idempotent, but an older process may have
+            # persisted the parent failure before it was able to terminalize
+            # subgraph rows. Reissuing the same operator command is the safe
+            # reconciliation mechanism for that interrupted boundary.
+            if (
+                run.status is RunStatus.FAILED
+                and run.failure_state is not None
+                and run.failure_state.reason == "operator_cancelled"
+            ):
+                try:
+                    await _interrupt_active_drive(bootstrap, run_id)
+                    descendant_count = await _cancel_active_descendants(bootstrap, run_id)
+                except (ValueError, TokenSnapshotConcurrencyError) as exc:
+                    raise _run_conflict(exc) from exc
+                await _clear_run_lease(bootstrap, run_id)
+                await audit.record_run_control_event(
+                    actor=principal.to_actor(),
+                    run=run,
+                    transition="cancel_reconciled",
+                    descendant_count=descendant_count,
+                )
             return _serialize_run(run)
         try:
             await _apply_token_lifecycle(bootstrap, run_id, InterruptManager.cancel_run)
@@ -106,12 +135,25 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
                     reason="operator_cancelled", message="cancelled by admin"
                 ),
             )
+            # Persist the parent cancellation before stopping the drive so the
+            # worker's CancelledError path cannot relabel an operator command as
+            # a worker failure. Once the drive has stopped, no new subgraph
+            # child can be created, so the bounded descendant walk below closes
+            # every active child row without racing fresh fan-out.
+            await _interrupt_active_drive(bootstrap, run_id)
+            descendant_count = await _cancel_active_descendants(bootstrap, run_id)
         except (ValueError, TokenSnapshotConcurrencyError) as exc:
             raise _run_conflict(exc) from exc
         # Clear lease so any worker won't resume it.
         lease_manager = getattr(bootstrap, "lease_manager", None)
         if lease_manager is not None:
             await lease_manager.clear_lease(run_id)
+        await audit.record_run_control_event(
+            actor=principal.to_actor(),
+            run=run,
+            transition="cancelled",
+            descendant_count=descendant_count,
+        )
         return _serialize_run(run)
 
     @app.post("/admin/runs/{run_id}/replay", response_model=RunStatusResponse)
@@ -138,6 +180,10 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
             run = await _transition_run(bootstrap, run_id, RunStatus.WAITING_INTERRUPT)
         except (ValueError, TokenSnapshotConcurrencyError) as exc:
             raise _run_conflict(exc) from exc
+        worker = getattr(bootstrap, "worker", None)
+        interrupt_active_run = getattr(worker, "interrupt_active_run", None)
+        if callable(interrupt_active_run):
+            await interrupt_active_run(run_id)
         return _serialize_run(run)
 
 
@@ -179,6 +225,77 @@ def _run_conflict(exc: Exception) -> HTTPException:
             ),
         )
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+
+async def _interrupt_active_drive(bootstrap: Any, run_id: str) -> None:
+    """Stop an in-process drive after its durable operator state is written."""
+    worker = getattr(bootstrap, "worker", None)
+    interrupt_active_run = getattr(worker, "interrupt_active_run", None)
+    if callable(interrupt_active_run):
+        await interrupt_active_run(run_id)
+
+
+async def _clear_run_lease(bootstrap: Any, run_id: str) -> None:
+    lease_manager = getattr(bootstrap, "lease_manager", None)
+    if lease_manager is not None:
+        await lease_manager.clear_lease(run_id)
+
+
+def _run_control_audit_recorder(bootstrap: Any) -> ServiceAuditRecorder:
+    repository = getattr(bootstrap, "audit_repository", None)
+    deployment = getattr(bootstrap, "deployment", None)
+    if repository is None or deployment is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="run control audit is unavailable",
+        )
+    return ServiceAuditRecorder(
+        repository=repository,
+        deployment=deployment,
+        require_signed=signer_is_available(getattr(bootstrap, "signer", None)),
+    )
+
+
+async def _cancel_active_descendants(bootstrap: Any, root_run_id: str) -> int:
+    """Terminalize every active descendant after the root drive has stopped.
+
+    Subgraph children are durable runs in their own deployment identities. A
+    parent-only cancellation used to leave those rows RUNNING indefinitely;
+    after a restart no worker serving the parent was authorized to claim the
+    child deployment rows. The repository is already tenant/workspace scoped,
+    and lineage supplies the only traversal edge needed here.
+
+    Completed descendants are evidence and remain immutable. Active descendants
+    get the same token fence, failure identity, worker interruption, and lease
+    cleanup as the root. The visited set makes corrupt cyclic lineage bounded.
+    """
+    repository = bootstrap.run_repository
+    pending = [root_run_id]
+    visited = {root_run_id}
+    cancelled_count = 0
+    while pending:
+        parent_run_id = pending.pop(0)
+        for child in await repository.list_child_runs(parent_run_id):
+            if child.run_id in visited:
+                continue
+            visited.add(child.run_id)
+            pending.append(child.run_id)
+            if child.status in {RunStatus.COMPLETED, RunStatus.FAILED}:
+                continue
+            await _apply_token_lifecycle(bootstrap, child.run_id, InterruptManager.cancel_run)
+            await _transition_run(
+                bootstrap,
+                child.run_id,
+                RunStatus.FAILED,
+                failure_state=RunFailureState(
+                    reason="operator_cancelled",
+                    message=f"cancelled with ancestor {root_run_id}",
+                ),
+            )
+            await _interrupt_active_drive(bootstrap, child.run_id)
+            await _clear_run_lease(bootstrap, child.run_id)
+            cancelled_count += 1
+    return cancelled_count
 
 
 def _token_state_gone(run_id: str) -> HTTPException:

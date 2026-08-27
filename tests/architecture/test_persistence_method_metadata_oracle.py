@@ -72,6 +72,7 @@ zeroth.governance.audit.repository|AuditRepository|list_by_thread|N
 zeroth.governance.audit.repository|AuditRepository|list_erasable|N
 zeroth.governance.audit.repository|AuditRepository|list_erasable_in_transaction|N
 zeroth.governance.audit.repository|AuditRepository|write|CRU
+zeroth.governance.audit.repository|AuditRepository|write_in_transaction|CRU
 zeroth.governance.audit.repository|AuditRepository|write_many|CRU
 zeroth.governance.decisions.repository|DecisionRepository|find_by_idempotency_key|R
 zeroth.governance.decisions.repository|DecisionRepository|find_replay|R
@@ -144,16 +145,20 @@ zeroth.integrations.persistence.runs.run_repository|RunRepository|get_latest_run
 zeroth.integrations.persistence.runs.run_repository|RunRepository|get_token_snapshot|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|increment_failure_count|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_checkpoints|N
+zeroth.integrations.persistence.runs.run_repository|RunRepository|list_child_runs|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_dead_letter_runs|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_erasable_run_ids|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_run_ids|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_runs|N
+zeroth.integrations.persistence.runs.run_repository|RunRepository|list_runs_for_scope|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|lock_and_recheck_erasable_run|R
+zeroth.integrations.persistence.runs.run_repository|RunRepository|merge_terminal_metadata|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|put|CU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|record_condition_result|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|record_history|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|redact_run|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|redact_run_in_transaction|RU
+zeroth.integrations.persistence.runs.run_repository|RunRepository|schedule_child_approval_continuation_in_transaction|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|set_active_run_id|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|tenant_id_for_run_in_transaction|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|transition|RU
@@ -171,14 +176,17 @@ zeroth.integrations.persistence.runs.thread_repository|ThreadRepository|update|U
 zeroth.integrations.persistence.runs.token_snapshot_store|TokenSnapshotRowStore|compare_and_swap|CU
 zeroth.integrations.persistence.runs.token_snapshot_store|TokenSnapshotRowStore|get|R
 zeroth.platform.dispatch.operations|SideEffectOperationStore|claim|CRU
+zeroth.platform.dispatch.operations|SideEffectOperationStore|begin_outcome_lookup|U
 zeroth.platform.dispatch.operations|SideEffectOperationStore|complete|U
 zeroth.platform.dispatch.operations|SideEffectOperationStore|erase_for_run|ND
 zeroth.platform.dispatch.operations|SideEffectOperationStore|erase_for_run_in_transaction|ND
 zeroth.platform.dispatch.operations|SideEffectOperationStore|fail|U
+zeroth.platform.dispatch.operations|SideEffectOperationStore|finish_outcome_lookup|RU
 zeroth.platform.dispatch.operations|SideEffectOperationStore|get|R
 zeroth.platform.dispatch.operations|SideEffectOperationStore|mark_ambiguous|U
 zeroth.platform.dispatch.operations|SideEffectOperationStore|pending_reconciliation|N
 zeroth.platform.dispatch.operations|SideEffectOperationStore|record_reconciliation|RU
+zeroth.platform.dispatch.operations|SideEffectOperationStore|resolve_ambiguous|U
 zeroth.platform.dispatch.operations|SideEffectOperationStore|state_of|R
 zeroth.service.deployments.repository|SQLiteDeploymentRepository|create|CRU
 zeroth.service.deployments.repository|SQLiteDeploymentRepository|get|R
@@ -200,9 +208,12 @@ zeroth.service.webhooks.repository|WebhookRepository|deactivate_subscription|U
 zeroth.service.webhooks.repository|WebhookRepository|dead_letter|CRU
 zeroth.service.webhooks.repository|WebhookRepository|delete_subscription|D
 zeroth.service.webhooks.repository|WebhookRepository|enqueue_delivery|C
+zeroth.service.webhooks.repository|WebhookRepository|enqueue_deliveries|C
 zeroth.service.webhooks.repository|WebhookRepository|get_dead_letter|R
+zeroth.service.webhooks.repository|WebhookRepository|get_delivery|R
 zeroth.service.webhooks.repository|WebhookRepository|get_subscription|R
 zeroth.service.webhooks.repository|WebhookRepository|list_dead_letters|N
+zeroth.service.webhooks.repository|WebhookRepository|list_deliveries|N
 zeroth.service.webhooks.repository|WebhookRepository|list_subscriptions|N
 zeroth.service.webhooks.repository|WebhookRepository|list_subscriptions_for_event|N
 zeroth.service.webhooks.repository|WebhookRepository|mark_delivered|U
@@ -268,7 +279,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 182
+    assert len(METHOD_METADATA_ORACLE) == 193
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

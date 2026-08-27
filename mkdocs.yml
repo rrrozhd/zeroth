@@ -1,6 +1,8 @@
 site_name: Zeroth
 site_url: https://rrrozhd.github.io/zeroth/
 site_description: Governed medium-code platform for production-grade multi-agent systems
+exclude_docs: |
+  superpowers/**
 repo_url: https://github.com/rrrozhd/zeroth
 repo_name: rrrozhd/zeroth
 edit_uri: edit/main/docs/
@@ -87,6 +89,13 @@ nav:
     - Governance Walkthrough: tutorials/governance-walkthrough.md
   - How-to Guides:
     - how-to/index.md
+    - Zeroth Check:
+      - Quickstart: how-to/check/quickstart.md
+      - Target API: how-to/check/target-api.md
+      - Tape review: how-to/check/tape-review.md
+      - Fault semantics: how-to/check/fault-semantics.md
+      - CI: how-to/check/ci.md
+      - Troubleshooting: how-to/check/troubleshooting.md
     - Subsystems:
       - Graph: how-to/graph.md
       - Orchestrator: how-to/orchestrator.md

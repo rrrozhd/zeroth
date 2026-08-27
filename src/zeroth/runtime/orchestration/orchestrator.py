@@ -102,6 +102,7 @@ class RuntimeOrchestrator:
     # Phase 18: Cost instrumentation for provider adapter wrapping.
     regulus_client: object | None = None
     cost_estimator: object | None = None
+    cost_instrumentation: object | None = None
     deployment_ref: str | None = None
     # Phase 20: Memory and budget injection for AgentRunner dispatch.
     memory_resolver: object | None = None
@@ -296,11 +297,14 @@ class RuntimeOrchestrator:
             budget_enforcer=self.budget_enforcer,
             regulus_client=self.regulus_client,
             cost_estimator=self.cost_estimator,
+            cost_instrumentation=self.cost_instrumentation,
+            per_run_cap_usd=self.per_run_cap_usd,
             deployment_ref=self.deployment_ref,
             template_registry=self.template_registry,
             template_renderer=self.template_renderer,
             context_window_enabled=self.context_window_enabled,
             operation_store=self.operation_store,
+            http_client=self.http_client,
         )
 
     async def _dispatch_node(
@@ -514,6 +518,9 @@ class RuntimeOrchestrator:
                 "audit": {
                     "approval_id": approval_record.approval_id,
                     "decision": action,
+                    "cost_usd": 0.0,
+                    "estimated_cost_usd": 0.0,
+                    "cost_measurement": "measured",
                     "actor": (
                         approval_record.resolution.actor.model_dump(mode="json")
                         if approval_record.resolution
@@ -536,6 +543,9 @@ class RuntimeOrchestrator:
         audit_record = {
             "approval_id": approval_record.approval_id,
             "decision": action,
+            "cost_usd": 0.0,
+            "estimated_cost_usd": 0.0,
+            "cost_measurement": "measured",
             "actor": (
                 approval_record.resolution.actor.model_dump(mode="json")
                 if approval_record.resolution
@@ -588,6 +598,6 @@ RuntimeOrchestrator.__signature__ = inspect.signature(RuntimeOrchestrator).repla
     parameters=[
         parameter
         for name, parameter in _orchestrator_parameters.items()
-        if name not in {"operation_store"}
+        if name not in {"operation_store", "cost_instrumentation"}
     ]
 )

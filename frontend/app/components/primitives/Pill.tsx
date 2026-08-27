@@ -1,5 +1,5 @@
-// UI primitive: a small bordered status/lifecycle/env badge.
-// tone -> text color + 12% tint bg + 30% tint border. Mono uppercase 10.5px.
+// UI primitive: a small factual status/lifecycle/env badge. State is carried
+// by the label and text color; the surface stays neutral across tones.
 
 import { TONE, type Tone } from "./StatusDot";
 
@@ -16,16 +16,14 @@ export function Pill({ tone = "neutral", style, children, ...rest }: PillProps) 
         alignItems: "center",
         gap: 4,
         color: c,
-        background: `color-mix(in srgb, ${c} 12%, transparent)`,
-        border: `1px solid color-mix(in srgb, ${c} 30%, transparent)`,
-        borderRadius: 5,
-        padding: "2px 7px",
-        fontFamily: "var(--font-mono)",
-        fontSize: 10.5,
+        background: "var(--bg-raised)",
+        border: "1px solid transparent",
+        borderRadius: 6,
+        padding: "2px 8px",
+        fontFamily: "var(--font-sans)",
+        fontSize: 11.5,
         fontWeight: 500,
         lineHeight: 1.4,
-        textTransform: "uppercase",
-        letterSpacing: "0.06em",
         whiteSpace: "nowrap",
         ...style,
       }}

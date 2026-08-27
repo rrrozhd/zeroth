@@ -32,6 +32,9 @@ Zeroth treats an agentic application as an **explicit executable graph** rather 
 
 ## Documentation
 
+For consequential LangGraph trajectory replay and operational fault testing, start with the
+[Zeroth Check quickstart](docs/how-to/check/quickstart.md).
+
 Full documentation lives at **<https://rrrozhd.github.io/zeroth/>** —
 start with the [Getting Started tutorial](https://rrrozhd.github.io/zeroth/tutorials/getting-started/)
 or the [LangGraph release deployment guide](docs/how-to/deployment/langgraph-release.md).
@@ -81,6 +84,37 @@ docker run -p 8000:8000 -v zeroth-data:/data zeroth-core
 ```
 
 See `Dockerfile` and `docker-compose.yml` for the image and multi-service paths.
+
+### Persistent evaluation development instance
+
+The live evaluation workspace has a reloadable Compose profile that preserves
+the Zeroth database, economics ledger, signing/service identities, artifacts,
+action receipts, and Chroma corpus outside the checkout. Provider credentials
+live only in the ignored, mode-`0600` `.dev-secrets/zeroth.env` file.
+
+```bash
+# Start or reconcile all services after a dependency/configuration change.
+docker compose -f compose.dev.yml up -d --build
+
+# Reload backend source amendments without rotating keys or resetting state.
+docker compose -f compose.dev.yml restart backend
+
+# Frontend source is bind-mounted and hot-reloads on port 3000.
+open http://127.0.0.1:3000/console/
+
+# Inspect health and logs.
+docker compose -f compose.dev.yml ps
+docker compose -f compose.dev.yml logs -f backend
+
+# Stop containers; persistent bind-mounted state is retained.
+docker compose -f compose.dev.yml down
+```
+
+The stable API base is `http://127.0.0.1:8122`. The console stores that base
+and its service key in browser local storage per browser profile and origin, so
+ordinary container restarts and code amendments do not require reconnecting.
+Never use `down -v` as a reset shortcut; use an explicit state snapshot/reset
+procedure when a clean campaign is intended.
 
 ---
 
@@ -156,9 +190,13 @@ Zeroth keeps its primitives minimal. Every graph is composed from a small set of
 
 - **Entrypoint** — where a run starts; its contract is the workflow's public input shape, validated before anything executes
 - **Agent** — an AI-powered node backed by an LLM provider, with optional memory connectors and tool attachments (other graph units can be attached as callable tools)
+- **Code** — inline Python authored on the canvas and executed through the same immutable, sandboxed executable-unit machinery
 - **Executable Unit** — a sandboxed unit of work (Python code, shell scripts, commands, or full projects) that handles transformations, integrations, routing, and any deterministic processing
 - **Human Approval** — a pause point where a human must review and approve before execution continues
+- **If** — an explicit two-way decision node whose condition routes through named `True` and `False` ports
+- **Loop** — a bounded retry controller with visible `Repeat`, `Done`, and `Limit` routes and a required maximum retry count
 - **Retrieval** — queries a memory/knowledge connector and passes the top matches downstream (the grounding step in a RAG flow)
+- **HTTP Request** — a governed private HTTP step with bounded timeouts, retries, response limits, and circuit-breaker behavior
 - **Subgraph** — invokes another published graph as a single step, keeping workflows small and composable
 
 ### Contracts

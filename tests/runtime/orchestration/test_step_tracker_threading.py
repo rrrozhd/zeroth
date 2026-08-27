@@ -40,6 +40,13 @@ def test_dispatch_subgraph_node_requires_a_step_tracker() -> None:
     assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
 
 
+def test_dispatch_subgraph_node_requires_explicit_branch_context() -> None:
+    parameter = inspect.signature(dispatch_subgraph_node).parameters["branch_context"]
+
+    assert parameter.default is inspect.Parameter.empty
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+
+
 @pytest.mark.asyncio
 async def test_dispatch_forwards_the_tracker_it_was_given() -> None:
     """Requiring the parameter is worthless if the value is then dropped."""
@@ -47,6 +54,7 @@ async def test_dispatch_forwards_the_tracker_it_was_given() -> None:
 
     seen: dict[str, object] = {}
     sentinel = object()
+    branch_sentinel = object()
 
     class _Child:
         status = RunStatus.COMPLETED
@@ -84,10 +92,14 @@ async def test_dispatch_forwards_the_tracker_it_was_given() -> None:
         parent_run=_Run(),  # type: ignore[arg-type]
         node=_Node(),  # type: ignore[arg-type]
         input_payload={},
+        branch_context=branch_sentinel,  # type: ignore[arg-type]
         step_tracker=sentinel,
     )
 
     assert result.output == {"answer": 42}
     assert seen.get("step_tracker") is sentinel, (
         "dispatch_subgraph_node accepted a step tracker and did not forward it"
+    )
+    assert seen.get("branch_context") is branch_sentinel, (
+        "dispatch_subgraph_node accepted branch lineage and did not forward it"
     )

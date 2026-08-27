@@ -80,6 +80,8 @@ _SERVICE_TABLES = (
     "legal_holds",
     "memory_connector_configs",
     "node_audits",
+    "prompt_templates",
+    "template_dependency_references",
     "quota_counters",
     "rate_limit_buckets",
     "retention_audit_log",
@@ -104,6 +106,8 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
         "deployment_versions",
         "graph_versions",
         "node_audits",
+        "prompt_templates",
+        "template_dependency_references",
         "run_checkpoints",
         "runs",
         "side_effect_operations",
@@ -113,11 +117,13 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
 )
 _DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
     {
+        "prompt_templates",
         "run_checkpoints",
         "runs",
         "side_effect_operations",
         "threads",
         "token_engine_snapshots",
+        "template_dependency_references",
     }
 )
 _TASK9_RESOURCE_OPERATIONS = {
@@ -167,6 +173,15 @@ _TASK9_RESOURCE_OPERATIONS = {
             ResourceOperation.UPDATE,
         }
     ),
+    "prompt_templates": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.DELETE,
+        }
+    ),
+    "template_dependency_references": frozenset(ResourceOperation),
     "run_attestations": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
     "tool_inventory_registrations": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
     "quota_counters": frozenset(

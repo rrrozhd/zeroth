@@ -2,19 +2,22 @@
 
 ## What it is
 
-A **condition** is the rule attached to a graph edge that decides, at run time, whether the orchestrator should traverse it. The `zeroth.contracts.conditions` subsystem evaluates those rules, resolves which outgoing edge(s) win at a branching node, and records the outcome on the run's audit trail.
+A **condition** decides, at run time, which route a workflow takes. Studio authors new decisions as an explicit **If node** with named `True` and `False` ports. The condition is configured on the node, so the canvas does not rely on floating edge tags to explain its logic.
+
+The lower-level graph API also supports a `Condition` attached to an edge. That representation remains available for legacy and programmatic graphs during the compatibility window. The `zeroth.contracts.conditions` subsystem evaluates those edge rules, resolves which outgoing edge(s) win, and records the outcome on the run's audit trail.
 
 ## Why it exists
 
-Real workflows branch: "if the classifier returns `refund`, route to the refund agent; otherwise escalate." Embedding that logic inside agents couples control flow to prompts and makes it invisible to reviewers. Putting it on the edge, as a declarative `Condition`, makes the graph self-documenting: anyone can read `graph.edges` and see exactly how the run decides. The conditions subsystem provides the evaluator, branch resolver, and recorder that turn those declarations into actual routing decisions — all while feeding the audit log so every branch taken is reconstructable after the fact.
+Real workflows branch: "if the classifier returns `refund`, route to the refund agent; otherwise escalate." Embedding that logic inside agents couples control flow to prompts and makes it invisible to reviewers. Putting the decision in an explicit Studio If node makes the authored canvas self-documenting: reviewers can see the decision, its expression, and its named outcomes as one control-flow unit. For legacy or code-authored graphs, a declarative edge `Condition` provides the equivalent inspectable rule. Both representations feed the audit log so every branch taken is reconstructable after the fact.
 
 ## Where it fits
 
-Conditions sit between the [graph](graph.md) and the [orchestrator](orchestrator.md). When the orchestrator finishes a node, it hands the outgoing [`Edge`](graph.md) list plus the current `TraversalState` to a `NextStepPlanner`, which evaluates each edge's `Condition` via `ConditionEvaluator` and returns a `NextStepPlan` telling the orchestrator which node(s) to visit next. Conditions can consult [agent](agents.md) outputs, [execution unit](execution-units.md) results, and run variables through a `ConditionContext`.
+Conditions sit between the [graph](graph.md) and the [orchestrator](orchestrator.md). The structured-token runtime dispatches a Studio-authored `IfNode` and emits one named route. In the legacy edge model, the orchestrator hands outgoing [`Edge`](graph.md) objects plus the current `TraversalState` to a `NextStepPlanner`, which evaluates each edge's `Condition` via `ConditionEvaluator` and returns a `NextStepPlan`. Conditions can consult [agent](agents.md) outputs, [execution unit](execution-units.md) results, and run variables through a `ConditionContext`.
 
 ## Key types
 
 - **`NextStepPlanner`** — the top-level planner the orchestrator calls at each branching step.
+- **`IfNode` / `IfNodeData`** — the first-class two-way control node authored in Studio.
 - **`ConditionEvaluator`** — evaluates a single `Condition.expression` against a `ConditionContext`.
 - **`BranchResolver`** — reduces multiple evaluated outcomes into a `BranchResolution` (which edges fire).
 - **`ConditionBinding` / `ConditionBinder`** — compile-time bridge that attaches `Condition` objects to edges before a run starts.

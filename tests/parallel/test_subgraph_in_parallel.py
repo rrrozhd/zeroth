@@ -379,6 +379,7 @@ class TestScenario1SubgraphInFanOutBranch:
         async def _fake_execute(**kwargs: Any) -> Run:
             call_counter["count"] += 1
             idx = kwargs["branch_context"].branch_index
+            await asyncio.sleep(0.01)
             return Run(
                 run_id=f"child-run-{idx}",
                 graph_version_ref="child-wf:v1",
@@ -424,6 +425,16 @@ class TestScenario1SubgraphInFanOutBranch:
         assert None not in {
             call.kwargs.get("step_tracker") for call in mock_executor.execute.call_args_list
         }
+        subgraph_history = [
+            entry for entry in result.execution_history if entry.node_id == "sub-step"
+        ]
+        assert len(subgraph_history) == 3
+        assert all(entry.completed_at is not None for entry in subgraph_history)
+        assert all(
+            entry.completed_at >= entry.started_at
+            for entry in subgraph_history
+            if entry.completed_at is not None
+        )
 
     @pytest.mark.asyncio
     async def test_failed_child_cost_rolls_once_into_parallel_parent(self) -> None:
@@ -592,7 +603,9 @@ class TestScenario1SubgraphInFanOutBranch:
         paused = [entry for entry in result.execution_history if entry.node_id == "sub-step"]
         assert len(paused) == 2
         assert sorted(entry.cost_usd for entry in paused) == pytest.approx([0.2, 0.3])
-        assert sum(entry.cost_usd or 0.0 for entry in result.execution_history) == pytest.approx(0.6)
+        assert sum(entry.cost_usd or 0.0 for entry in result.execution_history) == pytest.approx(
+            0.6
+        )
         child_audits = [
             call.args[0]
             for call in audit_repository.write.call_args_list

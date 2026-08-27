@@ -103,6 +103,18 @@
     {
       "down_revision": "025",
       "revision": "026"
+    },
+    {
+      "down_revision": "026",
+      "revision": "027"
+    },
+    {
+      "down_revision": "027",
+      "revision": "028"
+    },
+    {
+      "down_revision": "028",
+      "revision": "029"
     }
   ],
   "tables": {
@@ -1804,6 +1816,119 @@
         }
       ]
     },
+    "prompt_templates": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "name",
+          "not_null": true,
+          "primary_key_position": 3,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "version",
+          "not_null": true,
+          "primary_key_position": 4,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "template_str",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "variables_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "metadata_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE prompt_templates ( tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, name TEXT NOT NULL, version INTEGER NOT NULL CHECK (version >= 1), template_str TEXT NOT NULL, variables_json TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ), PRIMARY KEY (tenant_id, workspace_scope, name, version) )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_scope",
+            "name",
+            "version"
+          ],
+          "name": "idx_prompt_templates_scope_name",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_scope",
+            "name",
+            "version"
+          ],
+          "name": "sqlite_autoindex_prompt_templates_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
     "quota_counters": {
       "columns": [
         {
@@ -3058,9 +3183,18 @@
           "not_null": true,
           "primary_key_position": 0,
           "type": "INTEGER"
+        },
+        {
+          "cid": 38,
+          "default": null,
+          "hidden": 0,
+          "name": "parent_run_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE runs ( run_id TEXT NOT NULL, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT, token_snapshot_write_disabled INTEGER NOT NULL DEFAULT 0, lease_generation INTEGER NOT NULL DEFAULT 0, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , CONSTRAINT runs_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, run_id) )",
+      "constraint_definition": "CREATE TABLE runs ( run_id TEXT NOT NULL, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT, token_snapshot_write_disabled INTEGER NOT NULL DEFAULT 0, lease_generation INTEGER NOT NULL DEFAULT 0, parent_run_id TEXT, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , CONSTRAINT runs_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, run_id) )",
       "foreign_keys": [],
       "indexes": [
         {
@@ -3071,6 +3205,17 @@
             "lease_expires_at"
           ],
           "name": "idx_runs_dispatch",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_scope",
+            "parent_run_id"
+          ],
+          "name": "idx_runs_parent",
           "origin": "c",
           "partial": false,
           "unique": false
@@ -3332,6 +3477,122 @@
             "operation_key"
           ],
           "name": "sqlite_autoindex_side_effect_operations_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "template_dependency_references": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "source_kind",
+          "not_null": true,
+          "primary_key_position": 3,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "source_ref",
+          "not_null": true,
+          "primary_key_position": 4,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "template_name",
+          "not_null": true,
+          "primary_key_position": 5,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "template_version",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "reference_mode",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "reference_key",
+          "not_null": true,
+          "primary_key_position": 6,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE template_dependency_references ( tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, source_kind TEXT NOT NULL CHECK (source_kind IN ('published_graph', 'deployment')), source_ref TEXT NOT NULL, template_name TEXT NOT NULL, template_version INTEGER, reference_mode TEXT NOT NULL CHECK (reference_mode IN ('explicit', 'latest')), reference_key TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ), CHECK ( (reference_mode = 'latest' AND template_version IS NULL AND reference_key = 'latest') OR (reference_mode = 'explicit' AND template_version >= 1) ), PRIMARY KEY ( tenant_id, workspace_scope, source_kind, source_ref, template_name, reference_key ) )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_scope",
+            "template_name",
+            "reference_mode",
+            "template_version"
+          ],
+          "name": "idx_template_dependency_target",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_scope",
+            "source_kind",
+            "source_ref",
+            "template_name",
+            "reference_key"
+          ],
+          "name": "sqlite_autoindex_template_dependency_references_1",
           "origin": "pk",
           "partial": false,
           "unique": true

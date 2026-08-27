@@ -230,8 +230,9 @@ export function InlineConnectorSettings({
       }}
     >
       {!selected && selectedRef !== "" && connectors.length > 0 && (
-        <p className="rounded-lg border border-amber-300/70 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/60 dark:text-amber-400">
-          <span className="font-mono">{selectedRef}</span>
+        <p className="rounded-lg border border-border bg-raised px-3 py-2 text-xs text-foreground">
+          <strong className="text-warning">Missing connector</strong>{" — "}
+          <span className="font-mono text-muted">{selectedRef}</span>
           {" isn't registered on this deployment — runs can't resolve it. Pick a registered connector or create one below."}
         </p>
       )}

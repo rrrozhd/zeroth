@@ -361,6 +361,8 @@ class TestApprovalServiceEscalate:
         assert result.resolution is not None
         assert result.resolution.decision == ApprovalDecision.REJECT
         assert result.resolution.actor.subject == "sla_enforcer"
+        assert result.resolution.actor.tenant_id == original.tenant_id
+        assert result.resolution.actor.workspace_id == original.workspace_id
 
     async def test_alert_marks_escalated(self, service, repo):
         """escalate with action=alert marks as ESCALATED."""
@@ -374,6 +376,39 @@ class TestApprovalServiceEscalate:
         result = await service.escalate(original.approval_id)
 
         assert result.status == ApprovalStatus.ESCALATED
+
+    async def test_alert_emits_one_correlated_event_only_for_the_cas_winner(
+        self, service, repo
+    ):
+        """The approval transition, not the polling loop, owns escalation emission."""
+        original = _make_record(
+            escalation_action="alert",
+            sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
+        )
+        winner_view = original.model_copy(update={"status": ApprovalStatus.ESCALATED})
+        repo.get = AsyncMock(side_effect=[original, winner_view])
+        repo.resolve_pending = AsyncMock(side_effect=[original, None])
+        webhook_service = AsyncMock()
+        webhook_service.emit_event = AsyncMock(return_value=[])
+        service.webhook_service = webhook_service
+
+        winner = await service.escalate(original.approval_id)
+        loser = await service.escalate(original.approval_id)
+
+        assert winner.status is ApprovalStatus.ESCALATED
+        assert loser.status is ApprovalStatus.ESCALATED
+        webhook_service.emit_event.assert_awaited_once()
+        emitted = webhook_service.emit_event.await_args.kwargs
+        assert emitted["event_type"] == "approval.escalated"
+        assert emitted["data"] == {
+            "approval_id": original.approval_id,
+            "run_id": original.run_id,
+            "thread_id": original.thread_id,
+            "graph_version_ref": original.graph_version_ref,
+            "node_id": original.node_id,
+            "escalation_action": "alert",
+            "sla_deadline": original.sla_deadline.isoformat(),
+        }
 
     async def test_already_escalated_is_noop(self, service, repo):
         """escalate on ESCALATED approval is a no-op."""
@@ -751,8 +786,64 @@ class TestApprovalSLAChecker:
             graph_version_ref=overdue.graph_version_ref,
         )
 
-    async def test_emits_webhook_event(self):
-        """SLA checker emits approval.escalated webhook event via optional WebhookService."""
+    async def test_auto_reject_schedules_the_resolved_run_for_worker_continuation(self):
+        from zeroth.governance.approvals.sla_checker import ApprovalSLAChecker
+
+        overdue = _make_record(
+            sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
+            escalation_action="auto_reject",
+        )
+        auto_rejected = _make_record(
+            status=ApprovalStatus.RESOLVED,
+            escalation_action="auto_reject",
+            resolution=ApprovalResolution(
+                decision=ApprovalDecision.REJECT,
+                actor=ActorIdentity(subject="sla_enforcer", auth_method=AuthMethod.API_KEY),
+            ),
+        )
+        service = AsyncMock(spec=ApprovalService)
+        service.repository = AsyncMock(spec=ApprovalRepository)
+        service.repository.list_overdue = AsyncMock(return_value=[overdue])
+        service.escalate = AsyncMock(return_value=auto_rejected)
+        service.schedule_continuation = AsyncMock()
+        checker = ApprovalSLAChecker(approval_service=service, poll_interval=0.1)
+
+        task = asyncio.create_task(checker.poll_loop())
+        await asyncio.sleep(0.03)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        service.schedule_continuation.assert_awaited_once_with(auto_rejected.approval_id)
+
+    async def test_human_resolution_won_at_deadline_is_not_rescheduled_by_sla_checker(self):
+        from zeroth.governance.approvals.sla_checker import ApprovalSLAChecker
+
+        overdue = _make_record(
+            sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
+            escalation_action="auto_reject",
+        )
+        human_resolved = _make_record(
+            status=ApprovalStatus.RESOLVED,
+            escalation_action="auto_reject",
+            resolution=_resolution(ApprovalDecision.APPROVE),
+        )
+        service = AsyncMock(spec=ApprovalService)
+        service.repository = AsyncMock(spec=ApprovalRepository)
+        service.repository.list_overdue = AsyncMock(return_value=[overdue])
+        service.escalate = AsyncMock(return_value=human_resolved)
+        checker = ApprovalSLAChecker(approval_service=service, poll_interval=0.01)
+
+        task = asyncio.create_task(checker.poll_loop())
+        await asyncio.sleep(0.03)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        service.schedule_continuation.assert_not_awaited()
+
+    async def test_escalation_event_is_owned_by_approval_service(self):
+        """The checker requests the transition and never publishes a second event."""
         from zeroth.governance.approvals.sla_checker import ApprovalSLAChecker
 
         overdue = _make_record(
@@ -785,7 +876,5 @@ class TestApprovalSLAChecker:
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        webhook_service.emit_event.assert_called()
-        call_kwargs = webhook_service.emit_event.call_args.kwargs
-        assert call_kwargs["event_type"] == "approval.escalated"
-        assert call_kwargs["deployment_ref"] == escalated_record.deployment_ref
+        service.escalate.assert_awaited()
+        webhook_service.emit_event.assert_not_awaited()

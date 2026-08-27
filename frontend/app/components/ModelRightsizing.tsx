@@ -85,8 +85,8 @@ export function ModelRightsizing({
       )}
 
       {error && (
-        <p className="mt-1 rounded bg-red-500/10 px-2 py-1 text-xs text-red-700 dark:text-red-400">
-          {error}
+        <p className="mt-1 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground">
+          <strong className="text-danger">Error</strong>{" — "}{error}
         </p>
       )}
 
@@ -123,13 +123,13 @@ export function ModelRightsizing({
                         )}
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
-                        <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                        <span className="font-medium text-success">
                           −{Math.round(c.savings_pct)}%
                         </span>
                         <span>·</span>
                         <span>{perMtok(c.blended_per_mtok_usd)}/M tok</span>
-                        {c.supports_tools && <span title="Supports tool calling">· 🔧</span>}
-                        {c.supports_vision && <span title="Supports vision">· 🖼</span>}
+                        {c.supports_tools && <span title="Supports tool calling">· tools</span>}
+                        {c.supports_vision && <span title="Supports vision input">· vision</span>}
                       </div>
                     </div>
                     <Button
@@ -161,10 +161,9 @@ export function ModelRightsizing({
 }
 
 const VERDICT_STYLE: Record<string, string> = {
-  confirmed:
-    "border-emerald-500/40 bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-400",
-  flagged: "border-amber-500/40 bg-amber-500/[0.08] text-amber-700 dark:text-amber-400",
-  none: "border-border bg-zinc-500/[0.06] text-muted",
+  confirmed: "border-border bg-raised text-success",
+  flagged: "border-border bg-raised text-warning",
+  none: "border-border bg-raised text-muted",
 };
 
 /**
@@ -243,8 +242,8 @@ function ExperimentPanel({
       </p>
 
       {error && (
-        <p className="mt-1 rounded bg-red-500/10 px-2 py-1 text-xs text-red-700 dark:text-red-400">
-          {error}
+        <p className="mt-1 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground">
+          <strong className="text-danger">Error</strong>{" — "}{error}
         </p>
       )}
 
@@ -252,7 +251,7 @@ function ExperimentPanel({
         <div className="mt-2 space-y-2 rounded-lg border border-border bg-surface p-2.5">
           <div className="flex items-center justify-between gap-2">
             <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide border ${
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold border ${
                 VERDICT_STYLE[report.verdict] ?? VERDICT_STYLE.none
               }`}
             >
@@ -294,7 +293,7 @@ function ExperimentPanel({
                           {o.model}
                           {o.is_incumbent && <span className="ml-1 text-[10px]">(current)</span>}
                           {recommended && (
-                            <span className="ml-1 rounded bg-emerald-500/15 px-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                            <span className="ml-1 rounded bg-raised px-1 text-[10px] font-medium text-success">
                               pick
                             </span>
                           )}
@@ -302,7 +301,7 @@ function ExperimentPanel({
                         <td className="py-0.5 pr-2">
                           {Math.round(o.equivalence_rate * 100)}%
                           {o.cases_errored > 0 && (
-                            <span className="ml-1 text-amber-600 dark:text-amber-400" title="some cases errored">
+                            <span className="ml-1 text-warning" title="some cases errored">
                               !
                             </span>
                           )}

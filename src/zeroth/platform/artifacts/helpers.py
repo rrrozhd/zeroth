@@ -108,7 +108,11 @@ async def refresh_artifact_ttls(
     refreshed = 0
     for ref in refs:
         try:
-            await artifact_store.refresh_ttl(ref.key, ttl)
+            # An explicit reference TTL is a producer-owned lifecycle bound.
+            # Generic checkpoints may refresh an otherwise defaulted artifact,
+            # but must not silently replace a shorter or longer explicit policy.
+            effective_ttl = ref.ttl_seconds if ref.ttl_seconds is not None else ttl
+            await artifact_store.refresh_ttl(ref.key, effective_ttl)
             refreshed += 1
         except ArtifactTTLError:
             logger.debug(

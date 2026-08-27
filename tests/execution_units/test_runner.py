@@ -90,6 +90,64 @@ print(json.dumps({"answer": payload["--name"], "score": int(payload["--count"])}
 
 
 @pytest.mark.asyncio
+async def test_declared_local_cost_survives_wrapped_command_failure(tmp_path: Path) -> None:
+    script = tmp_path / "fails.py"
+    script.write_text("raise SystemExit(7)")
+    manifest = WrappedCommandUnitManifest(
+        unit_id="declared-local-failure",
+        onboarding_mode=ExecutionMode.WRAPPED_COMMAND,
+        runtime="command",
+        artifact_source=CommandArtifactSource(ref=str(script)),
+        entrypoint_type="command",
+        input_mode=InputMode.JSON_STDIN,
+        output_mode=OutputMode.JSON_STDOUT,
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        run_config=RunConfig(command=[sys.executable, str(script)]),
+        metadata={"external_calls": False},
+    )
+    registry = ExecutableUnitRegistry()
+    registry.register(
+        ExecutableUnitBinding(
+            manifest_ref="eu://declared-local-failure",
+            manifest=manifest,
+            input_model=DemoInput,
+            output_model=DemoOutput,
+        )
+    )
+
+    with pytest.raises(ExecutableUnitExecutionError) as exc_info:
+        await ExecutableUnitRunner(registry).run(
+            "eu://declared-local-failure", DemoInput(name="alpha", count=1)
+        )
+
+    assert exc_info.value.audit_record == {
+        "cost_usd": 0.0,
+        "estimated_cost_usd": 0.0,
+        "cost_measurement": "measured",
+    }
+
+
+@pytest.mark.asyncio
+async def test_inline_code_failure_is_measured_zero_provider_cost() -> None:
+    """A local Studio code crash must not make strict budgets indeterminate."""
+    runner = ExecutableUnitRunner()
+
+    with pytest.raises(ExecutableUnitExecutionError) as exc_info:
+        await runner.run_inline_source(
+            "controlled-failure",
+            "raise RuntimeError('controlled local failure')",
+            {"branch_index": 3},
+        )
+
+    assert exc_info.value.audit_record == {
+        "cost_usd": 0.0,
+        "estimated_cost_usd": 0.0,
+        "cost_measurement": "measured",
+    }
+
+
+@pytest.mark.asyncio
 async def test_wrapped_command_runner_supports_env_vars_and_tagged_stdout(tmp_path: Path) -> None:
     script = tmp_path / "env_tagged.py"
     script.write_text(

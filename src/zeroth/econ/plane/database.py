@@ -66,6 +66,14 @@ _CHAIN_OWNED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("connector_delivery_log", "tenant_id", "20260811_05"),
     ("execution_events", "cost_measurement", "20260812_04"),
     ("execution_events", "usage_measurement", "20260812_04"),
+    ("execution_events", "campaign_id", "20260822_08"),
+    ("execution_events", "operation_id", "20260822_08"),
+    ("execution_events", "provider_request_id", "20260822_08"),
+    ("execution_events", "cleanup_status", "20260822_08"),
+    ("execution_events", "deployment_ref", "20260823_09"),
+    ("execution_events", "evidence_kind", "20260823_09"),
+    ("cost_reservations", "deployment_ref", "20260823_09"),
+    ("cost_reservations", "evidence_kind", "20260823_09"),
     ("policy_actions", "enforcement_action_id", "20260812_06"),
 )
 
@@ -236,6 +244,33 @@ def _ensure_sqlite_compat() -> None:
             "usage_measurement",
             "usage_measurement VARCHAR(16) DEFAULT 'unmeasured'",
         )
+        ensure_col("execution_events", "campaign_id", "campaign_id VARCHAR(128)")
+        ensure_col("execution_events", "operation_id", "operation_id VARCHAR(192)")
+        ensure_col(
+            "execution_events", "provider_request_id", "provider_request_id VARCHAR(256)"
+        )
+        ensure_col("execution_events", "cleanup_status", "cleanup_status VARCHAR(64)")
+        ensure_col("execution_events", "deployment_ref", "deployment_ref VARCHAR(192)")
+        ensure_col(
+            "execution_events",
+            "evidence_kind",
+            "evidence_kind VARCHAR(32) NOT NULL DEFAULT 'legacy_unknown'",
+        )
+        ensure_col("cost_reservations", "deployment_ref", "deployment_ref VARCHAR(192)")
+        ensure_col(
+            "cost_reservations",
+            "evidence_kind",
+            "evidence_kind VARCHAR(32) NOT NULL DEFAULT 'legacy_unknown'",
+        )
+        if conn.execute(
+            text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cost_reservations'")
+        ).first():
+            conn.execute(
+                text(
+                    "UPDATE cost_reservations SET evidence_kind = 'synthetic_control' "
+                    "WHERE operation_id LIKE 'control-gate:%'"
+                )
+            )
         execution_columns = {
             row[1]: row for row in conn.execute(text("PRAGMA table_info(execution_events)"))
         }
@@ -251,6 +286,23 @@ def _ensure_sqlite_compat() -> None:
                         existing_type=Numeric(12, 4),
                         nullable=True,
                     )
+        execution_types = {
+            column["name"]: column["type"]
+            for column in inspect(conn).get_columns("execution_events")
+        }
+        if any(
+            (
+                getattr(execution_types.get(column), "precision", None),
+                getattr(execution_types.get(column), "scale", None),
+            )
+            != (18, 8)
+            for column in cost_columns
+            if column in execution_types
+        ):
+            _load_compat_migration(
+                conn,
+                "20260824_10_execution_cost_precision.py",
+            ).upgrade()
         ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")

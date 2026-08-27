@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
+import pytest
 
 from tests.graph.test_models import build_graph
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.service.deployments import (
     Deployment,
     DeploymentEngineMode,
+    DeploymentError,
     DeploymentService,
     SQLiteDeploymentRepository,
 )
@@ -128,7 +130,13 @@ async def test_dual_check_signature_flip_trips_signature_not_digest(sqlite_db) -
 
 
 async def test_unsigned_legacy_attestation_is_three_state_none(sqlite_db) -> None:
-    deployed = await _deploy(await _signed_service(sqlite_db, None))
+    service = await _signed_service(sqlite_db, None)
+    service.deployment_mode = "local"
+    graph = build_graph()
+    local_read_only = graph.model_copy(update={"nodes": [graph.nodes[0]], "edges": []})
+    stored = await service.graph_repository.create(local_read_only)
+    await service.graph_repository.publish(stored.graph_id, stored.version)
+    deployed = await service.deploy("svc", stored.graph_id, stored.version)
     assert deployed.attestation_signature is None
     assert deployed.attestation_signing_key_id is None
 
@@ -137,3 +145,30 @@ async def test_unsigned_legacy_attestation_is_three_state_none(sqlite_db) -> Non
     )
     assert mismatches == []
     assert signature_ok is None  # unsigned-legacy: neither verified nor tampered
+
+
+async def test_production_deployment_fails_closed_without_signer(sqlite_db) -> None:
+    service = await _signed_service(sqlite_db, None)
+    service.deployment_mode = "production"
+
+    with pytest.raises(DeploymentError, match="signed audit readiness"):
+        await _deploy(service)
+
+
+async def test_consequential_local_deployment_fails_closed_without_signer(sqlite_db) -> None:
+    service = await _signed_service(sqlite_db, None)
+    service.deployment_mode = "local"
+    graph = build_graph()
+    consequential = graph.model_copy(
+        update={
+            "nodes": [
+                node.model_copy(update={"capability_bindings": ["external_api_call"]})
+                for node in graph.nodes
+            ]
+        }
+    )
+    stored = await service.graph_repository.create(consequential)
+    await service.graph_repository.publish(stored.graph_id, stored.version)
+
+    with pytest.raises(DeploymentError, match="signed audit readiness"):
+        await service.deploy("consequential", stored.graph_id, stored.version)

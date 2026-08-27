@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zeroth.dev/schemas/product-evidence-source-map-v1.json",
+  "title": "ProductEvidenceSourceMap",
+  "description": "Campaign-qualified, fail-closed accepted-evidence mappings for the published product catalog.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "catalog_id", "sources", "mappings", "unmapped"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "catalog_id": {"type": "string", "minLength": 1},
+    "sources": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/source"}
+    },
+    "mappings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/mapping"}
+    },
+    "unmapped": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "safeSlug": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "safeRelativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["campaign", "bucket", "root", "record", "record_kind"],
+      "properties": {
+        "campaign": {"$ref": "#/$defs/safeSlug"},
+        "bucket": {"$ref": "#/$defs/safeRelativePath"},
+        "root": {"$ref": "#/$defs/safeSlug"},
+        "record": {"$ref": "#/$defs/safeRelativePath"},
+        "record_kind": {
+          "enum": ["acceptance", "completed_results"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"record_kind": {"const": "acceptance"}},
+            "required": ["record_kind"]
+          },
+          "then": {"properties": {"record": {"pattern": "(?:^|/)acceptance\\.json$"}}}
+        },
+        {
+          "if": {
+            "properties": {"record_kind": {"const": "completed_results"}},
+            "required": ["record_kind"]
+          },
+          "then": {"properties": {"record": {"pattern": "(?:^|/)results\\.json$"}}}
+        }
+      ]
+    },
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["criterion_id", "source", "source_criterion_ids", "files"],
+      "properties": {
+        "criterion_id": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "source_criterion_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/safeRelativePath"}
+        }
+      }
+    }
+  }
+}

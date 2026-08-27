@@ -111,6 +111,33 @@ async def test_audit_repository_writes_queries_and_assembles_timeline(sqlite_db)
     assert timeline.run_id == "run-1"
 
 
+async def test_audit_repository_projects_cost_identity_into_typed_columns(sqlite_db) -> None:
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
+    measured_zero = _record(
+        audit_id="audit:zero",
+        run_id="run-cost",
+        node_id="approval",
+    ).model_copy(update={"cost_usd": 0.0, "cost_event_id": None})
+    priced = _record(
+        audit_id="audit:priced",
+        run_id="run-cost",
+        node_id="agent",
+    ).model_copy(update={"cost_usd": 0.125, "cost_event_id": "cost-event-1"})
+
+    await repository.write(measured_zero)
+    await repository.write(priced)
+
+    async with sqlite_db.transaction() as connection:
+        rows = await connection.fetch_all(
+            "SELECT audit_id, cost_usd, cost_event_id FROM node_audits ORDER BY audit_id"
+        )
+
+    assert rows == [
+        {"audit_id": "audit:priced", "cost_usd": 0.125, "cost_event_id": "cost-event-1"},
+        {"audit_id": "audit:zero", "cost_usd": 0.0, "cost_event_id": None},
+    ]
+
+
 def test_payload_sanitizer_redacts_keys_and_omits_fields() -> None:
     sanitizer = PayloadSanitizer(
         AuditRedactionConfig(redact_keys={"secret", "token"}, omit_paths={("nested", "remove_me")})

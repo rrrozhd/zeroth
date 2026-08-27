@@ -26,6 +26,7 @@ REPO_ROOT = Path(__file__).parents[2]
 #: check would miss: typing metadata, vendored attribution, and package data.
 REQUIRED_ENTRIES = (
     "zeroth/_architecture.py",
+    "zeroth/check/__init__.py",
     "zeroth/py.typed",
     "zeroth/contracts/governed/LICENSE",
     "zeroth/contracts/governed/PROVENANCE.md",
@@ -45,6 +46,7 @@ FORBIDDEN_PREFIXES = (
 
 CANONICAL_WHEEL_SOURCES = (
     "src/zeroth/_architecture.py",
+    "src/zeroth/check",
     "src/zeroth/contracts",
     "src/zeroth/econ",
     "src/zeroth/eval",

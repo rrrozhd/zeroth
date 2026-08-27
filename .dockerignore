@@ -1,0 +1,12 @@
+.git
+.dev-secrets
+.venv
+.pytest_cache
+**/__pycache__
+frontend/node_modules
+frontend/.next
+frontend/out
+release/evidence
+*.db
+*.db-shm
+*.db-wal

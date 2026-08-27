@@ -11,13 +11,18 @@ import { getApiBase, getApiKey } from "./config";
 type S = components["schemas"];
 
 export type HealthResponse = S["HealthResponse"];
+export type IdentityResponse = S["IdentityResponse"];
 export type RunStatus = S["RunStatusResponse"];
 export type RunInvocationResponse = S["RunInvocationResponse"];
 export type AdminRunList = S["AdminRunListResponse"];
+export type ChildRunSummary = S["ChildRunSummaryResponse"];
 export type ApprovalRecord = S["ApprovalRecord"];
 export type ApprovalResolutionRequest = S["ApprovalResolutionRequest"];
 export type ApprovalResolutionResponse = S["ApprovalResolutionResponse"];
+export type OperationResolutionRequest = S["OperationResolutionRequest"];
+export type OperationResolutionResponse = S["OperationResolutionResponse"];
 export type AuditRecordList = S["AuditRecordListResponse"];
+export type TenantAuditRecordList = S["TenantAuditRecordListResponse"];
 export type AuditTimeline = S["AuditTimelineResponse"];
 export type NodeAuditRecord = S["NodeAuditRecord"];
 export type DeploymentCost = S["DeploymentCostResponse"];
@@ -27,20 +32,32 @@ export type ConnectorCreateRequest = S["ConnectorCreateRequest"];
 export type ConnectorUpdateRequest = S["ConnectorUpdateRequest"];
 export type ConnectorTestResponse = S["ConnectorTestResponse"];
 export type ManifestSummary = S["ManifestSummaryResponse"];
+export type ManifestDetail = S["ManifestDetailResponse"];
+export type ManifestRunList = S["ManifestRunListResponse"];
 export type WorkflowSummary = S["WorkflowSummaryResponse"];
 export type WorkflowDetail = S["WorkflowDetailResponse"];
+export type WorkflowPreflight = S["WorkflowPreflightResponse"];
+export type LiveProviderVerification = S["LiveProviderVerificationResponse"];
 export type UpdateWorkflowRequest = S["UpdateWorkflowRequest"];
 export type NodeType = S["NodeTypeResponse"];
 export type StudioNode = S["StudioNodeResponse"];
 export type StudioEdge = S["StudioEdgeResponse"];
+export type StudioEdgeInput = S["StudioEdgeInput"];
 export type StudioViewport = S["StudioViewport"];
 type StudioContract = S["StudioContractResponse"];
 export type CreateContractRequest = S["CreateContractRequest"];
 export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
 export type AuditVerification = S["AuditVerificationResponse"];
+export type AuditReadiness = S["AuditReadinessResponse"];
 export type DeploymentAttestation = S["DeploymentAttestationResponse"];
 export type AttestationVerification = S["AttestationVerificationResponse"];
 export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
+export type RetrievedArtifact = {
+  artifactId: string;
+  bytes: Uint8Array;
+  mediaType: string;
+  size: number;
+};
 
 // GET /v1/metrics has no fixed schema — the OpenAPI spec types its 200 body as
 // an open object, so the generated operation's response type (`unknown`) flows
@@ -138,6 +155,31 @@ export type HarvestStats = {
   token_profile_measured: boolean;
 };
 
+export type ExperimentCallEvidence = {
+  operation_id: string;
+  provider_request_id: string | null;
+  cost_event_id: string | null;
+  audit_event_id: string | null;
+  model: string;
+  cost_measurement: string;
+  measured_cost_usd: number | null;
+  estimated_cost_usd: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cleanup_status: string;
+  provider_call_attempted: boolean;
+  cache_hit: boolean;
+};
+
+export type ExperimentExecutionEvidence = {
+  run_id: string;
+  campaign_id: string | null;
+  provider_call_count: number;
+  measured_cost_usd: number;
+  estimated_cost_usd: number;
+  calls: ExperimentCallEvidence[];
+};
+
 export type ExperimentReport = {
   incumbent: string;
   node_id: string | null;
@@ -154,26 +196,32 @@ export type ExperimentReport = {
   recommended_model: string | null;
   verdict: "confirmed" | "flagged" | "none";
   note: string;
+  execution?: ExperimentExecutionEvidence | null;
 };
 
 // Passive right-sizing opportunities (GET /v1/econ/rightsizing/opportunities) — mirrors
 // zeroth.core.econ.opportunities.
 export type NodeSpend = {
   node_id: string;
+  source_deployment_ref?: string | null;
   runs: number;
   total_cost_usd: number;
   mean_cost_per_call_usd: number;
+  total_estimated_cost_usd: number;
+  mean_estimated_cost_per_call_usd: number;
   incumbent_model: string | null;
   uses_tools: boolean;
   tool_free_runs: number;
   cheaper_alternatives: number;
   best_savings_pct: number | null;
   projected_savings_usd: number | null;
+  projected_estimated_savings_usd: number | null;
   experiment_ready: boolean;
 };
 
 export type SpendReport = {
   total_cost_usd: number;
+  total_estimated_cost_usd: number;
   nodes: NodeSpend[];
   note: string;
 };
@@ -188,6 +236,9 @@ export type WorkflowEconomics = {
   terminal_cost_usd: number;
   cost_per_successful_run_usd: number | null;
   failure_tax_usd: number;
+  estimated_terminal_cost_usd: number;
+  estimated_cost_per_successful_run_usd: number | null;
+  estimated_failure_tax_usd: number;
 };
 
 export type TenantEconomics = {
@@ -199,6 +250,9 @@ export type TenantEconomics = {
   terminal_cost_usd: number;
   cost_per_successful_run_usd: number | null;
   failure_tax_usd: number;
+  estimated_terminal_cost_usd: number;
+  estimated_cost_per_successful_run_usd: number | null;
+  estimated_failure_tax_usd: number;
 };
 
 type QualityEconomics = {
@@ -229,7 +283,17 @@ export type UnitEconomicsReport = {
   mean_cost_per_successful_run_usd: number | null;
   failure_tax_usd: number;
   failure_tax_ratio: number;
+  estimated_total_cost_usd: number;
+  estimated_terminal_cost_usd: number;
+  estimated_cost_on_successful_usd: number;
+  estimated_cost_on_failed_usd: number;
+  estimated_cost_on_in_flight_usd: number;
+  estimated_cost_per_successful_run_usd: number | null;
+  estimated_mean_cost_per_successful_run_usd: number | null;
+  estimated_failure_tax_usd: number;
+  estimated_failure_tax_ratio: number;
   runs_with_cost: number;
+  runs_with_estimated_cost: number;
   by_workflow: WorkflowEconomics[];
   by_tenant: TenantEconomics[];
   quality: QualityEconomics | null;
@@ -283,33 +347,66 @@ export class ApiError extends Error {
 // never replies — e.g. blocked middleware) must surface as an error, not an
 // eternal loading state.
 const REQUEST_TIMEOUT_MS = 20_000;
+const GET_TRANSPORT_RETRY_BACKOFF_MS = 100;
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const base = getApiBase();
   const key = getApiKey();
+  // Every console data route is protected. Reject before `fetch` so eager
+  // client effects cannot create misleading "unauthenticated" audit events
+  // while the user is still configuring the connection.
+  if (!key) {
+    throw new ApiError(0, "Connect to the API before loading protected data.");
+  }
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body) headers.set("Content-Type", "application/json");
   if (key) headers.set("X-API-Key", key);
 
-  let res: Response;
-  try {
-    res = await fetch(`${base}${path}`, {
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      ...init, // caller-supplied signal (if any) wins over the default
+  // Reuse one signal across both attempts so a recovery attempt cannot double
+  // the request's overall deadline. Caller-owned cancellation remains
+  // authoritative and is never converted into a retry.
+  const signal = init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const method = (init.method ?? "GET").toUpperCase();
+  const fetchRequest = () =>
+    fetch(`${base}${path}`, {
+      ...init,
+      signal,
       headers,
     });
+
+  let res: Response | null = null;
+  let transportError: unknown;
+  try {
+    res = await fetchRequest();
   } catch (e) {
-    const where = base || "this origin";
-    if (e instanceof DOMException && e.name === "TimeoutError") {
+    transportError = e;
+    if (method === "GET" && !signal.aborted) {
+      // Yield before retrying so WebKit/Chromium do not immediately reuse the
+      // same stale cross-origin connection after a local backend replacement.
+      // The shared signal keeps this delay inside the original request budget.
+      await new Promise((resolve) => setTimeout(resolve, GET_TRANSPORT_RETRY_BACKOFF_MS));
+      try {
+        if (!signal.aborted) res = await fetchRequest();
+      } catch (retryError) {
+        transportError = retryError;
+      }
+    }
+    if (res === null) {
+      const where = base || "this origin";
+      if (transportError instanceof DOMException && transportError.name === "TimeoutError") {
+        throw new ApiError(
+          0,
+          `No response from ${where}${path} after ${REQUEST_TIMEOUT_MS / 1000}s — ` +
+            "the service accepted the connection but never replied. It may be wedged; " +
+            "try restarting it or check the API base under Connect.",
+        );
+      }
       throw new ApiError(
         0,
-        `No response from ${where}${path} after ${REQUEST_TIMEOUT_MS / 1000}s — ` +
-          "the service accepted the connection but never replied. It may be wedged; " +
-          "try restarting it or check the API base under Connect.",
+        `Network error reaching ${where}${path}: ${(transportError as Error).message}`,
       );
     }
-    throw new ApiError(0, `Network error reaching ${where}${path}: ${(e as Error).message}`);
   }
 
   if (!res.ok) {
@@ -341,15 +438,54 @@ export function getHealth(): Promise<HealthResponse> {
   return apiFetch<HealthResponse>("/health");
 }
 
-let _refCache: { base: string; ref: string } | null = null;
+/** Authenticated identity, role, tenant and workspace carried by the active key. */
+export function getIdentity(): Promise<IdentityResponse> {
+  return apiFetch<IdentityResponse>("/v1/identity");
+}
 
-/** The deployment ref for the connected API; cached per API base. */
+/** The deployment ref currently served by the connected API.
+ *
+ * Do not cache this value: the persistent development service may restart on
+ * the same origin while serving a newly deployed graph. A stale ref turns all
+ * deployment-scoped screens into misleading 404s until the browser process is
+ * discarded.
+ */
 export async function deploymentRef(): Promise<string> {
-  const base = getApiBase();
-  if (_refCache && _refCache.base === base) return _refCache.ref;
   const health = await getHealth();
-  _refCache = { base, ref: health.deployment_ref };
   return health.deployment_ref;
+}
+
+// ---- Artifacts ----
+
+export async function getArtifact(artifactId: string): Promise<RetrievedArtifact> {
+  const key = getApiKey();
+  if (!key) {
+    throw new ApiError(0, "Connect to the API before loading protected data.");
+  }
+  const response = await fetch(
+    `${getApiBase()}/v1/artifacts/${encodeURIComponent(artifactId)}`,
+    {
+      headers: { Accept: "*/*", "X-API-Key": key },
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  if (!response.ok) {
+    let message = response.statusText || `HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") message = body.detail;
+    } catch {
+      // Artifact errors may be non-JSON; the transport status remains useful.
+    }
+    throw new ApiError(response.status, message);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return {
+    artifactId,
+    bytes,
+    mediaType: response.headers.get("content-type") ?? "application/octet-stream",
+    size: bytes.byteLength,
+  };
 }
 
 // ---- Runs ----
@@ -362,9 +498,14 @@ export function getRun(runId: string): Promise<RunStatus> {
   return apiFetch<RunStatus>(`/v1/runs/${encodeURIComponent(runId)}`);
 }
 
+export function getChildRuns(runId: string): Promise<ChildRunSummary[]> {
+  return apiFetch<ChildRunSummary[]>(`/v1/runs/${encodeURIComponent(runId)}/children`);
+}
+
 export function submitRun(body: {
   input_payload?: Record<string, unknown>;
   thread_id?: string | null;
+  campaign_id?: string | null;
 }): Promise<RunInvocationResponse> {
   return apiFetch<RunInvocationResponse>("/v1/runs", {
     method: "POST",
@@ -397,9 +538,8 @@ export async function resolveApproval(
 
 // ---- Audit (deployment-scoped) ----
 
-export async function listAudits(): Promise<AuditRecordList> {
-  const ref = await deploymentRef();
-  return apiFetch<AuditRecordList>(`/v1/deployments/${encodeURIComponent(ref)}/audits`);
+export async function listAudits(): Promise<TenantAuditRecordList> {
+  return apiFetch<TenantAuditRecordList>("/v1/admin/audits");
 }
 
 /** Audit records for one graph node, newest first. The endpoint filters by
@@ -505,6 +645,18 @@ export function listManifests(): Promise<ManifestSummary[]> {
   return apiFetch<ManifestSummary[]>("/v1/manifests");
 }
 
+/** Safe manifest detail; source, commands, environment and secret bindings stay server-side. */
+export function getManifest(manifestRef: string): Promise<ManifestDetail> {
+  return apiFetch<ManifestDetail>(`/v1/manifests/${encodeURIComponent(manifestRef)}`);
+}
+
+/** Audit-authorized run/node identities linked to a registered executable unit. */
+export function listManifestRuns(manifestRef: string): Promise<ManifestRunList> {
+  return apiFetch<ManifestRunList>(
+    `/v1/manifests/${encodeURIComponent(manifestRef)}/runs`,
+  );
+}
+
 // ---- Model right-sizing (authoring-time nudge) ----
 
 /** Cheaper, capability-compatible alternatives to a node's model. Candidates to
@@ -531,12 +683,18 @@ export function getRightsizingOpportunities(): Promise<SpendReport> {
 /** Unit economics: cost per *successful* outcome and the failure tax over the last N runs.
     Read-only aggregation over the run + audit trail — no LLM calls. */
 export function getUnitEconomics(): Promise<UnitEconomicsReport> {
-  return apiFetch<UnitEconomicsReport>("/v1/econ/unit-economics");
+  return apiFetch<UnitEconomicsReport>("/v1/econ/unit-economics?scope=tenant");
+}
+
+export type EconomicsConfiguration = S["EconomicsConfigurationResponse"];
+
+export function getEconomicsConfiguration(): Promise<EconomicsConfiguration> {
+  return apiFetch<EconomicsConfiguration>("/v1/econ/configuration");
 }
 
 /** Deployment-wide structural-waste rollup (paid-for-failed, loops, retries) over the last N runs. */
 export function getWaste(): Promise<WasteRollup> {
-  return apiFetch<WasteRollup>("/v1/econ/waste");
+  return apiFetch<WasteRollup>("/v1/econ/waste?scope=tenant");
 }
 
 /** Measured right-sizing: replays the node's real inputs through cheaper models and
@@ -544,10 +702,12 @@ export function getWaste(): Promise<WasteRollup> {
     timeout with a generous ceiling so a small experiment can finish. */
 export function runRightsizingExperiment(body: {
   node_id: string;
+  source_deployment_ref?: string;
   incumbent: string;
   instruction: string;
   needs_tools?: boolean;
   needs_vision?: boolean;
+  judge_model?: string;
   max_candidates?: number;
   max_cases?: number;
   min_cases?: number;
@@ -559,6 +719,11 @@ export function runRightsizingExperiment(body: {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(180_000),
   });
+}
+
+/** Restore the latest completed measured experiment in the active deployment scope. */
+export function getLatestRightsizingExperiment(): Promise<ExperimentReport | null> {
+  return apiFetch<ExperimentReport | null>("/v1/econ/rightsizing/experiment/latest");
 }
 
 // ---- Studio ----
@@ -608,6 +773,29 @@ export function publishWorkflow(id: string): Promise<WorkflowDetail> {
   return apiFetch<WorkflowDetail>(
     `/api/studio/v1/workflows/${encodeURIComponent(id)}/publish`,
     { method: "POST" },
+  );
+}
+
+/** Validate graph structure and resolve runtime dependencies without executing nodes. */
+export function preflightWorkflow(id: string): Promise<WorkflowPreflight> {
+  return apiFetch<WorkflowPreflight>(
+    `/api/studio/v1/workflows/${encodeURIComponent(id)}/preflight`,
+    { method: "POST" },
+  );
+}
+
+/** Make bounded paid provider probes after explicit UI acknowledgement. */
+export function verifyWorkflowProviders(id: string): Promise<LiveProviderVerification> {
+  return apiFetch<LiveProviderVerification>(
+    `/api/studio/v1/workflows/${encodeURIComponent(id)}/verify-provider`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        acknowledge_external_call: true,
+        timeout_seconds: 15,
+        max_models: 3,
+      }),
+    },
   );
 }
 
@@ -669,8 +857,8 @@ export function interruptRun(runId: string): Promise<RunStatus> {
   });
 }
 
-export function replayRun(runId: string): Promise<RunInvocationResponse> {
-  return apiFetch<RunInvocationResponse>(`/v1/admin/runs/${encodeURIComponent(runId)}/replay`, {
+export function replayRun(runId: string): Promise<RunStatus> {
+  return apiFetch<RunStatus>(`/v1/admin/runs/${encodeURIComponent(runId)}/replay`, {
     method: "POST",
   });
 }
@@ -683,6 +871,19 @@ export function verifyRunChain(runId: string): Promise<AuditVerification> {
   return apiFetch<AuditVerification>(`/v1/runs/${encodeURIComponent(runId)}/verify-chain`, {
     method: "POST",
   });
+}
+
+/** Record an authorized determination for a durable AMBIGUOUS side effect.
+    This resolves only the operation record; it does not resume or replay a run. */
+export function resolveAmbiguousOperation(
+  deploymentRef: string,
+  operationKey: string,
+  body: OperationResolutionRequest,
+): Promise<OperationResolutionResponse> {
+  return apiFetch<OperationResolutionResponse>(
+    `/v1/deployments/${encodeURIComponent(deploymentRef)}/operations/${encodeURIComponent(operationKey)}/resolve`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
 }
 
 // Deployment detail — ref-parameterized (the older attestation/cost/audit
@@ -724,6 +925,10 @@ export function verifyDeploymentAuditChain(ref: string): Promise<AuditVerificati
   return apiFetch<AuditVerification>(
     `/v1/deployments/${encodeURIComponent(ref)}/audit-verification`,
   );
+}
+
+export function getAuditReadiness(): Promise<AuditReadiness> {
+  return apiFetch<AuditReadiness>("/v1/audit-readiness");
 }
 
 // Attestation + cost for an explicitly selected deployment reference.
@@ -790,6 +995,8 @@ export type WebhookSubscriptionList = S["WebhookSubscriptionListResponse"];
 export type CreateSubscriptionRequest = S["CreateSubscriptionRequest"];
 export type DeadLetter = S["WebhookDeadLetterResponse"];
 export type WebhookDeadLetterList = S["WebhookDeadLetterListResponse"];
+export type WebhookDelivery = S["WebhookDeliveryResponse"];
+export type WebhookDeliveryList = S["WebhookDeliveryListResponse"];
 
 export function listWebhookSubscriptions(): Promise<WebhookSubscriptionList> {
   return apiFetch<WebhookSubscriptionList>("/v1/webhooks/subscriptions");
@@ -823,6 +1030,9 @@ export function deleteWebhookSubscription(id: string): Promise<void> {
   return apiFetch<void>(`/v1/webhooks/subscriptions/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+export function listWebhookDeliveries(): Promise<WebhookDeliveryList> {
+  return apiFetch<WebhookDeliveryList>("/v1/webhooks/deliveries");
 }
 export function listDeadLetters(): Promise<WebhookDeadLetterList> {
   return apiFetch<WebhookDeadLetterList>("/v1/webhooks/dead-letters");
@@ -864,6 +1074,7 @@ export type LegalHold = S["LegalHoldResponse"];
 export type LegalHoldBody = S["LegalHoldBody"];
 export type ErasureResult = S["ErasureResponse"];
 export type ErasureRequestBody = S["ErasureRequestBody"];
+export type ErasureHistoryEntry = S["ErasureHistoryEntry"];
 
 export function getRetentionPolicy(): Promise<RetentionPolicy> {
   return apiFetch<RetentionPolicy>("/v1/retention/policy");
@@ -880,6 +1091,9 @@ export function placeLegalHold(body: LegalHoldBody): Promise<LegalHold> {
     body: JSON.stringify(body),
   });
 }
+export function listLegalHolds(): Promise<LegalHold[]> {
+  return apiFetch<LegalHold[]>("/v1/retention/legal-holds");
+}
 export function releaseLegalHold(holdId: string): Promise<LegalHold> {
   return apiFetch<LegalHold>(`/v1/retention/legal-holds/${encodeURIComponent(holdId)}`, {
     method: "DELETE",
@@ -890,6 +1104,9 @@ export function requestErasure(body: ErasureRequestBody): Promise<ErasureResult>
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+export function listErasureHistory(limit = 50): Promise<ErasureHistoryEntry[]> {
+  return apiFetch<ErasureHistoryEntry[]>(`/v1/retention/erasure-history?limit=${limit}`);
 }
 
 export type QualityVerdictRequest = S["QualityVerdictRequest"];

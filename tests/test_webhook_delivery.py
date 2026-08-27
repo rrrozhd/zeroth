@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -17,6 +18,7 @@ from zeroth.service.webhooks.models import (
     WebhookSubscription,
 )
 from zeroth.service.webhooks.repository import WebhookRepository
+from zeroth.service.service_audit import ServiceAuditRecorder
 
 
 @pytest.fixture
@@ -30,10 +32,36 @@ def http_client():
 
 
 @pytest.fixture
-async def worker(webhook_repo, http_client):
+def webhook_audit_repository():
+    repository = AsyncMock()
+    repository._signer = object()
+    repository.write_in_transaction.side_effect = lambda _connection, record: record.model_copy(
+        update={"record_signature": "signed"}
+    )
+    return repository
+
+
+@pytest.fixture
+def webhook_audit_recorder(webhook_audit_repository, webhook_repo):
+    webhook_audit_repository._database = webhook_repo._database
+    return ServiceAuditRecorder(
+        repository=webhook_audit_repository,
+        deployment=SimpleNamespace(
+            deployment_ref="deploy-1",
+            graph_version_ref="current-graph:v9",
+            tenant_id="default",
+            workspace_id="workspace-1",
+        ),
+        require_signed=True,
+    )
+
+
+@pytest.fixture
+async def worker(webhook_repo, http_client, webhook_audit_recorder):
     return WebhookDeliveryWorker(
         repository=webhook_repo,
         http_client=http_client,
+        audit_recorder=webhook_audit_recorder,
         poll_interval=0.01,
         retry_base_delay=1.0,
         retry_max_delay=300.0,
@@ -57,7 +85,14 @@ async def _create_sub_and_delivery(
         subscription_id=sub.subscription_id,
         event_type=WebhookEventType.RUN_COMPLETED,
         event_id="evt-1",
-        payload_json='{"event_type":"run.completed","data":{}}',
+        payload_json=(
+            '{"event_type":"run.completed","data":{'
+            '"run_id":"run-historical",'
+            '"thread_id":"thread-historical",'
+            '"graph_version_ref":"graph-historical:v3",'
+            '"approval_id":"approval-historical",'
+            '"ignored_prose":"must never enter audit metadata"}}'
+        ),
         attempt_count=attempt_count,
         max_attempts=max_attempts,
     )
@@ -87,6 +122,131 @@ class TestDeliver:
         assert "X-Zeroth-Signature" in call_kwargs.kwargs.get(
             "headers", call_kwargs[1].get("headers", {})
         )
+
+    async def test_successful_delivery_records_signed_historical_audit(
+        self,
+        worker,
+        webhook_repo,
+        http_client,
+        webhook_audit_repository,
+    ):
+        sub, delivery = await _create_sub_and_delivery(webhook_repo)
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 204
+        http_client.post.return_value = response
+
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
+
+        written = webhook_audit_repository.write_in_transaction.await_args.args[1]
+        assert written.node_id == "webhook.delivery.delivered"
+        assert written.run_id == "run-historical"
+        assert written.thread_id == "thread-historical"
+        assert written.graph_version_ref == "graph-historical:v3"
+        assert written.execution_metadata == {
+            "webhook_subscription_id": sub.subscription_id,
+            "webhook_delivery_id": delivery.delivery_id,
+            "webhook_event_id": "evt-1",
+            "webhook_event_type": "run.completed",
+            "webhook_transition": "delivery_delivered",
+            "attempt": 1,
+            "upstream_status_code": 204,
+        }
+        assert written.approval_actions[0].approval_id == "approval-historical"
+        assert "ignored_prose" not in written.model_dump_json()
+
+    async def test_delivered_state_and_signed_audit_roll_back_together_on_audit_failure(
+        self,
+        worker,
+        webhook_repo,
+        http_client,
+        webhook_audit_repository,
+    ):
+        _sub, _delivery = await _create_sub_and_delivery(webhook_repo)
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 204
+        http_client.post.return_value = response
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        webhook_audit_repository.write_in_transaction.side_effect = RuntimeError(
+            "audit insert failed"
+        )
+
+        with pytest.raises(RuntimeError, match="audit insert failed"):
+            await worker._deliver(claim.delivery, claim.generation)
+
+        persisted = await webhook_repo.get_delivery(claim.delivery.delivery_id)
+        assert persisted is not None
+        assert persisted.status.value == "delivering"
+
+    async def test_failed_retry_state_rolls_back_when_signed_audit_fails(
+        self,
+        worker,
+        webhook_repo,
+        http_client,
+        webhook_audit_repository,
+    ):
+        await _create_sub_and_delivery(webhook_repo, max_attempts=3)
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 503
+        http_client.post.return_value = response
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        webhook_audit_repository.write_in_transaction.side_effect = RuntimeError(
+            "retry audit failed"
+        )
+
+        with pytest.raises(RuntimeError, match="retry audit failed"):
+            await worker._deliver(claim.delivery, claim.generation)
+
+        persisted = await webhook_repo.get_delivery(claim.delivery.delivery_id)
+        assert persisted is not None
+        assert persisted.status.value == "delivering"
+
+    async def test_dead_letter_and_status_roll_back_when_signed_audit_fails(
+        self,
+        worker,
+        webhook_repo,
+        http_client,
+        webhook_audit_repository,
+    ):
+        await _create_sub_and_delivery(webhook_repo, max_attempts=1)
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 503
+        http_client.post.return_value = response
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        webhook_audit_repository.write_in_transaction.side_effect = RuntimeError(
+            "dead-letter audit failed"
+        )
+
+        with pytest.raises(RuntimeError, match="dead-letter audit failed"):
+            await worker._deliver(claim.delivery, claim.generation)
+
+        persisted = await webhook_repo.get_delivery(claim.delivery.delivery_id)
+        assert persisted is not None
+        assert persisted.status.value == "delivering"
+        assert await webhook_repo.list_dead_letters() == []
+
+    async def test_lost_delivery_fence_does_not_record_transition_audit(
+        self,
+        worker,
+        webhook_repo,
+        http_client,
+        webhook_audit_repository,
+    ):
+        await _create_sub_and_delivery(webhook_repo)
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 200
+        http_client.post.return_value = response
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        worker.repository.mark_delivered = AsyncMock(return_value=False)
+
+        await worker._deliver(claim.delivery, claim.generation)
+
+        webhook_audit_repository.write_in_transaction.assert_not_awaited()
 
     async def test_signature_header_format(self, worker, webhook_repo, http_client):
         sub, delivery = await _create_sub_and_delivery(webhook_repo)
@@ -142,6 +302,34 @@ class TestDeliver:
         dead_letters = await webhook_repo.list_dead_letters()
         assert len(dead_letters) == 0
 
+    async def test_failed_attempt_records_typed_audit_without_error_text(
+        self,
+        worker,
+        webhook_repo,
+        http_client,
+        webhook_audit_repository,
+    ):
+        sub, delivery = await _create_sub_and_delivery(webhook_repo)
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 503
+        http_client.post.return_value = response
+
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
+
+        written = webhook_audit_repository.write_in_transaction.await_args.args[1]
+        assert written.execution_metadata == {
+            "webhook_subscription_id": sub.subscription_id,
+            "webhook_delivery_id": delivery.delivery_id,
+            "webhook_event_id": "evt-1",
+            "webhook_event_type": "run.completed",
+            "webhook_transition": "delivery_failed",
+            "attempt": 1,
+            "upstream_status_code": 503,
+        }
+        assert "HTTP 503" not in written.model_dump_json()
+
     async def test_max_retries_exhausted_dead_letters(self, worker, webhook_repo, http_client):
         sub, delivery = await _create_sub_and_delivery(
             webhook_repo, attempt_count=4, max_attempts=5
@@ -157,6 +345,37 @@ class TestDeliver:
         dead_letters = await webhook_repo.list_dead_letters()
         assert len(dead_letters) == 1
         assert dead_letters[0].delivery_id == delivery.delivery_id
+
+    async def test_dead_letter_records_only_after_successful_transition(
+        self,
+        worker,
+        webhook_repo,
+        http_client,
+        webhook_audit_repository,
+    ):
+        sub, delivery = await _create_sub_and_delivery(
+            webhook_repo, attempt_count=4, max_attempts=5
+        )
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 500
+        http_client.post.return_value = response
+
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
+
+        dead_letter = (await webhook_repo.list_dead_letters())[0]
+        written = webhook_audit_repository.write_in_transaction.await_args.args[1]
+        assert written.execution_metadata == {
+            "webhook_subscription_id": sub.subscription_id,
+            "webhook_delivery_id": delivery.delivery_id,
+            "webhook_event_id": "evt-1",
+            "webhook_dead_letter_id": dead_letter.dead_letter_id,
+            "webhook_event_type": "run.completed",
+            "webhook_transition": "delivery_dead_lettered",
+            "attempt": 5,
+            "upstream_status_code": 500,
+        }
 
     async def test_internal_target_url_is_never_posted_to(self, worker, webhook_repo, http_client):
         """A02-6 defence in depth: a row persisted before the bound existed.

@@ -149,6 +149,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/studio/v1/workflows/{workflow_id}/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preflight Workflow
+         * @description Prove structural and dependency readiness without executing any node.
+         *
+         *     This deliberately does not call models, tools, connectors, or child graphs.
+         *     Connectivity and live-provider verification remain separately labelled
+         *     evidence because a preflight must be safe to run against side-effecting
+         *     workflows.
+         */
+        post: operations["preflight_workflow_api_studio_v1_workflows__workflow_id__preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/studio/v1/workflows/{workflow_id}/publish": {
         parameters: {
             query?: never;
@@ -166,6 +191,26 @@ export interface paths {
          *     canvas can point at the offending node/edge.
          */
         post: operations["publish_workflow_api_studio_v1_workflows__workflow_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/studio/v1/workflows/{workflow_id}/verify-provider": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Workflow Providers
+         * @description Run a bounded, explicitly consented probe against each distinct agent model.
+         */
+        post: operations["verify_workflow_providers_api_studio_v1_workflows__workflow_id__verify_provider_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -215,6 +260,26 @@ export interface paths {
         };
         /** Health Ready */
         get: operations["health_ready_health_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/audits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tenant Audits
+         * @description List audit records across the caller's tenant-visible deployments.
+         */
+        get: operations["list_tenant_audits_v1_admin_audits_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -306,6 +371,23 @@ export interface paths {
         };
         /** Get Artifact */
         get: operations["get_artifact_v1_artifacts__artifact_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audit-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit Readiness */
+        get: operations["audit_readiness_v1_audit_readiness_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -652,6 +734,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/deployments/{deployment_ref}/operations/{operation_key}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Ambiguous Operation */
+        post: operations["resolve_ambiguous_operation_v1_deployments__deployment_ref__operations__operation_key__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/deployments/{deployment_ref}/output-contract": {
         parameters: {
             query?: never;
@@ -740,6 +839,29 @@ export interface paths {
          * @description Verify a client-supplied attestation against the bound deployment.
          */
         post: operations["post_verify_attestation_v1_deployments__deployment_ref__verify_attestation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/econ/configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Economics Configuration
+         * @description Return effective, non-secret economics controls for this deployment.
+         *
+         *     The values are read from the already-built runtime rather than reloading
+         *     process environment, so the console shows what this process enforces.
+         */
+        get: operations["get_economics_configuration_v1_econ_configuration_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1434,6 +1556,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/econ/rightsizing/experiment/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Latest Rightsizing Experiment
+         * @description Restore the latest completed measured result in the caller's deployment scope.
+         */
+        get: operations["get_latest_rightsizing_experiment_v1_econ_rightsizing_experiment_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/econ/rightsizing/opportunities": {
         parameters: {
             query?: never;
@@ -1705,6 +1847,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Identity */
+        get: operations["get_identity_v1_identity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/langgraph/deployments/{deployment_ref}/attestations": {
         parameters: {
             query?: never;
@@ -1796,6 +1955,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/manifests/{manifest_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Manifest
+         * @description Return a safe manifest projection; commands, source and environment stay hidden.
+         */
+        get: operations["get_manifest_v1_manifests__manifest_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/manifests/{manifest_ref}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Manifest Runs
+         * @description Recent run/node identities linked to a manifest through scoped audit evidence.
+         */
+        get: operations["list_manifest_runs_v1_manifests__manifest_ref__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics": {
         parameters: {
             query?: never;
@@ -1805,6 +2004,26 @@ export interface paths {
         };
         /** Get Metrics */
         get: operations["get_metrics_v1_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/retention/erasure-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Erasure History
+         * @description Return recent append-only Retention activity for the caller's tenant.
+         */
+        get: operations["list_erasure_history_v1_retention_erasure_history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1840,7 +2059,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Legal Holds
+         * @description List active legal holds for the caller's tenant.
+         */
+        get: operations["list_legal_holds_v1_retention_legal_holds_get"];
         put?: never;
         /**
          * Place Legal Hold
@@ -1949,6 +2172,26 @@ export interface paths {
          * @description Verify the digest chain + signatures over a run's audit records.
          */
         get: operations["verify_run_audit_chain_v1_runs__run_id__audit_verification_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Child Runs
+         * @description Return payload-free direct-child linkage within the caller's scope.
+         */
+        get: operations["list_child_runs_v1_runs__run_id__children_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2137,6 +2380,23 @@ export interface paths {
         put?: never;
         /** Replay Dead Letter */
         post: operations["replay_dead_letter_v1_webhooks_dead_letters__dead_letter_id__replay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Deliveries */
+        get: operations["list_deliveries_v1_webhooks_deliveries_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2379,6 +2639,8 @@ export interface components {
             edited_payload?: {
                 [key: string]: unknown;
             } | null;
+            /** Reason */
+            reason?: string | null;
             /**
              * Resolved At
              * Format: date-time
@@ -2395,6 +2657,8 @@ export interface components {
             edited_payload?: {
                 [key: string]: unknown;
             } | null;
+            /** Reason */
+            reason?: string | null;
         };
         /**
          * ApprovalResolutionResponse
@@ -2512,6 +2776,26 @@ export interface components {
             retried: number;
         };
         /**
+         * AuditReadinessResponse
+         * @description Whether this deployment may make its configured audit-integrity claim.
+         */
+        AuditReadinessResponse: {
+            /** Consequential Actions */
+            consequential_actions: boolean;
+            /** Deployment Mode */
+            deployment_mode: string;
+            /** Message */
+            message: string;
+            /** Ready */
+            ready: boolean;
+            /** Signer Available */
+            signer_available: boolean;
+            /** Signing Required */
+            signing_required: boolean;
+            /** State */
+            state: string;
+        };
+        /**
          * AuditRecordListResponse
          * @description Public response for deployment-scoped audit lookups.
          */
@@ -2622,6 +2906,53 @@ export interface components {
             savings_pct?: number | null;
         };
         /**
+         * ChildRunSummaryResponse
+         * @description Payload-free direct-child identity exposed for lineage inspection.
+         */
+        ChildRunSummaryResponse: {
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Version Ref */
+            graph_version_ref: string;
+            /** Parent Run Id */
+            parent_run_id: string;
+            /** Run Id */
+            run_id: string;
+            status: components["schemas"]["RunPublicStatus"];
+            /** Thread Id */
+            thread_id: string;
+        };
+        /**
+         * Condition
+         * @description A rule that decides whether an edge should be followed.
+         *
+         *     Conditions are attached to edges and evaluated at runtime to determine
+         *     which path the execution should take next.
+         */
+        Condition: {
+            /**
+             * Allow Cycle Traversal
+             * @default false
+             */
+            allow_cycle_traversal: boolean;
+            /**
+             * Branch Rule
+             * @default expression
+             * @enum {string}
+             */
+            branch_rule: "all" | "any" | "expression";
+            /** Expression */
+            expression: string;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Operand Refs */
+            operand_refs?: string[];
+        };
+        /**
          * ConnectorCreateRequest
          * @description Payload for creating a runtime-managed connector.
          */
@@ -2661,16 +2992,48 @@ export interface components {
             source: string;
         };
         /**
+         * ConnectorTestRequest
+         * @description Optional cost boundary for a connector test that may call a provider.
+         */
+        ConnectorTestRequest: {
+            /** Campaign Id */
+            campaign_id: string;
+            /** Max Cost Usd */
+            max_cost_usd: number | string;
+            /** Operation Id */
+            operation_id: string;
+            /** Run Cap Usd */
+            run_cap_usd?: number | string | null;
+            /** Run Id */
+            run_id?: string | null;
+        };
+        /**
          * ConnectorTestResponse
          * @description Result of a live connectivity probe against a registered connector.
          */
         ConnectorTestResponse: {
+            /** Audit Event Id */
+            audit_event_id?: string | null;
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Cleanup Status */
+            cleanup_status?: string | null;
+            /** Cost Event Id */
+            cost_event_id?: string | null;
+            /** Cost Measurement */
+            cost_measurement?: string | null;
             /** Detail */
             detail?: string | null;
+            /** Estimated Cost Usd */
+            estimated_cost_usd?: string | null;
             /** Latency Ms */
             latency_ms: number;
             /** Ok */
             ok: boolean;
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Provider Request Id */
+            provider_request_id?: string | null;
         };
         /**
          * ConnectorUpdateRequest
@@ -2683,6 +3046,24 @@ export interface components {
             params?: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * ConstantMappingOperation
+         * @description Set a target field to a fixed value, ignoring the input entirely.
+         *
+         *     Useful when you always want a specific value in the output regardless of
+         *     what the input contains.
+         */
+        ConstantMappingOperation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            operation: "constant";
+            /** Target Path */
+            target_path: string;
+            /** Value */
+            value: unknown;
         };
         /**
          * CreateContractRequest
@@ -2720,7 +3101,7 @@ export interface components {
             /** Deployment Ref */
             deployment_ref: string;
             /** Event Types */
-            event_types: string[];
+            event_types: components["schemas"]["WebhookEventType"][];
             /** Target Url */
             target_url: string;
             /**
@@ -2743,11 +3124,8 @@ export interface components {
             name: string;
             /** Template Str */
             template_str: string;
-            /**
-             * Variables
-             * @default []
-             */
-            variables: string[];
+            /** Variables */
+            variables?: string[];
             /**
              * Version
              * @default 1
@@ -2898,6 +3276,27 @@ export interface components {
             schema_version: 1;
         };
         /**
+         * DefaultMappingOperation
+         * @description Copy a value from the input, falling back to a default if it is missing.
+         *
+         *     If ``source_path`` is ``None``, the default value is always used. Otherwise
+         *     the source is looked up first, and the default is only used when the source
+         *     path does not exist in the input.
+         */
+        DefaultMappingOperation: {
+            /** Default Value */
+            default_value: unknown;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            operation: "default";
+            /** Source Path */
+            source_path?: string | null;
+            /** Target Path */
+            target_path: string;
+        };
+        /**
          * DependencyStatus
          * @description Status of a single dependency check.
          */
@@ -2965,14 +3364,39 @@ export interface components {
          */
         DeploymentCostResponse: {
             /**
+             * Active Exposure Usd
+             * @default 0
+             */
+            active_exposure_usd: number;
+            /**
+             * Ambiguous Exposure Usd
+             * @default 0
+             */
+            ambiguous_exposure_usd: number;
+            /**
              * Currency
              * @default USD
              */
             currency: string;
             /** Deployment Ref */
             deployment_ref: string;
+            /**
+             * Estimated Spend Usd
+             * @default 0
+             */
+            estimated_spend_usd: number;
+            /**
+             * Paid Spend Usd
+             * @default 0
+             */
+            paid_spend_usd: number;
             /** Total Cost Usd */
             total_cost_usd: number;
+            /**
+             * Unmeasured Spend Usd
+             * @default 0
+             */
+            unmeasured_spend_usd: number;
         };
         /**
          * DeploymentEnforcementStatus
@@ -3106,6 +3530,63 @@ export interface components {
             updated_at: string;
         };
         /**
+         * EconomicsConfigurationResponse
+         * @description Non-secret runtime economics controls visible to scoped operators.
+         */
+        EconomicsConfigurationResponse: {
+            /** Deployment Ref */
+            deployment_ref: string;
+            /**
+             * Failure Mode
+             * @enum {string}
+             */
+            failure_mode: "fail_open" | "fail_closed";
+            /** Per Run Cap Usd */
+            per_run_cap_usd: number | null;
+            /**
+             * Source
+             * @default service_runtime
+             * @constant
+             */
+            source: "service_runtime";
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
+         * EdgeMapping
+         * @description A complete set of mapping operations that describe one edge's data transform.
+         *
+         *     An ``EdgeMapping`` groups together all the individual operations that should
+         *     run when data crosses a particular edge in the graph.
+         */
+        EdgeMapping: {
+            /** Operations */
+            operations?: (components["schemas"]["PassthroughMappingOperation"] | components["schemas"]["RenameMappingOperation"] | components["schemas"]["ConstantMappingOperation"] | components["schemas"]["DefaultMappingOperation"] | components["schemas"]["TransformMappingOperation"])[];
+        };
+        /**
+         * ErasureHistoryEntry
+         * @description Tenant-scoped durable Retention activity exposed for operator inspection.
+         */
+        ErasureHistoryEntry: {
+            /** Action */
+            action: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Detail */
+            detail?: {
+                [key: string]: unknown;
+            } | null;
+            /** Log Id */
+            log_id: string;
+            /** Reason */
+            reason?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+        };
+        /**
          * ErasureRequestBody
          * @description Request body for POST /retention/erasure-requests.
          *
@@ -3143,13 +3624,22 @@ export interface components {
              * @default 0
              */
             audits_erased: number;
+            /** Authorization Log Id */
+            authorization_log_id?: string | null;
             /**
              * Checkpoints Deleted
              * @default 0
              */
             checkpoints_deleted: number;
+            /**
+             * Cleanup State
+             * @enum {string}
+             */
+            cleanup_state: "complete" | "failed" | "pending";
             /** Econ Events Deleted */
             econ_events_deleted?: number | null;
+            /** Retry Log Id */
+            retry_log_id?: string | null;
             /** Run Id */
             run_id: string;
             /**
@@ -3174,15 +3664,99 @@ export interface components {
              */
             audit_count: number;
             /**
+             * Cost Event Count
+             * @default 0
+             */
+            cost_event_count: number;
+            /**
+             * Cost Identity State
+             * @default not_applicable_no_priced_call
+             */
+            cost_identity_state: string;
+            /**
              * Memory Interaction Count
              * @default 0
              */
             memory_interaction_count: number;
             /**
+             * Priced Call Count
+             * @default 0
+             */
+            priced_call_count: number;
+            /**
+             * Reconciliation State
+             * @default reconciled_zero_activity
+             */
+            reconciliation_state: string;
+            /**
              * Tool Call Count
              * @default 0
              */
             tool_call_count: number;
+            /**
+             * Total Cost Usd
+             * @default 0
+             */
+            total_cost_usd: number;
+        };
+        /**
+         * ExperimentCallEvidence
+         * @description Credential-free provider identity and economics for one measured call.
+         */
+        ExperimentCallEvidence: {
+            /** Audit Event Id */
+            audit_event_id?: string | null;
+            /** Cache Hit */
+            cache_hit: boolean;
+            /** Cleanup Status */
+            cleanup_status: string;
+            /** Cost Event Id */
+            cost_event_id?: string | null;
+            /** Cost Measurement */
+            cost_measurement: string;
+            /** Estimated Cost Usd */
+            estimated_cost_usd?: number | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Measured Cost Usd */
+            measured_cost_usd?: number | null;
+            /** Model */
+            model: string;
+            /** Operation Id */
+            operation_id: string;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Provider Call Attempted */
+            provider_call_attempted: boolean;
+            /** Provider Request Id */
+            provider_request_id?: string | null;
+        };
+        /**
+         * ExperimentExecutionEvidence
+         * @description Additive run/cost correlation returned by a live measured experiment.
+         */
+        ExperimentExecutionEvidence: {
+            /** Calls */
+            calls?: components["schemas"]["ExperimentCallEvidence"][];
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /**
+             * Estimated Cost Usd
+             * @default 0
+             */
+            estimated_cost_usd: number;
+            /**
+             * Measured Cost Usd
+             * @default 0
+             */
+            measured_cost_usd: number;
+            /**
+             * Provider Call Count
+             * @default 0
+             */
+            provider_call_count: number;
+            /** Run Id */
+            run_id: string;
         };
         /**
          * ExperimentReport
@@ -3194,6 +3768,7 @@ export interface components {
              * @default 0
              */
             cases: number;
+            execution?: components["schemas"]["ExperimentExecutionEvidence"] | null;
             harvest?: components["schemas"]["HarvestStats"] | null;
             /** Incumbent */
             incumbent: string;
@@ -3303,6 +3878,8 @@ export interface components {
             needs_vision: boolean;
             /** Node Id */
             node_id: string;
+            /** Source Deployment Ref */
+            source_deployment_ref?: string | null;
             /**
              * Tolerance Pct
              * @default 5
@@ -3372,6 +3949,8 @@ export interface components {
          */
         HealthResponse: {
             audit_delivery?: components["schemas"]["AuditDeliveryHealth"] | null;
+            /** Campaign Id */
+            campaign_id?: string | null;
             /** Deployment Ref */
             deployment_ref: string;
             /** Deployment Version */
@@ -3452,6 +4031,20 @@ export interface components {
          * @enum {string}
          */
         HumanInteractionType: "approval" | "clarification" | "request_input" | "notification";
+        /**
+         * IdentityResponse
+         * @description The scope and roles actually carried by the presented credential.
+         */
+        IdentityResponse: {
+            /** Roles */
+            roles: string[];
+            /** Subject */
+            subject: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Workspace Id */
+            workspace_id?: string | null;
+        };
         /**
          * InventoryAck
          * @description The identity the server assigned to a recorded registration.
@@ -3624,6 +4217,76 @@ export interface components {
             /** Tenant Id */
             tenant_id: string;
         };
+        /** LiveProviderProbe */
+        LiveProviderProbe: {
+            /** Audit Event Id */
+            audit_event_id?: string | null;
+            /** Cleanup Status */
+            cleanup_status?: string | null;
+            /** Cost Event Id */
+            cost_event_id?: string | null;
+            /** Cost Measurement */
+            cost_measurement?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Estimated Cost Usd */
+            estimated_cost_usd?: string | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Model */
+            model: string;
+            /** Ok */
+            ok: boolean;
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Provider Request Id */
+            provider_request_id?: string | null;
+        };
+        /** LiveProviderVerificationRequest */
+        LiveProviderVerificationRequest: {
+            /**
+             * Acknowledge External Call
+             * @default false
+             */
+            acknowledge_external_call: boolean;
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Max Cost Usd */
+            max_cost_usd?: number | string | null;
+            /**
+             * Max Models
+             * @default 3
+             */
+            max_models: number;
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Run Cap Usd */
+            run_cap_usd?: number | string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /**
+             * Timeout Seconds
+             * @default 15
+             */
+            timeout_seconds: number;
+        };
+        /** LiveProviderVerificationResponse */
+        LiveProviderVerificationResponse: {
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Probes */
+            probes: components["schemas"]["LiveProviderProbe"][];
+            /** Verified */
+            verified: boolean;
+            /** Workflow Id */
+            workflow_id: string;
+        };
         /**
          * LivenessResponse
          * @description Response payload for the liveness probe.
@@ -3634,6 +4297,74 @@ export interface components {
              * @default ok
              */
             status: string;
+        };
+        /**
+         * ManifestDetailResponse
+         * @description Secret-free executable-unit configuration suitable for operator inspection.
+         */
+        ManifestDetailResponse: {
+            /** Artifact Source Kind */
+            artifact_source_kind?: string | null;
+            /** Capability Requests */
+            capability_requests?: string[];
+            /** Content Hash */
+            content_hash?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Entrypoint Type */
+            entrypoint_type?: string | null;
+            /** Execution Placement */
+            execution_placement?: string | null;
+            /** Input Contract Ref */
+            input_contract_ref?: string | null;
+            /** Input Mode */
+            input_mode?: string | null;
+            /** Input Schema */
+            input_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Kind */
+            kind: string;
+            /** Manifest Ref */
+            manifest_ref: string;
+            /** Onboarding Mode */
+            onboarding_mode?: string | null;
+            /** Output Contract Ref */
+            output_contract_ref?: string | null;
+            /** Output Mode */
+            output_mode?: string | null;
+            /** Output Schema */
+            output_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Resource Limits */
+            resource_limits?: {
+                [key: string]: unknown;
+            } | null;
+            /** Runtime */
+            runtime?: string | null;
+            /** Side Effect */
+            side_effect?: boolean | null;
+            /** Timeout Seconds */
+            timeout_seconds?: number | null;
+            /** Version */
+            version?: number | null;
+        };
+        /** ManifestRunLinkResponse */
+        ManifestRunLinkResponse: {
+            /** Node Id */
+            node_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Status */
+            status: string;
+        };
+        /** ManifestRunListResponse */
+        ManifestRunListResponse: {
+            /** Manifest Ref */
+            manifest_ref: string;
+            /** Runs */
+            runs?: components["schemas"]["ManifestRunLinkResponse"][];
         };
         /**
          * ManifestSummaryResponse
@@ -3730,6 +4461,8 @@ export interface components {
             attempt: number;
             /** Audit Id */
             audit_id: string;
+            /** Campaign Id */
+            campaign_id?: string | null;
             /** Chain Sequence */
             chain_sequence?: number | null;
             /** Completed At */
@@ -3853,8 +4586,15 @@ export interface components {
              * @default 0
              */
             mean_cost_per_call_usd: number;
+            /**
+             * Mean Estimated Cost Per Call Usd
+             * @default 0
+             */
+            mean_estimated_cost_per_call_usd: number;
             /** Node Id */
             node_id: string;
+            /** Projected Estimated Savings Usd */
+            projected_estimated_savings_usd?: number | null;
             /** Projected Savings Usd */
             projected_savings_usd?: number | null;
             /**
@@ -3862,6 +4602,8 @@ export interface components {
              * @default 0
              */
             runs: number;
+            /** Source Deployment Ref */
+            source_deployment_ref?: string | null;
             /**
              * Tool Free Runs
              * @default 0
@@ -3872,6 +4614,11 @@ export interface components {
              * @default 0
              */
             total_cost_usd: number;
+            /**
+             * Total Estimated Cost Usd
+             * @default 0
+             */
+            total_estimated_cost_usd: number;
             /**
              * Uses Tools
              * @default false
@@ -3943,6 +4690,53 @@ export interface components {
              * @enum {string}
              */
             side_effect: "read_only" | "side_effecting" | "unknown";
+        };
+        /** OperationResolutionRequest */
+        OperationResolutionRequest: {
+            /** Reason */
+            reason: string;
+            /** Receipt */
+            receipt?: unknown | null;
+            resolution: components["schemas"]["OperatorResolution"];
+        };
+        /** OperationResolutionResponse */
+        OperationResolutionResponse: {
+            /** Operation Key */
+            operation_key: string;
+            state: components["schemas"]["OperationState"];
+        };
+        /**
+         * OperationState
+         * @description The five outcomes a side-effecting operation can be in.
+         *
+         *     ``NOT_STARTED`` is deliberately not a stored row.  Writing one before the
+         *     effect is attempted would itself be a durable act that recovery could not
+         *     tell apart from a real attempt, so absence *is* the not-started state.
+         * @enum {string}
+         */
+        OperationState: "NOT_STARTED" | "IN_FLIGHT" | "COMPLETED" | "FAILED" | "AMBIGUOUS";
+        /**
+         * OperatorResolution
+         * @enum {string}
+         */
+        OperatorResolution: "completed" | "failed";
+        /**
+         * PassthroughMappingOperation
+         * @description Copy a value from the input to the output without changing it.
+         *
+         *     The source and target paths are the same logical field, just moved across
+         *     the edge boundary.
+         */
+        PassthroughMappingOperation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            operation: "passthrough";
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
         };
         /**
          * PortDefinitionResponse
@@ -4106,6 +4900,24 @@ export interface components {
             side_effect: "read_only" | "side_effecting" | "unknown";
         };
         /**
+         * RenameMappingOperation
+         * @description Copy a value from the input to the output under a different name.
+         *
+         *     Works just like passthrough, but the target path can differ from the source
+         *     path, effectively renaming the field.
+         */
+        RenameMappingOperation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            operation: "rename";
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
+        /**
          * RetentionPolicyBody
          * @description Request body for PUT /retention/policy.
          */
@@ -4220,6 +5032,20 @@ export interface components {
             target_graph_version: number;
         };
         /**
+         * RoutingDecisionResponse
+         * @description Content-free record of one persisted conditional-route decision.
+         */
+        RoutingDecisionResponse: {
+            /** Condition Id */
+            condition_id: string;
+            /** Matched */
+            matched: boolean;
+            /** Selected Edge Id */
+            selected_edge_id?: string | null;
+            /** Suppression Reason */
+            suppression_reason?: ("edge_disabled" | "condition_false" | "visit_limit") | null;
+        };
+        /**
          * RunAttestationV1
          * @description Run-start claim authenticated by reserved context and signed by Zeroth.
          */
@@ -4330,6 +5156,14 @@ export interface components {
          * @description Request body for creating a new run.
          */
         RunInvocationRequest: {
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /**
+             * Campaign Strict
+             * @default true
+             * @constant
+             */
+            campaign_strict: true;
             /** Input Payload */
             input_payload?: {
                 [key: string]: unknown;
@@ -4345,6 +5179,8 @@ export interface components {
             approval_paused_state?: components["schemas"]["ApprovalPausedState"] | null;
             /** Audit Refs */
             audit_refs?: string[];
+            /** Campaign Id */
+            campaign_id?: string | null;
             /** Current Step */
             current_step?: string | null;
             /** Deployment Ref */
@@ -4354,6 +5190,8 @@ export interface components {
             failure_state?: components["schemas"]["RunFailureState"] | null;
             /** Graph Version Ref */
             graph_version_ref: string;
+            /** Parent Run Id */
+            parent_run_id?: string | null;
             /** Run Id */
             run_id: string;
             status: components["schemas"]["RunPublicStatus"];
@@ -4369,6 +5207,7 @@ export interface components {
             thread_id: string;
             /** Timeline Ref */
             timeline_ref?: string | null;
+            traversal?: components["schemas"]["RunTraversalResponse"];
             /** Workspace Id */
             workspace_id?: string | null;
         };
@@ -4412,6 +5251,8 @@ export interface components {
             approval_paused_state?: components["schemas"]["ApprovalPausedState"] | null;
             /** Audit Refs */
             audit_refs?: string[];
+            /** Campaign Id */
+            campaign_id?: string | null;
             /** Current Step */
             current_step?: string | null;
             /** Deployment Ref */
@@ -4421,6 +5262,8 @@ export interface components {
             failure_state?: components["schemas"]["RunFailureState"] | null;
             /** Graph Version Ref */
             graph_version_ref: string;
+            /** Parent Run Id */
+            parent_run_id?: string | null;
             /** Run Id */
             run_id: string;
             status: components["schemas"]["RunPublicStatus"];
@@ -4436,8 +5279,27 @@ export interface components {
             thread_id: string;
             /** Timeline Ref */
             timeline_ref?: string | null;
+            traversal?: components["schemas"]["RunTraversalResponse"];
             /** Workspace Id */
             workspace_id?: string | null;
+        };
+        /**
+         * RunTraversalResponse
+         * @description Sanitized traversal proof for loops and conditional routing.
+         */
+        RunTraversalResponse: {
+            /** Edge Visit Counts */
+            edge_visit_counts?: {
+                [key: string]: number;
+            };
+            /** Node Visit Counts */
+            node_visit_counts?: {
+                [key: string]: number;
+            };
+            /** Routing Decisions */
+            routing_decisions?: components["schemas"]["RoutingDecisionResponse"][];
+            /** Stop Reason */
+            stop_reason?: ("no_outgoing_edges" | "branch_suppressed") | null;
         };
         /**
          * SchemaRevision
@@ -4492,6 +5354,11 @@ export interface components {
              * @default 0
              */
             total_cost_usd: number;
+            /**
+             * Total Estimated Cost Usd
+             * @default 0
+             */
+            total_estimated_cost_usd: number;
         };
         /**
          * StudioContractResponse
@@ -4508,13 +5375,19 @@ export interface components {
             version: number;
         };
         /**
-         * StudioEdgeResponse
-         * @description An edge as represented in the Studio frontend.
+         * StudioEdgeInput
+         * @description An edge accepted from the Studio frontend.
          *
          *     ``kind="tool"`` marks a tool attachment (agent → executable unit)
          *     rather than a control-flow connection.
          */
-        StudioEdgeResponse: {
+        StudioEdgeInput: {
+            condition?: components["schemas"]["Condition"] | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
             /** Id */
             id: string;
             /**
@@ -4523,6 +5396,7 @@ export interface components {
              * @enum {string}
              */
             kind: "data" | "tool";
+            mapping?: components["schemas"]["EdgeMapping"] | null;
             /** Source */
             source: string;
             /** Source Handle */
@@ -4531,6 +5405,61 @@ export interface components {
             target: string;
             /** Target Handle */
             target_handle?: string | null;
+        };
+        /**
+         * StudioEdgeResponse
+         * @description An edge returned to the Studio frontend.
+         */
+        StudioEdgeResponse: {
+            condition?: components["schemas"]["Condition"] | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default data
+             * @enum {string}
+             */
+            kind: "data" | "tool";
+            mapping?: components["schemas"]["EdgeMapping"] | null;
+            /** Source */
+            source: string;
+            /** Source Handle */
+            source_handle?: string | null;
+            /** Target */
+            target: string;
+            /** Target Handle */
+            target_handle?: string | null;
+        };
+        /**
+         * StudioExecutionSettings
+         * @description Authorable graph safety ceilings exposed by Studio.
+         *
+         *     Runtime-mode, failure-policy, and audit controls deliberately remain outside
+         *     the canvas contract. Studio authors only the bounds needed to make cycles
+         *     and long-running graphs fail closed.
+         */
+        StudioExecutionSettings: {
+            /** Default Timeout Seconds */
+            default_timeout_seconds?: number | null;
+            /** Max Total Runtime Seconds */
+            max_total_runtime_seconds?: number | null;
+            /**
+             * Max Total Steps
+             * @default 1000
+             */
+            max_total_steps: number;
+            /** Max Visits Per Edge */
+            max_visits_per_edge?: number | null;
+            /**
+             * Max Visits Per Node
+             * @default 10
+             */
+            max_visits_per_node: number;
         };
         /**
          * StudioNodeResponse
@@ -4612,6 +5541,16 @@ export interface components {
             version: number;
         };
         /**
+         * TenantAuditRecordListResponse
+         * @description Tenant-scoped audit records across all deployments visible to the caller.
+         */
+        TenantAuditRecordListResponse: {
+            /** Records */
+            records?: components["schemas"]["NodeAuditRecord"][];
+            /** Scope */
+            scope: string;
+        };
+        /**
          * TenantBudgetRequest
          * @description Request body for PUT /v1/tenants/{tenant_id}/budget.
          */
@@ -4624,17 +5563,57 @@ export interface components {
          * @description Response for GET /v1/tenants/{tenant_id}/cost (per D-14).
          */
         TenantCostResponse: {
+            /**
+             * Active Exposure Usd
+             * @default 0
+             */
+            active_exposure_usd: number;
+            /**
+             * Actual Spend Usd
+             * @default 0
+             */
+            actual_spend_usd: number;
+            /**
+             * Ambiguous Exposure Usd
+             * @default 0
+             */
+            ambiguous_exposure_usd: number;
             /** Budget Cap Usd */
             budget_cap_usd?: number | null;
+            /**
+             * Budget Consumed Usd
+             * @default 0
+             */
+            budget_consumed_usd: number;
             /**
              * Currency
              * @default USD
              */
             currency: string;
+            /**
+             * Estimated Spend Usd
+             * @default 0
+             */
+            estimated_spend_usd: number;
+            /**
+             * Paid Spend Usd
+             * @default 0
+             */
+            paid_spend_usd: number;
+            /**
+             * Synthetic Control Usd
+             * @default 0
+             */
+            synthetic_control_usd: number;
             /** Tenant Id */
             tenant_id: string;
             /** Total Cost Usd */
             total_cost_usd: number;
+            /**
+             * Unmeasured Spend Usd
+             * @default 0
+             */
+            unmeasured_spend_usd: number;
         };
         /**
          * TenantEconomics
@@ -4646,6 +5625,18 @@ export interface components {
         TenantEconomics: {
             /** Cost Per Successful Run Usd */
             cost_per_successful_run_usd?: number | null;
+            /** Estimated Cost Per Successful Run Usd */
+            estimated_cost_per_successful_run_usd?: number | null;
+            /**
+             * Estimated Failure Tax Usd
+             * @default 0
+             */
+            estimated_failure_tax_usd: number;
+            /**
+             * Estimated Terminal Cost Usd
+             * @default 0
+             */
+            estimated_terminal_cost_usd: number;
             /**
              * Failed Runs
              * @default 0
@@ -4751,6 +5742,8 @@ export interface components {
             outcome?: {
                 [key: string]: unknown;
             } | null;
+            /** Tool Call Id */
+            tool_call_id?: string | null;
             /** Tool Ref */
             tool_ref: string;
         };
@@ -4764,6 +5757,26 @@ export interface components {
          * @enum {string}
          */
         ToolDecisionKind: "allow" | "deny" | "require_approval";
+        /**
+         * TransformMappingOperation
+         * @description Evaluate an expression and write the computed result to target_path.
+         *
+         *     The expression is evaluated using the safe AST-based evaluator against a
+         *     namespace containing ``payload``, ``state``, ``variables``, and other
+         *     runtime context. This enables side-effect-free data transformation
+         *     between nodes.
+         */
+        TransformMappingOperation: {
+            /** Expression */
+            expression: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            operation: "transform";
+            /** Target Path */
+            target_path: string;
+        };
         /**
          * UnitEconomicsReport
          * @description Deployment-wide unit economics: what a successful outcome costs, and the failure tax.
@@ -4793,6 +5806,45 @@ export interface components {
             cost_on_successful_usd: number;
             /** Cost Per Successful Run Usd */
             cost_per_successful_run_usd?: number | null;
+            /**
+             * Estimated Cost On Failed Usd
+             * @default 0
+             */
+            estimated_cost_on_failed_usd: number;
+            /**
+             * Estimated Cost On In Flight Usd
+             * @default 0
+             */
+            estimated_cost_on_in_flight_usd: number;
+            /**
+             * Estimated Cost On Successful Usd
+             * @default 0
+             */
+            estimated_cost_on_successful_usd: number;
+            /** Estimated Cost Per Successful Run Usd */
+            estimated_cost_per_successful_run_usd?: number | null;
+            /**
+             * Estimated Failure Tax Ratio
+             * @default 0
+             */
+            estimated_failure_tax_ratio: number;
+            /**
+             * Estimated Failure Tax Usd
+             * @default 0
+             */
+            estimated_failure_tax_usd: number;
+            /** Estimated Mean Cost Per Successful Run Usd */
+            estimated_mean_cost_per_successful_run_usd?: number | null;
+            /**
+             * Estimated Terminal Cost Usd
+             * @default 0
+             */
+            estimated_terminal_cost_usd: number;
+            /**
+             * Estimated Total Cost Usd
+             * @default 0
+             */
+            estimated_total_cost_usd: number;
             /**
              * Failed Runs
              * @default 0
@@ -4827,6 +5879,11 @@ export interface components {
              */
             runs_with_cost: number;
             /**
+             * Runs With Estimated Cost
+             * @default 0
+             */
+            runs_with_estimated_cost: number;
+            /**
              * Success Rate
              * @default 0
              */
@@ -4858,9 +5915,10 @@ export interface components {
          */
         UpdateWorkflowRequest: {
             /** Edges */
-            edges?: components["schemas"]["StudioEdgeResponse"][] | null;
+            edges?: components["schemas"]["StudioEdgeInput"][] | null;
             /** Entry Step */
             entry_step?: string | null;
+            execution_settings?: components["schemas"]["StudioExecutionSettings"] | null;
             /** Name */
             name?: string | null;
             /** Nodes */
@@ -5039,6 +6097,8 @@ export interface components {
          * @description Response for a single dead-letter entry.
          */
         WebhookDeadLetterResponse: {
+            /** Approval Id */
+            approval_id?: string | null;
             /** Attempt Count */
             attempt_count: number;
             /** Created At */
@@ -5057,9 +6117,59 @@ export interface components {
             last_error: string | null;
             /** Last Status Code */
             last_status_code: number | null;
+            /** Run Id */
+            run_id?: string | null;
             /** Subscription Id */
             subscription_id: string;
         };
+        /**
+         * WebhookDeliveryListResponse
+         * @description Response for listing scoped webhook delivery state.
+         */
+        WebhookDeliveryListResponse: {
+            /** Deliveries */
+            deliveries: components["schemas"]["WebhookDeliveryResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * WebhookDeliveryResponse
+         * @description Safe operator view of one delivery; payload and secret are intentionally absent.
+         */
+        WebhookDeliveryResponse: {
+            /** Approval Id */
+            approval_id?: string | null;
+            /** Attempt Count */
+            attempt_count: number;
+            /** Created At */
+            created_at: string;
+            /** Delivery Id */
+            delivery_id: string;
+            /** Event Id */
+            event_id: string;
+            /** Event Type */
+            event_type: string;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Status Code */
+            last_status_code: number | null;
+            /** Max Attempts */
+            max_attempts: number;
+            /** Run Id */
+            run_id?: string | null;
+            /** Status */
+            status: string;
+            /** Subscription Id */
+            subscription_id: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /**
+         * WebhookEventType
+         * @description Types of events that can trigger webhook deliveries.
+         * @enum {string}
+         */
+        WebhookEventType: "run.completed" | "run.failed" | "approval.requested" | "approval.resolved" | "approval.escalated";
         /**
          * WebhookSubscriptionListResponse
          * @description Response for listing webhook subscriptions.
@@ -5103,6 +6213,7 @@ export interface components {
             edges: components["schemas"]["StudioEdgeResponse"][];
             /** Entry Step */
             entry_step?: string | null;
+            execution_settings?: components["schemas"]["StudioExecutionSettings"];
             /** Id */
             id: string;
             /** Name */
@@ -5124,6 +6235,18 @@ export interface components {
         WorkflowEconomics: {
             /** Cost Per Successful Run Usd */
             cost_per_successful_run_usd?: number | null;
+            /** Estimated Cost Per Successful Run Usd */
+            estimated_cost_per_successful_run_usd?: number | null;
+            /**
+             * Estimated Failure Tax Usd
+             * @default 0
+             */
+            estimated_failure_tax_usd: number;
+            /**
+             * Estimated Terminal Cost Usd
+             * @default 0
+             */
+            estimated_terminal_cost_usd: number;
             /**
              * Failed Runs
              * @default 0
@@ -5156,6 +6279,35 @@ export interface components {
             terminal_cost_usd: number;
             /** Workflow Name */
             workflow_name: string;
+        };
+        /** WorkflowPreflightIssue */
+        WorkflowPreflightIssue: {
+            /** Code */
+            code: string;
+            /** Edge Id */
+            edge_id?: string | null;
+            /** Message */
+            message: string;
+            /** Node Id */
+            node_id?: string | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "error" | "warning";
+        };
+        /** WorkflowPreflightResponse */
+        WorkflowPreflightResponse: {
+            /** Checks */
+            checks: string[];
+            /** Issues */
+            issues: components["schemas"]["WorkflowPreflightIssue"][];
+            /** Ready */
+            ready: boolean;
+            /** Version */
+            version: number;
+            /** Workflow Id */
+            workflow_id: string;
         };
         /**
          * WorkflowSummaryResponse
@@ -5470,6 +6622,37 @@ export interface operations {
             };
         };
     };
+    preflight_workflow_api_studio_v1_workflows__workflow_id__preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowPreflightResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     publish_workflow_api_studio_v1_workflows__workflow_id__publish_post: {
         parameters: {
             query?: never;
@@ -5488,6 +6671,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_workflow_providers_api_studio_v1_workflows__workflow_id__verify_provider_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LiveProviderVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveProviderVerificationResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5557,6 +6775,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+        };
+    };
+    list_tenant_audits_v1_admin_audits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantAuditRecordListResponse"];
                 };
             };
         };
@@ -5718,6 +6956,26 @@ export interface operations {
             };
         };
     };
+    audit_readiness_v1_audit_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditReadinessResponse"];
+                };
+            };
+        };
+    };
     list_connectors_v1_connectors_get: {
         parameters: {
             query?: never;
@@ -5844,7 +7102,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConnectorTestRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -6275,6 +7537,42 @@ export interface operations {
             };
         };
     };
+    resolve_ambiguous_operation_v1_deployments__deployment_ref__operations__operation_key__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+                operation_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperationResolutionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationResolutionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_output_contract_v1_deployments__deployment_ref__output_contract_get: {
         parameters: {
             query?: never;
@@ -6434,6 +7732,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_economics_configuration_v1_econ_configuration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EconomicsConfigurationResponse"];
                 };
             };
         };
@@ -7257,6 +8575,26 @@ export interface operations {
             };
         };
     };
+    get_latest_rightsizing_experiment_v1_econ_rightsizing_experiment_latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentReport"] | null;
+                };
+            };
+        };
+    };
     rightsizing_opportunities_v1_econ_rightsizing_opportunities_get: {
         parameters: {
             query?: never;
@@ -7281,6 +8619,7 @@ export interface operations {
         parameters: {
             query?: {
                 window?: number;
+                scope?: "deployment" | "tenant";
             };
             header?: never;
             path?: never;
@@ -7313,6 +8652,7 @@ export interface operations {
             query?: {
                 window?: number;
                 limit?: number;
+                scope?: "deployment" | "tenant";
             };
             header?: never;
             path?: never;
@@ -7535,6 +8875,26 @@ export interface operations {
             };
         };
     };
+    get_identity_v1_identity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityResponse"];
+                };
+            };
+        };
+    };
     attest_v1_langgraph_deployments__deployment_ref__attestations_post: {
         parameters: {
             query?: never;
@@ -7691,6 +9051,68 @@ export interface operations {
             };
         };
     };
+    get_manifest_v1_manifests__manifest_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                manifest_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManifestDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_manifest_runs_v1_manifests__manifest_ref__runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                manifest_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManifestRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_metrics_v1_metrics_get: {
         parameters: {
             query?: never;
@@ -7707,6 +9129,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_erasure_history_v1_retention_erasure_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErasureHistoryEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -7740,6 +9193,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_legal_holds_v1_retention_legal_holds_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegalHoldResponse"][];
                 };
             };
         };
@@ -7943,6 +9416,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditVerificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_child_runs_v1_runs__run_id__children_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChildRunSummaryResponse"][];
                 };
             };
             /** @description Validation Error */
@@ -8287,6 +9791,38 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_deliveries_v1_webhooks_deliveries_get: {
+        parameters: {
+            query?: {
+                subscription_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryListResponse"];
                 };
             };
             /** @description Validation Error */

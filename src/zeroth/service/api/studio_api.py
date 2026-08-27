@@ -7,6 +7,7 @@ to avoid modifying core graph models.
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict, deque
 from typing import Any
 from uuid import uuid4
@@ -27,24 +28,47 @@ from zeroth.contracts.graph.models import (
     ExecutableUnitNodeData,
     Graph,
     GraphStatus,
+    HttpRequestNode,
+    HttpRequestNodeData,
     HumanApprovalNode,
     HumanApprovalNodeData,
+    IfNode,
+    IfNodeData,
+    LoopNode,
+    LoopNodeData,
     Node,
     RetrievalNode,
     RetrievalNodeData,
     SubgraphNode,
 )
+from zeroth.contracts.graph.validation.control_nodes import canonicalize_if_route_edges
 from zeroth.contracts.graph.validation_errors import GraphValidationError
-from zeroth.contracts.registry import contract_scope_context
+from zeroth.contracts.registry import ContractReference, contract_scope_context
+from zeroth.runtime.agents.models import ModelParams
+from zeroth.runtime.agents.provider import (
+    LiteLLMProviderAdapter,
+    ProviderRequest,
+    run_provider_with_timeout,
+)
+from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.service.api.authorization import Permission, require_permission
+from zeroth.service.api.delivery_types import (
+    LiveProviderProbe,
+    LiveProviderVerificationRequest,
+    LiveProviderVerificationResponse,
+    WorkflowPreflightIssue,
+    WorkflowPreflightResponse,
+)
 from zeroth.service.api.studio_schemas import (
     CreateContractRequest,
     CreateWorkflowRequest,
     NodeTypeResponse,
     PortDefinitionResponse,
     StudioContractResponse,
+    StudioEdgeInput,
     StudioEdgeResponse,
+    StudioExecutionSettings,
     StudioNodeResponse,
     StudioPosition,
     StudioViewport,
@@ -116,7 +140,44 @@ _NODE_TYPES: list[NodeTypeResponse] = [
     NodeTypeResponse(
         type="human_approval", label="Human Approval", category="core", ports=_io_ports()
     ),
+    NodeTypeResponse(
+        type="if",
+        label="If",
+        category="flow",
+        ports=[
+            PortDefinitionResponse(
+                id="input-data", type="data", direction="input", label="Input"
+            ),
+            PortDefinitionResponse(id="true", type="data", direction="output", label="True"),
+            PortDefinitionResponse(
+                id="false", type="data", direction="output", label="False"
+            ),
+        ],
+    ),
+    NodeTypeResponse(
+        type="loop",
+        label="Loop",
+        category="flow",
+        ports=[
+            PortDefinitionResponse(
+                id="input-data", type="data", direction="input", label="Input"
+            ),
+            PortDefinitionResponse(
+                id="repeat", type="data", direction="output", label="Repeat"
+            ),
+            PortDefinitionResponse(id="done", type="data", direction="output", label="Done"),
+            PortDefinitionResponse(
+                id="limit", type="data", direction="output", label="Limit"
+            ),
+        ],
+    ),
     NodeTypeResponse(type="retrieval", label="Retrieval", category="core", ports=_io_ports()),
+    NodeTypeResponse(
+        type="http_request",
+        label="HTTP Request",
+        category="core",
+        ports=_io_ports(),
+    ),
     NodeTypeResponse(type="subgraph", label="Subgraph", category="core", ports=_io_ports()),
 ]
 
@@ -131,7 +192,10 @@ _NODE_BUILDERS: dict[str, tuple[type[Node], str, type]] = {
     "code": (ExecutableUnitNode, "executable_unit", ExecutableUnitNodeData),
     "executable_unit": (ExecutableUnitNode, "executable_unit", ExecutableUnitNodeData),
     "human_approval": (HumanApprovalNode, "human_approval", HumanApprovalNodeData),
+    "if": (IfNode, "condition", IfNodeData),
+    "loop": (LoopNode, "loop", LoopNodeData),
     "retrieval": (RetrievalNode, "retrieval", RetrievalNodeData),
+    "http_request": (HttpRequestNode, "http_request", HttpRequestNodeData),
     "subgraph": (SubgraphNode, "subgraph", SubgraphNodeData),
 }
 
@@ -168,6 +232,7 @@ _GOVERNANCE_FIELDS = (
     "execution_config",
     "audit_config",
     "parallel_config",
+    "join_config",
 )
 
 
@@ -186,6 +251,9 @@ def _node_to_studio_data(node: Node) -> dict[str, Any]:
             node.parallel_config.model_dump(mode="json")
             if node.parallel_config is not None
             else None
+        ),
+        "join_config": (
+            node.join_config.model_dump(mode="json") if node.join_config is not None else None
         ),
     }
 
@@ -245,7 +313,7 @@ def _build_node(
         ) from exc
 
 
-def _build_edge(se: StudioEdgeResponse) -> Edge:
+def _build_edge(se: StudioEdgeInput, existing: Edge | None = None) -> Edge:
     """Construct a graph Edge from a canvas edge, preserving visual handles.
 
     An edge drawn from the agent's tools handle is a tool attachment even if
@@ -258,11 +326,31 @@ def _build_edge(se: StudioEdgeResponse) -> Edge:
     if se.target_handle is not None:
         metadata["target_handle"] = se.target_handle
     kind = "tool" if (se.kind == "tool" or se.source_handle == "tools") else "data"
+    mapping = (
+        se.mapping
+        if "mapping" in se.model_fields_set
+        else existing.mapping
+        if existing
+        else None
+    )
+    condition = (
+        se.condition
+        if "condition" in se.model_fields_set
+        else existing.condition
+        if existing
+        else None
+    )
+    enabled = (
+        se.enabled if "enabled" in se.model_fields_set else existing.enabled if existing else True
+    )
     return Edge(
         edge_id=se.id,
         source_node_id=se.source,
         target_node_id=se.target,
         kind=kind,
+        mapping=mapping,
+        condition=condition,
+        enabled=enabled,
         metadata=metadata,
     )
 
@@ -353,6 +441,9 @@ def _graph_to_detail(graph: Graph) -> WorkflowDetailResponse:
             source_handle=edge.metadata.get("source_handle"),
             target_handle=edge.metadata.get("target_handle"),
             kind=edge.kind,
+            mapping=edge.mapping,
+            condition=edge.condition,
+            enabled=edge.enabled,
         )
         for edge in graph.edges
     ]
@@ -372,6 +463,13 @@ def _graph_to_detail(graph: Graph) -> WorkflowDetailResponse:
         nodes=nodes,
         edges=edges,
         viewport=viewport,
+        execution_settings=StudioExecutionSettings(
+            max_total_steps=graph.execution_settings.max_total_steps,
+            max_total_runtime_seconds=graph.execution_settings.max_total_runtime_seconds,
+            max_visits_per_node=graph.execution_settings.max_visits_per_node,
+            max_visits_per_edge=graph.execution_settings.max_visits_per_edge,
+            default_timeout_seconds=graph.execution_settings.default_timeout_seconds,
+        ),
         updated_at=graph.updated_at.isoformat(),
     )
 
@@ -493,22 +591,33 @@ async def update_workflow(
     if body.entry_step is not None:
         updates["entry_step"] = body.entry_step or None
 
+    if body.execution_settings is not None:
+        updates["execution_settings"] = graph.execution_settings.model_copy(
+            update=body.execution_settings.model_dump()
+        )
+
     # Structural authoring: build real nodes/edges. nodes+edges are set together
     # so the Graph validator sees a consistent set (edges must reference nodes).
     if body.nodes is not None:
         graph_version_ref = f"{graph.graph_id}@{graph.version}"
         existing_nodes = {n.node_id: n for n in graph.nodes}
+        existing_edges = {edge.edge_id: edge for edge in graph.edges}
         updates["nodes"] = [
             _build_node(n, graph_version_ref, existing_nodes.get(n.id)) for n in body.nodes
         ]
-        updates["edges"] = [_build_edge(e) for e in (body.edges or [])]
+        updates["edges"] = canonicalize_if_route_edges(updates["nodes"], [
+            _build_edge(edge, existing_edges.get(edge.id)) for edge in (body.edges or [])
+        ])
         # The entrypoint node owns the entry step: when the canvas has one,
         # entry_step is derived, never hand-picked.
         entry_nodes = [n for n in updates["nodes"] if isinstance(n, EntrypointNode)]
         if entry_nodes:
             updates["entry_step"] = entry_nodes[0].node_id
     elif body.edges is not None:
-        updates["edges"] = [_build_edge(e) for e in body.edges]
+        existing_edges = {edge.edge_id: edge for edge in graph.edges}
+        updates["edges"] = canonicalize_if_route_edges(graph.nodes, [
+            _build_edge(edge, existing_edges.get(edge.id)) for edge in body.edges
+        ])
 
     # Visual metadata: positions + viewport live in graph.metadata["studio"].
     studio_meta = dict(graph.metadata.get("studio", {}))
@@ -585,6 +694,15 @@ async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetail
                 ],
             },
         )
+    preflight = await preflight_workflow(workflow_id, request)
+    if not preflight.ready:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "workflow failed mandatory preflight",
+                "issues": [issue.model_dump() for issue in preflight.issues],
+            },
+        )
     try:
         published = await repo.publish(
             workflow_id,
@@ -613,6 +731,450 @@ async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetail
     except GraphLifecycleError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _graph_to_detail(published)
+
+
+@router.post(
+    "/workflows/{workflow_id}/preflight",
+    response_model=WorkflowPreflightResponse,
+)
+async def preflight_workflow(
+    workflow_id: str,
+    request: Request,
+) -> WorkflowPreflightResponse:
+    """Prove structural and dependency readiness without executing any node.
+
+    This deliberately does not call models, tools, connectors, or child graphs.
+    Connectivity and live-provider verification remain separately labelled
+    evidence because a preflight must be safe to run against side-effecting
+    workflows.
+    """
+    principal = await require_permission(request, Permission.WORKFLOW_READ)
+    repo = _get_graph_repository(request)
+    graph = await repo.get(
+        workflow_id,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+    )
+    if graph is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    report = await GraphValidator().validate(graph)
+    issues = [
+        WorkflowPreflightIssue(
+            severity=issue.severity.value,
+            code=issue.code.value,
+            message=issue.message,
+            node_id=issue.node_id,
+            edge_id=issue.edge_id,
+        )
+        for issue in report.issues
+        if issue.severity.value in {"error", "warning"}
+    ]
+    if not any(isinstance(node, EntrypointNode) for node in graph.nodes):
+        issues.append(
+            WorkflowPreflightIssue(
+                severity="error",
+                code="missing_entrypoint_node",
+                message="Add an Entrypoint node before publishing from Studio.",
+            )
+        )
+
+    bootstrap = request.app.state.bootstrap
+    contract_registry = getattr(bootstrap, "contract_registry", None)
+    if contract_registry is not None:
+        scoped_contracts = contract_registry.for_scope(
+            contract_scope_context(principal.tenant_id, principal.workspace_id)
+        )
+        for node in graph.nodes:
+            for ref in {node.input_contract_ref, node.output_contract_ref} - {None}:
+                try:
+                    await scoped_contracts.get(ContractReference.parse(ref))
+                except Exception:  # registry implementations use KeyError or lookup-specific errors
+                    issues.append(
+                        WorkflowPreflightIssue(
+                            severity="error",
+                            code="unresolved_contract_ref",
+                            message=f"Contract {ref!r} is not registered in this workspace.",
+                            node_id=node.node_id,
+                        )
+                    )
+
+    memory_registry = getattr(bootstrap, "memory_registry", None)
+    connector_refs = set(memory_registry.list()) if memory_registry is not None else set()
+    runner = getattr(getattr(bootstrap, "orchestrator", None), "executable_unit_runner", None)
+    manifest_registry = getattr(runner, "registry", None)
+    manifest_refs = set(manifest_registry.list()) if manifest_registry is not None else set()
+    deployment_service = getattr(bootstrap, "deployment_service", None)
+    deployed_graph_refs: set[str] = set()
+    if deployment_service is not None:
+        deployments = await deployment_service.list(
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+        )
+        deployed_graph_refs = {deployment.deployment_ref for deployment in deployments}
+    for node in graph.nodes:
+        if isinstance(node, HttpRequestNode) and not node.http_request.url:
+            issues.append(
+                WorkflowPreflightIssue(
+                    severity="error",
+                    code="missing_http_request_url",
+                    message="Set a private HTTP URL before publishing this node.",
+                    node_id=node.node_id,
+                )
+            )
+        if isinstance(node, RetrievalNode) and node.retrieval.connector_ref not in connector_refs:
+            issues.append(
+                WorkflowPreflightIssue(
+                    severity="error",
+                    code="unresolved_connector_ref",
+                    message=f"Connector {node.retrieval.connector_ref!r} is not registered.",
+                    node_id=node.node_id,
+                )
+            )
+        if (
+            isinstance(node, ExecutableUnitNode)
+            and node.executable_unit.inline_source is None
+            and node.executable_unit.manifest_ref not in manifest_refs
+        ):
+            issues.append(
+                WorkflowPreflightIssue(
+                    severity="error",
+                    code="unresolved_manifest_ref",
+                    message=(
+                        f"Executable unit {node.executable_unit.manifest_ref!r} "
+                        "is not registered."
+                    ),
+                    node_id=node.node_id,
+                )
+            )
+        if isinstance(node, SubgraphNode) and node.subgraph.graph_ref not in deployed_graph_refs:
+            issues.append(
+                WorkflowPreflightIssue(
+                    severity="error",
+                    code="unresolved_subgraph_ref",
+                    message=f"Published subgraph {node.subgraph.graph_ref!r} is not available.",
+                    node_id=node.node_id,
+                )
+            )
+
+    return WorkflowPreflightResponse(
+        workflow_id=graph.graph_id,
+        version=graph.version,
+        ready=not any(issue.severity == "error" for issue in issues),
+        checks=["static_validation", "contracts", "connectors", "manifests", "subgraphs"],
+        issues=issues,
+    )
+
+
+@router.post(
+    "/workflows/{workflow_id}/verify-provider",
+    response_model=LiveProviderVerificationResponse,
+)
+async def verify_workflow_providers(
+    workflow_id: str,
+    body: LiveProviderVerificationRequest,
+    request: Request,
+) -> LiveProviderVerificationResponse:
+    """Run a bounded, explicitly consented probe against each distinct agent model."""
+    principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
+    if not body.acknowledge_external_call:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Live verification calls external providers and may incur cost; "
+                "explicit acknowledgement is required."
+            ),
+        )
+    preflight = await preflight_workflow(workflow_id, request)
+    if not preflight.ready:
+        raise HTTPException(status_code=409, detail="Workflow must pass preflight first.")
+    repo = _get_graph_repository(request)
+    graph = await repo.get(
+        workflow_id,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+    )
+    if graph is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    models = list(
+        dict.fromkeys(
+            node.agent.model_provider for node in graph.nodes if isinstance(node, AgentNode)
+        )
+    )
+    if not models:
+        raise HTTPException(status_code=422, detail="Workflow has no agent providers to verify.")
+    if len(models) > body.max_models:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Workflow references {len(models)} models; verification is capped "
+                f"at {body.max_models}."
+            ),
+        )
+
+    bootstrap = request.app.state.bootstrap
+    strict_campaign_id = getattr(bootstrap, "evaluation_campaign_id", None)
+    if strict_campaign_id is not None and (
+        body.campaign_id != strict_campaign_id
+        or body.operation_id is None
+        or body.max_cost_usd is None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="strict evaluation requires the configured campaign identity",
+        )
+    adapter = getattr(bootstrap, "provider_verification_adapter", None)
+    if adapter is None:
+        adapter = LiteLLMProviderAdapter(
+            secret_provider=getattr(bootstrap, "secret_provider", None),
+            tenant_id=principal.tenant_id,
+            allow_env_fallback=True,
+        )
+    probes: list[LiveProviderProbe] = []
+    for model in models:
+        probe_operation_id = (
+            body.operation_id
+            if body.operation_id is not None and len(models) == 1
+            else f"{body.operation_id}:{model}"
+            if body.operation_id is not None
+            else None
+        )
+        instrumentation = None
+        if any(
+            value is not None
+            for value in (
+                body.campaign_id,
+                body.operation_id,
+                body.run_id,
+                body.max_cost_usd,
+                body.run_cap_usd,
+            )
+        ):
+            if body.operation_id is None or body.max_cost_usd is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="operation_id and max_cost_usd must be supplied together",
+                )
+            instrumentation = getattr(bootstrap, "probe_instrumentation", None)
+            if instrumentation is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="cost reservation control plane unavailable; failing closed",
+                )
+            estimator = getattr(bootstrap, "cost_estimator", None)
+            if estimator is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="provider probe maximum cannot be priced; failing closed",
+                )
+            server_max_cost = estimator.estimate(
+                model, input_tokens=256, output_tokens=4
+            )
+            if server_max_cost is None or server_max_cost <= 0:
+                raise HTTPException(
+                    status_code=503,
+                    detail="provider probe maximum is unknown; failing closed",
+                )
+            if server_max_cost > body.max_cost_usd:
+                raise HTTPException(
+                    status_code=422,
+                    detail="server-calculated provider maximum exceeds acknowledged ceiling",
+                )
+            server_run_cap = getattr(
+                getattr(bootstrap, "orchestrator", None), "per_run_cap_usd", None
+            )
+            if server_run_cap is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="server-owned per-run ceiling is not configured; failing closed",
+                )
+            if body.run_cap_usd is not None and body.run_cap_usd != server_run_cap:
+                raise HTTPException(
+                    status_code=422,
+                    detail="requested run ceiling does not match the server-owned ceiling",
+                )
+            try:
+                await instrumentation.reserve_probe(
+                    tenant_id=principal.tenant_id,
+                    campaign_id=body.campaign_id,
+                    operation_id=probe_operation_id,
+                    run_id=body.run_id,
+                    max_cost_usd=str(server_max_cost),
+                    run_cap_usd=str(server_run_cap),
+                    capability_id="studio.provider_verification",
+                    implementation_id=model,
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="cost reservation refused or unavailable; failing closed",
+                ) from exc
+        started = time.monotonic()
+        try:
+            response = await run_provider_with_timeout(
+                adapter,
+                ProviderRequest(
+                    model_name=model,
+                    messages=[{"role": "user", "content": "Reply with OK."}],
+                    model_params=ModelParams(temperature=0, max_tokens=4),
+                    metadata={"purpose": "zeroth_studio_live_verification"},
+                ),
+                timeout_seconds=body.timeout_seconds,
+            )
+            usage = response.token_usage
+            evidence = None
+            if instrumentation is not None:
+                actual_cost = response.cost_usd
+                measurement = response.cost_measurement
+                if actual_cost is None and usage is not None:
+                    estimator = getattr(bootstrap, "cost_estimator", None)
+                    if estimator is not None:
+                        actual_cost = estimator.estimate(
+                            model,
+                            input_tokens=usage.input_tokens,
+                            output_tokens=usage.output_tokens,
+                        )
+                        measurement = "estimated"
+                provider_request_id = next(
+                    (
+                        str(response.metadata[key])
+                        for key in ("provider_request_id", "request_id", "id")
+                        if response.metadata.get(key)
+                    ),
+                    None,
+                )
+                if actual_cost is None:
+                    evidence = await instrumentation.mark_probe_ambiguous(
+                        tenant_id=principal.tenant_id,
+                        campaign_id=body.campaign_id,
+                        operation_id=probe_operation_id,
+                        run_id=body.run_id,
+                        capability_id="studio.provider_verification",
+                        implementation_id=model,
+                        latency_ms=int((time.monotonic() - started) * 1000),
+                        cleanup_status="pending_reconciliation",
+                        provider_request_id=provider_request_id,
+                    )
+                    probes.append(
+                        LiveProviderProbe(
+                            model=model,
+                            ok=False,
+                            latency_ms=int((time.monotonic() - started) * 1000),
+                            input_tokens=usage.input_tokens if usage else None,
+                            output_tokens=usage.output_tokens if usage else None,
+                            error_code="incomplete_measurement",
+                            operation_id=probe_operation_id,
+                            cost_event_id=evidence.cost_event_id,
+                            audit_event_id=f"audit_{evidence.cost_event_id}",
+                            cost_measurement=evidence.cost_measurement,
+                            provider_request_id=evidence.provider_request_id,
+                            cleanup_status=evidence.cleanup_status,
+                        )
+                    )
+                    continue
+                evidence = await instrumentation.commit_probe(
+                    tenant_id=principal.tenant_id,
+                    campaign_id=body.campaign_id,
+                    operation_id=probe_operation_id,
+                    run_id=body.run_id,
+                    capability_id="studio.provider_verification",
+                    implementation_id=model,
+                    actual_cost_usd=str(actual_cost),
+                    cost_measurement=getattr(measurement, "value", measurement),
+                    provider_request_id=provider_request_id,
+                    cleanup_status="complete",
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    input_tokens=usage.input_tokens if usage else None,
+                    output_tokens=usage.output_tokens if usage else None,
+                )
+            probes.append(
+                LiveProviderProbe(
+                    model=model,
+                    ok=response.content is not None,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    input_tokens=usage.input_tokens if usage else None,
+                    output_tokens=usage.output_tokens if usage else None,
+                    error_code=None if response.content is not None else "empty_response",
+                    operation_id=probe_operation_id,
+                    cost_event_id=getattr(evidence, "cost_event_id", None),
+                    audit_event_id=(
+                        f"audit_{evidence.cost_event_id}" if evidence is not None else None
+                    ),
+                    cost_measurement=getattr(evidence, "cost_measurement", None),
+                    estimated_cost_usd=(
+                        actual_cost
+                        if getattr(measurement, "value", measurement) == "estimated"
+                        else None
+                    ),
+                    provider_request_id=getattr(evidence, "provider_request_id", None),
+                    cleanup_status=getattr(evidence, "cleanup_status", None),
+                )
+            )
+        except TimeoutError:
+            evidence = None
+            if instrumentation is not None:
+                evidence = await instrumentation.mark_probe_ambiguous(
+                    tenant_id=principal.tenant_id,
+                    campaign_id=body.campaign_id,
+                    operation_id=probe_operation_id,
+                    run_id=body.run_id,
+                    capability_id="studio.provider_verification",
+                    implementation_id=model,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    cleanup_status="pending_reconciliation",
+                )
+            probes.append(
+                LiveProviderProbe(
+                    model=model,
+                    ok=False,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    error_code="timeout",
+                    operation_id=probe_operation_id,
+                    cost_event_id=getattr(evidence, "cost_event_id", None),
+                    audit_event_id=(
+                        f"audit_{evidence.cost_event_id}" if evidence is not None else None
+                    ),
+                    cost_measurement=getattr(evidence, "cost_measurement", None),
+                    provider_request_id=getattr(evidence, "provider_request_id", None),
+                    cleanup_status=getattr(evidence, "cleanup_status", None),
+                )
+            )
+        except Exception:  # Never return provider or credential exception text to the browser.
+            evidence = None
+            if instrumentation is not None:
+                evidence = await instrumentation.mark_probe_ambiguous(
+                    tenant_id=principal.tenant_id,
+                    campaign_id=body.campaign_id,
+                    operation_id=probe_operation_id,
+                    run_id=body.run_id,
+                    capability_id="studio.provider_verification",
+                    implementation_id=model,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    cleanup_status="pending_reconciliation",
+                )
+            probes.append(
+                LiveProviderProbe(
+                    model=model,
+                    ok=False,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    error_code="provider_error",
+                    operation_id=probe_operation_id,
+                    cost_event_id=getattr(evidence, "cost_event_id", None),
+                    audit_event_id=(
+                        f"audit_{evidence.cost_event_id}" if evidence is not None else None
+                    ),
+                    cost_measurement=getattr(evidence, "cost_measurement", None),
+                    provider_request_id=getattr(evidence, "provider_request_id", None),
+                    cleanup_status=getattr(evidence, "cleanup_status", None),
+                )
+            )
+    return LiveProviderVerificationResponse(
+        workflow_id=graph.graph_id,
+        verified=all(probe.ok for probe in probes),
+        probes=probes,
+        campaign_id=body.campaign_id,
+        operation_id=body.operation_id,
+    )
 
 
 @router.get("/contracts", response_model=list[StudioContractResponse])

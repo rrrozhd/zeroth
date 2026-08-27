@@ -8,6 +8,17 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "export",
   basePath: "/console",
+  // The persistent dev service is intentionally published on loopback. Allow
+  // that browser origin so Next can serve its dev/HMR resources and hydrate
+  // client components instead of leaving a static, non-interactive shell.
+  allowedDevOrigins: ["127.0.0.1"],
+  // The validation campaign traverses every published console route. Keep that
+  // surface resident in the long-lived dev compiler so early routes are not
+  // evicted and recompiled while later routes are still being exercised.
+  onDemandEntries: {
+    maxInactiveAge: 60 * 60 * 1000,
+    pagesBufferLength: 64,
+  },
   trailingSlash: true,
   images: { unoptimized: true },
 };

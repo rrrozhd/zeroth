@@ -10,7 +10,9 @@ Per D-10, D-12, D-14 from Phase 14 planning.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -19,12 +21,48 @@ import chromadb
 import litellm
 
 from zeroth.contracts.governed.models.common import JSONValue
+from zeroth.integrations.memory.embedding_calls import (
+    invoke_embedding_call,
+    resolve_embedding_provider_kwargs,
+)
 from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
 # ChromaDB collection names must be 3-512 chars from [a-zA-Z0-9._-] and must
 # start and end with an alphanumeric character. Collapse any run of other
 # characters to a single underscore so arbitrary scope targets stay valid.
 _COLLECTION_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]+")
+_LOCAL_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
+
+# Explicitly opt-in, provider-free embedding model for deterministic local
+# fixtures and air-gapped development. This is a lexical hashing model, not a
+# substitute for a semantic production embedding model.
+LOCAL_HASH_EMBEDDING_MODEL = "zeroth/local-hash-bow-v1"
+_LOCAL_HASH_DIMENSIONS = 256
+
+
+def local_hash_embedding(text: str) -> list[float]:
+    """Return a deterministic, normalized lexical vector without external I/O.
+
+    SHA-256 fixes the mapping across processes and Python versions (unlike
+    ``hash()``). Signed feature hashing keeps the vector bounded while token
+    counts preserve simple lexical similarity. No input text or digest is
+    persisted by this function.
+    """
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("local hash embedding requires non-empty text")
+    tokens = _LOCAL_TOKEN_RE.findall(text.casefold())
+    if not tokens:
+        raise ValueError("local hash embedding requires at least one word token")
+    vector = [0.0] * _LOCAL_HASH_DIMENSIONS
+    for token in tokens:
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:4], "big") % _LOCAL_HASH_DIMENSIONS
+        sign = 1.0 if digest[4] & 1 else -1.0
+        vector[index] += sign
+    norm = math.sqrt(sum(component * component for component in vector))
+    if norm == 0:
+        raise ValueError("local hash embedding produced a zero vector")
+    return [component / norm for component in vector]
 
 
 class MemoryBackendResponseError(RuntimeError):
@@ -196,6 +234,21 @@ class ChromaDBMemoryConnector:
         self._client = client
         self._collection_prefix = collection_prefix
         self._embedding_model = embedding_model
+        self._embedding_secret_provider = None
+        self._embedding_tenant_id: str | None = None
+        self._embedding_allow_env_fallback = True
+
+    def configure_embedding_secrets(
+        self,
+        *,
+        secret_provider: Any | None,
+        tenant_id: str | None,
+        allow_env_fallback: bool,
+    ) -> None:
+        """Bind tenant-scoped credential resolution without changing the pinned constructor."""
+        self._embedding_secret_provider = secret_provider
+        self._embedding_tenant_id = tenant_id
+        self._embedding_allow_env_fallback = allow_env_fallback
 
     def _collection_name(self, scope: MemoryScope, target: str | None) -> str:
         """Build a valid ChromaDB collection name from scope and target.
@@ -226,9 +279,22 @@ class ChromaDBMemoryConnector:
 
     async def _embed(self, text: str) -> list[float]:
         """Generate embedding vector via litellm."""
-        response = await litellm.aembedding(
+        if self._embedding_model == LOCAL_HASH_EMBEDDING_MODEL:
+            return local_hash_embedding(text)
+        provider_kwargs = await resolve_embedding_provider_kwargs(
             model=self._embedding_model,
-            input=[text],
+            secret_provider=self._embedding_secret_provider,
+            tenant_id=self._embedding_tenant_id,
+            allow_env_fallback=self._embedding_allow_env_fallback,
+        )
+        response = await invoke_embedding_call(
+            model=self._embedding_model,
+            inputs=[text],
+            provider_call=lambda: litellm.aembedding(
+                model=self._embedding_model,
+                input=[text],
+                **provider_kwargs,
+            ),
         )
         return _embedding_vector(response)
 

@@ -15,6 +15,9 @@ from tests.service.helpers import (
     wait_for,
 )
 from zeroth.contracts.graph import GraphRepository
+from zeroth.contracts.conditions import RunConditionResult
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.runs import Run, RunFailureState, RunStatus, Thread
 from zeroth.service.api.run_api import RunInvocationRequest, RunStatusResponse, _validate_thread_id
 from zeroth.service.bootstrap import bootstrap_app
@@ -79,6 +82,46 @@ async def test_run_creation_without_thread_id_returns_new_thread_linkage(sqlite_
         release.set()
 
 
+async def test_run_creation_persists_additive_strict_campaign_identity(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-campaign"))
+    started = threading.Event()
+    release = threading.Event()
+    service.orchestrator.agent_runners["agent-step"] = BlockingAgentRunner(
+        started=started,
+        release=release,
+        output_data={"value": 10},
+    )
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app.state.bootstrap = service
+    service.evaluation_campaign_id = "campaign-a"
+
+    with TestClient(app) as client:
+        missing = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
+        assert missing.status_code == 422
+        response = client.post(
+            "/runs",
+            json={
+                "input_payload": {"value": 3},
+                "campaign_id": "campaign-a",
+                "campaign_strict": True,
+            },
+            headers=operator_headers(),
+        )
+        assert response.status_code == 202
+        assert response.json()["campaign_id"] == "campaign-a"
+        persisted = await service.run_repository.get(response.json()["run_id"])
+        assert persisted is not None
+        assert persisted.metadata["campaign_id"] == "campaign-a"
+        assert persisted.metadata["campaign_strict"] is True
+
+        wait_for(started.is_set)
+        release.set()
+
+
 async def test_run_creation_rejects_invalid_input(sqlite_db) -> None:
     service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-invalid"))
     app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
@@ -102,6 +145,45 @@ async def test_run_creation_validates_against_deployed_input_contract_version(sq
         name="contract://input",
         version=2,
     )
+    started = threading.Event()
+    release = threading.Event()
+    service.orchestrator.agent_runners["agent-step"] = BlockingAgentRunner(
+        started=started,
+        release=release,
+        output_data={"value": 10},
+    )
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/runs",
+            json={"input_payload": {"value": 3}},
+            headers=operator_headers(),
+        )
+
+        assert response.status_code == 202
+        wait_for(started.is_set)
+        release.set()
+
+
+async def test_run_creation_resolves_explicitly_versioned_deployment_contract_ref(
+    sqlite_db,
+) -> None:
+    graph = agent_graph(graph_id="graph-run-versioned-contract")
+    graph = graph.model_copy(
+        update={
+            "nodes": [
+                graph.nodes[0].model_copy(
+                    update={
+                        "input_contract_ref": "contract://input@1",
+                        "output_contract_ref": "contract://output@1",
+                    }
+                )
+            ]
+        }
+    )
+    service, _ = await deploy_service(sqlite_db, graph)
     started = threading.Event()
     release = threading.Event()
     service.orchestrator.agent_runners["agent-step"] = BlockingAgentRunner(
@@ -229,6 +311,78 @@ async def test_run_status_reports_running_and_completed_state(sqlite_db) -> None
     assert completed_payload["workspace_id"] is None
 
 
+async def test_run_status_and_child_listing_expose_scoped_lineage_without_payloads(
+    sqlite_db,
+) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-lineage"))
+    parent = await service.run_repository.create(
+        Run(
+            run_id="parent-run",
+            graph_version_ref=service.deployment.graph_version_ref,
+            deployment_ref=service.deployment.deployment_ref,
+            tenant_id="default",
+        )
+    )
+    child = await service.run_repository.create(
+        Run(
+            run_id="child-run",
+            graph_version_ref="child-graph@1",
+            deployment_ref="child-deployment",
+            tenant_id="default",
+            parent_run_id=parent.run_id,
+            final_output={"private": "must-not-be-listed"},
+            metadata={"campaign_id": "campaign-live-1", "campaign_strict": True},
+        )
+    )
+    foreign_repository = RunRepository(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="foreign-tenant")
+    )
+    await foreign_repository.create(
+        Run(
+            run_id="foreign-parent",
+            graph_version_ref="foreign-parent@1",
+            deployment_ref="foreign-parent-deployment",
+            tenant_id="foreign-tenant",
+        )
+    )
+    await foreign_repository.create(
+        Run(
+            run_id="foreign-child",
+            graph_version_ref="foreign-child@1",
+            deployment_ref="foreign-child-deployment",
+            tenant_id="foreign-tenant",
+            parent_run_id=parent.run_id,
+            final_output={"private": "foreign"},
+        )
+    )
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        child_status = client.get(f"/runs/{child.run_id}", headers=operator_headers())
+        children = client.get(f"/runs/{parent.run_id}/children", headers=operator_headers())
+        foreign_children = client.get("/runs/foreign-parent/children", headers=operator_headers())
+
+    assert child_status.status_code == 200
+    assert child_status.json()["parent_run_id"] == parent.run_id
+    assert children.status_code == 200
+    assert children.json() == [
+        {
+            "run_id": child.run_id,
+            "status": "queued",
+            "deployment_ref": "child-deployment",
+            "graph_version_ref": "child-graph@1",
+            "thread_id": child.thread_id,
+            "parent_run_id": parent.run_id,
+            "campaign_id": "campaign-live-1",
+        }
+    ]
+    assert "terminal_output" not in children.text
+    assert "foreign-child" not in children.text
+    assert foreign_children.status_code == 404
+    assert foreign_children.json() == {"detail": "run not found"}
+
+
 async def test_run_status_returns_404_for_unknown_run(sqlite_db) -> None:
     service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-missing"))
     app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
@@ -241,7 +395,7 @@ async def test_run_status_returns_404_for_unknown_run(sqlite_db) -> None:
     assert response.json() == {"detail": "run not found"}
 
 
-async def test_run_status_does_not_expose_runs_from_other_deployments(sqlite_db) -> None:
+async def test_run_status_exposes_same_tenant_runs_from_other_deployments(sqlite_db) -> None:
     first_service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-scope-a"))
     second_service, _ = await deploy_service(
         sqlite_db,
@@ -264,11 +418,11 @@ async def test_run_status_does_not_expose_runs_from_other_deployments(sqlite_db)
     with TestClient(app) as client:
         response = client.get(f"/runs/{foreign_run.run_id}", headers=operator_headers())
 
-    assert response.status_code == 404
-    assert response.json() == {"detail": "run not found"}
+    assert response.status_code == 200
+    assert response.json()["deployment_ref"] == second_service.deployment.deployment_ref
 
 
-async def test_run_status_does_not_expose_runs_from_other_deployment_versions(sqlite_db) -> None:
+async def test_run_status_exposes_historical_runs_from_other_deployment_versions(sqlite_db) -> None:
     service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-scope-version"))
     original_run = await service.run_repository.create(
         Run(
@@ -295,6 +449,33 @@ async def test_run_status_does_not_expose_runs_from_other_deployment_versions(sq
 
     with TestClient(app) as client:
         response = client.get(f"/runs/{original_run.run_id}", headers=operator_headers())
+
+    assert response.status_code == 200
+    assert response.json()["graph_version_ref"] == original_run.graph_version_ref
+
+
+async def test_run_status_does_not_expose_runs_from_other_tenants(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-tenant-scope"))
+    foreign_repository = RunRepository(
+        sqlite_db,
+        NullWorkspaceScopeContext(tenant_id="tenant-b"),
+    )
+    foreign_run = await foreign_repository.create(
+        Run(
+            graph_version_ref="foreign@1",
+            deployment_ref="foreign-deployment",
+            tenant_id="tenant-b",
+        )
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        response = client.get(f"/runs/{foreign_run.run_id}", headers=operator_headers())
 
     assert response.status_code == 404
     assert response.json() == {"detail": "run not found"}
@@ -416,6 +597,53 @@ async def test_run_status_reports_policy_and_loop_guard_termination(sqlite_db) -
 
     assert policy_payload["status"] == "terminated_by_policy"
     assert loop_guard_payload["status"] == "terminated_by_loop_guard"
+
+
+async def test_run_status_exposes_sanitized_loop_traversal_evidence(sqlite_db) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-run-loop-evidence"))
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app.state.bootstrap = service
+    run = await service.run_repository.create(
+        Run(
+            graph_version_ref=service.deployment.graph_version_ref,
+            deployment_ref=service.deployment.deployment_ref,
+            node_visit_counts={"research": 2, "review": 1},
+            condition_results=[
+                RunConditionResult(
+                    condition_id="continue-loop",
+                    selected_edge_id="review-to-research",
+                    matched=True,
+                    details={
+                        "evaluated_value": "must-not-leak",
+                        "suppression_reason": "visit_limit",
+                    },
+                )
+            ],
+            metadata={
+                "edge_visit_counts": {"review-to-research": 1},
+                "terminal_reason": "branch_suppressed",
+            },
+        ).model_copy(update={"status": RunStatus.COMPLETED})
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/runs/{run.run_id}", headers=operator_headers())
+
+    assert response.status_code == 200
+    assert response.json()["traversal"] == {
+        "node_visit_counts": {"research": 2, "review": 1},
+        "edge_visit_counts": {"review-to-research": 1},
+        "routing_decisions": [
+            {
+                "condition_id": "continue-loop",
+                "selected_edge_id": "review-to-research",
+                "matched": True,
+                "suppression_reason": "visit_limit",
+            }
+        ],
+        "stop_reason": "branch_suppressed",
+    }
+    assert "must-not-leak" not in response.text
 
 
 def test_run_api_models_validate_expected_shapes() -> None:

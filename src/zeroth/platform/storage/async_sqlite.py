@@ -185,8 +185,11 @@ class AsyncSQLiteConnection:
 class AsyncSQLiteDatabase:
     """AsyncDatabase implementation backed by aiosqlite.
 
-    Each call to transaction() opens a fresh connection with recommended
-    PRAGMAs (foreign keys, WAL mode, synchronous NORMAL).
+    Each call to transaction() opens a fresh connection with connection-local
+    PRAGMAs. WAL mode is initialized once per database instance because it is a
+    persistent, database-wide setting; repeating that pragma on every fresh
+    connection creates an avoidable exclusive-lock race during cold parallel
+    execution.
     """
 
     backend = "sqlite"
@@ -202,6 +205,8 @@ class AsyncSQLiteDatabase:
         self.coordination_timeout_seconds = validate_coordination_timeout(
             coordination_timeout_seconds
         )
+        self._wal_initialization_lock = asyncio.Lock()
+        self._wal_ready = False
         self.encrypted_field = (
             EncryptedField(encryption_key) if encryption_key is not None else None
         )
@@ -230,6 +235,16 @@ class AsyncSQLiteDatabase:
                     raise
                 await asyncio.sleep(0.005)
 
+    async def _ensure_wal_mode(self, conn: aiosqlite.Connection) -> None:
+        """Initialize persistent WAL mode once and serialize cold callers."""
+        if self._wal_ready:
+            return
+        async with self._wal_initialization_lock:
+            if self._wal_ready:
+                return
+            await self._enter_wal_mode(conn)
+            self._wal_ready = True
+
     @asynccontextmanager
     async def transaction(
         self, *, write_lock: bool = False
@@ -242,7 +257,7 @@ class AsyncSQLiteDatabase:
         conn.row_factory = aiosqlite.Row
         try:
             await conn.execute("PRAGMA foreign_keys = ON")
-            await self._enter_wal_mode(conn)
+            await self._ensure_wal_mode(conn)
             await conn.execute("PRAGMA synchronous = NORMAL")
             timeout_ms = max(1, round(self.coordination_timeout_seconds * 1000))
             await conn.execute(f"PRAGMA busy_timeout = {timeout_ms}")

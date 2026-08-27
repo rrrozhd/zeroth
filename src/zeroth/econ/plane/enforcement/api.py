@@ -12,6 +12,8 @@ from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.enforcement.models import EnforcementAction
 from zeroth.econ.plane.enforcement.schemas import (
     BudgetStatusOut,
+    CostReservationOut,
+    CostReservationReconcile,
     DecisionRequest,
     EnforcementActionCreate,
     EnforcementActionOut,
@@ -26,6 +28,7 @@ from zeroth.econ.plane.enforcement.service import (
     get_budget_status,
     list_actions,
     list_policy_actions,
+    reconcile_cost,
     upsert_tenant_budget,
 )
 from zeroth.econ.plane.scoped_session import ScopedSession
@@ -113,11 +116,14 @@ def reject(
 @router.get("/budget/status", response_model=BudgetStatusOut)
 def budget_status(
     tenant_id: str,
+    deployment_ref: str | None = None,
     db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),  # noqa: B008
 ) -> BudgetStatusOut:
     claimed_tenant = require_claimed_tenant(_user, tenant_id)
-    return BudgetStatusOut(**get_budget_status(db, claimed_tenant))
+    return BudgetStatusOut(
+        **get_budget_status(db, claimed_tenant, deployment_ref=deployment_ref)
+    )
 
 
 @router.put("/budget/tenants/{tenant_id}", response_model=BudgetStatusOut)
@@ -130,3 +136,28 @@ def set_tenant_budget(
     claimed_tenant = require_claimed_tenant(_user, tenant_id)
     upsert_tenant_budget(db, claimed_tenant, payload.budget_cap_usd)
     return BudgetStatusOut(**get_budget_status(db, claimed_tenant))
+
+
+@router.post(
+    "/budget/reservations/{operation_id}/reconcile",
+    response_model=CostReservationOut,
+)
+def reconcile_reservation(
+    operation_id: str,
+    payload: CostReservationReconcile,
+    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_roles("Admin")),  # noqa: B008
+) -> CostReservationOut:
+    """Resolve a retained ambiguous maximum using provider-authoritative cost."""
+    try:
+        row = reconcile_cost(
+            db,
+            operation_id=operation_id,
+            actual_cost_usd=payload.actual_cost_usd,
+            cost_measurement=payload.cost_measurement,
+            provider_request_id=payload.provider_request_id,
+            cleanup_status=payload.cleanup_status,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return CostReservationOut.model_validate(row)

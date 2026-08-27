@@ -15,7 +15,7 @@
 // NOTE ON DERIVED FIELDS: RunStatusResponse carries no run-level cost or
 // timestamps, so the detail's cost/started are summed / min'd from the run's
 // NodeAuditRecord timeline entries (cost_usd, started_at) — the only real
-// sources. The list rows show only graph@version for the same reason.
+// sources. Deployment and graph identities come directly from each run.
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -34,34 +34,45 @@ import {
 import { useToast } from "@/app/components/Toast";
 import { useAuditVerification } from "@/app/components/auditVerificationContext";
 import { RUN_TONE, runStatusLabel } from "@/app/components/runTone";
+import { buildRunCurl } from "@/app/components/ui";
 import { useLoad, type Loadable } from "@/app/hooks/useLoad";
 import { usePolling } from "@/app/hooks/usePolling";
 import {
+  ApiError,
   cancelRun,
   errMsg,
+  getChildRuns,
   getRun,
   getRunEvidence,
   getRunTimeline,
+  getHealth,
+  getInputContract,
   interruptRun,
   listRuns,
   replayRun,
+  resolveAmbiguousOperation,
   verifyRunChain,
   type AdminRunList,
   type AuditTimeline,
   type AuditVerification,
+  type ChildRunSummary,
   type NodeAuditRecord,
   type RunEvidence,
   type RunStatus,
+  type OperationResolutionRequest,
 } from "@/app/lib/api";
-import { getApiBase, isConfigured } from "@/app/lib/config";
+import { isConfigured } from "@/app/lib/config";
+import { examplePayloadFromSchema } from "@/app/lib/runPayload";
+import { TraversalEvidence } from "./TraversalEvidence";
 
 // Statuses that keep the detail (getRun + getRunTimeline) and the list polling
 // live — the run is still in flight and its nodes can still advance.
 const LIVE = new Set<string>(["running", "queued", "paused_for_approval"]);
 
-// Cancel is offered only while the run is running or holding at an approval;
-// Interrupt only while actively running (per handoff §3).
-const CANCELLABLE = new Set<string>(["running", "paused_for_approval"]);
+// Cancel is offered while running, holding at approval, or paused by an
+// interrupt so an operator can cleanly terminate that checkpoint. Interrupt is
+// offered only while actively running.
+const CANCELLABLE = new Set<string>(["running", "paused_for_approval", "waiting_interrupt"]);
 
 // The "failed" filter groups every terminal-bad state (all map to danger tone).
 const DANGER_STATES = new Set<string>(
@@ -98,6 +109,7 @@ const NODE_TONE: Record<string, string> = {
 };
 const NODE_RUNNING = new Set<string>(["running", "in_progress"]);
 const NODE_QUEUED = new Set<string>(["queued", "pending"]);
+const REDACTED_ERROR = "***REDACTED***";
 
 function toneColor(tone: string): string {
   return TONE[tone] ?? tone;
@@ -113,8 +125,64 @@ function nodeTypeOf(rec: NodeAuditRecord): string | null {
   return typeof t === "string" ? t : null;
 }
 
+function timelineNote(rec: NodeAuditRecord): string {
+  if (rec.error && rec.error !== REDACTED_ERROR) return rec.error;
+  if (rec.error === REDACTED_ERROR) {
+    const meta = rec.execution_metadata as Record<string, unknown> | undefined;
+    const reason = meta?.reason_code;
+    const readableReason = typeof reason === "string"
+      ? reason.replaceAll(/[_-]+/g, " ").trim()
+      : "";
+    return readableReason ? `${rec.status} · ${readableReason}` : rec.status;
+  }
+  return rec.attempt > 1 ? `retry #${rec.attempt}` : "";
+}
+
+type ContextCompactionEvidence = {
+  nodeId: string;
+  strategy: string;
+  tokensBefore: number;
+  tokensAfter: number;
+  messagesBefore: number;
+  messagesAfter: number;
+  threadStateSaved: boolean;
+};
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function contextCompactionOf(rec: NodeAuditRecord): ContextCompactionEvidence | null {
+  const meta = rec.execution_metadata as Record<string, unknown> | undefined;
+  if (!meta || meta.context_compaction_applied !== true) return null;
+  const strategy = meta.context_compaction_strategy;
+  const tokensBefore = finiteNumber(meta.context_tokens_before);
+  const tokensAfter = finiteNumber(meta.context_tokens_after);
+  const messagesBefore = finiteNumber(meta.context_messages_before);
+  const messagesAfter = finiteNumber(meta.context_messages_after);
+  if (
+    typeof strategy !== "string"
+    || tokensBefore === null
+    || tokensAfter === null
+    || messagesBefore === null
+    || messagesAfter === null
+  ) return null;
+  return {
+    nodeId: rec.node_id,
+    strategy,
+    tokensBefore,
+    tokensAfter,
+    messagesBefore,
+    messagesAfter,
+    threadStateSaved: meta.compacted_thread_state_saved === true,
+  };
+}
+
 function fmtCost(n: number): string {
-  return `$${n.toFixed(4)}`;
+  const magnitude = Math.abs(n);
+  if (magnitude === 0) return "$0";
+  const decimals = magnitude < 0.000001 ? 8 : magnitude < 0.01 ? 6 : magnitude < 1 ? 4 : 2;
+  return `$${n.toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "")}`;
 }
 
 function fmtTimeOfDay(iso: string): string {
@@ -171,6 +239,7 @@ function RunsView() {
 
   return (
     <div style={{ display: "flex", height: "100%", minHeight: 0 }}>
+      <h1 className="sr-only">Runs</h1>
       <RunListPane
         runs={runs}
         connected={connected}
@@ -180,7 +249,13 @@ function RunsView() {
         selected={selected}
         onSelect={select}
       />
-      <div style={{ flex: 1, minWidth: 0, overflowY: "auto" }}>
+      <div
+        role="region"
+        aria-label="Run details"
+        data-evidence-id="runs.region.details"
+        tabIndex={0}
+        style={{ flex: 1, minWidth: 0, overflowY: "auto" }}
+      >
         {selected ? (
           <RunDetail
             key={selected}
@@ -223,6 +298,7 @@ function RunListPane({
 
   return (
     <aside
+      aria-label="Run list"
       style={{
         width: 330,
         flexShrink: 0,
@@ -233,41 +309,43 @@ function RunListPane({
         background: "var(--bg-chrome)",
       }}
     >
-      {/* Filter chips */}
+      {/* The filter belongs to the list heading, not to a detached chip cloud. */}
       <div
         style={{
           display: "flex",
-          flexWrap: "wrap",
-          gap: 6,
-          padding: "14px 14px 10px",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          padding: "12px 14px",
           borderBottom: "1px solid var(--hair)",
         }}
       >
-        {FILTERS.map((f) => {
-          const on = f.id === filter;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => onFilter(f.id)}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-                letterSpacing: "0.02em",
-                padding: "3px 9px",
-                borderRadius: 5,
-                cursor: "pointer",
-                textTransform: "lowercase",
-                color: on ? "var(--accent)" : "var(--text-muted)",
-                background: on ? "rgba(94,234,212,0.10)" : "transparent",
-                border: `1px solid ${on ? "rgba(94,234,212,0.30)" : "var(--hair)"}`,
-                transition: "color 120ms ease, background 120ms ease",
-              }}
-            >
-              {f.label}
-            </button>
-          );
-        })}
+        <label htmlFor="run-status-filter" style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)" }}>
+          Runs
+        </label>
+        <select
+          id="run-status-filter"
+          data-evidence-id="runs.filter.status"
+          value={filter}
+          onChange={(event) => onFilter(event.target.value as FilterId)}
+          aria-label="Filter runs by status"
+          style={{
+            minWidth: 118,
+            fontFamily: "var(--font-sans)",
+            fontSize: 11.5,
+            color: "var(--text-secondary)",
+            background: "var(--bg-card)",
+            border: "1px solid var(--hair-strong)",
+            borderRadius: 8,
+            padding: "5px 28px 5px 9px",
+          }}
+        >
+          {FILTERS.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Rows */}
@@ -318,6 +396,7 @@ function RunRow({
   return (
     <button
       type="button"
+      data-evidence-id={`runs.run.${run.run_id}`}
       onClick={onSelect}
       style={{
         display: "block",
@@ -328,7 +407,7 @@ function RunRow({
         border: "none",
         borderLeft: `2px solid ${selected ? "var(--accent)" : "transparent"}`,
         borderBottom: "1px solid var(--hair)",
-        background: selected ? "rgba(94,234,212,0.07)" : "transparent",
+        background: selected ? "color-mix(in srgb, var(--accent) 7%, transparent)" : "transparent",
         color: "inherit",
         transition: "background 120ms ease",
       }}
@@ -375,7 +454,10 @@ function RunRow({
           textOverflow: "ellipsis",
         }}
       >
-        {run.graph_version_ref}
+        <span title={run.deployment_ref} style={{ color: "var(--text-secondary)" }}>
+          {run.deployment_ref}
+        </span>
+        <span style={{ marginLeft: 6 }}>· {run.graph_version_ref}</span>
       </div>
     </button>
   );
@@ -412,12 +494,43 @@ function RunDetail({
   onListChanged: () => void;
 }) {
   const run = useLoad<RunStatus>(() => getRun(runId));
+  const children = useLoad<ChildRunSummary[]>(() => getChildRuns(runId));
   const timeline = useLoad<AuditTimeline>(() => getRunTimeline(runId));
+  const attributedEvidence = useLoad<RunEvidence>(() => getRunEvidence(runId));
+  const health = useLoad(getHealth);
   const toast = useToast();
   const [busy, setBusy] = useState<null | "cancel" | "interrupt" | "replay">(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [invokePayload, setInvokePayload] = useState<Record<string, unknown>>({});
+  const [invokePayloadError, setInvokePayloadError] = useState<string | null>(null);
+
+  const deploymentRef = run.data?.deployment_ref;
+  useEffect(() => {
+    if (!deploymentRef) return;
+    let cancelled = false;
+    setInvokePayloadError(null);
+    getInputContract(deploymentRef)
+      .then((contract) => {
+        if (cancelled) return;
+        const candidate = examplePayloadFromSchema(contract.json_schema);
+        setInvokePayload(
+          candidate !== null && typeof candidate === "object" && !Array.isArray(candidate)
+            ? (candidate as Record<string, unknown>)
+            : {},
+        );
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setInvokePayload({});
+        setInvokePayloadError(`Input contract unavailable: ${errMsg(error)}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deploymentRef]);
 
   const status = run.data?.status ?? "";
+  const threadId = run.data?.thread_id ?? "";
   const live = LIVE.has(status);
 
   // While the run is in flight, refetch detail + timeline (~2s) so nodes advance
@@ -425,6 +538,7 @@ function RunDetail({
   usePolling(
     () => {
       run.reload();
+      children.reload();
       timeline.reload();
       onListChanged();
     },
@@ -433,8 +547,17 @@ function RunDetail({
   );
 
   const entries = useMemo(() => timeline.data?.entries ?? [], [timeline.data]);
+  const contextCompactions = useMemo(
+    () => entries.map(contextCompactionOf).filter((item): item is ContextCompactionEvidence => item !== null),
+    [entries],
+  );
   const runCost = entries.reduce((a, e) => a + (e.cost_usd ?? 0), 0);
   const hasCost = entries.some((e) => e.cost_usd != null);
+  const reconciledCost = attributedEvidence.data?.summary.priced_call_count
+    ? attributedEvidence.data.summary.total_cost_usd
+    : null;
+  const attributedCost = reconciledCost ?? runCost;
+  const hasAttributedCost = reconciledCost !== null || hasCost;
   const startedAt = entries
     .map((e) => e.started_at)
     .filter((s): s is string => !!s)
@@ -451,6 +574,7 @@ function RunDetail({
       await fn();
       toast(`${verb} ${runId}`);
       run.reload();
+      children.reload();
       timeline.reload();
       onListChanged();
     } catch (e) {
@@ -469,13 +593,19 @@ function RunDetail({
 
   async function doReplay() {
     setBusy("replay");
+    setActionError(null);
     try {
       const resp = await replayRun(runId);
-      toast(`Replayed → ${resp.run_id}`);
+      toast(`Requeued ${resp.run_id}`);
+      run.reload();
+      children.reload();
+      timeline.reload();
       onListChanged();
       onSelectRun(resp.run_id);
     } catch (e) {
-      toast(`Replay failed: ${errMsg(e)}`);
+      const message = `Replay failed: ${errMsg(e)}`;
+      setActionError(message);
+      toast(message);
     } finally {
       setBusy(null);
     }
@@ -498,6 +628,7 @@ function RunDetail({
               variant="danger"
               disabled={busy !== null}
               onClick={doCancel}
+              data-evidence-id={`runs.action.${runId}.cancel`}
             >
               {busy === "cancel" ? "…" : "Cancel"}
             </Button>
@@ -507,13 +638,22 @@ function RunDetail({
               variant="neutral"
               disabled={busy !== null}
               onClick={() => act("interrupt", () => interruptRun(runId), "Interrupted")}
+              data-evidence-id={`runs.action.${runId}.interrupt`}
             >
               {busy === "interrupt" ? "…" : "Interrupt"}
             </Button>
           )}
-          <Button variant="neutral" disabled={busy !== null} onClick={doReplay}>
-            {busy === "replay" ? "…" : "Replay"}
-          </Button>
+          {DANGER_STATES.has(status) && (
+            <Button
+              variant="neutral"
+              disabled={busy !== null}
+              onClick={doReplay}
+              data-evidence-id={`runs.action.${runId}.replay`}
+              title="Requeue this failed run with its original input"
+            >
+              {busy === "replay" ? "…" : "Replay"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -545,12 +685,96 @@ function RunDetail({
           {/* Meta row */}
           <Card pad={14}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 28px" }}>
+              <Meta label="deployment" value={run.data.deployment_ref} />
               <Meta label="graph" value={run.data.graph_version_ref} />
-              <Meta label="thread" value={run.data.thread_id} />
-              <Meta label="cost" value={hasCost ? fmtCost(runCost) : "—"} />
+              {run.data.thread_id !== run.data.run_id && (
+                <Meta label="thread" value={run.data.thread_id} />
+              )}
+              <Meta
+                label="attributed cost"
+                value={hasAttributedCost ? fmtCost(attributedCost) : "—"}
+              />
               <Meta label="started" value={startedAt ? fmtDateTime(startedAt) : "—"} />
             </div>
           </Card>
+
+          {contextCompactions.length > 0 && (
+            <div data-evidence-id="runs.context-window">
+              <Card label="Context management" pad={14}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {contextCompactions.map((context, index) => (
+                  <div
+                    key={`${context.nodeId}-${index}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: "6px 14px",
+                      paddingTop: index === 0 ? 0 : 9,
+                      borderTop: index === 0 ? "none" : "1px solid var(--hair)",
+                    }}
+                  >
+                    <MonoLabel>{context.nodeId}</MonoLabel>
+                    <Pill tone="info">{context.strategy.replaceAll("_", " ")}</Pill>
+                    <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                      {context.tokensBefore} → {context.tokensAfter} tokens
+                    </span>
+                    <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                      {context.messagesBefore} → {context.messagesAfter} messages
+                    </span>
+                    <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+                      1 compaction · {context.threadStateSaved
+                        ? `state saved to thread ${threadId}`
+                        : "thread state not saved"}
+                    </span>
+                  </div>
+                ))}
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {(run.data.parent_run_id || children.loading || children.error || (children.data?.length ?? 0) > 0) && (
+            <Card pad={14}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 10 }}>
+                Composed lineage
+              </div>
+              {run.data.parent_run_id && (
+                <div data-evidence-id="runs.lineage.parent" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Parent run</span>
+                  <button
+                    type="button"
+                    onClick={() => onSelectRun(run.data!.parent_run_id!)}
+                    style={{ border: 0, padding: 0, background: "transparent", color: "var(--accent)", fontFamily: "var(--font-mono)", cursor: "pointer" }}
+                  >
+                    {run.data.parent_run_id}
+                  </button>
+                </div>
+              )}
+              {children.loading && !children.data ? (
+                <Skeleton height={28} />
+              ) : children.error ? (
+                <InlineError message={children.error} onRetry={children.reload} />
+              ) : (children.data?.length ?? 0) > 0 ? (
+                <div data-evidence-id="runs.lineage.children" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Child runs ({children.data!.length})</span>
+                  {children.data!.map((child) => (
+                    <button
+                      key={child.run_id}
+                      type="button"
+                      onClick={() => onSelectRun(child.run_id)}
+                      data-evidence-id={`runs.lineage.child.${child.run_id}`}
+                      style={{ display: "flex", alignItems: "center", gap: 9, border: "1px solid var(--hair)", borderRadius: 7, padding: "7px 9px", background: "var(--bg-chrome)", color: "inherit", cursor: "pointer", textAlign: "left" }}
+                    >
+                      <StatusDot tone={runTone(child.status)} />
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--accent)" }}>{child.run_id}</span>
+                      <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--text-faint)" }}>{child.thread_id}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </Card>
+          )}
 
           {/* Approval-hold banner */}
           {run.data.approval_paused_state && (
@@ -601,13 +825,15 @@ function RunDetail({
             <CodeBlock label="Output" code={jsonText(run.data.terminal_output)} />
           )}
 
+          <TraversalEvidence traversal={run.data.traversal} />
+
           {/* Node timeline */}
           <Card label="Node timeline" pad={14}>
             <NodeTimeline load={timeline} />
           </Card>
 
           {/* Evidence + verify */}
-          <EvidencePanel runId={runId} />
+          <EvidencePanel runId={runId} evidence={attributedEvidence} />
 
           {/* Invoke */}
           <Card label="Invoke this deployment" pad={14}>
@@ -615,7 +841,18 @@ function RunDetail({
               The deployed graph is an API service. Call it from anywhere with the run creation
               endpoint (the key is redacted — supply your own via <code>$ZEROTH_API_KEY</code>).
             </p>
-            <CodeBlock code={buildInvokeCurl(run.data.thread_id)} />
+            {invokePayloadError && (
+              <p role="alert" style={{ margin: "0 0 10px", color: "var(--warning)", fontSize: 11.5 }}>
+                {invokePayloadError}; the example uses an empty object.
+              </p>
+            )}
+            <CodeBlock
+              code={buildRunCurl(
+                JSON.stringify(invokePayload),
+                run.data.thread_id,
+                health.data?.campaign_id,
+              )}
+            />
           </Card>
         </>
       )}
@@ -676,9 +913,7 @@ function TimelineRow({ rec }: { rec: NodeAuditRecord }) {
   const queued = NODE_QUEUED.has(s);
   const type = nodeTypeOf(rec);
   const dur = fmtDuration(rec.started_at, rec.completed_at);
-  const note =
-    rec.error ??
-    (rec.attempt > 1 ? `retry #${rec.attempt}` : "");
+  const note = timelineNote(rec);
 
   return (
     <div
@@ -774,10 +1009,10 @@ type VerifyState =
   | { phase: "done"; result: AuditVerification }
   | { phase: "error"; msg: string };
 
-function EvidencePanel({ runId }: { runId: string }) {
-  const evidence = useLoad<RunEvidence>(() => getRunEvidence(runId));
+function EvidencePanel({ runId, evidence }: { runId: string; evidence: Loadable<RunEvidence> }) {
   const { markVerified } = useAuditVerification();
   const [verify, setVerify] = useState<VerifyState>({ phase: "idle" });
+  const [showRaw, setShowRaw] = useState(false);
 
   async function runVerify() {
     setVerify({ phase: "verifying" });
@@ -808,6 +1043,7 @@ function EvidencePanel({ runId }: { runId: string }) {
           variant="primary"
           disabled={verify.phase === "verifying"}
           onClick={runVerify}
+          data-evidence-id={`runs.evidence.${runId}.verify-chain`}
         >
           {verify.phase === "verifying" ? "Verifying…" : "Verify chain"}
         </Button>
@@ -816,10 +1052,359 @@ function EvidencePanel({ runId }: { runId: string }) {
         <Skeleton height={80} />
       ) : evidence.error ? (
         <InlineError message={evidence.error} onRetry={evidence.reload} />
+      ) : evidence.data ? (
+        <>
+          <AmbiguousOperationResolutions
+            evidence={evidence.data}
+            onResolved={evidence.reload}
+          />
+          <EvidenceSummary evidence={evidence.data} />
+          <div style={{ marginTop: 12 }}>
+            <Button
+              variant="neutral"
+              onClick={() => setShowRaw((visible) => !visible)}
+              data-evidence-id={`runs.evidence.${runId}.toggle-raw`}
+            >
+              {showRaw ? "Hide raw evidence" : "Show raw evidence"}
+            </Button>
+          </div>
+          {showRaw ? (
+            <CodeBlock
+              label="Metadata-only evidence JSON"
+              code={jsonText(evidence.data)}
+              style={{ marginTop: 10 }}
+            />
+          ) : null}
+        </>
       ) : (
-        <CodeBlock code={jsonText(evidence.data)} />
+        <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12.5 }}>
+          No evidence is available for this run.
+        </p>
       )}
     </Card>
+  );
+}
+
+type AmbiguousOperation = {
+  operationKey: string;
+  alias: string;
+  toolRef: string;
+};
+
+function ambiguousOperationsOf(evidence: RunEvidence): AmbiguousOperation[] {
+  const resolved = new Set<string>();
+  const ambiguous = new Map<string, AmbiguousOperation>();
+  for (const audit of evidence.audits ?? []) {
+    const metadata = audit.execution_metadata as Record<string, unknown> | undefined;
+    if (
+      audit.node_id === "operation.resolve"
+      && typeof metadata?.operation_key === "string"
+      && ["completed", "failed"].includes(String(metadata.operation_state).toLowerCase())
+    ) {
+      resolved.add(metadata.operation_key);
+    }
+    for (const call of audit.tool_calls ?? []) {
+      if (
+        typeof call.operation_key === "string"
+        && call.operation_key
+        && call.operation_state?.toUpperCase() === "AMBIGUOUS"
+      ) {
+        ambiguous.set(call.operation_key, {
+          operationKey: call.operation_key,
+          alias: call.alias,
+          toolRef: call.tool_ref,
+        });
+      }
+    }
+  }
+  return [...ambiguous.values()].filter((operation) => !resolved.has(operation.operationKey));
+}
+
+function AmbiguousOperationResolutions({
+  evidence,
+  onResolved,
+}: {
+  evidence: RunEvidence;
+  onResolved: () => void;
+}) {
+  const operations = ambiguousOperationsOf(evidence);
+  if (operations.length === 0) return null;
+  return (
+    <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+      {operations.map((operation) => (
+        <OperationResolutionForm
+          key={operation.operationKey}
+          deploymentRef={evidence.run.deployment_ref}
+          operation={operation}
+          onResolved={onResolved}
+        />
+      ))}
+    </div>
+  );
+}
+
+function operationResolutionError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 403) {
+      return "The active role does not have permission to resolve ambiguous operations.";
+    }
+    if (error.status === 409) {
+      return "This operation is no longer ambiguous. Refresh the evidence before acting again.";
+    }
+    if (error.status === 503) {
+      return "Resolution is temporarily unavailable because its signed audit or operation store is unavailable.";
+    }
+  }
+  return `Resolution failed: ${errMsg(error)}`;
+}
+
+function OperationResolutionForm({
+  deploymentRef,
+  operation,
+  onResolved,
+}: {
+  deploymentRef: string;
+  operation: AmbiguousOperation;
+  onResolved: () => void;
+}) {
+  const evidenceBase = `runs.evidence.operation-resolution.${operation.operationKey}`;
+  const toast = useToast();
+  const [resolution, setResolution] = useState<OperationResolutionRequest["resolution"]>("completed");
+  const [reason, setReason] = useState("");
+  const [receipt, setReceipt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) return;
+    let parsedReceipt: unknown;
+    if (receipt.trim()) {
+      try {
+        parsedReceipt = JSON.parse(receipt);
+      } catch {
+        setError("Receipt must be valid JSON.");
+        return;
+      }
+    }
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      const body: OperationResolutionRequest = {
+        resolution,
+        reason: trimmedReason,
+        ...(receipt.trim() ? { receipt: parsedReceipt } : {}),
+      };
+      const result = await resolveAmbiguousOperation(
+        deploymentRef,
+        operation.operationKey,
+        body,
+      );
+      const message = `Operation recorded as ${result.state.toLowerCase()}. Run state was not changed.`;
+      setDone(message);
+      toast(message);
+      onResolved();
+    } catch (caught) {
+      setError(operationResolutionError(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const controlStyle: React.CSSProperties = {
+    width: "100%",
+    boxSizing: "border-box",
+    color: "var(--text-primary)",
+    background: "var(--bg-card)",
+    border: "1px solid var(--hair-strong)",
+    borderRadius: 7,
+    padding: "7px 9px",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11.5,
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      data-evidence-id={evidenceBase}
+      style={{
+        padding: 12,
+        border: "1px solid color-mix(in srgb, var(--warning) 45%, var(--hair))",
+        borderRadius: 9,
+        background: "color-mix(in srgb, var(--warning) 5%, var(--bg-raised))",
+      }}
+    >
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <Pill tone="warning">ambiguous operation</Pill>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
+          {operation.operationKey}
+        </span>
+        <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>
+          {operation.alias} · {operation.toolRef}
+        </span>
+      </div>
+      <p style={{ margin: "8px 0 10px", color: "var(--text-secondary)", fontSize: 11.5, lineHeight: 1.5 }}>
+        Record the provider-authoritative outcome. This changes only the durable operation record and
+        does not resume or replay the run.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "160px minmax(220px, 1fr)", gap: 10 }}>
+        <label style={{ color: "var(--text-secondary)", fontSize: 11.5 }}>
+          Outcome
+          <select
+            value={resolution}
+            onChange={(event) => setResolution(event.target.value as OperationResolutionRequest["resolution"])}
+            data-evidence-id={`${evidenceBase}.outcome`}
+            style={{ ...controlStyle, marginTop: 4 }}
+          >
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+          </select>
+        </label>
+        <label style={{ color: "var(--text-secondary)", fontSize: 11.5 }}>
+          Reason <span aria-hidden="true">*</span>
+          <textarea
+            required
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            data-evidence-id={`${evidenceBase}.reason`}
+            rows={2}
+            placeholder="What authoritative evidence determined this outcome?"
+            style={{ ...controlStyle, marginTop: 4, resize: "vertical" }}
+          />
+        </label>
+      </div>
+      <label style={{ display: "block", marginTop: 10, color: "var(--text-secondary)", fontSize: 11.5 }}>
+        Receipt JSON <span style={{ color: "var(--text-faint)" }}>(optional)</span>
+        <textarea
+          value={receipt}
+          onChange={(event) => setReceipt(event.target.value)}
+          data-evidence-id={`${evidenceBase}.receipt`}
+          rows={2}
+          placeholder={'{"provider_reference":"…"}'}
+          style={{ ...controlStyle, marginTop: 4, resize: "vertical" }}
+        />
+      </label>
+      {error && (
+        <p
+          role="alert"
+          data-evidence-id={`${evidenceBase}.error`}
+          style={{ margin: "8px 0 0", color: "var(--danger)", fontSize: 11.5 }}
+        >
+          {error}
+        </p>
+      )}
+      {done && (
+        <p
+          role="status"
+          data-evidence-id={`${evidenceBase}.status`}
+          style={{ margin: "8px 0 0", color: "var(--success)", fontSize: 11.5 }}
+        >
+          {done}
+        </p>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={busy || !reason.trim()}
+          data-evidence-id={`${evidenceBase}.submit`}
+        >
+          {busy ? "Recording…" : "Record resolution"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function EvidenceSummary({ evidence }: { evidence: RunEvidence }) {
+  const { summary } = evidence;
+  const counts = [
+    `${summary.audit_count} audit record${summary.audit_count === 1 ? "" : "s"}`,
+    `${summary.approval_count} approval${summary.approval_count === 1 ? "" : "s"}`,
+    `${summary.tool_call_count} tool call${summary.tool_call_count === 1 ? "" : "s"}`,
+    `${summary.memory_interaction_count} memory event${summary.memory_interaction_count === 1 ? "" : "s"}`,
+  ];
+  const zeroActivity = summary.cost_identity_state === "not_applicable_no_priced_call";
+  const costIdentity = zeroActivity
+    ? "Cost identity not applicable"
+    : summary.cost_identity_state === "correlated"
+      ? "Cost identities correlated"
+      : "Cost identity incomplete";
+  const reconciliation = summary.reconciliation_state.startsWith("reconciled")
+    ? "reconciled"
+    : "needs reconciliation";
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {counts.map((count) => (
+          <Pill key={count} tone="neutral">
+            {count}
+          </Pill>
+        ))}
+      </div>
+      <div
+        data-evidence-id="runs.evidence.cost-summary"
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "6px 12px",
+          marginTop: 10,
+          padding: "9px 10px",
+          border: "1px solid var(--hair)",
+          borderRadius: 8,
+          background: "var(--bg-raised)",
+          color: "var(--text-secondary)",
+          fontSize: 12,
+        }}
+      >
+        <span>{zeroActivity ? "No priced calls" : `${summary.priced_call_count} priced calls`}</span>
+        <span>{costIdentity}</span>
+        <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}>
+          {fmtCost(summary.total_cost_usd)} {reconciliation}
+        </span>
+      </div>
+      <p style={{ margin: "10px 0 0", color: "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.5 }}>
+        Payload values are intentionally withheld under metadata-only capture. Correlation IDs, costs,
+        hashes, and signatures remain available for inspection.
+      </p>
+      {(evidence.audits?.length ?? 0) > 0 ? (
+        <div style={{ marginTop: 10, borderTop: "1px solid var(--hair)" }}>
+          {evidence.audits?.map((audit) => (
+            <div
+              key={audit.audit_id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(110px, 1fr) 90px 78px minmax(110px, 1fr)",
+                gap: 10,
+                alignItems: "center",
+                padding: "8px 0",
+                borderBottom: "1px solid var(--hair)",
+                fontSize: 12,
+              }}
+            >
+              <MonoLabel title={audit.node_id}>{audit.node_id}</MonoLabel>
+              <span style={{ color: audit.status === "succeeded" ? "var(--success)" : "var(--text-secondary)" }}>
+                {audit.status}
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
+                {audit.cost_usd == null ? "—" : fmtCost(audit.cost_usd)}
+              </span>
+              <span
+                title={audit.record_digest ?? "No digest"}
+                style={{ fontFamily: "var(--font-mono)", color: "var(--text-faint)", overflow: "hidden", textOverflow: "ellipsis" }}
+              >
+                {audit.record_digest ? `digest ${audit.record_digest.slice(0, 12)}…` : "digest unavailable"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -917,15 +1502,4 @@ function failureText(fs: NonNullable<RunStatus["failure_state"]>): string {
   if (fs.message) lines.push(`message: ${fs.message}`);
   if (fs.details && Object.keys(fs.details).length > 0) lines.push(jsonText(fs.details));
   return lines.join("\n");
-}
-
-function buildInvokeCurl(threadId: string): string {
-  const base = getApiBase() || "https://your-zeroth-host";
-  const body = JSON.stringify({ input_payload: { question: "…" }, thread_id: threadId });
-  return [
-    `curl -X POST ${base}/v1/runs \\`,
-    `  -H "Content-Type: application/json" \\`,
-    `  -H "X-API-Key: $ZEROTH_API_KEY" \\`,
-    `  -d '${body}'`,
-  ].join("\n");
 }

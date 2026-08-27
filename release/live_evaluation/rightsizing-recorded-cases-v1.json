@@ -1,0 +1,30 @@
+{
+  "cases": [
+    {
+      "case_id": "incident-priority",
+      "input": {
+        "instruction": "Classify the support incident and give one concise reason.",
+        "request": "All users receive HTTP 503 from the production API; staging is healthy."
+      },
+      "reference": "P1: production is unavailable for all users."
+    },
+    {
+      "case_id": "refund-window",
+      "input": {
+        "instruction": "Answer only from the recorded policy excerpt.",
+        "policy": "Unused annual subscriptions may be refunded within 30 calendar days.",
+        "request": "Can an unused annual subscription be refunded after 14 days?"
+      },
+      "reference": "Yes. Fourteen days is within the 30-calendar-day refund window."
+    },
+    {
+      "case_id": "deployment-safety",
+      "input": {
+        "instruction": "Choose the safest next action and state it in one sentence.",
+        "request": "A migration checksum differs from the reviewed artifact immediately before production deployment."
+      },
+      "reference": "Stop the deployment and reconcile the migration artifact before proceeding."
+    }
+  ],
+  "schema_version": 1
+}

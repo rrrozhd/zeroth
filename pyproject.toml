@@ -47,10 +47,15 @@ dependencies = [
     "uvicorn>=0.30",
     "mcp>=1.7,<2.0",
     "redis>=5.3.1",
+    # Ordinary Postgres persistence is a core deployment path. Vector search
+    # remains optional below, but its database driver must not be hidden with it.
+    "psycopg[binary]>=3.3",
+    "psycopg-pool>=3.2",
 ]
 
 [project.scripts]
 zeroth-core = "zeroth.service.cli:main"
+zeroth-auth-rejection-sink = "zeroth.eval.auth_rejection_sink:main"
 
 [project.optional-dependencies]
 langgraph-gateway = [
@@ -73,8 +78,6 @@ langgraph = [
     "langgraph-checkpoint-sqlite>=3.0,<4",
 ]
 memory-pg = [
-    "psycopg[binary]>=3.3",
-    "psycopg-pool>=3.2",
     "pgvector>=0.4.2",
 ]
 memory-chroma = [
@@ -96,7 +99,7 @@ otel = [
 # src/zeroth/econ/plane. These are the extra runtime deps needed to import + boot
 # the backend on SQLite.
 # (fastapi/uvicorn/httpx/sqlalchemy/pydantic-settings/redis are already core.)
-# Postgres adds psycopg (see memory-pg); kafka/prometheus/otel are lazy/flag-gated.
+# pgvector is optional (see memory-pg); kafka/prometheus/otel are lazy/flag-gated.
 regulus = [
     "python-jose[cryptography]>=3.3",
     "email-validator>=2.2",
@@ -149,6 +152,7 @@ build-backend = "hatchling.build"
 # tooling remains repository-only and is never part of the published package.
 only-include = [
     "src/zeroth/_architecture.py",
+    "src/zeroth/check",
     "src/zeroth/contracts",
     "src/zeroth/econ",
     "src/zeroth/eval",
@@ -172,6 +176,7 @@ zeroth-console = { path = "packaging/console" }
 [dependency-groups]
 dev = [
     "h2>=4,<5",
+    "hypothesis>=6.0",
     "interrogate>=1.7",
     "opentelemetry-sdk>=1.27",
     "libcst>=1.4",

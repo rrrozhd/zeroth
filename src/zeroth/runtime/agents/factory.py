@@ -25,7 +25,13 @@ from zeroth.contracts.graph.models import (
 )
 from zeroth.contracts.registry import ContractReference, ContractRegistry
 from zeroth.governance.policy.models import Capability
-from zeroth.runtime.agents.models import AgentConfig, ModelParams, PromptConfig, RetryPolicy
+from zeroth.runtime.agents.models import (
+    AgentConfig,
+    ModelParams,
+    PromptConfig,
+    RetryPolicy,
+    ThreadStateStore,
+)
 from zeroth.runtime.agents.provider import LiteLLMProviderAdapter, ProviderAdapter
 from zeroth.runtime.agents.runner import AgentRunner
 from zeroth.runtime.agents.tools import ToolAttachmentManifest
@@ -85,6 +91,8 @@ async def build_agent_runners(
     tenant_id: str | None = None,
     allow_env_fallback: bool = True,
     llm_key_map: dict[str, str] | None = None,
+    llm_base_url_map: dict[str, str] | None = None,
+    thread_state_store: ThreadStateStore | None = None,
 ) -> dict[str, AgentRunner]:
     """Build one AgentRunner per agent node, keyed by node_id.
 
@@ -102,6 +110,7 @@ async def build_agent_runners(
         tenant_id=tenant_id,
         allow_env_fallback=allow_env_fallback,
         llm_key_map=llm_key_map,
+        llm_base_url_map=llm_base_url_map,
     )
     runners: dict[str, AgentRunner] = {}
     node_map: dict[str, Node] = {node.node_id: node for node in graph.nodes}
@@ -110,10 +119,10 @@ async def build_agent_runners(
             continue
         try:
             input_model = await contract_registry.resolve_model_type(
-                ContractReference(name=node.input_contract_ref)
+                ContractReference.parse(node.input_contract_ref)
             )
             output_model = await contract_registry.resolve_model_type(
-                ContractReference(name=node.output_contract_ref)
+                ContractReference.parse(node.output_contract_ref)
             )
         except Exception as exc:
             msg = (
@@ -169,5 +178,9 @@ async def build_agent_runners(
             model_params=ModelParams(**data.model_params) if data.model_params else None,
             **extra_config,
         )
-        runners[node.node_id] = AgentRunner(config, shared_provider)
+        runners[node.node_id] = AgentRunner(
+            config,
+            shared_provider,
+            thread_state_store=thread_state_store,
+        )
     return runners

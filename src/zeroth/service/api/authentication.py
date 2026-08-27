@@ -562,14 +562,15 @@ async def record_service_denial(
         return
     tenant_id = getattr(deployment, "tenant_id", "default")
     workspace_id = getattr(deployment, "workspace_id", None)
+    deployment_ref = getattr(deployment, "deployment_ref", "service")
     await audit_repository.write(
         NodeAuditRecord(
             audit_id=f"{node_id}:{uuid4().hex}",
-            run_id=f"service:{request.method}:{request.url.path}",
+            run_id=f"service:{deployment_ref}:{request.method}:{request.url.path}",
             thread_id=None,
             node_id=node_id,
             graph_version_ref=getattr(deployment, "graph_version_ref", "service"),
-            deployment_ref=getattr(deployment, "deployment_ref", "service"),
+            deployment_ref=deployment_ref,
             tenant_id=tenant_id,
             workspace_id=workspace_id,
             status=status,

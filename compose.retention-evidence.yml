@@ -1,0 +1,51 @@
+name: zeroth-dev
+
+services:
+  backend-retention-evidence:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    init: true
+    working_dir: /workspace
+    command:
+      - python
+      - scripts/zeroth_dev_instance.py
+      - --workspace
+      - /workspace
+      - --state-root
+      - /state
+      - --market-env
+      - /run/secrets/zeroth.env
+      - run-backend
+    env_file:
+      - path: .dev-secrets/zeroth.env
+        required: true
+    environment:
+      PYTHONPATH: /workspace/src:/workspace
+      ZEROTH_DEV_BIND_HOST: 0.0.0.0
+      ZEROTH_DEV_TENANT_ID: evaluation-studio-v1-twin
+      ZEROTH_DEV_CAMPAIGN_CONFIG: release/product_validation/campaign-retention-disposable.json
+      ZEROTH_DEV_DEPLOYMENT_REF: demo-artifact-output-v1
+      ZEROTH_DEV_PORT: "8124"
+      ZEROTH_DEV_SEED_ARTIFACT_DEMO: "1"
+    volumes:
+      - .:/workspace
+      - ${HOME}/.local/share/zeroth/evaluations/evaluation-studio-v1-retention-disposable:/state
+      - ${HOME}/.local/share/zeroth/evaluations/evaluation-studio-v1-retention-disposable:/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1-retention-disposable
+      - ./.dev-secrets/zeroth.env:/run/secrets/zeroth.env:ro
+    ports:
+      - 127.0.0.1:8124:8124
+    depends_on:
+      chroma:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8124/health', timeout=4)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from zeroth.contracts.conditions import ConditionEvaluator
+from zeroth.contracts.conditions.errors import ConditionEvaluationError
 from zeroth.contracts.graph.limits import (
     AGENT_INSTRUCTION_MAX_CHARS,
+    CONDITION_EXPRESSION_MAX_CHARS,
     DESCRIPTION_MAX_CHARS,
     DISPLAY_LABEL_MAX_CHARS,
     DISPLAY_TAG_MAX_CHARS,
@@ -12,11 +15,14 @@ from zeroth.contracts.graph.limits import (
 )
 from zeroth.contracts.graph.models import (
     AgentNode,
+    Condition,
     DisplayMetadata,
     EntrypointNode,
     ExecutableUnitNode,
     Graph,
     HumanApprovalNode,
+    IfNode,
+    LoopNode,
     Node,
 )
 from zeroth.contracts.graph.validation.capabilities import CapabilityChecks
@@ -134,6 +140,125 @@ def validate_node(
         case HumanApprovalNode():
             # Approval nodes have their own checks because they pause and resume execution.
             validate_human_approval_node(graph_id, node, issues)
+        case IfNode():
+            validate_if_node(graph_id, node, issues)
+        case LoopNode():
+            validate_loop_node(graph_id, node, issues)
+
+
+def validate_if_node(
+    graph_id: str,
+    node: IfNode,
+    issues: list[ValidationIssue],
+) -> None:
+    """Validate the author-facing predicate on an explicit If controller."""
+    expression = node.condition.expression
+    path = ("nodes", node.node_id, "condition", "expression")
+    if not expression.strip():
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_CONDITION,
+            message="If expression is required",
+            graph_id=graph_id,
+            node_id=node.node_id,
+            path=path,
+        )
+        return
+    if len(expression) > CONDITION_EXPRESSION_MAX_CHARS:
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_CONDITION,
+            message=(
+                f"If expression exceeds the {CONDITION_EXPRESSION_MAX_CHARS} character limit"
+            ),
+            graph_id=graph_id,
+            node_id=node.node_id,
+            path=path,
+        )
+        return
+    try:
+        ConditionEvaluator().evaluate(Condition(expression=expression), {})
+    except ConditionEvaluationError as exc:
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_CONDITION,
+            message=f"If expression is not safe or valid: {exc}",
+            graph_id=graph_id,
+            node_id=node.node_id,
+            path=path,
+        )
+    except (ArithmeticError, TypeError, ValueError):
+        # A structurally safe predicate may require real runtime values to type
+        # check (for example ``payload.score >= 0.8``). Runtime evaluation owns
+        # those data-dependent failures; preflight only rejects malformed/unsafe AST.
+        pass
+
+
+def validate_loop_node(
+    graph_id: str,
+    node: LoopNode,
+    issues: list[ValidationIssue],
+) -> None:
+    """Validate the author-facing predicate on an explicit Loop controller."""
+    _validate_control_expression(
+        graph_id=graph_id,
+        node_id=node.node_id,
+        expression=node.loop.until,
+        label="Loop condition",
+        path=("nodes", node.node_id, "loop", "until"),
+        issues=issues,
+    )
+
+
+def _validate_control_expression(
+    *,
+    graph_id: str,
+    node_id: str,
+    expression: str,
+    label: str,
+    path: tuple[str, ...],
+    issues: list[ValidationIssue],
+) -> None:
+    """Apply the shared fail-closed condition contract to a control node."""
+    if not expression.strip():
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_CONDITION,
+            message=f"{label} is required",
+            graph_id=graph_id,
+            node_id=node_id,
+            path=path,
+        )
+        return
+    if len(expression) > CONDITION_EXPRESSION_MAX_CHARS:
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_CONDITION,
+            message=f"{label} exceeds the {CONDITION_EXPRESSION_MAX_CHARS} character limit",
+            graph_id=graph_id,
+            node_id=node_id,
+            path=path,
+        )
+        return
+    try:
+        ConditionEvaluator().evaluate(Condition(expression=expression), {})
+    except ConditionEvaluationError as exc:
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_CONDITION,
+            message=f"{label} is not safe or valid: {exc}",
+            graph_id=graph_id,
+            node_id=node_id,
+            path=path,
+        )
+    except (ArithmeticError, TypeError, ValueError):
+        pass
 
 
 def _validate_display_metadata(

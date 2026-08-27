@@ -202,6 +202,17 @@ async def test_decision_audit_id_cannot_collide_with_runtime_recorder(sqlite_db)
     ]
     assert decision.audit_id.startswith(f"{run.run_id}:approval-decision:")
     assert decision.audit_id != f"{run.run_id}:audit:{len(run.audit_refs) + 1}"
+    assert decision.cost_usd == 0.0
+    assert decision.estimated_cost_usd == 0.0
+    assert decision.cost_measurement.value == "measured"
+    [api_resolution] = [
+        item
+        for item in await audit_repository.list_by_run(run.run_id)
+        if item.status == "approval_api"
+    ]
+    assert api_resolution.cost_usd == 0.0
+    assert api_resolution.estimated_cost_usd == 0.0
+    assert api_resolution.cost_measurement.value == "measured"
 
 
 async def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:

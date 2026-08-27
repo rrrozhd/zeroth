@@ -376,6 +376,18 @@
               }
             ]
           },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "resolved_at": {
             "format": "date-time",
             "type": "string"
@@ -398,6 +410,18 @@
               {
                 "additionalProperties": true,
                 "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
               },
               {
                 "type": "null"
@@ -576,6 +600,42 @@
           "failed",
           "abandoned",
           "losing_events"
+        ],
+        "type": "object"
+      },
+      "AuditReadinessResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "consequential_actions": {
+            "type": "boolean"
+          },
+          "deployment_mode": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "signer_available": {
+            "type": "boolean"
+          },
+          "signing_required": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ready",
+          "state",
+          "deployment_mode",
+          "signing_required",
+          "signer_available",
+          "consequential_actions",
+          "message"
         ],
         "type": "object"
       },
@@ -760,6 +820,82 @@
         ],
         "type": "object"
       },
+      "ChildRunSummaryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deployment_ref": {
+            "type": "string"
+          },
+          "graph_version_ref": {
+            "type": "string"
+          },
+          "parent_run_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunPublicStatus"
+          },
+          "thread_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "deployment_ref",
+          "graph_version_ref",
+          "thread_id",
+          "parent_run_id"
+        ],
+        "type": "object"
+      },
+      "Condition": {
+        "properties": {
+          "allow_cycle_traversal": {
+            "default": false,
+            "type": "boolean"
+          },
+          "branch_rule": {
+            "default": "expression",
+            "enum": [
+              "all",
+              "any",
+              "expression"
+            ],
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "operand_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "expression"
+        ],
+        "type": "object"
+      },
       "ConnectorCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -829,12 +965,133 @@
         ],
         "type": "object"
       },
+      "ConnectorTestRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ]
+          },
+          "operation_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_cap_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "campaign_id",
+          "operation_id",
+          "max_cost_usd"
+        ],
+        "type": "object"
+      },
       "ConnectorTestResponse": {
         "additionalProperties": false,
         "properties": {
+          "audit_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cleanup_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_measurement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "detail": {
             "anyOf": [
               {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -847,6 +1104,26 @@
           },
           "ok": {
             "type": "boolean"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -868,6 +1145,25 @@
         },
         "required": [
           "backend_type"
+        ],
+        "type": "object"
+      },
+      "ConstantMappingOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "const": "constant",
+            "default": "constant",
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": [
+          "target_path",
+          "value"
         ],
         "type": "object"
       },
@@ -924,19 +1220,27 @@
         "additionalProperties": false,
         "properties": {
           "deployment_ref": {
+            "maxLength": 512,
+            "minLength": 1,
             "type": "string"
           },
           "event_types": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/WebhookEventType"
             },
+            "maxItems": 5,
+            "minItems": 1,
             "type": "array"
           },
           "target_url": {
+            "maxLength": 2048,
+            "minLength": 1,
             "type": "string"
           },
           "tenant_id": {
             "default": "default",
+            "maxLength": 512,
+            "minLength": 1,
             "type": "string"
           }
         },
@@ -952,23 +1256,31 @@
         "properties": {
           "description": {
             "default": "",
+            "maxLength": 2000,
             "type": "string"
           },
           "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
             "type": "string"
           },
           "template_str": {
+            "maxLength": 100000,
+            "minLength": 1,
             "type": "string"
           },
           "variables": {
-            "default": [],
             "items": {
               "type": "string"
             },
+            "maxItems": 256,
             "type": "array"
           },
           "version": {
             "default": 1,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
             "type": "integer"
           }
         },
@@ -1186,6 +1498,35 @@
         ],
         "type": "object"
       },
+      "DefaultMappingOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "default_value": {},
+          "operation": {
+            "const": "default",
+            "default": "default",
+            "type": "string"
+          },
+          "source_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "default_value"
+        ],
+        "type": "object"
+      },
       "DependencyStatus": {
         "additionalProperties": false,
         "properties": {
@@ -1348,6 +1689,14 @@
       "DeploymentCostResponse": {
         "additionalProperties": false,
         "properties": {
+          "active_exposure_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "ambiguous_exposure_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
           "currency": {
             "default": "USD",
             "type": "string"
@@ -1355,7 +1704,19 @@
           "deployment_ref": {
             "type": "string"
           },
+          "estimated_spend_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "paid_spend_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
           "total_cost_usd": {
+            "type": "number"
+          },
+          "unmeasured_spend_usd": {
+            "default": 0.0,
             "type": "number"
           }
         },
@@ -1649,6 +2010,136 @@
         ],
         "type": "object"
       },
+      "EconomicsConfigurationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deployment_ref": {
+            "type": "string"
+          },
+          "failure_mode": {
+            "enum": [
+              "fail_open",
+              "fail_closed"
+            ],
+            "type": "string"
+          },
+          "per_run_cap_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "const": "service_runtime",
+            "default": "service_runtime",
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "deployment_ref",
+          "per_run_cap_usd",
+          "failure_mode"
+        ],
+        "type": "object"
+      },
+      "EdgeMapping": {
+        "additionalProperties": false,
+        "properties": {
+          "operations": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "constant": "#/components/schemas/ConstantMappingOperation",
+                  "default": "#/components/schemas/DefaultMappingOperation",
+                  "passthrough": "#/components/schemas/PassthroughMappingOperation",
+                  "rename": "#/components/schemas/RenameMappingOperation",
+                  "transform": "#/components/schemas/TransformMappingOperation"
+                },
+                "propertyName": "operation"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/PassthroughMappingOperation"
+                },
+                {
+                  "$ref": "#/components/schemas/RenameMappingOperation"
+                },
+                {
+                  "$ref": "#/components/schemas/ConstantMappingOperation"
+                },
+                {
+                  "$ref": "#/components/schemas/DefaultMappingOperation"
+                },
+                {
+                  "$ref": "#/components/schemas/TransformMappingOperation"
+                }
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ErasureHistoryEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "log_id": {
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "log_id",
+          "action",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "ErasureRequestBody": {
         "additionalProperties": false,
         "properties": {
@@ -1704,14 +2195,42 @@
             "default": 0,
             "type": "integer"
           },
+          "authorization_log_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "checkpoints_deleted": {
             "default": 0,
             "type": "integer"
+          },
+          "cleanup_state": {
+            "enum": [
+              "complete",
+              "failed",
+              "pending"
+            ],
+            "type": "string"
           },
           "econ_events_deleted": {
             "anyOf": [
               {
                 "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retry_log_id": {
+            "anyOf": [
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -1727,7 +2246,8 @@
           }
         },
         "required": [
-          "run_id"
+          "run_id",
+          "cleanup_state"
         ],
         "type": "object"
       },
@@ -1742,15 +2262,177 @@
             "default": 0,
             "type": "integer"
           },
+          "cost_event_count": {
+            "default": 0,
+            "type": "integer"
+          },
+          "cost_identity_state": {
+            "default": "not_applicable_no_priced_call",
+            "type": "string"
+          },
           "memory_interaction_count": {
             "default": 0,
             "type": "integer"
           },
+          "priced_call_count": {
+            "default": 0,
+            "type": "integer"
+          },
+          "reconciliation_state": {
+            "default": "reconciled_zero_activity",
+            "type": "string"
+          },
           "tool_call_count": {
             "default": 0,
             "type": "integer"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "type": "number"
           }
         },
+        "type": "object"
+      },
+      "ExperimentCallEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cache_hit": {
+            "type": "boolean"
+          },
+          "cleanup_status": {
+            "type": "string"
+          },
+          "cost_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_measurement": {
+            "type": "string"
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "measured_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_call_attempted": {
+            "type": "boolean"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operation_id",
+          "model",
+          "cost_measurement",
+          "cleanup_status",
+          "provider_call_attempted",
+          "cache_hit"
+        ],
+        "type": "object"
+      },
+      "ExperimentExecutionEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/ExperimentCallEvidence"
+            },
+            "type": "array"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimated_cost_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "measured_cost_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "provider_call_count": {
+            "default": 0,
+            "type": "integer"
+          },
+          "run_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
         "type": "object"
       },
       "ExperimentReport": {
@@ -1759,6 +2441,16 @@
           "cases": {
             "default": 0,
             "type": "integer"
+          },
+          "execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExperimentExecutionEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "harvest": {
             "anyOf": [
@@ -1984,6 +2676,16 @@
               }
             ]
           },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deployment_ref": {
             "type": "string"
           },
@@ -2129,6 +2831,39 @@
           "notification"
         ],
         "type": "string"
+      },
+      "IdentityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "subject",
+          "roles",
+          "tenant_id"
+        ],
+        "type": "object"
       },
       "InventoryAck": {
         "additionalProperties": false,
@@ -2447,6 +3182,255 @@
         ],
         "type": "object"
       },
+      "LiveProviderProbe": {
+        "properties": {
+          "audit_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cleanup_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_measurement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latency_ms": {
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "model",
+          "ok",
+          "latency_ms"
+        ],
+        "type": "object"
+      },
+      "LiveProviderVerificationRequest": {
+        "properties": {
+          "acknowledge_external_call": {
+            "default": false,
+            "type": "boolean"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_models": {
+            "default": 3,
+            "maximum": 3.0,
+            "minimum": 1.0,
+            "type": "integer"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_cap_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_seconds": {
+            "default": 15.0,
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "LiveProviderVerificationResponse": {
+        "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "probes": {
+            "items": {
+              "$ref": "#/components/schemas/LiveProviderProbe"
+            },
+            "type": "array"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "workflow_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "verified",
+          "probes"
+        ],
+        "type": "object"
+      },
       "LivenessResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2455,6 +3439,239 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "ManifestDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_source_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capability_requests": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entrypoint_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "execution_placement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "manifest_ref": {
+            "type": "string"
+          },
+          "onboarding_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "output_contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "output_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "output_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource_limits": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "side_effect": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "manifest_ref",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ManifestRunLinkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "node_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "ManifestRunListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest_ref": {
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestRunLinkResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "manifest_ref"
+        ],
         "type": "object"
       },
       "ManifestSummaryResponse": {
@@ -2616,6 +3833,16 @@
           },
           "audit_id": {
             "type": "string"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "chain_sequence": {
             "anyOf": [
@@ -2948,8 +4175,22 @@
             "default": 0.0,
             "type": "number"
           },
+          "mean_estimated_cost_per_call_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
           "node_id": {
             "type": "string"
+          },
+          "projected_estimated_savings_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "projected_savings_usd": {
             "anyOf": [
@@ -2970,6 +4211,10 @@
             "type": "integer"
           },
           "total_cost_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "total_estimated_cost_usd": {
             "default": 0.0,
             "type": "number"
           },
@@ -3063,6 +4308,86 @@
           "name",
           "fingerprint",
           "arguments_digest"
+        ],
+        "type": "object"
+      },
+      "OperationResolutionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "receipt": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/OperatorResolution"
+          }
+        },
+        "required": [
+          "resolution",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "OperationResolutionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_key": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OperationState"
+          }
+        },
+        "required": [
+          "operation_key",
+          "state"
+        ],
+        "type": "object"
+      },
+      "OperationState": {
+        "enum": [
+          "NOT_STARTED",
+          "IN_FLIGHT",
+          "COMPLETED",
+          "FAILED",
+          "AMBIGUOUS"
+        ],
+        "type": "string"
+      },
+      "OperatorResolution": {
+        "enum": [
+          "completed",
+          "failed"
+        ],
+        "type": "string"
+      },
+      "PassthroughMappingOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "const": "passthrough",
+            "default": "passthrough",
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "source_path"
         ],
         "type": "object"
       },
@@ -3306,12 +4631,34 @@
         ],
         "type": "object"
       },
+      "RenameMappingOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "const": "rename",
+            "default": "rename",
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "source_path"
+        ],
+        "type": "object"
+      },
       "RetentionPolicyBody": {
         "additionalProperties": false,
         "properties": {
           "audit_ttl_seconds": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -3327,6 +4674,7 @@
           "run_ttl_seconds": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -3344,6 +4692,7 @@
           "audit_ttl_seconds": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -3359,6 +4708,7 @@
           "run_ttl_seconds": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -3476,6 +4826,47 @@
         },
         "required": [
           "target_graph_version"
+        ],
+        "type": "object"
+      },
+      "RoutingDecisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "condition_id": {
+            "type": "string"
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "selected_edge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suppression_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "edge_disabled",
+                  "condition_false",
+                  "visit_limit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "condition_id",
+          "matched"
         ],
         "type": "object"
       },
@@ -3683,6 +5074,24 @@
       "RunInvocationRequest": {
         "additionalProperties": false,
         "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "campaign_strict": {
+            "const": true,
+            "default": true,
+            "type": "boolean"
+          },
           "input_payload": {
             "additionalProperties": true,
             "type": "object"
@@ -3719,6 +5128,16 @@
             },
             "type": "array"
           },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "current_step": {
             "anyOf": [
               {
@@ -3754,6 +5173,16 @@
           },
           "graph_version_ref": {
             "type": "string"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "run_id": {
             "type": "string"
@@ -3795,6 +5224,9 @@
                 "type": "null"
               }
             ]
+          },
+          "traversal": {
+            "$ref": "#/components/schemas/RunTraversalResponse"
           },
           "workspace_id": {
             "anyOf": [
@@ -3915,6 +5347,16 @@
             },
             "type": "array"
           },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "current_step": {
             "anyOf": [
               {
@@ -3950,6 +5392,16 @@
           },
           "graph_version_ref": {
             "type": "string"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "run_id": {
             "type": "string"
@@ -3992,6 +5444,9 @@
               }
             ]
           },
+          "traversal": {
+            "$ref": "#/components/schemas/RunTraversalResponse"
+          },
           "workspace_id": {
             "anyOf": [
               {
@@ -4010,6 +5465,44 @@
           "graph_version_ref",
           "thread_id"
         ],
+        "type": "object"
+      },
+      "RunTraversalResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "edge_visit_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "node_visit_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "routing_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/RoutingDecisionResponse"
+            },
+            "type": "array"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_outgoing_edges",
+                  "branch_suppressed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
         "type": "object"
       },
       "SchemaRevision": {
@@ -4084,6 +5577,10 @@
           "total_cost_usd": {
             "default": 0.0,
             "type": "number"
+          },
+          "total_estimated_cost_usd": {
+            "default": 0.0,
+            "type": "number"
           }
         },
         "type": "object"
@@ -4107,8 +5604,22 @@
         ],
         "type": "object"
       },
-      "StudioEdgeResponse": {
+      "StudioEdgeInput": {
         "properties": {
+          "condition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -4119,6 +5630,16 @@
               "tool"
             ],
             "type": "string"
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeMapping"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "source": {
             "type": "string"
@@ -4152,6 +5673,125 @@
           "source",
           "target"
         ],
+        "type": "object"
+      },
+      "StudioEdgeResponse": {
+        "properties": {
+          "condition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "default": "data",
+            "enum": [
+              "data",
+              "tool"
+            ],
+            "type": "string"
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeMapping"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "target_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "target"
+        ],
+        "type": "object"
+      },
+      "StudioExecutionSettings": {
+        "properties": {
+          "default_timeout_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_total_runtime_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_total_steps": {
+            "default": 1000,
+            "minimum": 1.0,
+            "type": "integer"
+          },
+          "max_visits_per_edge": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_visits_per_node": {
+            "default": 10,
+            "minimum": 1.0,
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "StudioNodeResponse": {
@@ -4251,6 +5891,24 @@
         ],
         "type": "object"
       },
+      "TenantAuditRecordListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/NodeAuditRecord"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "type": "object"
+      },
       "TenantBudgetRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4266,6 +5924,18 @@
       "TenantCostResponse": {
         "additionalProperties": false,
         "properties": {
+          "active_exposure_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "actual_spend_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "ambiguous_exposure_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
           "budget_cap_usd": {
             "anyOf": [
               {
@@ -4276,14 +5946,34 @@
               }
             ]
           },
+          "budget_consumed_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
           "currency": {
             "default": "USD",
             "type": "string"
+          },
+          "estimated_spend_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "paid_spend_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "synthetic_control_usd": {
+            "default": 0.0,
+            "type": "number"
           },
           "tenant_id": {
             "type": "string"
           },
           "total_cost_usd": {
+            "type": "number"
+          },
+          "unmeasured_spend_usd": {
+            "default": 0.0,
             "type": "number"
           }
         },
@@ -4305,6 +5995,24 @@
                 "type": "null"
               }
             ]
+          },
+          "estimated_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimated_failure_tax_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "estimated_terminal_cost_usd": {
+            "default": 0.0,
+            "type": "number"
           },
           "failed_runs": {
             "default": 0,
@@ -4510,6 +6218,27 @@
         ],
         "type": "string"
       },
+      "TransformMappingOperation": {
+        "additionalProperties": false,
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "operation": {
+            "const": "transform",
+            "default": "transform",
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "expression"
+        ],
+        "type": "object"
+      },
       "UnitEconomicsReport": {
         "additionalProperties": false,
         "properties": {
@@ -4546,6 +6275,54 @@
                 "type": "null"
               }
             ]
+          },
+          "estimated_cost_on_failed_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "estimated_cost_on_in_flight_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "estimated_cost_on_successful_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "estimated_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimated_failure_tax_ratio": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "estimated_failure_tax_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "estimated_mean_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimated_terminal_cost_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "estimated_total_cost_usd": {
+            "default": 0.0,
+            "type": "number"
           },
           "failed_runs": {
             "default": 0,
@@ -4591,6 +6368,10 @@
             "default": 0,
             "type": "integer"
           },
+          "runs_with_estimated_cost": {
+            "default": 0,
+            "type": "integer"
+          },
           "success_rate": {
             "default": 0.0,
             "type": "number"
@@ -4620,7 +6401,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/StudioEdgeResponse"
+                  "$ref": "#/components/schemas/StudioEdgeInput"
                 },
                 "type": "array"
               },
@@ -4633,6 +6414,16 @@
             "anyOf": [
               {
                 "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "execution_settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudioExecutionSettings"
               },
               {
                 "type": "null"
@@ -4891,6 +6682,16 @@
       "WebhookDeadLetterResponse": {
         "additionalProperties": false,
         "properties": {
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "attempt_count": {
             "type": "integer"
           },
@@ -4932,6 +6733,16 @@
               }
             ]
           },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "subscription_id": {
             "type": "string"
           }
@@ -4949,6 +6760,121 @@
           "dead_lettered_at"
         ],
         "type": "object"
+      },
+      "WebhookDeliveryListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryResponse"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deliveries",
+          "total"
+        ],
+        "type": "object"
+      },
+      "WebhookDeliveryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attempt_count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "delivery_id": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_status_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_attempts": {
+            "type": "integer"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "subscription_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "delivery_id",
+          "subscription_id",
+          "event_type",
+          "event_id",
+          "status",
+          "attempt_count",
+          "max_attempts",
+          "last_error",
+          "last_status_code",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "WebhookEventType": {
+        "enum": [
+          "run.completed",
+          "run.failed",
+          "approval.requested",
+          "approval.resolved",
+          "approval.escalated"
+        ],
+        "type": "string"
       },
       "WebhookSubscriptionListResponse": {
         "additionalProperties": false,
@@ -5034,6 +6960,9 @@
               }
             ]
           },
+          "execution_settings": {
+            "$ref": "#/components/schemas/StudioExecutionSettings"
+          },
           "id": {
             "type": "string"
           },
@@ -5084,6 +7013,24 @@
               }
             ]
           },
+          "estimated_cost_per_successful_run_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimated_failure_tax_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
+          "estimated_terminal_cost_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
           "failed_runs": {
             "default": 0,
             "type": "integer"
@@ -5114,6 +7061,82 @@
         },
         "required": [
           "workflow_name"
+        ],
+        "type": "object"
+      },
+      "WorkflowPreflightIssue": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "edge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "WorkflowPreflightResponse": {
+        "properties": {
+          "checks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowPreflightIssue"
+            },
+            "type": "array"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "workflow_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "version",
+          "ready",
+          "checks",
+          "issues"
         ],
         "type": "object"
       },
@@ -5481,6 +7504,43 @@
         ]
       }
     },
+    "/api/studio/v1/workflows/{workflow_id}/preflight": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowPreflightResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "studio"
+        ]
+      }
+    },
     "/api/studio/v1/workflows/{workflow_id}/publish": {
       "post": {
         "parameters": [
@@ -5499,6 +7559,53 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WorkflowDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "studio"
+        ]
+      }
+    },
+    "/api/studio/v1/workflows/{workflow_id}/verify-provider": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveProviderVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveProviderVerificationResponse"
                 }
               }
             }
@@ -5561,6 +7668,24 @@
             }
           }
         }
+      }
+    },
+    "/v1/admin/audits": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantAuditRecordListResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
       }
     },
     "/v1/admin/runs": {
@@ -5775,6 +7900,24 @@
         ]
       }
     },
+    "/v1/audit-readiness": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditReadinessResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/connectors": {
       "get": {
         "responses": {
@@ -5917,6 +8060,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectorTestRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -6539,6 +8698,61 @@
         ]
       }
     },
+    "/v1/deployments/{deployment_ref}/operations/{operation_key}/resolve": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "operation_key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationResolutionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResolutionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/deployments/{deployment_ref}/output-contract": {
       "get": {
         "parameters": [
@@ -6734,6 +8948,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/econ/configuration": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomicsConfigurationResponse"
                 }
               }
             }
@@ -7431,6 +9663,31 @@
         ]
       }
     },
+    "/v1/econ/rightsizing/experiment/latest": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ExperimentReport"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/econ/rightsizing/opportunities": {
       "get": {
         "responses": {
@@ -7461,6 +9718,19 @@
               "maximum": 1000,
               "minimum": 1,
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "deployment",
+              "enum": [
+                "deployment",
+                "tenant"
+              ],
+              "type": "string"
             }
           }
         ],
@@ -7512,6 +9782,19 @@
               "maximum": 50,
               "minimum": 1,
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "deployment",
+              "enum": [
+                "deployment",
+                "tenant"
+              ],
+              "type": "string"
             }
           }
         ],
@@ -7770,6 +10053,24 @@
         ]
       }
     },
+    "/v1/identity": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/langgraph/deployments/{deployment_ref}/attestations": {
       "post": {
         "parameters": [
@@ -7963,6 +10264,80 @@
         ]
       }
     },
+    "/v1/manifests/{manifest_ref}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "manifest_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManifestDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/manifests/{manifest_ref}/runs": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "manifest_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManifestRunListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/metrics": {
       "get": {
         "responses": {
@@ -7970,6 +10345,49 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/retention/erasure-history": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ErasureHistoryEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -8017,6 +10435,25 @@
       }
     },
     "/v1/retention/legal-holds": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LegalHoldResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      },
       "post": {
         "requestBody": {
           "content": {
@@ -8235,6 +10672,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuditVerificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/children": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChildRunSummaryResponse"
+                  },
+                  "type": "array"
                 }
               }
             }
@@ -8681,6 +11158,61 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/webhooks/deliveries": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subscription_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDeliveryListResponse"
                 }
               }
             }

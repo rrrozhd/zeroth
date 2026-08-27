@@ -71,6 +71,8 @@ class ServiceBootstrap:
     # Phase 13: Regulus economics integration (optional).
     regulus_client: RegulusClient | None = None
     budget_enforcer: object | None = None
+    # Persistent admission + audit/economics bridge for explicitly costed probes.
+    probe_instrumentation: object | None = None
     # Phase 14: Memory connector registry (populated at bootstrap).
     memory_registry: InMemoryConnectorRegistry | None = None
     # Runtime-managed connector configs (console CRUD; persisted across boots).
@@ -97,6 +99,8 @@ class ServiceBootstrap:
     http_client: object | None = None
     # Phase 36: Template registry for prompt template management.
     template_registry: object | None = None
+    # Provider-neutral published/deployed graph reference guard for template deletion.
+    template_dependency_checker: object | None = None
     # Phase 37: Context window management is enabled by default.
     # Per-node settings on AgentNodeData control whether compaction is active.
     # No explicit bootstrap wiring needed -- orchestrator.context_window_enabled defaults True.
@@ -114,6 +118,15 @@ class ServiceBootstrap:
     # even when ``signer`` is absent (signing disabled), because rows signed
     # before signing was turned off still have to verify. Never used to sign.
     verifier: SigningKeyProvider | None = None
+    # Evaluation-only strict campaign marker. When present, every billable
+    # probe and run request must carry this exact identity.
+    evaluation_campaign_id: str | None = None
+    # Evaluation-only runtime metadata. These are explicit fields because this
+    # container is slotted; the live service must never rely on dynamic attrs.
+    evaluation_campaign: object | None = None
+    evaluation_fault_state: object | None = None
+    evaluation_receipt_restart_barriers: object | None = None
+    evaluation_webhook_sink: object | None = None
     # LangGraph Agent Server gateway foundation. All remain absent when the
     # mode is disabled so the ordinary service creates no upstream client or
     # probe traffic.
@@ -186,6 +199,12 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             # Same reason again: the verify-side provider is an additive
             # component, not a change to the capability the fixture names.
             "verifier",
+            "evaluation_campaign",
+            "evaluation_fault_state",
+            "evaluation_receipt_restart_barriers",
+            "evaluation_campaign_id",
+            "probe_instrumentation",
+            "template_dependency_checker",
         }
     ]
 )

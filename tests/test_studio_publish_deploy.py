@@ -128,6 +128,32 @@ async def test_publish_without_entrypoint_returns_structured_422() -> None:
     assert any(i["code"] == "missing_entrypoint_node" for i in issues), issues
 
 
+async def test_preflight_resolves_explicitly_versioned_contract_references() -> None:
+    app, registry = _make_env()
+    await _register_contracts(registry)
+    entry = _entry_node_payload()
+    agent = _agent_node_payload()
+    for node in (entry, agent):
+        node["data"]["input_contract_ref"] += "@1"
+        node["data"]["output_contract_ref"] += "@1"
+
+    with TestClient(app) as client:
+        created = client.post("/api/studio/v1/workflows", json={"name": "wf"}).json()
+        updated = client.put(
+            f"/api/studio/v1/workflows/{created['id']}",
+            json={
+                "nodes": [entry, agent],
+                "edges": [{"id": "e1", "source": "start", "target": "agent"}],
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        response = client.post(f"/api/studio/v1/workflows/{created['id']}/preflight")
+
+    assert response.status_code == 200
+    assert response.json()["ready"] is True
+    assert response.json()["issues"] == []
+
+
 async def test_canvas_draft_publishes_and_deploys_without_python() -> None:
     app, registry = _make_env()
     await _register_contracts(registry)

@@ -16,6 +16,15 @@ from tests.service.helpers import (
     wait_for,
 )
 from zeroth.contracts.graph import GraphRepository
+from zeroth.contracts.graph import (
+    DisplayMetadata,
+    ExecutionSettings,
+    Graph,
+    SubgraphNode,
+    SubgraphNodeData,
+)
+from zeroth.platform.signing import EnvHmacSigner
+from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 from zeroth.service.bootstrap import bootstrap_app
 
 #: Statuses a run can still leave on its own. Anything else is terminal.
@@ -134,6 +143,104 @@ async def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope
 
     assert missing_response.status_code == 404
     assert missing_response.json() == {"detail": "approval not found"}
+
+
+async def test_parent_approval_api_discovers_and_resumes_child_gate(sqlite_db) -> None:
+    """The served parent authorizes its real child approval without changing provenance."""
+    child_service, _ = await deploy_service(
+        sqlite_db,
+        approval_graph(graph_id="approval-api-child-graph"),
+        deployment_ref="approval-api-child",
+    )
+    parent_graph = Graph(
+        graph_id="approval-api-parent-graph",
+        name="Approval API parent graph",
+        version=1,
+        entry_step="child",
+        execution_settings=ExecutionSettings(max_total_steps=10),
+        nodes=[
+            SubgraphNode(
+                node_id="child",
+                graph_version_ref="approval-api-parent-graph@1",
+                display=DisplayMetadata(title="Approval child"),
+                input_contract_ref="contract://input",
+                output_contract_ref="contract://output",
+                subgraph=SubgraphNodeData(graph_ref="approval-api-child"),
+            )
+        ],
+        edges=[],
+    )
+    graph_repository = GraphRepository(sqlite_db)
+    parent_graph = await graph_repository.create(parent_graph)
+    parent_graph = await graph_repository.publish(parent_graph.graph_id, parent_graph.version)
+    parent_deployment = await child_service.deployment_service.deploy(
+        "approval-api-parent",
+        parent_graph.graph_id,
+        parent_graph.version,
+    )
+    service = await bootstrap_scoped_service(
+        sqlite_db,
+        deployment_ref=parent_deployment.deployment_ref,
+        auth_config=child_service.auth_config,
+    )
+    signer = EnvHmacSigner(
+        key_id="approval-api-child-continuation",
+        keys={"approval-api-child-continuation": b"test-key"},
+    )
+    service.audit_repository._signer = signer  # noqa: SLF001 - test wiring seam
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=parent_deployment.deployment_ref,
+        auth_config=child_service.auth_config,
+    )
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        run_id = client.post(
+            "/runs",
+            json={"input_payload": {"value": 7}},
+            headers=operator_headers(),
+        ).json()["run_id"]
+        wait_for(
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "paused_for_approval"
+            ),
+            describe=_describe(client, run_id, "child_approval_pause"),
+        )
+
+        pending = client.get(
+            f"/deployments/{parent_deployment.deployment_ref}/approvals",
+            headers=operator_headers(),
+        )
+        assert pending.status_code == 200
+        [approval] = pending.json()
+        assert approval["deployment_ref"] == "approval-api-child"
+        assert approval["graph_version_ref"].startswith("approval-api-child-graph:v")
+
+        response = client.post(
+            (
+                f"/deployments/{parent_deployment.deployment_ref}/approvals/"
+                f"{approval['approval_id']}/resolve"
+            ),
+            json={"decision": "approve"},
+            headers=reviewer_headers(),
+        )
+        wait_for(
+            lambda: _is_terminal(client, run_id),
+            describe=_describe(client, run_id, "child_approval_resume"),
+        )
+        settled = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
+
+    assert response.status_code == 200
+    assert response.json()["approval"]["run_id"] != run_id
+    assert response.json()["run"]["run_id"] == run_id
+    assert settled["status"] == "succeeded"
+
+    child_runs = await service.run_repository.list_child_runs(run_id)
+    assert len(child_runs) == 1
+    assert child_runs[0].deployment_ref == "approval-api-child"
+    assert child_runs[0].status.value == "COMPLETED"
 
 
 @pytest.mark.parametrize(

@@ -44,6 +44,18 @@ class QualityVerdictRequest(BaseModel):
     expected_output: str | None = None
 
 
+class EconomicsConfigurationResponse(BaseModel):
+    """Non-secret runtime economics controls visible to scoped operators."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: str
+    deployment_ref: str
+    per_run_cap_usd: float | None
+    failure_mode: Literal["fail_open", "fail_closed"]
+    source: Literal["service_runtime"] = "service_runtime"
+
+
 #: How many audit records one run may contribute before the windowed read stops
 #: being able to see all of them. A run writes one audit record per executed node,
 #: so this is a generous per-run node ceiling, not a measured average.
@@ -51,9 +63,11 @@ _AUDIT_RECORDS_PER_RUN_BOUND = 50
 
 
 async def _windowed_runs_and_audits(
-    request: Request, window: int
+    request: Request,
+    window: int,
+    scope: Literal["deployment", "tenant"] = "deployment",
 ) -> tuple[list[Run], list[NodeAuditRecord]]:
-    """Fetch the last ``window`` deployment runs plus their in-window audit records.
+    """Fetch the last ``window`` scoped runs plus their in-window audit records.
 
     Cost is attributed only to runs in the window so the dollar figures stay internally
     consistent with the run population they are divided by. Raises 503 when the
@@ -72,14 +86,23 @@ async def _windowed_runs_and_audits(
     if deployment_ref is None:
         raise HTTPException(status_code=503, detail="deployment not configured")
 
-    runs = await bootstrap.run_repository.list_runs(deployment_ref, limit=window)
+    if scope == "tenant":
+        runs = await bootstrap.run_repository.list_runs_for_scope(limit=window)
+        audit_query = AuditQuery(
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
+            workspace_scoped=deployment.workspace_id is not None,
+        )
+    else:
+        runs = await bootstrap.run_repository.list_runs(deployment_ref, limit=window)
+        audit_query = AuditQuery(deployment_ref=deployment_ref)
     run_ids = {run.run_id for run in runs}
     # The runs half of this read has always been capped by ``window``; the audit
     # half used to fetch the deployment's whole history and discard most of it in
     # Python. Bound it to the same window, scaled by the audit records one run can
     # emit, so the two halves grow together instead of one growing without limit.
     records = await bootstrap.audit_repository.list(
-        AuditQuery(deployment_ref=deployment_ref),
+        audit_query,
         limit=window * _AUDIT_RECORDS_PER_RUN_BOUND,
     )
     scoped = [r for r in records if r.run_id in run_ids]
@@ -89,10 +112,42 @@ async def _windowed_runs_and_audits(
 def register_econ_analytics_routes(app: FastAPI | APIRouter) -> None:
     """Register econ analytics routes on the FastAPI app."""
 
+    @app.get("/econ/configuration", response_model=EconomicsConfigurationResponse)
+    async def get_economics_configuration(
+        request: Request,
+    ) -> EconomicsConfigurationResponse:
+        """Return effective, non-secret economics controls for this deployment.
+
+        The values are read from the already-built runtime rather than reloading
+        process environment, so the console shows what this process enforces.
+        """
+        await require_permission(request, Permission.METRICS_READ)
+        bootstrap = getattr(request.app.state, "bootstrap", None)
+        deployment = getattr(bootstrap, "deployment", None)
+        if bootstrap is None or deployment is None:
+            raise HTTPException(status_code=503, detail="deployment runtime not configured")
+        await require_deployment_scope(request, deployment)
+        orchestrator = getattr(bootstrap, "orchestrator", None)
+        budget_enforcer = getattr(bootstrap, "budget_enforcer", None)
+        fail_closed = bool(
+            getattr(
+                budget_enforcer,
+                "fail_closed",
+                getattr(budget_enforcer, "_fail_closed", False),
+            )
+        )
+        return EconomicsConfigurationResponse(
+            tenant_id=deployment.tenant_id,
+            deployment_ref=deployment.deployment_ref,
+            per_run_cap_usd=getattr(orchestrator, "per_run_cap_usd", None),
+            failure_mode="fail_closed" if fail_closed else "fail_open",
+        )
+
     @app.get("/econ/unit-economics", response_model=UnitEconomicsReport)
     async def get_unit_economics(
         request: Request,
         window: int = Query(default=200, ge=1, le=1000),
+        scope: Literal["deployment", "tenant"] = "deployment",
     ) -> UnitEconomicsReport:
         """Cost per successful outcome and the failure tax over the last ``window`` runs.
 
@@ -102,7 +157,7 @@ def register_econ_analytics_routes(app: FastAPI | APIRouter) -> None:
         repositories themselves are unavailable.
         """
         await require_permission(request, Permission.METRICS_READ)
-        runs, scoped = await _windowed_runs_and_audits(request, window)
+        runs, scoped = await _windowed_runs_and_audits(request, window, scope)
         return unit_economics(runs, scoped)
 
     @app.get("/econ/waste", response_model=WasteRollup)
@@ -110,6 +165,7 @@ def register_econ_analytics_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         window: int = Query(default=200, ge=1, le=1000),
         limit: int = Query(default=10, ge=1, le=50),
+        scope: Literal["deployment", "tenant"] = "deployment",
     ) -> WasteRollup:
         """Deployment-wide structural-waste rollup over the last ``window`` runs.
 
@@ -119,7 +175,7 @@ def register_econ_analytics_routes(app: FastAPI | APIRouter) -> None:
         top findings. Returns 503 only when the repositories are unavailable.
         """
         await require_permission(request, Permission.METRICS_READ)
-        runs, scoped = await _windowed_runs_and_audits(request, window)
+        runs, scoped = await _windowed_runs_and_audits(request, window, scope)
         return waste_rollup(runs, scoped, top_n=limit)
 
     @app.post("/econ/quality-verdict", response_model=RunQualityVerdict)
@@ -160,7 +216,16 @@ def register_econ_analytics_routes(app: FastAPI | APIRouter) -> None:
             expected_output=body.expected_output,
             attached_at=datetime.now(UTC),
         )
-        # Merge under a single key so any other run.metadata is preserved (never clobbered).
-        run.metadata = {**(run.metadata or {}), "quality_verdict": verdict.model_dump(mode="json")}
-        await bootstrap.run_repository.put(run)
+        # A quality label interprets terminal evidence; it must not rewrite that
+        # evidence's run timestamp, thread, or checkpoint. The repository keeps
+        # the terminal recheck and metadata-only merge atomic.
+        try:
+            await bootstrap.run_repository.merge_terminal_metadata(
+                run.run_id,
+                {"quality_verdict": verdict.model_dump(mode="json")},
+            )
+        except KeyError as exc:  # a concurrent erasure removed the terminal run
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        except ValueError as exc:  # a failed run was requeued before annotation
+            raise HTTPException(status_code=409, detail="run is not terminal yet") from exc
         return verdict

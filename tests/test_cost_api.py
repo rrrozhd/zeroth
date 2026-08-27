@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,6 +21,8 @@ def _make_app(
     roles: list[ServiceRole] | None = None,
     tenant_id: str = "default",
     deployment_ref: str = "d1",
+    additional_deployment_ref: str | None = None,
+    campaign_budget_usd: Decimal | None = None,
 ) -> FastAPI:
     """Create a minimal FastAPI app with cost routes registered.
 
@@ -38,6 +41,25 @@ def _make_app(
     bootstrap.deployment = SimpleNamespace(
         deployment_ref=deployment_ref, tenant_id=tenant_id, workspace_id=None
     )
+    bootstrap.evaluation_campaign = (
+        SimpleNamespace(campaign_budget_usd=campaign_budget_usd)
+        if campaign_budget_usd is not None
+        else None
+    )
+    deployments = {deployment_ref}
+    if additional_deployment_ref is not None:
+        deployments.add(additional_deployment_ref)
+
+    async def _get_deployment(ref: str, *, tenant_id: str, workspace_id: str | None):
+        if ref not in deployments:
+            return None
+        return SimpleNamespace(
+            deployment_ref=ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+
+    bootstrap.deployment_service.get = AsyncMock(side_effect=_get_deployment)
     app.state.bootstrap = bootstrap
 
     principal = AuthenticatedPrincipal(
@@ -79,7 +101,17 @@ class TestTenantCostEndpoint:
     def test_returns_tenant_cost_from_regulus(self) -> None:
         app = _make_app(tenant_id="t1")
         mock_client = _mock_httpx_client(
-            response_json={"total_cost_usd": 50.0, "budget_cap_usd": 100.0}
+            response_json={
+                "total_cost_usd": 50.0,
+                "actual_spend_usd": 50.0,
+                "paid_spend_usd": 45.0,
+                "estimated_spend_usd": 5.0,
+                "active_exposure_usd": 4.0,
+                "ambiguous_exposure_usd": 3.0,
+                "budget_consumed_usd": 57.0,
+                "synthetic_control_usd": 1.0,
+                "budget_cap_usd": 100.0,
+            }
         )
 
         with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
@@ -90,6 +122,13 @@ class TestTenantCostEndpoint:
         data = resp.json()
         assert data["tenant_id"] == "t1"
         assert data["total_cost_usd"] == 50.0
+        assert data["actual_spend_usd"] == 50.0
+        assert data["paid_spend_usd"] == 45.0
+        assert data["estimated_spend_usd"] == 5.0
+        assert data["active_exposure_usd"] == 4.0
+        assert data["ambiguous_exposure_usd"] == 3.0
+        assert data["budget_consumed_usd"] == 57.0
+        assert data["synthetic_control_usd"] == 1.0
         assert data["budget_cap_usd"] == 100.0
         assert data["currency"] == "USD"
 
@@ -142,9 +181,17 @@ class TestTenantCostEndpoint:
 class TestDeploymentCostEndpoint:
     """GET /v1/deployments/{deployment_ref}/cost."""
 
-    def test_returns_deployment_cost_from_regulus(self) -> None:
+    def test_returns_actual_deployment_cost_from_budget_ledger(self) -> None:
         app = _make_app()
-        mock_client = _mock_httpx_client(response_json={"total_cost_usd": 25.0})
+        mock_client = _mock_httpx_client(
+            response_json={
+                "actual_spend_usd": 25.0,
+                "paid_spend_usd": 20.0,
+                "estimated_spend_usd": 5.0,
+                "active_exposure_usd": 2.0,
+                "ambiguous_exposure_usd": 1.0,
+            }
+        )
 
         with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
             client = TestClient(app)
@@ -154,7 +201,25 @@ class TestDeploymentCostEndpoint:
         data = resp.json()
         assert data["deployment_ref"] == "d1"
         assert data["total_cost_usd"] == 25.0
+        assert data["paid_spend_usd"] == 20.0
+        assert data["estimated_spend_usd"] == 5.0
+        assert data["active_exposure_usd"] == 2.0
+        assert data["ambiguous_exposure_usd"] == 1.0
         assert data["currency"] == "USD"
+        args, kwargs = mock_client.get.await_args
+        assert args[0].endswith("/budget/status")
+        assert kwargs["params"] == {"tenant_id": "default", "deployment_ref": "d1"}
+
+    def test_returns_cost_for_listed_non_serving_deployment(self) -> None:
+        app = _make_app(additional_deployment_ref="d2")
+        mock_client = _mock_httpx_client(response_json={"actual_spend_usd": 3.5})
+
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
+            client = TestClient(app)
+            resp = client.get("/v1/deployments/d2/cost")
+
+        assert resp.status_code == 200
+        assert resp.json()["deployment_ref"] == "d2"
 
     def test_returns_503_when_regulus_unreachable(self) -> None:
         app = _make_app()
@@ -176,10 +241,12 @@ class TestDeploymentCostEndpoint:
         assert resp.status_code == 404
 
     def test_cross_tenant_deployment_cost_is_404(self) -> None:
-        # An admin whose tenant differs from the served deployment's owner is denied.
+        # An admin whose tenant differs from the registry deployment's owner is denied.
         app = _make_app(deployment_ref="d1", tenant_id="default")
-        app.state.bootstrap.deployment = SimpleNamespace(
-            deployment_ref="d1", tenant_id="globex", workspace_id=None
+        app.state.bootstrap.deployment_service.get = AsyncMock(
+            return_value=SimpleNamespace(
+                deployment_ref="d1", tenant_id="globex", workspace_id=None
+            )
         )
         client = TestClient(app)
         resp = client.get("/v1/deployments/d1/cost")
@@ -230,7 +297,18 @@ class TestTenantBudgetEndpoint:
     def test_admin_sets_cap_and_gets_status_back(self) -> None:
         app = _make_app(tenant_id="t1")
         mock_client = _mock_httpx_client(
-            response_json={"tenant_id": "t1", "total_cost_usd": 2.5, "budget_cap_usd": 10.0}
+            response_json={
+                "tenant_id": "t1",
+                "total_cost_usd": 4.0,
+                "actual_spend_usd": 2.5,
+                "paid_spend_usd": 2.0,
+                "estimated_spend_usd": 0.5,
+                "active_exposure_usd": 1.0,
+                "ambiguous_exposure_usd": 0.5,
+                "budget_consumed_usd": 4.0,
+                "synthetic_control_usd": 0.25,
+                "budget_cap_usd": 10.0,
+            }
         )
         mock_client.put = mock_client.get  # same canned-response AsyncMock shape
 
@@ -241,7 +319,30 @@ class TestTenantBudgetEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["budget_cap_usd"] == 10.0
-        assert data["total_cost_usd"] == 2.5
+        assert data["total_cost_usd"] == 4.0
+        assert data["actual_spend_usd"] == 2.5
+        assert data["paid_spend_usd"] == 2.0
+        assert data["estimated_spend_usd"] == 0.5
+        assert data["active_exposure_usd"] == 1.0
+        assert data["ambiguous_exposure_usd"] == 0.5
+        assert data["budget_consumed_usd"] == 4.0
+        assert data["synthetic_control_usd"] == 0.25
+
+    def test_live_campaign_cannot_raise_cap_above_approved_ceiling(self) -> None:
+        app = _make_app(tenant_id="t1", campaign_budget_usd=Decimal("10.00"))
+        mock_client = _mock_httpx_client(response_json={"budget_cap_usd": 10.0})
+        mock_client.put = mock_client.get
+
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
+            client = TestClient(app)
+            response = client.put(
+                "/v1/tenants/t1/budget",
+                json={"budget_cap_usd": 10.01},
+            )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "budget cap exceeds the active campaign ceiling"
+        mock_client.put.assert_not_awaited()
 
     def test_cross_tenant_set_cap_forbidden(self) -> None:
         # F4 regression: an admin of tenant "acme" must not overwrite tenant

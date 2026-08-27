@@ -36,10 +36,28 @@ export const NODE_META: Record<string, { blurb: string; help: string; icon: stri
     icon: "M9 12l2 2 4-4 M12 3a9 9 0 100 18 9 9 0 000-18z",
     color: "var(--nt-approval)",
   },
+  if: {
+    blurb: "Two-way decision",
+    help: "Evaluates one expression and sends the payload through the True or False output. The condition lives here, not on connection labels.",
+    icon: "M4 12h5 M9 12l4-5 M9 12l4 5 M13 7h7 M13 17h7",
+    color: "var(--nt-loop)",
+  },
+  loop: {
+    blurb: "Bounded retry controller",
+    help: "Runs its body once, then evaluates the done condition after each return. Repeat permits additional attempts up to Max retries; Done means the condition matched; Limit means the retry budget was exhausted.",
+    icon: "M17 2l4 4-4 4 M21 6h-7a7 7 0 00-7 7 M7 22l-4-4 4-4 M3 18h7a7 7 0 007-7",
+    color: "var(--nt-loop)",
+  },
   retrieval: {
     blurb: "Retrieve grounding (RAG)",
     help: "Queries a knowledge/memory connector and passes the top matches downstream — the grounding step in a RAG flow.",
     icon: "M11 17a6 6 0 100-12 6 6 0 000 12z M21 21l-4.3-4.3",
+    color: "var(--nt-retrieval)",
+  },
+  http_request: {
+    blurb: "Resilient private GET",
+    help: "Performs a bounded GET through Zeroth's resilient HTTP client with retries, timeout, circuit breaking, capability enforcement, sanitized signed audit facts, and measured zero provider cost. This first slice accepts only localhost or literal private-network addresses.",
+    icon: "M10 13a5 5 0 007.1 0l2-2a5 5 0 00-7.1-7.1l-1.1 1.1 M14 11a5 5 0 00-7.1 0l-2 2A5 5 0 0012 20.1l1.1-1.1",
     color: "var(--nt-retrieval)",
   },
   subgraph: {

@@ -15,6 +15,12 @@ class ExecutionEvent(BaseModel):
     execution_id: str = Field(default_factory=lambda: f"exec_{uuid4().hex}")
     join_key: str | None = None
     tenant_id: str | None = None
+    campaign_id: str | None = None
+    operation_id: str | None = None
+    deployment_ref: str | None = None
+    evidence_kind: Literal["production", "synthetic_control", "legacy_unknown"] = "production"
+    provider_request_id: str | None = None
+    cleanup_status: str | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     capability_id: str
     implementation_id: str
@@ -55,7 +61,17 @@ ExecutionEvent.__signature__ = _execution_event_signature.replace(
         if name in {"token_cost_usd", "tool_cost_usd", "compute_cost_usd"}
         else parameter
         for name, parameter in _execution_event_signature.parameters.items()
-        if name not in {"cost_measurement", "usage_measurement"}
+        if name
+        not in {
+            "campaign_id",
+            "operation_id",
+            "deployment_ref",
+            "evidence_kind",
+            "provider_request_id",
+            "cleanup_status",
+            "cost_measurement",
+            "usage_measurement",
+        }
     ]
 )
 

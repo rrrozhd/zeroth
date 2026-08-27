@@ -3,11 +3,19 @@
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { InlineConnectorSettings } from "@/app/components/ConnectorInline";
+import { AgentTemplateBindings } from "@/app/components/AgentTemplateBindings";
+import { AgentContextWindowControls } from "@/app/components/AgentContextWindowControls";
 import { ModelRightsizing } from "@/app/components/ModelRightsizing";
+import { ManifestInspector } from "@/app/metrics/ManifestInspector";
 import { NODE_META } from "@/app/components/nodeMeta";
-import { fieldInput } from "@/app/components/ui";
+import {
+  ConsoleField,
+  ConsoleNotice,
+  consoleControlClassName,
+} from "@/app/components/primitives";
 import { createContract, errMsg } from "@/app/lib/api";
-import type { ConnectorSummary } from "@/app/lib/api";
+import type { ConnectorSummary, Template } from "@/app/lib/api";
+import { normalizeNodeType } from "@/app/lib/nodeTypes";
 
 // CodeMirror only loads when a code node's inspector actually opens — it has
 // no business in the other pages' bundles.
@@ -34,10 +42,41 @@ type Field = {
   optionsFrom?: string;
   placeholder?: string;
   hint?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 };
 
 export const FIELD_SPECS: Record<string, Field[]> = {
   entrypoint: [],
+  if: [
+    {
+      key: "expression",
+      label: "Condition",
+      kind: "textarea",
+      required: true,
+      placeholder: "payload.score >= 0.8",
+      hint: "A match exits through True; otherwise the payload exits through False.",
+    },
+  ],
+  loop: [
+    {
+      key: "until",
+      label: "Done condition",
+      kind: "textarea",
+      required: true,
+      placeholder: "payload.status == 'ready'",
+      hint: "Evaluated after each body attempt. A match exits through Done; otherwise the body repeats while retries remain.",
+    },
+    {
+      key: "max_retries",
+      label: "Max retries",
+      kind: "number",
+      required: true,
+      placeholder: "3",
+      hint: "Additional attempts after the initial body execution. Exhaustion exits through Limit.",
+    },
+  ],
   code: [
     {
       key: "inline_source",
@@ -97,6 +136,8 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       kind: "number",
       placeholder: "50",
       hint: "Cap on turns kept and replayed when persisting. Blank = keep everything.",
+      min: 1,
+      step: 1,
     },
   ],
   executable_unit: [
@@ -166,6 +207,54 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       hint: "Payload field the chunks are attached under. Default: retrieved.",
     },
   ],
+  http_request: [
+    {
+      key: "url",
+      label: "Private URL",
+      kind: "text",
+      required: true,
+      placeholder: "http://127.0.0.1:8787/health",
+      hint: "GET only. Use localhost or a literal loopback/private IP; credentials, query strings, fragments, and public hosts are refused.",
+    },
+    {
+      key: "timeout_seconds",
+      label: "Timeout (seconds)",
+      kind: "number",
+      required: true,
+      min: 0.05,
+      max: 30,
+      step: 0.05,
+      hint: "Per-attempt timeout from 0.05 to 30 seconds.",
+    },
+    {
+      key: "max_retries",
+      label: "Max retries",
+      kind: "number",
+      required: true,
+      min: 0,
+      max: 5,
+      step: 1,
+      hint: "Additional GET attempts after a retryable response or transport failure.",
+    },
+    {
+      key: "retryable_status_codes",
+      label: "Retryable status codes",
+      kind: "text",
+      required: true,
+      placeholder: "408,429,500,502,503,504",
+      hint: "Comma-separated HTTP error statuses (400–599).",
+    },
+    {
+      key: "max_response_bytes",
+      label: "Max response bytes",
+      kind: "number",
+      required: true,
+      min: 1,
+      max: 1048576,
+      step: 1,
+      hint: "Fail before persisting a response larger than this bound (maximum 1 MiB).",
+    },
+  ],
   subgraph: [
     {
       key: "graph_ref",
@@ -183,6 +272,10 @@ export const FIELD_SPECS: Record<string, Field[]> = {
     },
   ],
 };
+
+export function fieldSpecsForNodeType(studioType: string): Field[] {
+  return FIELD_SPECS[normalizeNodeType(studioType)] ?? [];
+}
 
 // Starter source for a fresh code node: a working identity transform that
 // documents the stdin/stdout contract by example.
@@ -202,10 +295,19 @@ json.dump(result, sys.stdout)
 export const DEFAULT_CONFIG: Record<string, Record<string, unknown>> = {
   agent: { instruction: "", model_provider: "" },
   entrypoint: {},
+  if: { expression: "" },
+  loop: { until: "", max_retries: 3 },
   code: { inline_source: CODE_STARTER, execution_mode: "inline" },
   executable_unit: { manifest_ref: "", execution_mode: "native" },
   human_approval: {},
   retrieval: { connector_ref: "" },
+  http_request: {
+    url: "",
+    timeout_seconds: 5,
+    max_retries: 2,
+    retryable_status_codes: [408, 429, 500, 502, 503, 504],
+    max_response_bytes: 262144,
+  },
   subgraph: { graph_ref: "" },
 };
 
@@ -224,6 +326,8 @@ export function NodeInspector({
   readOnly = false,
   dynamicOptions,
   connectors,
+  templates,
+  templateAccessError,
   onConnectorsChanged,
   onContractsChanged,
 }: {
@@ -248,12 +352,18 @@ export function NodeInspector({
   /** Full connector summaries — enables the inline settings panel under
       connector selects (edit params, test, create) without leaving the dialog. */
   connectors?: ConnectorSummary[];
+  /** Tenant-scoped prompt template versions available to this credential. */
+  templates?: Template[];
+  /** A template-list permission or availability failure. Existing refs remain visible. */
+  templateAccessError?: string | null;
   /** Re-fetch connectors after an inline create/update. */
   onConnectorsChanged?: () => void | Promise<void>;
   /** Re-fetch contracts after an inline create. */
   onContractsChanged?: () => void | Promise<void>;
 }) {
-  const fields = FIELD_SPECS[studioType] ?? [];
+  // Published graph enums can arrive upper-cased even though draft registry
+  // keys are lower-case. Read-only inspectors must expose the same fields.
+  const fields = fieldSpecsForNodeType(studioType);
 
   // Async callers (the inline connector panel's create flow) invoke setField
   // after awaited network calls — spread the latest config, not the click-time
@@ -263,12 +373,24 @@ export function NodeInspector({
 
   function setField(key: string, raw: string, kind: Field["kind"]) {
     const next = { ...configRef.current };
-    if (raw === "" && kind !== "code") {
+    if (raw === "" && kind !== "code" && key !== "retryable_status_codes") {
       // Cleared code stays an explicit "" — the backend keeps the inline
       // invariant on drafts and publish is the emptiness gate.
       delete next[key];
+      if (key === "input_messages_key") {
+        delete next.persist_conversation;
+        delete next.conversation_max_turns;
+      }
     } else {
-      next[key] = kind === "number" ? Number(raw) : raw;
+      next[key] =
+        key === "retryable_status_codes"
+          ? raw
+              .split(",")
+              .map((part) => Number(part.trim()))
+              .filter((value) => Number.isInteger(value))
+          : kind === "number"
+            ? Number(raw)
+            : raw;
     }
     onConfigChange(next);
   }
@@ -277,36 +399,43 @@ export function NodeInspector({
     const next = { ...configRef.current };
     // Unchecked = backend default (false) — drop the key like cleared text.
     if (checked) next[key] = true;
-    else delete next[key];
+    else {
+      delete next[key];
+      if (key === "persist_conversation") delete next.conversation_max_turns;
+    }
     onConfigChange(next);
   }
 
-  const inputCls = `${fieldInput} disabled:opacity-60`;
+  const inputCls = consoleControlClassName;
 
   return (
     <div className="space-y-4">
       {NODE_META[studioType]?.help && (
-        <p className="rounded-lg bg-accent/[0.06] px-3 py-2 text-xs leading-relaxed text-muted">
+        <ConsoleNotice>
           {NODE_META[studioType].help}
-        </p>
+        </ConsoleNotice>
       )}
 
-      <label className="block text-sm">
-        <span className="mb-1 block font-medium">Label</span>
+      <ConsoleField label="Label" hint={readOnly ? "Clone to edit." : undefined}>
         <input
           value={label}
           disabled={readOnly}
           onChange={(e) => onLabelChange(e.target.value)}
           className={inputCls}
         />
-        {readOnly && (
-          <span className="mt-1 block text-xs font-normal text-muted">clone to edit</span>
-        )}
-      </label>
+      </ConsoleField>
 
       {fields.map((f) => {
+        if (
+          studioType === "agent" &&
+          f.key === "conversation_max_turns" &&
+          !config.persist_conversation
+        ) {
+          return null;
+        }
         const value = config[f.key];
         const str = value === undefined || value === null ? "" : String(value);
+        const evidenceId = `studio.${studioType}.${f.key.replaceAll("_", "-")}`;
         // Dynamic selects degrade to a text input while their options haven't
         // loaded (or the API predates the endpoint) so the field stays editable.
         let options = f.options;
@@ -320,17 +449,18 @@ export function NodeInspector({
         }
         return (
           <div key={f.key}>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">
-              {f.label}
-              {f.required && <span className="text-red-600 dark:text-red-400"> *</span>}
-            </span>
+          <ConsoleField label={f.label} hint={f.hint} required={f.required}>
             {f.kind === "checkbox" ? (
               <span className="flex items-center gap-2">
                 <input
+                  data-evidence-id={evidenceId}
                   type="checkbox"
                   checked={Boolean(value)}
-                  disabled={readOnly}
+                  disabled={
+                    readOnly ||
+                    (f.key === "persist_conversation" &&
+                      !String(config.input_messages_key ?? "").trim())
+                  }
                   onChange={(e) => setBoolField(f.key, e.target.checked)}
                 />
                 <span className="text-xs text-muted">{value ? "On" : "Off"}</span>
@@ -343,17 +473,21 @@ export function NodeInspector({
               />
             ) : f.kind === "textarea" ? (
               <textarea
+                data-evidence-id={evidenceId}
                 value={str}
                 placeholder={f.placeholder}
                 disabled={readOnly}
+                required={f.required}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 rows={4}
                 className={inputCls}
               />
             ) : asSelect ? (
               <select
+                data-evidence-id={evidenceId}
                 value={str}
                 disabled={readOnly}
+                required={f.required}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 className={inputCls}
               >
@@ -374,16 +508,20 @@ export function NodeInspector({
               </select>
             ) : (
               <input
+                data-evidence-id={evidenceId}
                 value={str}
                 type={f.kind === "number" ? "number" : "text"}
+                min={f.min}
+                max={f.max}
+                step={f.step}
                 placeholder={f.placeholder}
                 disabled={readOnly}
+                required={f.required}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 className={inputCls}
               />
             )}
-            {f.hint && <span className="mt-1 block text-xs font-normal text-muted">{f.hint}</span>}
-          </label>
+          </ConsoleField>
           {/* Settings for the selected connector, editable in place — the
               panel lives outside the <label> so its buttons don't retarget
               clicks to the select. */}
@@ -413,6 +551,30 @@ export function NodeInspector({
         );
       })}
 
+      {studioType === "agent" && (
+        <AgentContextWindowControls
+          value={config.context_window}
+          readOnly={readOnly}
+          onChange={(contextWindow) => {
+            const next = { ...configRef.current };
+            if (contextWindow === null) delete next.context_window;
+            else next.context_window = contextWindow;
+            onConfigChange(next);
+          }}
+        />
+      )}
+
+      {studioType === "agent" && (
+        <AgentTemplateBindings
+          config={config}
+          templates={templates ?? []}
+          connectors={(dynamicOptions?.connectors ?? []).filter(Boolean)}
+          templateAccessError={templateAccessError}
+          readOnly={readOnly}
+          onChange={onConfigChange}
+        />
+      )}
+
       {studioType === "agent" && toolTargets && (
         <AgentToolBindings
           targets={toolTargets}
@@ -422,6 +584,20 @@ export function NodeInspector({
           onChange={(next) => onConfigChange({ ...configRef.current, tool_bindings: next })}
         />
       )}
+
+      {studioType === "executable_unit" &&
+        typeof config.manifest_ref === "string" &&
+        config.manifest_ref.trim() !== "" && (
+          <details
+            data-evidence-scope="registered-manifest"
+            className="rounded-lg border border-border bg-raised"
+          >
+            <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              Inspect registered manifest
+            </summary>
+            <ManifestInspector manifestRef={config.manifest_ref} />
+          </details>
+        )}
 
       {onContractRefChange && studioType === "entrypoint" && (
         <fieldset className="space-y-4 border-t border-border pt-4">
@@ -548,7 +724,7 @@ function AgentToolBindings({
           <div key={t.id} className="space-y-2 rounded-lg border border-border p-2.5">
             <div className="flex items-baseline justify-between gap-2">
               <span className="truncate text-xs font-semibold">{t.label}</span>
-              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
+              <span className="shrink-0 font-mono text-[10px] text-muted">
                 {t.id}
               </span>
             </div>
@@ -678,9 +854,10 @@ function AgentToolBindings({
       {orphans.map((b) => (
         <div
           key={b.target_node_id}
-          className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/[0.07] p-2.5 text-xs"
+          className="flex items-center justify-between gap-2 rounded-lg border border-border bg-raised p-2.5 text-xs"
         >
           <span className="min-w-0 truncate">
+            <strong className="text-warning">Detached tool</strong>{" — "}
             <span className="font-semibold">{b.name || "(unnamed tool)"}</span> points at{" "}
             <span className="font-mono">{b.target_node_id}</span>, which is no longer attached.
           </span>
@@ -835,8 +1012,8 @@ function ContractPicker({
           </span>
         </label>
         {error && (
-          <p className="rounded bg-red-500/10 px-2 py-1 text-xs text-red-700 dark:text-red-400">
-            {error}
+          <p className="rounded border border-border bg-surface px-2 py-1 text-xs text-foreground">
+            <strong className="text-danger">Error</strong>{" — "}{error}
           </p>
         )}
         <div className="flex justify-end gap-2">

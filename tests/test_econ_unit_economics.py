@@ -33,7 +33,13 @@ def _run(
     )
 
 
-def _audit(run_id: str, cost: float, *, node_id: str = "agent") -> NodeAuditRecord:
+def _audit(
+    run_id: str,
+    cost: float | None,
+    *,
+    estimated_cost: float | None = None,
+    node_id: str = "agent",
+) -> NodeAuditRecord:
     return NodeAuditRecord(
         tenant_id="default",
         workspace_id=None,
@@ -44,6 +50,7 @@ def _audit(run_id: str, cost: float, *, node_id: str = "agent") -> NodeAuditReco
         deployment_ref="default",
         status="completed",
         cost_usd=cost,
+        estimated_cost_usd=estimated_cost,
     )
 
 
@@ -206,3 +213,62 @@ def test_audit_for_out_of_window_run_is_ignored():
 
     assert report.total_cost_usd == 0.10
     assert report.cost_per_successful_run_usd == 0.10
+
+
+def test_failed_only_estimated_spend_is_visible_without_becoming_measured():
+    report = unit_economics(
+        [_run("f1", RunStatus.FAILED)],
+        [_audit("f1", None, estimated_cost=0.20)],
+    )
+
+    assert report.total_cost_usd == 0.0
+    assert report.failure_tax_usd == 0.0
+    assert report.runs_with_cost == 0
+    assert report.cost_per_successful_run_usd is None
+    assert report.estimated_total_cost_usd == 0.20
+    assert report.estimated_failure_tax_usd == 0.20
+    assert report.estimated_failure_tax_ratio == 1.0
+    assert report.runs_with_estimated_cost == 1
+    assert report.estimated_cost_per_successful_run_usd is None
+    assert report.by_workflow[0].estimated_failure_tax_usd == 0.20
+    assert report.by_tenant[0].estimated_failure_tax_usd == 0.20
+    assert "estimated" in report.note.lower()
+
+
+def test_measured_and_estimated_spend_are_aggregated_in_separate_channels():
+    report = unit_economics(
+        [
+            _run("s1", RunStatus.COMPLETED),
+            _run("f-measured", RunStatus.FAILED),
+            _run("f-estimated", RunStatus.FAILED),
+        ],
+        [
+            _audit("s1", None, estimated_cost=0.10),
+            _audit("f-measured", 0.20),
+            _audit("f-estimated", None, estimated_cost=0.30),
+        ],
+    )
+
+    assert report.total_cost_usd == 0.20
+    assert report.terminal_cost_usd == 0.20
+    assert report.cost_on_successful_usd == 0.0
+    assert report.failure_tax_usd == 0.20
+    assert report.runs_with_cost == 1
+    assert report.estimated_total_cost_usd == 0.40
+    assert report.estimated_terminal_cost_usd == 0.40
+    assert report.estimated_cost_on_successful_usd == 0.10
+    assert report.estimated_failure_tax_usd == 0.30
+    assert report.runs_with_estimated_cost == 2
+    assert report.estimated_cost_per_successful_run_usd == 0.40
+    assert report.estimated_mean_cost_per_successful_run_usd == 0.10
+
+
+def test_estimated_only_success_note_does_not_present_zero_as_the_true_cost():
+    report = unit_economics(
+        [_run("s1", RunStatus.COMPLETED)],
+        [_audit("s1", None, estimated_cost=0.10)],
+    )
+
+    assert "estimated" in report.note.lower()
+    assert "$0.1000" in report.note
+    assert "costs ~$0.0000" not in report.note

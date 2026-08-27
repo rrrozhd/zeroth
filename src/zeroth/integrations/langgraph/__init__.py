@@ -80,8 +80,10 @@ from importlib import import_module
 from typing import Any
 
 from zeroth.integrations.langgraph._action_lifecycle import (
+    ActionExecutionClaim,
     ActionExecutionRecord,
     ActionExecutionState,
+    ReconciliationRecord,
     SQLiteActionExecutionRepository,
 )
 from zeroth.integrations.langgraph._approval_lifecycle import (
@@ -101,6 +103,10 @@ from zeroth.integrations.langgraph._genai import (
     map_causal_span,
 )
 from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
+from zeroth.integrations.langgraph._repository_protocols import (
+    ActionExecutionRepository,
+    ApprovalRepository,
+)
 from zeroth.integrations.langgraph._spans import CausalSpan, SpanKind, SpanStatus
 from zeroth.integrations.langgraph._tool_decision_http import (
     DEFAULT_DECISION_TIMEOUT_SECONDS,
@@ -231,8 +237,12 @@ __all__ = [
     "ApprovalState",
     "ApprovalTransition",
     "SQLiteApprovalRepository",
+    "ApprovalRepository",
+    "ActionExecutionClaim",
     "ActionExecutionRecord",
+    "ActionExecutionRepository",
     "ActionExecutionState",
+    "ReconciliationRecord",
     "SQLiteActionExecutionRepository",
     # --- tool governance: the typed refusals a governed call can raise --------
     "ToolGovernanceError",

@@ -39,15 +39,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
-  Card,
   CodeBlock,
-  MonoLabel,
+  ConsoleEmpty,
+  ConsoleInput,
+  ConsoleNotice,
+  ConsolePage,
+  ConsolePageHeader,
+  ConsoleSection,
+  ConsoleSurface,
+  ConsoleTableFrame,
   Pill,
   Skeleton,
   StatusDot,
 } from "@/app/components/primitives";
+import { EconomicsPanel } from "@/app/regulus/EconomicsPanel";
+import { EconomicsWorkspaceNav } from "@/app/components/EconomicsWorkspaceNav";
 import { useLoad } from "@/app/hooks/useLoad";
 import { ApiError, errMsg } from "@/app/lib/api";
+import { fmtUsd as fmtKnownUsd } from "@/app/components/ui";
 import {
   rgCostProfile,
   rgEstimateLatest,
@@ -57,6 +66,7 @@ import {
   type CostEstimate,
 } from "@/app/lib/regulusApi";
 import { isConfigured } from "@/app/lib/config";
+import styles from "../subpages.module.css";
 
 const MONO = "var(--font-mono)";
 const MAX_TILES = 24; // cap the numeric-tile preview; the JSON block always has all of it
@@ -75,9 +85,7 @@ function fmtNumber(n: number): string {
 
 function fmtUsd(n: unknown): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
-  const sign = n < 0 ? "-" : "";
-  const abs = Math.abs(n);
-  return `${sign}$${abs >= 1 ? abs.toFixed(2) : abs.toFixed(4)}`;
+  return fmtKnownUsd(n);
 }
 
 function fmtPct(n: unknown): string {
@@ -142,24 +150,29 @@ export default function CostingPage() {
   const connected = mounted && isConfigured();
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
-      <header style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Costing</h1>
-        <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
-          Cost model &amp; value estimates from the econ control plane.
-        </p>
-      </header>
+    <ConsolePage>
+      <ConsolePageHeader
+        title="Costing"
+        description="Cost models and value estimates from the economic control plane."
+      />
+
+      <EconomicsWorkspaceNav active="models" />
+
+      <ConsoleNotice title="Data context">
+        Scope: platform-admin control plane · Window: latest profile or estimate · Source: Regulus ·
+        Freshness: current request. Restricted data returns an authorization explanation in place.
+      </ConsoleNotice>
 
       {!connected ? (
         <ConnectNote />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        <div className={styles.stack}>
           <PerformanceSection />
           <CostProfileLookup />
           <ValueEstimateLookup />
         </div>
       )}
-    </div>
+    </ConsolePage>
   );
 }
 
@@ -227,47 +240,46 @@ function PerformanceSection() {
   const busy = summary.loading || caps.loading;
 
   return (
-    <section>
-      <SectionHead label="Performance summary">
+    <ConsoleSection
+      title="Performance summary"
+      actions={
         <Button
           onClick={() => {
             summary.reload();
             caps.reload();
           }}
           disabled={busy}
-          style={{ padding: "4px 9px" }}
         >
           {busy ? "Loading…" : "Refresh"}
         </Button>
-      </SectionHead>
+      }
+    >
 
-      <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-faint)", lineHeight: 1.55 }}>
-        Portfolio-level econ performance from the control plane. The body has no fixed schema —
-        numeric fields surface as tiles; the full payload is always shown below.
+      <p className={styles.sectionNote}>
+        Portfolio-level econ performance from the control plane. The body has no fixed schema;
+        numeric fields are summarized first and the full payload remains available below.
       </p>
 
       {/* Summary */}
       {summary.loading && !summary.data ? (
-        <Card pad={16}>
-          <div style={tileGrid}>
+        <ConsoleSurface>
+          <div className={styles.metricGrid}>
             {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} height={58} />
             ))}
           </div>
           <div style={{ height: 12 }} />
           <Skeleton height={110} />
-        </Card>
+        </ConsoleSurface>
       ) : summary.error ? (
         <InlineError message={summary.error} onRetry={summary.reload} />
       ) : summary.data == null ? (
-        <Card pad={16}>
-          <EmptyInline>No performance summary reported.</EmptyInline>
-        </Card>
+        <ConsoleEmpty>No performance summary reported.</ConsoleEmpty>
       ) : (
-        <Card pad={16} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <ConsoleSurface className={styles.resultStack}>
           {sv.tiles.length > 0 && (
             <div>
-              <div style={tileGrid}>
+              <div className={styles.metricGrid}>
                 {sv.tiles.map((t) => (
                   <Tile key={t.key} label={t.key} value={t.value} />
                 ))}
@@ -280,31 +292,27 @@ function PerformanceSection() {
             </div>
           )}
           <ScrollJson label="Summary (JSON)" code={sv.json} />
-        </Card>
+        </ConsoleSurface>
       )}
 
       {/* Capabilities */}
-      <div style={{ height: 12 }} />
-      <MonoLabel style={{ display: "block", marginBottom: 8 }}>Capabilities</MonoLabel>
+      <h3 className={styles.subheading}>Capabilities</h3>
 
       {caps.loading && !caps.data ? (
-        <Card pad={14}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <ConsoleSurface density="compact">
+          <div className={styles.loadingStack}>
             {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} height={26} />
             ))}
           </div>
-        </Card>
+        </ConsoleSurface>
       ) : caps.error ? (
         <InlineError message={caps.error} onRetry={caps.reload} />
       ) : caps.data == null || cv.kind === "empty" ? (
-        <Card pad={16}>
-          <EmptyInline>No per-capability performance rows.</EmptyInline>
-        </Card>
+        <ConsoleEmpty>No per-capability performance rows.</ConsoleEmpty>
       ) : cv.kind === "table" ? (
-        <Card pad={0} style={{ overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <ConsoleTableFrame ariaLabel="Cost estimates">
+            <table className={styles.table}>
               <thead>
                 <tr>
                   {cv.columns.map((c) => (
@@ -314,11 +322,9 @@ function PerformanceSection() {
                         textAlign: "left",
                         padding: "10px 14px",
                         borderBottom: "1px solid var(--hair)",
-                        fontFamily: MONO,
-                        fontSize: 10,
+                        fontFamily: "var(--font-sans)",
+                        fontSize: 11,
                         fontWeight: 500,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.07em",
                         color: "var(--text-faint)",
                         whiteSpace: "nowrap",
                       }}
@@ -357,22 +363,21 @@ function PerformanceSection() {
                 ))}
               </tbody>
             </table>
-          </div>
           {cv.total > cv.rows.length && (
-            <p style={{ margin: 0, padding: "8px 14px", fontSize: 11, color: "var(--text-faint)" }}>
+            <p className={styles.overflowNote}>
               Showing {cv.rows.length} of {cv.total} rows — full set in the JSON below.
             </p>
           )}
-          <div style={{ padding: 14, borderTop: "1px solid var(--hair)" }}>
+          <div className={styles.jsonInset}>
             <ScrollJson label="Capabilities (JSON)" code={cv.json} />
           </div>
-        </Card>
+        </ConsoleTableFrame>
       ) : (
-        <Card pad={16}>
+        <ConsoleSurface>
           <ScrollJson label="Capabilities (JSON)" code={cv.json} />
-        </Card>
+        </ConsoleSurface>
       )}
-    </section>
+    </ConsoleSection>
   );
 }
 
@@ -433,15 +438,14 @@ function LookupCard<T>({
   }
 
   return (
-    <section>
-      <SectionHead label={label} />
-      <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-faint)", lineHeight: 1.55 }}>
+    <EconomicsPanel title={label} evidenceScope={label}>
+      <p className={styles.sectionNote}>
         {hint}
       </p>
 
-      <Card pad={16} style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-          <input
+      <div className={styles.resultStack}>
+        <div className={styles.toolbar}>
+          <ConsoleInput
             value={id}
             onChange={(e) => setId(e.target.value)}
             onKeyDown={(e) => {
@@ -451,18 +455,6 @@ function LookupCard<T>({
             aria-label={inputLabel}
             spellCheck={false}
             autoComplete="off"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontFamily: MONO,
-              fontSize: 13,
-              color: "var(--text-primary)",
-              background: "var(--bg-code)",
-              border: "1px solid var(--hair-strong)",
-              borderRadius: 6,
-              outline: "none",
-              padding: "9px 12px",
-            }}
           />
           <Button variant="primary" onClick={() => run(id)} disabled={state.phase === "loading"}>
             {state.phase === "loading" ? "Fetching…" : "Fetch"}
@@ -472,8 +464,8 @@ function LookupCard<T>({
         {hintMsg && <EmptyInline>{hintMsg}</EmptyInline>}
 
         {state.phase === "loading" ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={tileGrid}>
+          <div className={styles.loadingStack}>
+            <div className={styles.metricGrid}>
               {Array.from({ length: 4 }).map((_, i) => (
                 <Skeleton key={i} height={58} />
               ))}
@@ -487,15 +479,15 @@ function LookupCard<T>({
             <InlineError message={state.message} onRetry={() => run(lastId.current)} />
           )
         ) : state.phase === "done" ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div className={styles.resultStack}>
             {renderResult(state.data as T)}
             <ScrollJson label={jsonLabel} code={toJson(state.data)} />
           </div>
         ) : (
           <EmptyInline>{idleHint}</EmptyInline>
         )}
-      </Card>
-    </section>
+      </div>
+    </EconomicsPanel>
   );
 }
 
@@ -539,7 +531,7 @@ function ValueEstimateLookup() {
 
 function renderProfile(d: CostProfileOut) {
   return (
-    <div style={tileGrid}>
+    <div className={styles.metricGrid}>
       <Tile label="capability_id" value={typeof d.capability_id === "string" ? d.capability_id : "—"} />
       <Tile label="profile id" value={fmtInt(d.id)} />
       <Tile label="requests / period" value={fmtInt(d.requests_per_period)} />
@@ -559,10 +551,10 @@ function renderEstimate(d: CostEstimate) {
       : "";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className={styles.resultStack}>
       {/* Headline: total cost estimate */}
       <div>
-        <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 600, lineHeight: 1.1 }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums", fontSize: 24, fontWeight: 500, lineHeight: 1.1 }}>
           {fmtUsd(d.total_cost_estimate_usd)}
         </div>
         <div
@@ -580,7 +572,7 @@ function renderEstimate(d: CostEstimate) {
       </div>
 
       {/* Cost breakdown */}
-      <div style={tileGrid}>
+      <div className={styles.metricGrid}>
         <Tile label="llm cost" value={fmtUsd(d.llm_cost_estimate_usd)} />
         <Tile label="tool cost" value={fmtUsd(d.tool_cost_estimate_usd)} />
         <Tile label="infra cost" value={fmtUsd(d.infra_cost_estimate_usd)} />
@@ -611,7 +603,7 @@ function renderEstimate(d: CostEstimate) {
       {/* Period */}
       <div
         style={{
-          fontFamily: MONO,
+          fontFamily: "var(--font-sans)",
           fontSize: 11,
           color: "var(--text-faint)",
           overflowWrap: "anywhere",
@@ -640,52 +632,18 @@ function GatePill({ passed }: { passed: unknown }) {
 // Shared bits (mirror the Metrics / Cost screens)
 // --------------------------------------------------------------------------
 
-const tileGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-  gap: 10,
-};
-
 function Tile({ label, value }: { label: string; value: string }) {
   return (
-    <div
-      style={{
-        minWidth: 0,
-        background: "var(--bg-raised)",
-        border: "1px solid var(--hair)",
-        borderRadius: 6,
-        padding: "10px 12px",
-      }}
-    >
+    <div className={styles.metricTile}>
       <div
         title={value}
-        style={{
-          fontFamily: MONO,
-          fontSize: 18,
-          fontWeight: 600,
-          color: "var(--text-primary)",
-          fontVariantNumeric: "tabular-nums",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
+        className={styles.metricValue}
       >
         {value}
       </div>
       <div
         title={label}
-        style={{
-          marginTop: 4,
-          fontFamily: MONO,
-          fontSize: 10,
-          fontWeight: 500,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          color: "var(--text-faint)",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
+        className={styles.metricLabel}
       >
         {label}
       </div>
@@ -702,36 +660,16 @@ function ScrollJson({ label, code }: { label: string; code: string }) {
   );
 }
 
-function SectionHead({ label, children }: { label: string; children?: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 8,
-        marginBottom: 10,
-      }}
-    >
-      <MonoLabel>{label}</MonoLabel>
-      {children}
-    </div>
-  );
-}
-
 function EmptyInline({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 12.5, color: "var(--text-faint)", lineHeight: 1.55 }}>{children}</div>;
+  return <p className={styles.emptyInline}>{children}</p>;
 }
 
 function ConnectNote() {
   return (
-    <Card pad={20}>
-      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-        Not connected. Open <span style={{ color: "var(--accent)" }}>Connect</span> (bottom-left) to set the
-        API base and key — the Costing screen reads the econ control plane through the admin-gated Regulus
-        proxy.
-      </div>
-    </Card>
+    <ConsoleNotice title="Not connected">
+      Open Connect in the sidebar to set the API base and key. Costing reads through
+      the admin-gated Regulus proxy.
+    </ConsoleNotice>
   );
 }
 
@@ -739,55 +677,26 @@ function ConnectNote() {
  *  not a failure, so it reads neutral rather than red. Retry re-runs the same id. */
 function NotFoundNote({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "var(--bg-raised)",
-        border: "1px solid var(--hair)",
-        borderRadius: 8,
-        padding: "10px 12px",
-      }}
+    <ConsoleNotice
+      title="No matching record"
+      actions={<Button variant="neutral" onClick={onRetry}>Try again</Button>}
     >
-      <span style={{ fontSize: 12.5, color: "var(--text-muted)", minWidth: 0 }}>{message}</span>
-      <Button variant="neutral" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Try again
-      </Button>
-    </div>
+      {message}
+    </ConsoleNotice>
   );
 }
 
 function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const restricted = message.startsWith("403");
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "rgba(248,113,113,0.08)",
-        border: "1px solid rgba(248,113,113,0.3)",
-        borderRadius: 8,
-        padding: "10px 12px",
-      }}
+    <ConsoleNotice
+      tone={restricted ? undefined : "danger"}
+      title={restricted ? "Access restricted" : "Costing data unavailable"}
+      actions={restricted ? undefined : <Button variant="neutral" onClick={onRetry}>Retry</Button>}
     >
-      <span
-        style={{
-          fontSize: 12.5,
-          color: "var(--danger)",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {message}
-      </span>
-      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Retry
-      </Button>
-    </div>
+      {restricted
+        ? "This API key cannot read platform cost models. Connect with a metrics-read or platform-admin credential."
+        : message}
+    </ConsoleNotice>
   );
 }

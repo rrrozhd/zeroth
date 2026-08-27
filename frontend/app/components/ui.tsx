@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useState } from "react";
 import { errMsg } from "@/app/lib/api";
-import { getApiBase, getApiKey, isConfigured } from "@/app/lib/config";
+import { getApiBase, isConfigured } from "@/app/lib/config";
 
 // --- Async data hook: load on mount + manual refresh, with loading/error state.
 // `background` reloads (e.g. polling) don't toggle the visible loading flag.
@@ -86,65 +86,65 @@ export function Card({
 }
 
 const STATUS_TONES: Record<string, string> = {
-  completed: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
-  succeeded: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
-  published: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
-  approved: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
-  resolved: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
-  ok: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
-  active: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
-  running: "bg-blue-500/12 text-blue-700 dark:text-blue-400",
-  approval_api: "bg-blue-500/12 text-blue-700 dark:text-blue-400",
-  pending: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  queued: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  paused: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  paused_for_approval: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  awaiting_approval: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  waiting_interrupt: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  escalated: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  unavailable: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  unauthenticated: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  completed: "bg-raised text-success",
+  succeeded: "bg-raised text-success",
+  published: "bg-raised text-success",
+  approved: "bg-raised text-success",
+  resolved: "bg-raised text-success",
+  ok: "bg-raised text-success",
+  active: "bg-raised text-success",
+  running: "bg-raised text-info",
+  approval_api: "bg-raised text-info",
+  pending: "bg-raised text-warning",
+  queued: "bg-raised text-warning",
+  paused: "bg-raised text-warning",
+  paused_for_approval: "bg-raised text-warning",
+  awaiting_approval: "bg-raised text-warning",
+  waiting_interrupt: "bg-raised text-warning",
+  escalated: "bg-raised text-warning",
+  unavailable: "bg-raised text-warning",
+  unauthenticated: "bg-raised text-warning",
   draft: "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400",
   superseded: "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400",
   cancelled: "bg-zinc-500/12 text-zinc-600 dark:text-zinc-400",
-  failed: "bg-red-500/12 text-red-700 dark:text-red-400",
-  error: "bg-red-500/12 text-red-700 dark:text-red-400",
-  forbidden: "bg-red-500/12 text-red-700 dark:text-red-400",
-  rejected: "bg-red-500/12 text-red-700 dark:text-red-400",
-  terminated_by_policy: "bg-red-500/12 text-red-700 dark:text-red-400",
-  terminated_by_loop_guard: "bg-red-500/12 text-red-700 dark:text-red-400",
-  dead_letter: "bg-red-500/12 text-red-700 dark:text-red-400",
+  failed: "bg-raised text-danger",
+  error: "bg-raised text-danger",
+  forbidden: "bg-raised text-danger",
+  rejected: "bg-raised text-danger",
+  terminated_by_policy: "bg-raised text-danger",
+  terminated_by_loop_guard: "bg-raised text-danger",
+  dead_letter: "bg-raised text-danger",
 };
 
 const DOT_TONES: Record<string, string> = {
-  completed: "bg-emerald-500",
-  succeeded: "bg-emerald-500",
-  published: "bg-emerald-500",
-  approved: "bg-emerald-500",
-  resolved: "bg-emerald-500",
-  ok: "bg-emerald-500",
-  active: "bg-emerald-500",
-  running: "bg-blue-500",
-  approval_api: "bg-blue-500",
-  pending: "bg-amber-500",
-  queued: "bg-amber-500",
-  paused: "bg-amber-500",
-  paused_for_approval: "bg-amber-500",
-  awaiting_approval: "bg-amber-500",
-  waiting_interrupt: "bg-amber-500",
-  escalated: "bg-amber-500",
-  unavailable: "bg-amber-500",
-  unauthenticated: "bg-amber-500",
+  completed: "bg-success",
+  succeeded: "bg-success",
+  published: "bg-success",
+  approved: "bg-success",
+  resolved: "bg-success",
+  ok: "bg-success",
+  active: "bg-success",
+  running: "bg-info",
+  approval_api: "bg-info",
+  pending: "bg-warning",
+  queued: "bg-warning",
+  paused: "bg-warning",
+  paused_for_approval: "bg-warning",
+  awaiting_approval: "bg-warning",
+  waiting_interrupt: "bg-warning",
+  escalated: "bg-warning",
+  unavailable: "bg-warning",
+  unauthenticated: "bg-warning",
   draft: "bg-zinc-400",
   superseded: "bg-zinc-400",
   cancelled: "bg-zinc-400",
-  failed: "bg-red-500",
-  error: "bg-red-500",
-  forbidden: "bg-red-500",
-  rejected: "bg-red-500",
-  terminated_by_policy: "bg-red-500",
-  terminated_by_loop_guard: "bg-red-500",
-  dead_letter: "bg-red-500",
+  failed: "bg-danger",
+  error: "bg-danger",
+  forbidden: "bg-danger",
+  rejected: "bg-danger",
+  terminated_by_policy: "bg-danger",
+  terminated_by_loop_guard: "bg-danger",
+  dead_letter: "bg-danger",
 };
 
 // Friendly labels for raw backend statuses that don't humanize cleanly.
@@ -173,7 +173,7 @@ export function StatusBadge({ status, dot = true }: { status: string; dot?: bool
   const dotTone = DOT_TONES[key] ?? "bg-zinc-400";
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ${tone}`}
     >
       {dot && <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dotTone}`} />}
       {STATUS_LABELS[key] ?? humanize(status)}
@@ -183,8 +183,9 @@ export function StatusBadge({ status, dot = true }: { status: string; dot?: bool
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
-      {message}
+    <div className="flex gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-sm text-foreground">
+      <strong className="shrink-0 text-danger">Error</strong>
+      <span>{message}</span>
     </div>
   );
 }
@@ -197,7 +198,7 @@ export const Button = forwardRef<
   }
 >(function Button({ children, variant = "default", size = "md", className = "", ...props }, ref) {
   const base =
-    "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:cursor-not-allowed";
+    "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-colors disabled:cursor-not-allowed";
   const sizes = { sm: "px-2.5 py-1 text-xs", md: "px-3.5 py-1.5 text-sm" };
   const tones = {
     default:
@@ -207,7 +208,7 @@ export const Button = forwardRef<
     primary:
       "bg-accent text-accent-fg shadow-sm shadow-accent/25 hover:opacity-90 disabled:bg-zinc-200 disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500",
     danger:
-      "border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/40",
+      "border border-border text-danger hover:bg-raised disabled:opacity-50",
     ghost:
       "text-muted hover:bg-zinc-100 hover:text-foreground disabled:opacity-50 dark:hover:bg-zinc-800/60",
   };
@@ -291,12 +292,21 @@ export function fmtTime(iso: string | null | undefined): React.ReactNode {
 
 /** Dollar amounts: cent precision from $1 up, sub-cent precision below. */
 export function fmtUsd(n: number): string {
-  return `$${n >= 1 ? n.toFixed(2) : n.toFixed(4)}`;
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "$0.00";
+  const sign = n < 0 ? "-" : "";
+  const amount = Math.abs(n);
+  const rendered = amount >= 0.01
+    ? amount.toFixed(2)
+    : amount >= 0.0001
+      ? amount.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")
+      : amount.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+  return `${sign}$${rendered}`;
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
+    <p className="rounded-lg bg-raised px-4 py-4 text-center text-sm text-muted">
       {children}
     </p>
   );
@@ -361,10 +371,16 @@ export function useQueryParam(name: string): string | null {
 
 /** The ready-to-run curl for invoking the deployed graph as an API service,
     built from the console's live connection + the given payload. */
-export function buildRunCurl(payloadJson: string, threadId?: string): string {
+export function buildRunCurl(
+  payloadJson: string,
+  threadId?: string,
+  campaignId?: string | null,
+): string {
   const base =
     getApiBase() || (typeof window === "undefined" ? "$API_BASE" : window.location.origin);
-  const key = getApiKey() || "$ZEROTH_API_KEY";
+  // Keep copied commands safe and portable. Operators provide the key through
+  // the shell environment; the console credential never enters clipboard text.
+  const key = "$ZEROTH_API_KEY";
   let payload = payloadJson.trim() || "{}";
   try {
     payload = JSON.stringify(JSON.parse(payload)); // compact if valid
@@ -374,23 +390,21 @@ export function buildRunCurl(payloadJson: string, threadId?: string): string {
   const thread = threadId?.trim()
     ? `, "thread_id": ${JSON.stringify(threadId.trim())}`
     : "";
-  const data = `{"input_payload": ${payload}${thread}}`.replaceAll("'", "'\\''");
+  const campaign = campaignId?.trim()
+    ? `, "campaign_id": ${JSON.stringify(campaignId.trim())}`
+    : "";
+  const data = `{"input_payload": ${payload}${thread}${campaign}}`.replaceAll("'", "'\\''");
   return [
-    `curl -X POST "${base}/v1/runs" \\`,
+    `curl -fsS -X POST "${base}/v1/runs" \\`,
     `  -H "X-API-Key: ${key}" \\`,
     `  -H "Content-Type: application/json" \\`,
     `  -d '${data}'`,
-    ``,
-    `# poll until status is terminal:`,
-    `curl -H "X-API-Key: ${key}" "${base}/v1/runs/<run_id>"`,
   ].join("\n");
 }
 
-/** Shell snippet with a copy button. The on-screen text masks `secret`;
-    copying yields the real command. */
-export function CurlBlock({ command, secret }: { command: string; secret?: string }) {
+/** Safe shell snippet with a copy button. Credentials stay environment-bound. */
+export function CurlBlock({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
-  const shown = secret ? command.replaceAll(secret, "••••••••") : command;
 
   useEffect(() => {
     if (!copied) return;
@@ -401,11 +415,11 @@ export function CurlBlock({ command, secret }: { command: string; secret?: strin
   return (
     <div className="space-y-1.5">
       <pre className="overflow-x-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-700 ring-1 ring-border dark:bg-zinc-900/60 dark:text-zinc-300">
-        {shown}
+        {command}
       </pre>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-muted">
-          {secret ? "Copying includes your real API key." : ""}
+          Uses the shell&apos;s ZEROTH_API_KEY; no credential is copied.
         </span>
         <Button
           type="button"

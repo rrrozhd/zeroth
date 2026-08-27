@@ -23,13 +23,23 @@ def apply_config(
     ref: str,
     backend_type: str,
     params: dict[str, Any],
+    *,
+    secret_provider: Any | None = None,
+    tenant_id: str | None = None,
+    allow_env_fallback: bool = True,
 ) -> tuple[ConnectorManifest, Any]:
     """Build a connector from a saved config and register it under ``ref``.
 
     Raises ValueError when the config cannot be built (unknown backend,
     missing params, or missing optional dependency).
     """
-    manifest, connector = build_connector(backend_type, params)
+    manifest, connector = build_connector(
+        backend_type,
+        params,
+        secret_provider=secret_provider,
+        tenant_id=tenant_id,
+        allow_env_fallback=allow_env_fallback,
+    )
     registry.register(ref, manifest, connector)
     return manifest, connector
 
@@ -40,6 +50,8 @@ async def load_persisted_connectors(
     *,
     tenant_id: str | None = None,
     log: logging.Logger | None = None,
+    secret_provider: Any | None = None,
+    allow_env_fallback: bool = True,
 ) -> list[str]:
     """Register every persisted connector config into the registry.
 
@@ -54,7 +66,15 @@ async def load_persisted_connectors(
     loaded: list[str] = []
     for config in await repository.list(tenant_id=tenant_id):
         try:
-            apply_config(registry, config.ref, config.backend_type, config.params)
+            apply_config(
+                registry,
+                config.ref,
+                config.backend_type,
+                config.params,
+                secret_provider=secret_provider,
+                tenant_id=tenant_id,
+                allow_env_fallback=allow_env_fallback,
+            )
             loaded.append(config.ref)
         except Exception:
             log.warning(

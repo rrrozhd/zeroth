@@ -16,6 +16,8 @@ import asyncio
 import logging
 import random
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -23,6 +25,7 @@ import httpx
 
 from zeroth.integrations.http.circuit_breaker import CircuitBreakerRegistry, InMemoryTokenBucket
 from zeroth.integrations.http.errors import (
+    CircuitOpenError,
     HttpClientError,
     HttpRateLimitError,
     HttpRetryExhaustedError,
@@ -59,6 +62,14 @@ _UNDELIVERED_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeo
 #: host that was never dialled, and replacing them with HttpRetryExhaustedError
 #: hid the only diagnosis that mattered.
 _CLIENT_FAULT_ERRORS = (httpx.UnsupportedProtocol, httpx.LocalProtocolError)
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedHttpResponse:
+    """One response paired with its invocation-local sanitized call record."""
+
+    response: httpx.Response
+    call_record: HttpCallRecord
 
 
 class ResilientHttpClient:
@@ -241,6 +252,67 @@ class ResilientHttpClient:
         Pipeline order: rate limit -> capability check -> auth resolution
         -> circuit breaker -> retry loop with backoff -> audit record.
         """
+        return await self._request(
+            method,
+            url,
+            endpoint_config=endpoint_config,
+            effective_capabilities=effective_capabilities,
+            record_sink=self._call_records.append,
+            **kwargs,
+        )
+
+    async def request_with_record(
+        self,
+        method: str,
+        url: str,
+        *,
+        endpoint_config: EndpointConfig | None = None,
+        effective_capabilities: set[Capability] | None = None,
+        **kwargs: Any,
+    ) -> ObservedHttpResponse:
+        """Execute one request and return only that request's call record.
+
+        Unlike :meth:`drain_call_records`, this API has no process-global drain
+        race: concurrent workflow nodes each own a local record sink. Expected
+        resilient-client failures carry the same record on
+        ``error.http_call_record`` so the signed failure audit is equally
+        attributable.
+        """
+        records: list[HttpCallRecord] = []
+        started = time.monotonic()
+        try:
+            response = await self._request(
+                method,
+                url,
+                endpoint_config=endpoint_config,
+                effective_capabilities=effective_capabilities,
+                record_sink=records.append,
+                **kwargs,
+            )
+        except Exception as error:
+            record = records[-1] if records else HttpCallRecord(
+                url=redact_url(url),
+                method=method.upper(),
+                latency_ms=round((time.monotonic() - started) * 1000, 2),
+                error=type(error).__name__,
+            )
+            error.http_call_record = record  # type: ignore[attr-defined]
+            raise
+        if len(records) != 1:
+            raise RuntimeError("resilient HTTP request produced no invocation record")
+        return ObservedHttpResponse(response=response, call_record=records[0])
+
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        endpoint_config: EndpointConfig | None,
+        effective_capabilities: set[Capability] | None,
+        record_sink: Callable[[HttpCallRecord], None],
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Internal request pipeline parameterized by an invocation record sink."""
         config = self._resolve_config(endpoint_config)
         endpoint_key = self._endpoint_key(url)
 
@@ -265,14 +337,34 @@ class ResilientHttpClient:
             failure_threshold=self._settings.circuit_breaker_threshold,
             reset_timeout=self._settings.circuit_breaker_reset_timeout,
         )
-        await breaker.check()
+        try:
+            await breaker.check()
+        except CircuitOpenError:
+            record_sink(
+                HttpCallRecord(
+                    url=redact_url(url),
+                    method=method.upper(),
+                    latency_ms=0.0,
+                    retry_count=0,
+                    circuit_breaker_state="open",
+                    error="circuit_open",
+                )
+            )
+            raise
 
         # 5. Retry loop
         timeout_override = config.timeout
         if timeout_override is not None:
             kwargs["timeout"] = timeout_override
 
-        return await self._deliver(method, url, config=config, breaker=breaker, **kwargs)
+        return await self._deliver(
+            method,
+            url,
+            config=config,
+            breaker=breaker,
+            record_sink=record_sink,
+            **kwargs,
+        )
 
     async def _deliver(
         self,
@@ -281,6 +373,7 @@ class ResilientHttpClient:
         *,
         config: EndpointConfig,
         breaker: Any,
+        record_sink: Callable[[HttpCallRecord], None],
         **kwargs: Any,
     ) -> httpx.Response:
         """Run the retry loop for one already-admitted request.
@@ -338,7 +431,15 @@ class ResilientHttpClient:
                 await breaker.record_success()
 
             if not self._is_retryable_status(response.status_code, method, config):
-                self._record_success(url, method, response, retry_count, breaker, start)
+                self._record_success(
+                    url,
+                    method,
+                    response,
+                    retry_count,
+                    breaker,
+                    start,
+                    record_sink,
+                )
                 return response
             last_error = f"HTTP {response.status_code}"
             if attempt >= max_retries:
@@ -347,7 +448,7 @@ class ResilientHttpClient:
             retry_count = attempt + 1
             await asyncio.sleep(self._backoff_delay(attempt, config))
 
-        self._call_records.append(
+        record_sink(
             HttpCallRecord(
                 url=redact_url(url),
                 method=method.upper(),
@@ -366,9 +467,10 @@ class ResilientHttpClient:
         retry_count: int,
         breaker: Any,
         start: float,
+        record_sink: Callable[[HttpCallRecord], None],
     ) -> None:
         """Append the audit record for a delivered response."""
-        self._call_records.append(
+        record_sink(
             HttpCallRecord(
                 url=redact_url(url),
                 method=method.upper(),

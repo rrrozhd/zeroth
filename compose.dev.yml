@@ -1,0 +1,173 @@
+name: zeroth-dev
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    init: true
+    working_dir: /workspace
+    command:
+      - python
+      - scripts/zeroth_dev_instance.py
+      - --workspace
+      - /workspace
+      - --state-root
+      - /state
+      - --market-env
+      - /run/secrets/zeroth.env
+      - run-backend
+    env_file:
+      - path: ${ZEROTH_DEV_ENV_FILE:-.dev-secrets/zeroth.env}
+        required: true
+    environment:
+      PYTHONPATH: /workspace/src:/workspace
+      ZEROTH_DEV_BIND_HOST: 0.0.0.0
+      ZEROTH_DEV_DEPLOYMENT_REF: ${ZEROTH_DEV_DEPLOYMENT_REF:-evaluation-studio-v1-governed-remediation-v2}
+      ZEROTH_REDIS__HOST: redis
+    volumes:
+      - .:/workspace
+      - ${HOME}/.local/share/zeroth/evaluations/evaluation-studio-v1:/state
+      - ${HOME}/.local/share/zeroth/evaluations/evaluation-studio-v1:/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1
+      - ${ZEROTH_DEV_ENV_FILE:-.dev-secrets/zeroth.env}:/run/secrets/zeroth.env:ro
+    ports:
+      - 127.0.0.1:8122:8122
+    depends_on:
+      chroma:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8122/health', timeout=4)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  backend-twin:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    init: true
+    working_dir: /workspace
+    command:
+      - python
+      - scripts/zeroth_dev_instance.py
+      - --workspace
+      - /workspace
+      - --state-root
+      - /state
+      - --market-env
+      - /run/secrets/zeroth.env
+      - run-backend
+    env_file:
+      - path: ${ZEROTH_DEV_ENV_FILE:-.dev-secrets/zeroth.env}
+        required: true
+    environment:
+      PYTHONPATH: /workspace/src:/workspace
+      ZEROTH_DEV_BIND_HOST: 0.0.0.0
+      ZEROTH_DEV_TENANT_ID: evaluation-studio-v1-twin
+      ZEROTH_DEV_CAMPAIGN_CONFIG: release/product_validation/campaign-tenant-b.json
+      ZEROTH_DEV_DEPLOYMENT_REF: evaluation-studio-v1-twin-bootstrap-v1
+      ZEROTH_DEV_PORT: "8123"
+      ZEROTH_DEV_SEED_BOOTSTRAP: "1"
+      ZEROTH_REDIS__HOST: redis
+    volumes:
+      - .:/workspace
+      - ${HOME}/.local/share/zeroth/evaluations/evaluation-studio-v1:/state
+      - ${HOME}/.local/share/zeroth/evaluations/evaluation-studio-v1:/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1
+      - ${ZEROTH_DEV_ENV_FILE:-.dev-secrets/zeroth.env}:/run/secrets/zeroth.env:ro
+    ports:
+      - 127.0.0.1:8123:8123
+    depends_on:
+      chroma:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8123/health', timeout=4)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    image: node:24.15.0-bookworm-slim
+    restart: unless-stopped
+    init: true
+    working_dir: /workspace/frontend
+    command:
+      - sh
+      - -c
+      - npm install --no-audit --no-fund && npm run dev -- --webpack --hostname 0.0.0.0 --port 3000
+    volumes:
+      - ./frontend:/workspace/frontend
+      - zeroth-frontend-modules:/workspace/frontend/node_modules
+      - zeroth-frontend-next:/workspace/frontend/.next
+    ports:
+      - 127.0.0.1:3000:3000
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/console/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  chroma:
+    image: chromadb/chroma:1.5.6
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - ${HOME}/.local/share/zeroth/evaluations/evaluation-studio-v1/chroma-data:/data
+    ports:
+      - 127.0.0.1:8121:8000
+    healthcheck:
+      test:
+        - CMD
+        - /usr/bin/bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/8000"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+    volumes:
+      - zeroth-redis:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  zeroth-frontend-modules:
+  zeroth-frontend-next:
+  zeroth-redis:
