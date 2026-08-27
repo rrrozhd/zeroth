@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0.2]
+
+### Fixed
+
+- Realign four dispatch test fixtures that had drifted behind the code they exercise, all
+  pre-existing on `main` and unrelated to MCP. `RunWorker.start()` gained a child-approval
+  reconciliation step and an orphan-sweep deadline, which the `__new__`-built worker helper never
+  supplied; the lifespan gained `github_maintenance_worker`, `repo_run_worker` and a managed
+  `http_client`, which a bare `MagicMock` auto-created into non-awaitables; `current_generation` and
+  `_release_to_pending` gained keyword arguments their stubs did not accept; and admin run control
+  now records who cancelled, so its tests need an audit repository and a real principal to reach the
+  scope assertion at all. 12 of `tests/dispatch/`'s 17 failures clear; no source was touched.
+
 ## [0.25.0.1]
 
 ### Fixed

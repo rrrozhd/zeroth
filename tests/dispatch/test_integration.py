@@ -109,6 +109,12 @@ async def test_graceful_shutdown_called_on_lifespan_exit() -> None:
     bootstrap.delivery_worker = None
     bootstrap.sla_checker = None
     bootstrap.retention_worker = None
+    # Explicit, like their siblings above: on a bare MagicMock these
+    # auto-create, and lifespan then awaits a MagicMock rather than a
+    # coroutine (poll_loop) or an async close (aclose).
+    bootstrap.github_maintenance_worker = None
+    bootstrap.repo_run_worker = None
+    bootstrap.http_client = None
     bootstrap.arq_pool = None
     bootstrap.regulus_client = None
     bootstrap.webhook_http_client = None
@@ -162,6 +168,12 @@ async def test_lifespan_does_not_override_signal_handlers() -> None:
         bootstrap.delivery_worker = None
         bootstrap.sla_checker = None
         bootstrap.retention_worker = None
+        # Explicit, like their siblings above: on a bare MagicMock these
+        # auto-create, and lifespan then awaits a MagicMock rather than a
+        # coroutine (poll_loop) or an async close (aclose).
+        bootstrap.github_maintenance_worker = None
+        bootstrap.repo_run_worker = None
+        bootstrap.http_client = None
         bootstrap.arq_pool = None
         bootstrap.regulus_client = None
         bootstrap.webhook_http_client = None
@@ -205,6 +217,12 @@ async def test_arq_consumer_started_when_pool_available() -> None:
     bootstrap.delivery_worker = None
     bootstrap.sla_checker = None
     bootstrap.retention_worker = None
+    # Explicit, like their siblings above: on a bare MagicMock these
+    # auto-create, and lifespan then awaits a MagicMock rather than a
+    # coroutine (poll_loop) or an async close (aclose).
+    bootstrap.github_maintenance_worker = None
+    bootstrap.repo_run_worker = None
+    bootstrap.http_client = None
     bootstrap.arq_pool = mock_pool
     bootstrap.regulus_client = None
     bootstrap.webhook_http_client = None
