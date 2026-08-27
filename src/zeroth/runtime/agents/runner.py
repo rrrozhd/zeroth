@@ -41,7 +41,9 @@ from zeroth.runtime.agents.errors import (
     AgentTimeoutError,
     BudgetExceededError,
 )
-from zeroth.runtime.agents.mcp import MCPClientManager
+from zeroth.runtime.agents.factory_markers import MCP_AT_LEAST_ONCE
+from zeroth.runtime.agents.mcp import MCP_REQUIRED_CAPABILITIES, MCPClientManager
+from zeroth.runtime.agents.mcp_pool import MCPToolDispatchError
 from zeroth.runtime.agents.models import (
     AgentConfig,
     AgentRunResult,
@@ -59,152 +61,19 @@ from zeroth.runtime.agents.provider import (
 )
 from zeroth.runtime.agents.retry import compute_backoff_delay, is_retryable_provider_error
 from zeroth.runtime.agents.sanitization import (
-    DEFAULT_MAX_TOOL_DECLARATION_STRING_CHARS,
+    MCP_DECLARATION_INVERSE_MAP,
     HeuristicInjectionScreener,
     ToolDeclarationSafetyError,
     ToolOutputSanitizer,
-    screen_tool_description,
-    wrap_schema_descriptions,
+    has_ambiguous_restoration_schema,
+    screen_tool_declaration,
 )
 from zeroth.runtime.agents.tooling.tool_calls import build_tool_message
 from zeroth.runtime.agents.tools import ToolAttachmentBridge, ToolAttachmentManifest
 from zeroth.runtime.agents.validation import OutputValidator
 
 logger = logging.getLogger(__name__)
-_MCP_DECLARATION_INVERSE_MAP = "mcp_declaration_inverse_map"
 _MAX_MCP_ARGUMENT_RESTORATION_NODES = 10_000
-
-
-def _has_ambiguous_restoration_schema(schema: Mapping[str, Any] | None) -> bool:
-    """Return whether reversible argument changes depend on branch evaluation."""
-    stack: list[object] = [schema]
-    ambiguous = {
-        "anyOf",
-        "oneOf",
-        "if",
-        "then",
-        "else",
-        "dependentSchemas",
-        "dependentRequired",
-        "patternProperties",
-        "propertyNames",
-        "contains",
-        "not",
-        "unevaluatedItems",
-        "unevaluatedProperties",
-    }
-    while stack:
-        node = stack.pop()
-        if isinstance(node, Mapping):
-            if ambiguous.intersection(node):
-                return True
-            stack.extend(node.values())
-        elif isinstance(node, list):
-            stack.extend(node)
-    return False
-
-
-def _narrow_mcp_argument_inverse_map(
-    schema: Mapping[str, Any] | None,
-    inverse_map: dict[str, str],
-) -> None:
-    """Keep only reversible argument tokens and reject unsupported semantics."""
-    restorable: set[str] = set()
-    unsupported_transforms: set[str] = set()
-    unsupported_keywords = {
-        "$dynamicRef",
-        "$id",
-        "$recursiveAnchor",
-        "$recursiveRef",
-        "additionalItems",
-    }
-    found_keywords: set[str] = set()
-
-    def contains_transformed_string(value: object) -> bool:
-        if isinstance(value, str):
-            return value in inverse_map
-        if isinstance(value, Mapping):
-            return any(
-                (isinstance(key, str) and key in inverse_map) or contains_transformed_string(item)
-                for key, item in value.items()
-            )
-        if isinstance(value, list | tuple):
-            return any(contains_transformed_string(item) for item in value)
-        return False
-
-    def transformed_tokens(value: object) -> set[str]:
-        tokens: set[str] = set()
-        stack: list[object] = [value]
-        while stack:
-            item = stack.pop()
-            if isinstance(item, str) and item in inverse_map:
-                tokens.add(item)
-            elif isinstance(item, Mapping):
-                stack.extend(item.keys())
-                stack.extend(item.values())
-            elif isinstance(item, list | tuple):
-                stack.extend(item)
-        return tokens
-
-    annotation_keywords = {"description", "title", "$comment"}
-    structural_name_containers = {"$defs", "definitions"}
-    stack: list[tuple[object, str | None]] = [(schema, None)]
-    while stack:
-        node, parent_keyword = stack.pop()
-        if isinstance(node, Mapping):
-            if parent_keyword in ("default", "examples"):
-                restorable.update(transformed_tokens(node))
-                continue
-            for key, value in node.items():
-                if isinstance(key, str) and key in inverse_map:
-                    if parent_keyword in ("properties", "default", "examples"):
-                        restorable.add(key)
-                    elif parent_keyword not in structural_name_containers:
-                        unsupported_transforms.add("schema keyword/name")
-                if key in unsupported_keywords:
-                    found_keywords.add(key)
-                if key == "$ref" and isinstance(value, str) and not value.startswith("#"):
-                    unsupported_transforms.add("external $ref")
-                if key == "items" and isinstance(value, list):
-                    found_keywords.add("tuple-items")
-                if (
-                    key == "properties"
-                    and isinstance(value, Mapping)
-                    or key == "required"
-                    and isinstance(value, list)
-                ):
-                    restorable.update(item for item in value if isinstance(item, str))
-                elif key == "enum" and isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, str):
-                            restorable.add(item)
-                        elif contains_transformed_string(item):
-                            unsupported_transforms.add("compound enum")
-                elif key == "const":
-                    if isinstance(value, str):
-                        restorable.add(value)
-                    elif contains_transformed_string(value):
-                        unsupported_transforms.add(f"compound {key}")
-                elif key == "default" or key == "examples" and isinstance(value, list):
-                    restorable.update(transformed_tokens(value))
-                elif isinstance(value, str) and value in inverse_map:
-                    safely_structural = key in ("$anchor", "$dynamicAnchor") or (
-                        key in ("$ref", "$dynamicRef") and value.startswith("#")
-                    )
-                    if key not in annotation_keywords and not safely_structural:
-                        unsupported_transforms.add(str(key))
-                stack.append((value, str(key)))
-        elif isinstance(node, list | tuple):
-            stack.extend((item, parent_keyword) for item in node)
-
-    for rendered in list(inverse_map):
-        if rendered not in restorable:
-            del inverse_map[rendered]
-    if unsupported_transforms or (inverse_map and found_keywords):
-        details = ", ".join(sorted(unsupported_transforms | found_keywords))
-        raise ToolDeclarationSafetyError(
-            f"reversible MCP declaration changes use unsupported schema semantics: {details}"
-        )
 
 
 def _restore_mcp_arguments(
@@ -226,7 +95,7 @@ def _restore_mcp_arguments(
     if remaining_nodes[0] < 0:
         raise ToolDeclarationSafetyError("MCP arguments exceed the restoration node limit")
     root_schema = _root_schema or schema
-    if _depth == 0 and inverse_map and _has_ambiguous_restoration_schema(root_schema):
+    if _depth == 0 and inverse_map and has_ambiguous_restoration_schema(root_schema):
         raise ToolDeclarationSafetyError(
             "MCP argument restoration does not support conditional or alternative schemas"
         )
@@ -390,6 +259,41 @@ def _restore_mcp_arguments(
         if value in constrained:
             return inverse_map.get(value, value)
     return value
+
+
+def _dispatched_to_mcp_server(exc: BaseException) -> bool:
+    """Whether this failure happened *after* an MCP transport call was entered.
+
+    ``MCPSessionPool`` raises :class:`MCPToolDispatchError` only around
+    ``call_tool`` itself. Everything it refuses earlier -- unknown server,
+    capability denial, the operator's ceiling, a spawn that never handshook,
+    schema drift -- keeps its own type and means the tool was never invoked.
+
+    Asking the *positive* question is the whole point. Classifying failures
+    negatively ("these error types mean it did not run") is what let the
+    at-least-once marker go missing on the ``mcp_tool``-node path: under such a
+    test every failure mode nobody enumerated defaults to the wrong side, and
+    the wrong side here is a record that reads as though the operation
+    guarantee applied.
+
+    The cause chain is walked because the error travels back through a
+    caller-supplied tool-executor closure, and any layer in between is free to
+    re-raise it wrapped. ``__context__`` is followed as well as ``__cause__``
+    so an intermediate layer that re-raises without ``from`` still tells the
+    truth. That also answers True when an unrelated exception is raised after a
+    dispatch failure was *handled* -- which is correct rather than a leak: the
+    dispatch did happen, and the marker asserts a possible residual, not a
+    certain effect. Narrowing this to ``__cause__`` alone would trade a
+    conservative answer for a silently wrong one.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, MCPToolDispatchError):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _call_tool_executor(
@@ -1147,8 +1051,21 @@ class AgentRunner:
                 # True only once an MCP dispatch was actually attempted — a
                 # failed MCP call may still have landed (at-least-once), while
                 # a call rejected before dispatch produced no effect at all.
+                #
+                # The ``mcp_tool``-node path cannot set it before the call the
+                # way the inline path does: there the capability gate, the
+                # operator's ceiling and the schema pin all run *inside*
+                # ``MCPSessionPool.call``, so hoisting the flag would mark
+                # denials that never reached a process. The pool says so
+                # afterwards instead — see ``_dispatched_to_mcp_server``.
                 mcp_at_least_once = False
-                mcp_arguments = call["args"]
+                # The arguments as dispatched, or as they would have been. The
+                # audit reads this rather than ``call["args"]`` so a record
+                # names what crossed the wire, not the screened aliases the
+                # model was shown; it is only reassigned once restoration has
+                # succeeded, so a call refused before dispatch still audits the
+                # arguments it actually had.
+                dispatch_arguments = call["args"]
                 try:
                     # WS-C: capability gate BEFORE any dispatch. A denial raises
                     # CapabilityDeniedError, which the except branch below turns
@@ -1160,6 +1077,20 @@ class AgentRunner:
                             binding,
                             effective_capabilities,
                             node_id=self.config.name,
+                        )
+                    # Declaration screening may have renamed this tool's
+                    # argument names on the way to the model (a length cap, a
+                    # provenance wrap), so the model calls with the *rendered*
+                    # names and the server would not recognise them. This runs
+                    # ahead of the branch rather than inside the ``mcp://`` one
+                    # because the pinned ``mcp_tool`` node path is screened too
+                    # — by the runner factory, at manifest-build time — and so
+                    # carries the same inverse map and needs the same undo. It
+                    # is a no-op for every tool that was never screened.
+                    inverse_map = binding.metadata.get(MCP_DECLARATION_INVERSE_MAP)
+                    if inverse_map:
+                        dispatch_arguments = _restore_mcp_arguments(
+                            call["args"], inverse_map, binding.parameters_schema
                         )
                     with start_span("zeroth.tool", {"zeroth.tool": call["name"]}):
                         # Route MCP tool calls through MCPClientManager
@@ -1173,12 +1104,10 @@ class AgentRunner:
                             # guarantee that does not hold, the gap is made
                             # visible: an MCP call is at-least-once with no
                             # replay suppression and no reconciliation.
-                            inverse_map = binding.metadata.get(_MCP_DECLARATION_INVERSE_MAP, {})
-                            mcp_arguments = _restore_mcp_arguments(
-                                call["args"], inverse_map, binding.parameters_schema
-                            )
                             mcp_at_least_once = True
-                            result = await self._mcp_manager.call_tool(call["name"], mcp_arguments)
+                            result = await self._mcp_manager.call_tool(
+                                call["name"], dispatch_arguments
+                            )
                         else:
                             # Offer the provider's tool-call id so the operation
                             # identity is distinct per call rather than per
@@ -1187,13 +1116,22 @@ class AgentRunner:
                             # caller-supplied callable, so widening the call
                             # unconditionally would break every existing one.
                             result = _call_tool_executor(
-                                self.tool_executor, binding, call["args"], call.get("id")
+                                self.tool_executor, binding, dispatch_arguments, call.get("id")
                             )
                             if asyncio.iscoroutine(result):
                                 result = await result
+                            # A tool edge mints ``node://<id>``, so the legacy
+                            # ``mcp://`` prefix above no longer identifies an
+                            # MCP call. The factory stamps the manifest instead,
+                            # because it is the only layer that sees both the
+                            # binding and the node it targets. Without this the
+                            # record of an MCP call is indistinguishable from
+                            # one that really does carry an operation receipt.
+                            if binding.metadata.get(MCP_AT_LEAST_ONCE):
+                                mcp_at_least_once = True
                     audit = self.tool_bridge.build_call_audit(
                         binding=binding,
-                        arguments=mcp_arguments if mcp_at_least_once else call["args"],
+                        arguments=dispatch_arguments,
                         granted_permissions=self.granted_tool_permissions,
                         at_least_once=mcp_at_least_once,
                         outcome=result if isinstance(result, Mapping) else {"value": result},
@@ -1224,10 +1162,15 @@ class AgentRunner:
                     # Feed tool failures back as tool results so the model can react.
                     # ZER-26/AUD-006: a *failed* MCP call is the marker's most
                     # important case — the effect may have landed and nobody can
-                    # ask — so the exception path must carry it too.
+                    # ask — so the exception path must carry it too. The inline
+                    # path already knew (it set the flag before dispatching);
+                    # the pinned-node path learns it from the failure's type,
+                    # which is the only place the fact exists.
+                    if not mcp_at_least_once and _dispatched_to_mcp_server(exc):
+                        mcp_at_least_once = True
                     audit = self.tool_bridge.build_call_audit(
                         binding=binding,
-                        arguments=mcp_arguments if mcp_at_least_once else call["args"],
+                        arguments=dispatch_arguments,
                         granted_permissions=self.granted_tool_permissions,
                         error=str(exc),
                         at_least_once=mcp_at_least_once,
@@ -1281,75 +1224,16 @@ class AgentRunner:
         model-instruction surface ``tool_output_safety`` guards for tool *output*,
         reached one step earlier and never screened.
 
-        Screened on the same terms as output -- flag, provenance-wrap, audit -- and
-        never blocked: the heuristics are conservative, and refusing a tool on a
-        heuristic match would silently strip a legitimate capability. Honours the
-        same ``screen_for_injection`` switch, so an operator who turned screening
-        off gets it off here too.
+        The transform itself lives in ``sanitization.screen_tool_declaration``.
+        It was this method's private body, which is precisely why the pinned
+        ``mcp_tool`` node path shipped unscreened: the replacement surface could
+        not reach the protection its own deprecated predecessor applied. Keeping
+        the wrapper (rather than inlining the call at the one caller) is what
+        makes "both paths run the same transform" checkable at all -- there is
+        one implementation, and this is a name for it bound to this runner's
+        configured safety settings.
         """
-        safety = self.config.tool_output_safety
-        inverse_map: dict[str, str] = {}
-        if not safety.screen_for_injection:
-            parameters_schema = wrap_schema_descriptions(
-                manifest.parameters_schema,
-                source=f"mcp_tool_description:{manifest.alias}",
-                flags=(),
-                inverse_map=inverse_map,
-            )
-            _narrow_mcp_argument_inverse_map(parameters_schema, inverse_map)
-            if inverse_map and _has_ambiguous_restoration_schema(parameters_schema):
-                raise ToolDeclarationSafetyError(
-                    "reversible MCP declaration changes require a deterministic schema"
-                )
-            return manifest.model_copy(
-                update={
-                    "description": manifest.description[:DEFAULT_MAX_TOOL_DECLARATION_STRING_CHARS],
-                    "parameters_schema": parameters_schema,
-                    "metadata": {
-                        **manifest.metadata,
-                        **({_MCP_DECLARATION_INVERSE_MAP: inverse_map} if inverse_map else {}),
-                    },
-                }
-            )
-        screened = screen_tool_description(
-            manifest.description,
-            parameters_schema=manifest.parameters_schema,
-            source=f"mcp_tool_description:{manifest.alias}",
-            screener=HeuristicInjectionScreener(),
-        )
-        if screened.flags:
-            logger.warning(
-                "MCP tool %s declares a description matching injection heuristics: %s",
-                manifest.alias,
-                ",".join(screened.flags),
-            )
-        update: dict[str, Any] = {
-            "description": screened.text,
-            "metadata": {
-                **manifest.metadata,
-                "tool_description_safety": screened.as_audit(),
-            },
-        }
-        if manifest.parameters_schema is not None:
-            # Every schema string is capped even when benign. Any individual
-            # hostile value is provenance-wrapped without corrupting unrelated
-            # schema keywords.
-            update["parameters_schema"] = wrap_schema_descriptions(
-                manifest.parameters_schema,
-                source=f"mcp_tool_description:{manifest.alias}",
-                flags=screened.flags,
-                screener=HeuristicInjectionScreener(),
-                declaration_prefix=manifest.description,
-                inverse_map=inverse_map,
-            )
-        _narrow_mcp_argument_inverse_map(update.get("parameters_schema"), inverse_map)
-        if inverse_map:
-            if _has_ambiguous_restoration_schema(update.get("parameters_schema")):
-                raise ToolDeclarationSafetyError(
-                    "reversible MCP declaration changes require a deterministic schema"
-                )
-            update["metadata"][_MCP_DECLARATION_INVERSE_MAP] = inverse_map
-        return manifest.model_copy(update=update)
+        return screen_tool_declaration(manifest, self.config.tool_output_safety)
 
     async def _start_mcp_servers(self, effective_capabilities: set[Capability] | None) -> None:
         """Start MCP server connections and register discovered tools.
@@ -1359,12 +1243,17 @@ class AgentRunner:
         PROCESS_SPAWN and EXTERNAL_API_CALL before any process exists —
         denying only at tool-call time would leave the side effect already
         performed. ``None`` means enforcement is inactive (advisory mode).
+
+        The pair is ``MCP_REQUIRED_CAPABILITIES`` rather than a literal. This
+        deprecated path and the pinned ``mcp_tool`` path enforce the same floor
+        for the same reason, and spelling it twice is how four copies of it
+        came to agree by habit rather than by construction.
         """
         if not self.config.mcp_servers:
             return
         if effective_capabilities is not None:
             require_capabilities(
-                {Capability.PROCESS_SPAWN, Capability.EXTERNAL_API_CALL},
+                MCP_REQUIRED_CAPABILITIES,
                 effective_capabilities,
                 node_id=self.config.name,
             )

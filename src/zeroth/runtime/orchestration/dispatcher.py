@@ -366,6 +366,11 @@ class NodeDispatcher:
     template_registry: Any = None
     template_renderer: Any = None
     context_window_enabled: bool = True
+    # Run-scoped MCP sessions, keyed by run_id and owned by the orchestrator.
+    # Keyed rather than held because ``_node_dispatcher`` is a property that
+    # rebuilds this object on every access -- there is no per-run instance here
+    # to hang a session on, and a session must outlive a single dispatch.
+    mcp_pools: Mapping[str, Any] | None = None
     # Optional: without it, side-effecting dispatch behaves exactly as before.
     operation_store: SideEffectOperationStore | None = None
     # Optional callback asking a target what a prior operation did. Absent means
@@ -1130,6 +1135,17 @@ class NodeDispatcher:
                     ),
                     operation_guard=self._guarded_side_effect,
                     side_effect_free=self._is_side_effect_free,
+                    # Resolved per run: the pool is run-scoped, while this
+                    # dispatcher is rebuilt on every access, so it cannot hold
+                    # the session itself.
+                    mcp_pool=self.mcp_pools.get(run.run_id) if self.mcp_pools else None,
+                    # The AGENT's id, which is what it has always been -- the
+                    # name says so now, because the pool's other subject is the
+                    # mcp_tool node and the executor resolves that one itself.
+                    mcp_agent_node_id=node.node_id,
+                    mcp_effective_capabilities=self._effective_capabilities_for(
+                        run, node.node_id
+                    ),
                 )
 
             # Budget and capability enforcement are dispatch- and tenant-local.

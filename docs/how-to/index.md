@@ -44,6 +44,7 @@ for understanding, Usage Guides for task-oriented instructions,
 - [Economics](econ.md)
 - [Service](service.md)
 - [Webhooks](webhooks.md)
+- [MCP tools](mcp.md)
 
 ## Cookbook
 

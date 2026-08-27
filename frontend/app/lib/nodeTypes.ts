@@ -1,6 +1,9 @@
 import type { NodeType } from "@/app/lib/api";
 
 /** API graph enums may be serialized in upper case; Studio uses lower-case keys. */
+/** Node kinds the canvas can draw but an author may not place. */
+export const IMPORTED_CATEGORY = "imported";
+
 export function normalizeNodeType(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -40,7 +43,7 @@ export const FALLBACK_NODE_TYPES: NodeType[] = [
     label: "Entrypoint",
     category: "core",
     // Runs enter here — nothing upstream, so no input port.
-    ports: [{ id: "output-data", type: "data", direction: "output", label: "Output" }],
+    ports: [{ id: "output-data", type: "data", direction: "output", label: "Output" }]
   },
   { type: "agent", label: "Agent", category: "core", ports: [...IO_PORTS, AGENT_TOOLS_PORT] },
   { type: "code", label: "Code", category: "core", ports: [...IO_PORTS, TOOL_TARGET_PORT] },
@@ -48,7 +51,7 @@ export const FALLBACK_NODE_TYPES: NodeType[] = [
     type: "executable_unit",
     label: "Executable Unit",
     category: "core",
-    ports: [...IO_PORTS, TOOL_TARGET_PORT],
+    ports: [...IO_PORTS, TOOL_TARGET_PORT]
   },
   { type: "human_approval", label: "Human Approval", category: "core", ports: [...IO_PORTS] },
   {
@@ -59,7 +62,7 @@ export const FALLBACK_NODE_TYPES: NodeType[] = [
       { id: "input-data", type: "data", direction: "input", label: "Input" },
       { id: "true", type: "data", direction: "output", label: "True" },
       { id: "false", type: "data", direction: "output", label: "False" },
-    ],
+    ]
   },
   {
     type: "loop",
@@ -70,9 +73,18 @@ export const FALLBACK_NODE_TYPES: NodeType[] = [
       { id: "repeat", type: "data", direction: "output", label: "Repeat" },
       { id: "done", type: "data", direction: "output", label: "Done" },
       { id: "limit", type: "data", direction: "output", label: "Limit" },
-    ],
+    ]
   },
   { type: "retrieval", label: "Retrieval", category: "core", ports: [...IO_PORTS] },
+  // Imported by `zeroth-core mcp-import`, never authored here, so it is drawable
+  // but not creatable: it must have ports (an edge whose handle id is missing is
+  // silently dropped) while staying out of the palette.
+  {
+    type: "mcp_tool",
+    label: "MCP Tool",
+    category: "imported",
+    ports: [TOOL_TARGET_PORT],
+  },
   { type: "http_request", label: "HTTP Request", category: "core", ports: [...IO_PORTS] },
   { type: "subgraph", label: "Subgraph", category: "core", ports: [...IO_PORTS] },
 ];

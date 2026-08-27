@@ -56,6 +56,19 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
         "put_deployment_guardrails",
         "rollback_deployment",
     ),
+    # Registering an MCP server chooses a process the runtime spawns, and
+    # `discover_mcp_tools` actually runs it. Admin-tier on purpose: OPERATOR
+    # authors graphs, so letting OPERATOR write these rows would dissolve the
+    # ceiling the registry exists to hold. Even the read route stays here --
+    # `list_mcp_servers` exposes which servers a deployment will spawn.
+    **_routes(
+        Permission.MCP_ADMIN,
+        "create_mcp_server",
+        "delete_mcp_server",
+        "discover_mcp_tools",
+        "list_mcp_servers",
+        "update_mcp_server",
+    ),
     **_routes(
         Permission.DEPLOYMENT_READ,
         "get_attestation",

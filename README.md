@@ -191,6 +191,7 @@ Zeroth keeps its primitives minimal. Every graph is composed from a small set of
 - **Agent** — an AI-powered node backed by an LLM provider, with optional memory connectors and tool attachments (other graph units can be attached as callable tools)
 - **Code** — inline Python authored on the canvas and executed through the same immutable, sandboxed executable-unit machinery
 - **Executable Unit** — a sandboxed unit of work (Python code, shell scripts, commands, or full projects) that handles transformations, integrations, routing, and any deterministic processing
+- **MCP Tool** — one tool on an external MCP (Model Context Protocol) server, frozen at import time (name, description, input schema, and a digest over all three) so it has a contract at publish rather than only at run time, and attached to an agent as a callable tool. The server's command and its capability ceiling live in an operator-owned registry the graph author cannot edit. The call is **at-least-once** — no operation receipt, no replay suppression — which is marked in the audit record rather than implied away
 - **Human Approval** — a pause point where a human must review and approve before execution continues
 - **If** — an explicit two-way decision node whose condition routes through named `True` and `False` ports
 - **Loop** — a bounded retry controller with visible `Repeat`, `Done`, and `Limit` routes and a required maximum retry count

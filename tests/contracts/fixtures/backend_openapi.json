@@ -820,6 +820,20 @@
         ],
         "type": "object"
       },
+      "Capability": {
+        "enum": [
+          "network_read",
+          "network_write",
+          "filesystem_read",
+          "filesystem_write",
+          "secret_access",
+          "external_api_call",
+          "process_spawn",
+          "memory_read",
+          "memory_write"
+        ],
+        "type": "string"
+      },
       "CertificationBlocker": {
         "additionalProperties": false,
         "properties": {
@@ -2324,6 +2338,37 @@
           "status",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "DiscoveredToolResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "input_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "schema_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "schema_hash"
         ],
         "type": "object"
       },
@@ -4023,6 +4068,145 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "MCPDiscoverResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "latency_ms": {
+            "type": "number"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredToolResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ref",
+          "tools",
+          "latency_ms"
+        ],
+        "type": "object"
+      },
+      "MCPServerCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "command": {
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "type": "array"
+          },
+          "ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "command"
+        ],
+        "type": "object"
+      },
+      "MCPServerResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "command": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "type": "array"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "command",
+          "args",
+          "env",
+          "grants",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "MCPServerUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "command": {
+            "type": "string"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "command"
+        ],
         "type": "object"
       },
       "ManifestDetailResponse": {
@@ -11496,6 +11680,173 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ManifestRunListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/mcp/servers": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MCPServerResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/mcp/servers/{ref}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/mcp/servers/{ref}/tools": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPDiscoverResponse"
                 }
               }
             }

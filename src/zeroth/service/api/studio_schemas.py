@@ -141,7 +141,14 @@ class PortDefinitionResponse(BaseModel):
 
 
 class NodeTypeResponse(BaseModel):
-    """A node type available in the Studio palette."""
+    """A node type the Studio knows how to draw.
+
+    Knowing how to *draw* a type and letting an author *create* one are separate
+    questions. An imported MCP tool has to appear here so the canvas can resolve
+    its ports -- without an entry it would render with no handles and its tool
+    edge would silently fail to attach, showing an agent and its tool as
+    disconnected -- but it must not appear in the palette.
+    """
 
     type: str
     label: str

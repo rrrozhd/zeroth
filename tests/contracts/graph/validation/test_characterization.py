@@ -133,7 +133,7 @@ EXPECTED: dict[str, list[tuple[str, str, str, tuple[str, ...], str | None, str |
         (
             "error",
             "invalid_tool_edge",
-            "tool edge target must be an executable unit or code node",
+            "tool edge target must be an executable unit, code, or MCP tool node",
             ("edges", "e3", "target_node_id"),
             None,
             "e3",
@@ -199,6 +199,17 @@ EXPECTED: dict[str, list[tuple[str, str, str, tuple[str, ...], str | None, str |
         ),
     ],
     "mcp_capability": [
+        # The deprecation warning fires first and is independent of the grant
+        # check: an inline mcp_servers entry is superseded whether or not the
+        # agent happens to hold the capabilities it needs.
+        (
+            "warning",
+            "deprecated_mcp_servers",
+            "agent 'agent' declares inline mcp_servers, which is deprecated: the server's command is author-controlled and its tools are unpinned. Register the server with an operator (POST /v1/mcp/servers) and import its tools with `zeroth-core mcp-import`",
+            ("nodes", "agent", "agent", "mcp_servers"),
+            "agent",
+            None,
+        ),
         (
             "error",
             "missing_mcp_capability",

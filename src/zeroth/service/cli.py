@@ -8,6 +8,9 @@ Subcommands:
   deployment (contracts + published single-agent graph) so a fresh install
   can serve its first run without writing Python.
 - ``zeroth-core migrate``    — apply database migrations and exit.
+- ``zeroth-core mcp-import`` — pin a registered MCP server's tools into a
+  draft graph as ``mcp_tool`` nodes, so an MCP tool has a contract at publish
+  time instead of only at run time.
 """
 
 from __future__ import annotations
@@ -100,6 +103,73 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def _cmd_mcp_import(args: argparse.Namespace) -> int:
+    """Pin a registered server's tools, reporting failures as messages.
+
+    This is frequently the first command an operator runs after installing, so
+    it meets the environment before anything else does: an unmigrated database,
+    a server command that is not on PATH, one that is not an MCP server at all.
+    Every one of those is an answer the operator can act on, and none of them is
+    a traceback -- so the schema is ensured first (as ``serve`` and ``seed-demo``
+    already do) and the failure paths end in an exit code.
+    """
+    from zeroth.service.mcp_import import MCPImportError
+
+    async def _run() -> list:
+        from zeroth.contracts.graph import GraphRepository
+        from zeroth.platform.config.settings import get_settings
+        from zeroth.platform.storage.factory import create_database
+        from zeroth.service.mcp_import import import_mcp_tools
+
+        database = await create_database(get_settings())
+        try:
+            return await import_mcp_tools(
+                database,
+                GraphRepository(database),
+                server_ref=args.server,
+                graph_id=args.graph,
+                agent_node_id=args.agent,
+                tool_names=args.tool or None,
+                tenant_id=args.tenant,
+            )
+        finally:
+            close = getattr(database, "close", None)
+            if close is not None:
+                result = close()
+                if asyncio.iscoroutine(result):
+                    await result
+
+    try:
+        # Without this an unmigrated database answers the registry lookup with a
+        # raw sqlite "no such table", which reads as a bug in Zeroth rather than
+        # as "run the migrations".
+        ensure_schema()
+        imported = asyncio.run(_run())
+    except MCPImportError as exc:
+        print(f"mcp-import failed: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a CLI answers with a message, not a traceback
+        print(f"mcp-import failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    for tool in imported:
+        verb = "re-pinned" if tool.replaced else "pinned"
+        print(f"{verb} {tool.tool_name} as {tool.node_id} ({tool.schema_hash[:12]}...)")
+        if tool.declaration_flags:
+            # Flagged, not blocked: the injection heuristics are conservative,
+            # so the declaration is provenance-wrapped on its way to the model
+            # rather than withheld. The operator is the one who can judge it.
+            print(
+                f"  ! {tool.tool_name}'s declared text matches injection heuristics "
+                f"({', '.join(tool.declaration_flags)}); it is provenance-wrapped before "
+                "the model sees it, not blocked",
+                file=sys.stderr,
+            )
+    print(f"{len(imported)} tool(s) imported into {args.graph!r}; publish to enforce the pins")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="zeroth-core", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -121,6 +191,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="LiteLLM model id for the demo agent",
     )
     seed.set_defaults(func=_cmd_seed_demo)
+
+    mcp_import = sub.add_parser(
+        "mcp-import",
+        help="pin a registered MCP server's tools into a draft graph",
+        description=(
+            "Freeze an MCP server's tools as mcp_tool nodes attached to an agent. The "
+            "server's command/args/env come from the operator-owned registry; the graph "
+            "carries only its ref."
+        ),
+    )
+    mcp_import.add_argument("--server", required=True, help="registered MCP server ref")
+    mcp_import.add_argument("--graph", required=True, help="draft graph id to import into")
+    mcp_import.add_argument("--agent", required=True, help="agent node the tools attach to")
+    mcp_import.add_argument(
+        "--tool",
+        action="append",
+        default=[],
+        help="tool to import; repeatable. Omit to import every tool the server offers.",
+    )
+    mcp_import.add_argument(
+        "--tenant", default="default", help="owning tenant (default: %(default)s)"
+    )
+    mcp_import.set_defaults(func=_cmd_mcp_import)
 
     migrate = sub.add_parser("migrate", help="apply database migrations and exit")
     migrate.set_defaults(func=_cmd_migrate)

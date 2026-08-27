@@ -2134,6 +2134,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/mcp/servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Mcp Servers
+         * @description Every MCP server registered for this deployment, by ref.
+         */
+        get: operations["list_mcp_servers_v1_mcp_servers_get"];
+        put?: never;
+        /**
+         * Create Mcp Server
+         * @description Register a server. Does not spawn it -- use the discover route for that.
+         */
+        post: operations["create_mcp_server_v1_mcp_servers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/mcp/servers/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Mcp Server
+         * @description Reconfigure a registered server.
+         *
+         *     Narrowing ``grants`` here can strand an already-published graph whose
+         *     node was validated against the wider ceiling. That is deliberate:
+         *     ``MCPSessionPool`` re-reads this row before it will hand out a session,
+         *     so the graph fails closed rather than keeping a capability the operator
+         *     has since withdrawn. Published versions are immutable, so the
+         *     publish-time check alone could not achieve that.
+         */
+        put: operations["update_mcp_server_v1_mcp_servers__ref__put"];
+        post?: never;
+        /**
+         * Delete Mcp Server
+         * @description Deregister a server.
+         */
+        delete: operations["delete_mcp_server_v1_mcp_servers__ref__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/mcp/servers/{ref}/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover Mcp Tools
+         * @description Spawn the server, list its tools with the digests an import would pin, stop.
+         *
+         *     This is the only route that runs the operator's command, and it is
+         *     why the route set is admin-tier. The returned ``schema_hash`` values
+         *     are what ``mcp-import`` freezes into the graph and what the runtime
+         *     drift check later compares against.
+         */
+        get: operations["discover_mcp_tools_v1_mcp_servers__ref__tools_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics": {
         parameters: {
             query?: never;
@@ -3045,6 +3125,18 @@ export interface components {
             savings_pct?: number | null;
         };
         /**
+         * Capability
+         * @description A specific permission that a node might need to do its job.
+         *
+         *     Each value represents one kind of action (like reading from the network
+         *     or writing to the filesystem). Authored tool bindings declare the
+         *     capabilities they require, and policies use these values to control
+         *     what nodes are allowed to do; the policy engine republishes the enum
+         *     from :mod:`zeroth.governance.policy.models`.
+         * @enum {string}
+         */
+        Capability: "network_read" | "network_write" | "filesystem_read" | "filesystem_write" | "secret_access" | "external_api_call" | "process_spawn" | "memory_read" | "memory_write";
+        /**
          * CertificationBlocker
          * @description Machine-readable blocker paired with a console remediation.
          */
@@ -3821,6 +3913,22 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * DiscoveredToolResponse
+         * @description One tool a live server advertised, with the digest an import would pin.
+         */
+        DiscoveredToolResponse: {
+            /** Description */
+            description: string;
+            /** Input Schema */
+            input_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name: string;
+            /** Schema Hash */
+            schema_hash: string;
         };
         /**
          * EconomicsConfigurationResponse
@@ -4687,6 +4795,74 @@ export interface components {
             status: string;
         };
         /**
+         * MCPDiscoverResponse
+         * @description Result of listing tools on a live server.
+         */
+        MCPDiscoverResponse: {
+            /** Latency Ms */
+            latency_ms: number;
+            /** Ref */
+            ref: string;
+            /** Tools */
+            tools: components["schemas"]["DiscoveredToolResponse"][];
+        };
+        /**
+         * MCPServerCreateRequest
+         * @description Payload for registering an MCP server.
+         */
+        MCPServerCreateRequest: {
+            /** Args */
+            args?: string[];
+            /** Command */
+            command: string;
+            /** Env */
+            env?: {
+                [key: string]: string;
+            };
+            /** Grants */
+            grants?: components["schemas"]["Capability"][];
+            /** Ref */
+            ref: string;
+        };
+        /**
+         * MCPServerResponse
+         * @description One registered MCP server, as shown to an operator.
+         */
+        MCPServerResponse: {
+            /** Args */
+            args: string[];
+            /** Command */
+            command: string;
+            /** Created At */
+            created_at: string;
+            /** Env */
+            env: {
+                [key: string]: string;
+            };
+            /** Grants */
+            grants: components["schemas"]["Capability"][];
+            /** Ref */
+            ref: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /**
+         * MCPServerUpdateRequest
+         * @description Payload for reconfiguring a registered MCP server.
+         */
+        MCPServerUpdateRequest: {
+            /** Args */
+            args?: string[];
+            /** Command */
+            command: string;
+            /** Env */
+            env?: {
+                [key: string]: string;
+            } | null;
+            /** Grants */
+            grants?: components["schemas"]["Capability"][];
+        };
+        /**
          * ManifestDetailResponse
          * @description Secret-free executable-unit configuration suitable for operator inspection.
          */
@@ -5015,7 +5191,13 @@ export interface components {
         };
         /**
          * NodeTypeResponse
-         * @description A node type available in the Studio palette.
+         * @description A node type the Studio knows how to draw.
+         *
+         *     Knowing how to *draw* a type and letting an author *create* one are separate
+         *     questions. An imported MCP tool has to appear here so the canvas can resolve
+         *     its ports -- without an entry it would render with no handles and its tool
+         *     edge would silently fail to attach, showing an agent and its tool as
+         *     disconnected -- but it must not appear in the palette.
          */
         NodeTypeResponse: {
             /** Category */
@@ -9906,6 +10088,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ManifestRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_mcp_servers_v1_mcp_servers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerResponse"][];
+                };
+            };
+        };
+    };
+    create_mcp_server_v1_mcp_servers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_mcp_server_v1_mcp_servers__ref__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_mcp_server_v1_mcp_servers__ref__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discover_mcp_tools_v1_mcp_servers__ref__tools_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPDiscoverResponse"];
                 };
             };
             /** @description Validation Error */

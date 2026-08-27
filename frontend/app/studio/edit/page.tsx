@@ -105,7 +105,7 @@ import {
   type LiveProviderVerification,
   type WorkflowSummary,
 } from "@/app/lib/api";
-import { FALLBACK_NODE_TYPES, normalizeNodeType } from "@/app/lib/nodeTypes";
+import { FALLBACK_NODE_TYPES, IMPORTED_CATEGORY, normalizeNodeType } from "@/app/lib/nodeTypes";
 import { setLastWorkflowId } from "@/app/lib/lastWorkflow";
 import { WORKFLOW_TEMPLATES } from "@/app/lib/templates";
 // P0 design-system primitives. Aliased so the toolbar can use the console's
@@ -1766,23 +1766,32 @@ function Editor({ id }: { id: string }) {
                     role="menu"
                     aria-label="Node types"
                   >
-                    {palette.map((type) => (
-                      <button
-                        key={type.type}
-                        type="button"
-                        role="menuitem"
-                        className="studio-node-option"
-                        onClick={() => beginPlacement(type)}
-                      >
-                        <span className="studio-node-option-glyph">
-                          <NodeGlyph type={type.type} className="h-4 w-4" />
-                        </span>
-                        <span className="studio-node-option-copy">
-                          <strong>{type.label}</strong>
-                          <span>{NODE_META[type.type]?.blurb ?? NODE_META[type.type]?.help ?? type.category}</span>
-                        </span>
-                      </button>
-                    ))}
+                    {/* The "imported" category is registered so the canvas
+                        can resolve its ports -- an imported MCP tool would
+                        otherwise draw with no handles and its tool edge would not
+                        attach -- but such a node is produced by import rather than
+                        by placing it from here. It rides on the existing category
+                        field because NodeTypeResponse's signature is pinned as an
+                        immutable legacy capability and may not gain one. */}
+                    {palette
+                      .filter((type) => type.category !== IMPORTED_CATEGORY)
+                      .map((type) => (
+                        <button
+                          key={type.type}
+                          type="button"
+                          role="menuitem"
+                          className="studio-node-option"
+                          onClick={() => beginPlacement(type)}
+                        >
+                          <span className="studio-node-option-glyph">
+                            <NodeGlyph type={type.type} className="h-4 w-4" />
+                          </span>
+                          <span className="studio-node-option-copy">
+                            <strong>{type.label}</strong>
+                            <span>{NODE_META[type.type]?.blurb ?? NODE_META[type.type]?.help ?? type.category}</span>
+                          </span>
+                        </button>
+                      ))}
                   </div>
                 )}
               </div>
@@ -2551,6 +2560,7 @@ function NodeEditorDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [tab, setTab] = useState<"config" | "execution" | "activity">("config");
+  const dispatchableAsStep = d.studioType !== "mcp_tool";
   // Activity mounts lazily on first visit (its fetch runs on mount) and then
   // stays mounted-but-hidden so toggling tabs doesn't refetch.
   const [activityOpened, setActivityOpened] = useState(false);
@@ -2666,9 +2676,16 @@ function NodeEditorDialog({
           <TabButton active={tab === "config"} onClick={() => setTab("config")}>
             Config
           </TabButton>
-          <TabButton active={tab === "execution"} onClick={() => setTab("execution")}>
-            Execution
-          </TabButton>
+          {/* An mcp_tool node is reached only through a tool edge from the agent
+              that binds it -- publish rejects it as an entry step and rejects a
+              data edge touching it -- so it is never dispatched as a graph step
+              and nothing reads its parallel/join config. Offering the controls
+              would invite an author to configure fan-out that can never run. */}
+          {dispatchableAsStep && (
+            <TabButton active={tab === "execution"} onClick={() => setTab("execution")}>
+              Execution
+            </TabButton>
+          )}
           <TabButton
             active={tab === "activity"}
             onClick={() => {
@@ -2714,7 +2731,7 @@ function NodeEditorDialog({
               }
             />
           </div>
-          <div className={tab === "execution" ? "" : "hidden"}>
+          <div className={tab === "execution" && dispatchableAsStep ? "" : "hidden"}>
             <NodeExecutionSettings
               parallel={d.parallelConfig ?? null}
               join={d.joinConfig ?? null}

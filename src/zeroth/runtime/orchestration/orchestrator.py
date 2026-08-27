@@ -33,6 +33,7 @@ from zeroth.platform.dispatch.operations import SideEffectOperationStore
 from zeroth.platform.observability import start_span
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.agents import AgentRunner, RepositoryThreadResolver
+from zeroth.runtime.agents.mcp_pool import MCPSessionPool
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.driver import GraphDriver
@@ -138,6 +139,12 @@ class RuntimeOrchestrator:
     # across orchestrators that reuse a graph id for a different topology.
     _back_edge_cache: dict = field(default_factory=dict)
     _scopes_cache: dict = field(default_factory=dict)
+    # Resolves an mcp_tool node's server_ref to the operator's registration.
+    # Absent means this deployment has no MCP registry wired, and _drive skips
+    # pool ownership entirely -- an mcp_tool call then fails closed downstream
+    # rather than silently running ungoverned.
+    mcp_server_resolver: Any | None = None
+    _mcp_pools: dict = field(default_factory=dict, init=False, repr=False)
     _token_snapshot_store: TokenSnapshotStore | None = field(default=None, init=False, repr=False)
 
     def use_token_snapshot_store(self, store: TokenSnapshotStore) -> RuntimeOrchestrator:
@@ -258,8 +265,48 @@ class RuntimeOrchestrator:
         *,
         step_tracker: GlobalStepTracker | None = None,
     ) -> Run:
-        """Main loop that processes nodes one at a time until done."""
-        return await self._driver.drive(graph, run, step_tracker=step_tracker)
+        """Main loop that processes nodes one at a time until done.
+
+        Owns the run's MCP sessions. Both ``run_graph`` and ``resume_graph``
+        funnel through here, which makes it the one place a run's processes can
+        be guaranteed to end: the ``finally`` runs whether the graph completes,
+        fails, or pauses at an approval gate. A resumed run deliberately gets a
+        fresh pool -- a subprocess cannot survive the pause that produced the
+        checkpoint, so pretending otherwise would leak a dead handle.
+        """
+        if self.mcp_server_resolver is None:
+            return await self._driver.drive(graph, run, step_tracker=step_tracker)
+        pool = MCPSessionPool(self.mcp_server_resolver)
+        self._mcp_pools[run.run_id] = pool
+        try:
+            return await self._driver.drive(graph, run, step_tracker=step_tracker)
+        finally:
+            self._mcp_pools.pop(run.run_id, None)
+            # A teardown failure must not replace the run's own outcome: the
+            # graph already finished (or already raised), and losing that to a
+            # stray "server would not stop" would hide what actually happened.
+            #
+            # Swallowed is not the same as unrecorded, and this was
+            # ``contextlib.suppress(Exception)``. A cross-task close failure --
+            # the anyio "exit cancel scope in a different task" that
+            # ``_SessionOwner`` now exists to prevent -- raised here on every
+            # parallel run and was discarded, so a leaked child process looked
+            # exactly like a clean teardown. Logging keeps the property the
+            # comment above claims while leaving the next such failure visible.
+            #
+            # It still bounds nothing: ``MCPClientManager.stop`` awaits
+            # ``AsyncExitStack.aclose()`` with no deadline, so a server that
+            # ignores its stdin close hangs here rather than raising, and a
+            # hang is not an exception to catch. Read "stopped once when the
+            # run ends" as best effort, not as a termination guarantee.
+            try:
+                await pool.stop()
+            except Exception:
+                logger.exception(
+                    "run %s: MCP session pool did not stop cleanly; "
+                    "a server process may have been left running",
+                    run.run_id,
+                )
 
     @property
     def _parallel_runtime(self) -> RuntimeParallelExecutor:
@@ -311,6 +358,7 @@ class RuntimeOrchestrator:
             context_window_enabled=self.context_window_enabled,
             operation_store=self.operation_store,
             http_client=self.http_client,
+            mcp_pools=self._mcp_pools,
         )
 
     async def _dispatch_node(
@@ -618,6 +666,15 @@ RuntimeOrchestrator.__signature__ = inspect.signature(RuntimeOrchestrator).repla
     parameters=[
         parameter
         for name, parameter in _orchestrator_parameters.items()
-        if name not in {"operation_store", "cost_instrumentation"}
+        if name
+        not in {
+            "operation_store",
+            "cost_instrumentation",
+            # Additive component, hidden for the same reason operation_store is:
+            # the protected-surface fixture pins RuntimeOrchestrator.__init__,
+            # and wiring an optional resolver is not a change to the capability
+            # that fixture names.
+            "mcp_server_resolver",
+        }
     ]
 )

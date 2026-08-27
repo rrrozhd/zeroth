@@ -117,6 +117,7 @@ nav:
       - Economics: how-to/econ.md
       - Service: how-to/service.md
       - Webhooks: how-to/webhooks.md
+      - MCP tools: how-to/mcp.md
     - Cookbook:
       - how-to/cookbook/index.md
       - Add an approval step: how-to/cookbook/approval-step.md

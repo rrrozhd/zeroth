@@ -20,11 +20,23 @@ injection-like text (e.g. a doc search that is itself *about* prompt injection).
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import quote, unquote
+
+from zeroth.runtime.agents.models import ToolOutputSafetyConfig
+from zeroth.runtime.agents.tools import ToolAttachmentManifest
+
+logger = logging.getLogger(__name__)
+
+#: Manifest-metadata key holding the rendered→original token map. Screening can
+#: rename a declaration's property names (a cap, a provenance wrap), and the model
+#: calls with the *rendered* names; the dispatcher restores the originals from
+#: here before the arguments cross the wire to the server.
+MCP_DECLARATION_INVERSE_MAP = "mcp_declaration_inverse_map"
 
 DEFAULT_MAX_TOOL_OUTPUT_CHARS = 8000
 DEFAULT_MAX_TOOL_DECLARATION_STRING_CHARS = 8000
@@ -704,6 +716,243 @@ def screen_tool_description(
         blocked=False,
     )
 
+
+def has_ambiguous_restoration_schema(schema: Mapping[str, Any] | None) -> bool:
+    """Return whether reversible argument changes depend on branch evaluation."""
+    stack: list[object] = [schema]
+    ambiguous = {
+        "anyOf",
+        "oneOf",
+        "if",
+        "then",
+        "else",
+        "dependentSchemas",
+        "dependentRequired",
+        "patternProperties",
+        "propertyNames",
+        "contains",
+        "not",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+    }
+    while stack:
+        node = stack.pop()
+        if isinstance(node, Mapping):
+            if ambiguous.intersection(node):
+                return True
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return False
+
+
+def narrow_mcp_argument_inverse_map(
+    schema: Mapping[str, Any] | None,
+    inverse_map: dict[str, str],
+) -> None:
+    """Keep only reversible argument tokens and reject unsupported semantics."""
+    restorable: set[str] = set()
+    unsupported_transforms: set[str] = set()
+    unsupported_keywords = {
+        "$dynamicRef",
+        "$id",
+        "$recursiveAnchor",
+        "$recursiveRef",
+        "additionalItems",
+    }
+    found_keywords: set[str] = set()
+
+    def contains_transformed_string(value: object) -> bool:
+        if isinstance(value, str):
+            return value in inverse_map
+        if isinstance(value, Mapping):
+            return any(
+                (isinstance(key, str) and key in inverse_map) or contains_transformed_string(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, list | tuple):
+            return any(contains_transformed_string(item) for item in value)
+        return False
+
+    def transformed_tokens(value: object) -> set[str]:
+        tokens: set[str] = set()
+        stack: list[object] = [value]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, str) and item in inverse_map:
+                tokens.add(item)
+            elif isinstance(item, Mapping):
+                stack.extend(item.keys())
+                stack.extend(item.values())
+            elif isinstance(item, list | tuple):
+                stack.extend(item)
+        return tokens
+
+    annotation_keywords = {"description", "title", "$comment"}
+    structural_name_containers = {"$defs", "definitions"}
+    stack: list[tuple[object, str | None]] = [(schema, None)]
+    while stack:
+        node, parent_keyword = stack.pop()
+        if isinstance(node, Mapping):
+            if parent_keyword in ("default", "examples"):
+                restorable.update(transformed_tokens(node))
+                continue
+            for key, value in node.items():
+                if isinstance(key, str) and key in inverse_map:
+                    if parent_keyword in ("properties", "default", "examples"):
+                        restorable.add(key)
+                    elif parent_keyword not in structural_name_containers:
+                        unsupported_transforms.add("schema keyword/name")
+                if key in unsupported_keywords:
+                    found_keywords.add(key)
+                if key == "$ref" and isinstance(value, str) and not value.startswith("#"):
+                    unsupported_transforms.add("external $ref")
+                if key == "items" and isinstance(value, list):
+                    found_keywords.add("tuple-items")
+                if (
+                    key == "properties"
+                    and isinstance(value, Mapping)
+                    or key == "required"
+                    and isinstance(value, list)
+                ):
+                    restorable.update(item for item in value if isinstance(item, str))
+                elif key == "enum" and isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, str):
+                            restorable.add(item)
+                        elif contains_transformed_string(item):
+                            unsupported_transforms.add("compound enum")
+                elif key == "const":
+                    if isinstance(value, str):
+                        restorable.add(value)
+                    elif contains_transformed_string(value):
+                        unsupported_transforms.add(f"compound {key}")
+                elif key == "default" or key == "examples" and isinstance(value, list):
+                    restorable.update(transformed_tokens(value))
+                elif isinstance(value, str) and value in inverse_map:
+                    safely_structural = key in ("$anchor", "$dynamicAnchor") or (
+                        key in ("$ref", "$dynamicRef") and value.startswith("#")
+                    )
+                    if key not in annotation_keywords and not safely_structural:
+                        unsupported_transforms.add(str(key))
+                stack.append((value, str(key)))
+        elif isinstance(node, list | tuple):
+            stack.extend((item, parent_keyword) for item in node)
+
+    for rendered in list(inverse_map):
+        if rendered not in restorable:
+            del inverse_map[rendered]
+    if unsupported_transforms or (inverse_map and found_keywords):
+        details = ", ".join(sorted(unsupported_transforms | found_keywords))
+        raise ToolDeclarationSafetyError(
+            f"reversible MCP declaration changes use unsupported schema semantics: {details}"
+        )
+
+def screen_tool_declaration(
+    manifest: ToolAttachmentManifest,
+    safety: ToolOutputSafetyConfig,
+) -> ToolAttachmentManifest:
+    """Bound and screen one MCP tool declaration on its way to the model.
+
+    An MCP tool's description and the prose inside its schema are text an
+    external process chose, delivered into the model's *instruction* surface on
+    every step -- the same channel ``ToolOutputSanitizer`` guards for tool
+    output, reached one step earlier. This is the single implementation of that
+    transform, shared by all three places an MCP declaration reaches a model:
+
+    * the deprecated inline ``agent.mcp_servers`` discovery path
+      (``AgentRunner._screen_discovered_tool``),
+    * the pinned ``mcp_tool`` node path (``agents.factory``), whose manifest is
+      built from graph data that was copied verbatim from a server at import,
+    * ``service.mcp_import``, which runs it at design time so an unboundable
+      declaration fails the import while an author is watching.
+
+    It used to be a private method on the runner, which is why the pinned path
+    -- the surface that *deprecates* inline discovery -- shipped with no
+    screening at all and was strictly less safe than the thing it replaced.
+
+    Flags rather than blocks, matching the output default and for the same
+    reason: the heuristics are conservative, and refusing a tool on a heuristic
+    match would silently strip a legitimate capability. Honours
+    ``screen_for_injection`` so an operator who turned screening off gets it off
+    here too -- but never the declaration *caps*, which are bounds rather than
+    heuristics.
+
+    The returned manifest is for model exposure only. ``tool_schema_hash`` is
+    taken over the RAW declaration on both sides of the pin (import and pool),
+    so nothing here can move the digest; screening the hashed contract instead
+    would break drift detection for every published graph.
+
+    ``metadata`` is carried through rather than replaced. Callers stamp their
+    own keys on the manifest before screening -- the factory's at-least-once
+    marker among them -- and returning a fresh metadata dict would silently drop
+    them.
+    """
+    inverse_map: dict[str, str] = {}
+    if not safety.screen_for_injection:
+        parameters_schema = wrap_schema_descriptions(
+            manifest.parameters_schema,
+            source=f"mcp_tool_description:{manifest.alias}",
+            flags=(),
+            inverse_map=inverse_map,
+        )
+        narrow_mcp_argument_inverse_map(parameters_schema, inverse_map)
+        if inverse_map and has_ambiguous_restoration_schema(parameters_schema):
+            raise ToolDeclarationSafetyError(
+                "reversible MCP declaration changes require a deterministic schema"
+            )
+        # No ``tool_description_safety`` entry on this branch: the audit summary
+        # reports what the *screener* found, and no screener ran. An empty
+        # summary would read as "screened, nothing found".
+        return manifest.model_copy(
+            update={
+                "description": manifest.description[:DEFAULT_MAX_TOOL_DECLARATION_STRING_CHARS],
+                "parameters_schema": parameters_schema,
+                "metadata": {
+                    **manifest.metadata,
+                    **({MCP_DECLARATION_INVERSE_MAP: inverse_map} if inverse_map else {}),
+                },
+            }
+        )
+    screened = screen_tool_description(
+        manifest.description,
+        parameters_schema=manifest.parameters_schema,
+        source=f"mcp_tool_description:{manifest.alias}",
+        screener=HeuristicInjectionScreener(),
+    )
+    if screened.flags:
+        logger.warning(
+            "MCP tool %s declares a description matching injection heuristics: %s",
+            manifest.alias,
+            ",".join(screened.flags),
+        )
+    update: dict[str, Any] = {
+        "description": screened.text,
+        "metadata": {
+            **manifest.metadata,
+            "tool_description_safety": screened.as_audit(),
+        },
+    }
+    if manifest.parameters_schema is not None:
+        # Every schema string is capped even when benign. Any individual
+        # hostile value is provenance-wrapped without corrupting unrelated
+        # schema keywords.
+        update["parameters_schema"] = wrap_schema_descriptions(
+            manifest.parameters_schema,
+            source=f"mcp_tool_description:{manifest.alias}",
+            flags=screened.flags,
+            screener=HeuristicInjectionScreener(),
+            declaration_prefix=manifest.description,
+            inverse_map=inverse_map,
+        )
+    narrow_mcp_argument_inverse_map(update.get("parameters_schema"), inverse_map)
+    if inverse_map:
+        if has_ambiguous_restoration_schema(update.get("parameters_schema")):
+            raise ToolDeclarationSafetyError(
+                "reversible MCP declaration changes require a deterministic schema"
+            )
+        update["metadata"][MCP_DECLARATION_INVERSE_MAP] = inverse_map
+    return manifest.model_copy(update=update)
 
 class ToolOutputSanitizer:
     """Sanitizes untrusted tool/memory output before it re-enters the model.

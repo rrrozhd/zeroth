@@ -481,6 +481,17 @@ METADATA_VOCABULARIES: Mapping[str, frozenset[str]] = {
             "subgraph",
             "retrieval",
             "http_request",
+            # The control-flow kinds. They reached the graph union without ever
+            # reaching this list -- nothing compared the two sets, so an ``if``
+            # or ``loop`` node's metadata was quietly summarized instead of
+            # retained. ``test_node_kind_vocabulary_tracks_union`` asserts the
+            # two agree in both directions, so that gap now fails loudly.
+            "if",
+            "loop",
+            # An MCP tool call is audited under its own kind, never folded into
+            # executable_unit: it bypasses the operation boundary, so the audit
+            # trail must not present the two as the same sort of event.
+            "mcp_tool",
         }
     ),
     "reason_code": REASON_CODES,

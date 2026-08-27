@@ -135,6 +135,10 @@
     {
       "down_revision": "033",
       "revision": "034"
+    },
+    {
+      "down_revision": "034",
+      "revision": "035"
     }
   ],
   "tables": {
@@ -2381,6 +2385,95 @@
             "hold_id"
           ],
           "name": "sqlite_autoindex_legal_holds_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "mcp_server_configs": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "ref",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "command",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "args",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "env",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "grants",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE mcp_server_configs ( ref TEXT PRIMARY KEY, command TEXT NOT NULL, args TEXT NOT NULL, env TEXT NOT NULL, grants TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "ref"
+          ],
+          "name": "sqlite_autoindex_mcp_server_configs_1",
           "origin": "pk",
           "partial": false,
           "unique": true

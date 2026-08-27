@@ -170,9 +170,12 @@ def test_alembic_upgrades_a_scratch_database_to_head(tmp_path: Path) -> None:
             for row in connection.execute("select name from sqlite_master where type='table'")
         }
 
-    assert applied == ["034"]
+    assert applied == ["035"]
     assert "runs" in tables
     assert "side_effect_operations" in tables
+    # Naming the head's own table proves the new revision actually created
+    # something, rather than only that *some* revision reported itself applied.
+    assert "mcp_server_configs" in tables
 
 
 def test_the_orchestrator_is_defined_in_the_runtime_domain() -> None:

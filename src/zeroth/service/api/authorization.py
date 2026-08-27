@@ -45,6 +45,14 @@ class Permission(StrEnum):
     # raise a governance level -- the server recomputes that from state it
     # holds -- so the blast radius is writing evidence about oneself.
     ENFORCEMENT_REPORT = "enforcement:report"
+    # Registering an MCP server chooses a process the runtime will spawn, so
+    # this is deliberately admin-tier and deliberately NOT held by OPERATOR.
+    # OPERATOR authors graphs (WORKFLOW_ADMIN); if the same role could also
+    # register servers, the registry would stop being the one side of the
+    # capability ceiling a graph author cannot edit, and the whole reason the
+    # server config lives outside the graph would collapse. CONNECTOR_ADMIN is
+    # unsuitable for exactly that reason -- OPERATOR holds it.
+    MCP_ADMIN = "mcp:admin"
     # Global economic-control-plane mutations are deliberately excluded from
     # tenant/deployment administrators.
     ECON_ADMIN = "econ:admin"

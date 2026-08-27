@@ -60,6 +60,12 @@ export const NODE_META: Record<string, { blurb: string; help: string; icon: stri
     icon: "M10 13a5 5 0 007.1 0l2-2a5 5 0 00-7.1-7.1l-1.1 1.1 M14 11a5 5 0 00-7.1 0l-2 2A5 5 0 0012 20.1l1.1-1.1",
     color: "var(--nt-retrieval)",
   },
+  mcp_tool: {
+    blurb: "Call a pinned MCP tool",
+    help: "Calls one tool on an MCP server an operator registered. The tool's schema was frozen when it was imported, and the runtime refuses to call it if the live server no longer matches. Unlike a code or executable-unit step, an MCP call is delivered at-least-once: it carries no operation receipt, so a retry can run it twice with nothing to suppress the duplicate. Imported with `zeroth-core mcp-import`, not authored here.",
+    icon: "M4 7h16 M4 12h16 M4 17h10 M18 15l3 3-3 3",
+    color: "var(--nt-mcp)",
+  },
   subgraph: {
     blurb: "Invoke another graph",
     help: "Runs another published graph as a single step, so workflows stay small and composable.",

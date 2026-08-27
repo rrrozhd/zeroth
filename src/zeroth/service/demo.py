@@ -21,6 +21,8 @@ from zeroth.contracts.graph.models import AgentNode, AgentNodeData, DisplayMetad
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.contracts.registry.errors import ContractVersionExistsError
+from zeroth.governance.policy.models import Capability
+from zeroth.integrations.mcp.config_repository import MCPServerConfigRepository
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.deployments import Deployment, DeploymentService, SQLiteDeploymentRepository
 
@@ -87,8 +89,31 @@ async def seed_demo(
             with contextlib.suppress(ContractVersionExistsError):
                 await registry.register(model_type, name=name)
 
+    # The operator-owned ceiling for mcp_tool nodes, wired the same way
+    # ``service.bootstrap.factory`` wires it. Without a resolver the validator's
+    # grants pass returns immediately, so this would be a publish path that
+    # accepts any capability an author declared. ``build_hello_graph`` has no
+    # mcp_tool node, but it is not the only graph that reaches the publish
+    # below: an existing draft under ``demo-hello`` is published exactly as
+    # found. "The check exists in one place and that place returns early on
+    # None" is the shape of the incident this feature already had once, which
+    # is why every caller of that place has to pass it something.
+    #
+    # Unqualified by tenant, unlike factory's ``deployment.tenant_id``: seeding
+    # is a single-deployment bootstrap and everything else here (the contract
+    # registry, the deployment lookup) is default-tenant too.
+    mcp_server_configs = MCPServerConfigRepository(database)
+
+    async def resolve_mcp_grants(server_ref: str) -> set[Capability] | None:
+        record = await mcp_server_configs.get(server_ref)
+        return None if record is None else set(record.grants)
+
     graph_repository = GraphRepository(
-        database, validator=GraphValidator(contract_registry=registry)
+        database,
+        validator=GraphValidator(
+            contract_registry=registry,
+            mcp_grants_resolver=resolve_mcp_grants,
+        ),
     )
     deployment_repository = SQLiteDeploymentRepository(database)
     deployment_service = DeploymentService(

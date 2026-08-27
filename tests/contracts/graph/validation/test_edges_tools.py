@@ -145,7 +145,7 @@ def test_tool_edge_endpoints_and_payload_are_checked() -> None:
 
     assert [issue.message for issue in issues] == [
         "tool edge source must be an agent node",
-        "tool edge target must be an executable unit or code node",
+        "tool edge target must be an executable unit, code, or MCP tool node",
         "tool edges cannot carry conditions or mappings",
         # The condition itself is still validated as a payload.
     ]

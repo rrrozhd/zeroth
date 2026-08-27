@@ -31,6 +31,10 @@
   --nt-approval: #80511d;
   --nt-loop: #4f4b93;
   --nt-retrieval: #267548;
+  /* MCP tools get their own swatch rather than sharing --nt-exec: an MCP
+     call bypasses the operation boundary (at-least-once, no replay
+     suppression), so it must not look like a governed executable unit. */
+  --nt-mcp: #9c3587;
   --nt-subgraph: #5f5e6c;
   --hair: #e6e6ee;
   --hair-strong: #dcdbe7;
