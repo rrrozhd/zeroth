@@ -77,9 +77,17 @@ zeroth.governance.audit.repository|AuditRepository|write_many|CRU
 zeroth.governance.decisions.repository|DecisionRepository|find_by_idempotency_key|R
 zeroth.governance.decisions.repository|DecisionRepository|find_replay|R
 zeroth.governance.decisions.repository|DecisionRepository|record|CR
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|append|C
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|current|R
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|effective|R
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|history|N
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|inspection_snapshot|R
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|latest|R
 zeroth.governance.guardrails.rate_limit|QuotaEnforcer|check_and_increment|CRU
+zeroth.governance.guardrails.rate_limit|QuotaEnforcer|decide|CRU
 zeroth.governance.guardrails.rate_limit|QuotaEnforcer|get|R
 zeroth.governance.guardrails.rate_limit|TokenBucketRateLimiter|check_and_consume|CRU
+zeroth.governance.guardrails.rate_limit|TokenBucketRateLimiter|decide|CRU
 zeroth.governance.guardrails.rate_limit|TokenBucketRateLimiter|get|R
 zeroth.governance.retention.audit_log_repository|RetentionAuditLogRepository|get|R
 zeroth.governance.retention.audit_log_repository|RetentionAuditLogRepository|get_in_transaction|R
@@ -125,10 +133,14 @@ zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|list_id
 zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|write_row|CU
 zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|write_row_bound|CU
 zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|write_row_in_connection|CU
+zeroth.integrations.persistence.runs.run_repository|GuardrailAdmissionCoordinator|coordinate|CR
+zeroth.integrations.persistence.runs.run_repository|GuardrailAdmissionCoordinator|exists|R
+zeroth.integrations.persistence.runs.run_repository|RunRepository|cancel|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|clear_active_run_id|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|compare_and_swap_token_snapshot|CU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|count_pending|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|create|C
+zeroth.integrations.persistence.runs.run_repository|RunRepository|create_guarded|C
 zeroth.integrations.persistence.runs.run_repository|RunRepository|delete|D
 zeroth.integrations.persistence.runs.run_repository|RunRepository|erase_checkpoints_for_run|D
 zeroth.integrations.persistence.runs.run_repository|RunRepository|erase_checkpoints_for_run_in_transaction|D
@@ -144,6 +156,7 @@ zeroth.integrations.persistence.runs.run_repository|RunRepository|get_latest_che
 zeroth.integrations.persistence.runs.run_repository|RunRepository|get_latest_run_id|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|get_token_snapshot|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|increment_failure_count|U
+zeroth.integrations.persistence.runs.run_repository|RunRepository|interrupt|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_checkpoints|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_child_runs|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_dead_letter_runs|N
@@ -154,11 +167,13 @@ zeroth.integrations.persistence.runs.run_repository|RunRepository|list_runs_for_
 zeroth.integrations.persistence.runs.run_repository|RunRepository|lock_and_recheck_erasable_run|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|merge_terminal_metadata|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|put|CU
+zeroth.integrations.persistence.runs.run_repository|RunRepository|put_if_status|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|record_condition_result|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|record_history|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|redact_run|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|redact_run_in_transaction|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|schedule_child_approval_continuation_in_transaction|RU
+zeroth.integrations.persistence.runs.run_repository|RunRepository|replay_failed|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|set_active_run_id|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|tenant_id_for_run_in_transaction|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|transition|RU
@@ -192,6 +207,14 @@ zeroth.service.deployments.repository|SQLiteDeploymentRepository|create|CRU
 zeroth.service.deployments.repository|SQLiteDeploymentRepository|get|R
 zeroth.service.deployments.repository|SQLiteDeploymentRepository|list|N
 zeroth.service.deployments.repository|SQLiteDeploymentRepository|next_version|R
+zeroth.service.certifications.repository|CertificationRepository|create|C
+zeroth.service.certifications.repository|CertificationRepository|events|N
+zeroth.service.certifications.repository|CertificationRepository|get|R
+zeroth.service.certifications.repository|CertificationRepository|get_by_target|R
+zeroth.service.certifications.repository|CertificationRepository|grant_override|CRU
+zeroth.service.certifications.repository|CertificationRepository|list|N
+zeroth.service.certifications.repository|CertificationRepository|promote|CRU
+zeroth.service.certifications.repository|CertificationRepository|revoke|CRU
 zeroth.service.langgraph_gateway.enforcement_store|LangGraphEnforcementRepository|count_decisions|N
 zeroth.service.langgraph_gateway.enforcement_store|LangGraphEnforcementRepository|get_attestation|N
 zeroth.service.langgraph_gateway.enforcement_store|LangGraphEnforcementRepository|get_attestation_by_run_id|R
@@ -279,7 +302,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 193
+    assert len(METHOD_METADATA_ORACLE) == 216
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

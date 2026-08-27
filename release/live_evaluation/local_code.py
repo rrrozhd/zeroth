@@ -61,7 +61,6 @@ _LOOP_OPERATIONS = (
 
 def register_local_code_manifests(runner: ExecutableUnitRunner) -> None:
     """Register code whose artifact is pinned to this repository checkout."""
-
     repository_root = Path(__file__).resolve().parents[2]
     script = (
         repository_root / "release" / "live_evaluation" / "code_units" / "record_profiler.py"

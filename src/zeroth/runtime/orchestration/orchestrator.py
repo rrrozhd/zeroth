@@ -26,7 +26,7 @@ from zeroth.contracts.graph import (
 from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.mappings import MappingExecutor
 from zeroth.governance.approvals import ApprovalRecord, ApprovalService
-from zeroth.governance.audit import AuditRepository
+from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.audit.models import MemoryAccessRecord, ToolCallRecord
 from zeroth.governance.policy import PolicyGuard
 from zeroth.platform.dispatch.operations import SideEffectOperationStore
@@ -196,6 +196,12 @@ class RuntimeOrchestrator:
             raise KeyError(run_id)
         if run.status not in {RunStatus.RUNNING, RunStatus.PENDING, RunStatus.WAITING_APPROVAL}:
             raise OrchestratorError(f"run {run_id} is not resumable from status {run.status}")
+        if run.status is not RunStatus.RUNNING:
+            expected_status = run.status
+            run.status = RunStatus.RUNNING
+            run.touch()
+            run = await self.run_repository.put_if_status(run, expected_status)
+            await self.run_repository.write_checkpoint(run)
         with start_span(
             "zeroth.run",
             {
@@ -424,9 +430,10 @@ class RuntimeOrchestrator:
         audit_record: Mapping[str, Any],
         *,
         started_at: datetime | None = None,
-    ) -> None:
+        defer_audit: bool = False,
+    ) -> NodeAuditRecord | None:
         """Save a record of this node's execution to the run history and audit log."""
-        await self._audit_recorder.record_history(
+        return await self._audit_recorder.record_history(
             run,
             node,
             node_id,
@@ -434,6 +441,7 @@ class RuntimeOrchestrator:
             output_payload,
             audit_record,
             started_at=started_at,
+            defer_audit=defer_audit,
         )
 
     def _increment_node_visit(self, run: Run, node_id: str) -> None:
@@ -505,6 +513,7 @@ class RuntimeOrchestrator:
         the run history, plans the next nodes, and sets the run back to
         RUNNING status so it can be resumed.
         """
+        expected_status = run.status
         if token_engine_enabled(graph.execution_settings):
             action = (
                 approval_record.resolution.decision.value
@@ -531,7 +540,11 @@ class RuntimeOrchestrator:
             run.pending_approval = None
             run.status = RunStatus.RUNNING
             run.touch()
-            run = await self.run_repository.put(run)
+            run = (
+                await self.run_repository.put_if_status(run, expected_status)
+                if expected_status is RunStatus.WAITING_APPROVAL
+                else await self.run_repository.put(run)
+            )
             await self.run_repository.write_checkpoint(run)
             return run
         if run.pending_node_ids and run.pending_node_ids[0] == node.node_id:
@@ -552,13 +565,14 @@ class RuntimeOrchestrator:
                 else None
             ),
         }
-        await self._record_history(
+        completed_audit = await self._record_history(
             run,
             node,
             node.node_id,
             approval_record.proposed_payload or {},
             output_payload,
             audit_record,
+            defer_audit=expected_status is RunStatus.WAITING_APPROVAL,
         )
         self._increment_node_visit(run, node.node_id)
         self._driver.advance_downstream(graph, run, node.node_id, output_payload)
@@ -567,7 +581,13 @@ class RuntimeOrchestrator:
         run.pending_approval = None
         run.status = RunStatus.RUNNING
         run.touch()
-        run = await self.run_repository.put(run)
+        run = (
+            await self.run_repository.put_if_status(run, expected_status)
+            if expected_status is RunStatus.WAITING_APPROVAL
+            else await self.run_repository.put(run)
+        )
+        if completed_audit is not None and expected_status is RunStatus.WAITING_APPROVAL:
+            await self._audit_recorder.write_prepared(completed_audit)
         await self.run_repository.write_checkpoint(run)
         await self._refresh_artifact_ttls(run)
         return run

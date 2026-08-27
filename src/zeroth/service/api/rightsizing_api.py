@@ -30,6 +30,8 @@ from zeroth.econ.analytics.rightsizing_experiment import (
 )
 from zeroth.governance.audit.models import AuditQuery, NodeAuditRecord, TokenUsage
 from zeroth.governance.audit.readiness import signer_is_available
+from zeroth.governance.audit.repository import AuditRepository
+from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.agents.provider import LiteLLMProviderAdapter
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, RunStatus
 from zeroth.service.api.authorization import (
@@ -83,7 +85,8 @@ def _stored_experiment_report(run: object) -> ExperimentReport | None:
 
 
 async def _composed_deployment_records(
-    bootstrap: object,
+    run_repository: RunRepository,
+    audit_repository: AuditRepository,
     deployment_ref: str | None,
 ) -> tuple[list[NodeAuditRecord], list[object]]:
     """Read active-deployment runs plus their durable composed descendants.
@@ -94,8 +97,6 @@ async def _composed_deployment_records(
     Repositories are already tenant/workspace scoped; the visited set and global
     bound keep malformed or cyclic lineage fail-safe.
     """
-    run_repository = bootstrap.run_repository
-    audit_repository = bootstrap.audit_repository
     roots = list(
         await run_repository.list_runs(deployment_ref, limit=_RUN_READ_BOUND)
     )
@@ -300,7 +301,11 @@ def register_rightsizing_routes(app: FastAPI | APIRouter) -> None:
         deployment = getattr(bootstrap, "deployment", None)
         await require_deployment_scope(request, deployment)
         deployment_ref = getattr(deployment, "deployment_ref", None)
-        records, runs = await _composed_deployment_records(bootstrap, deployment_ref)
+        records, runs = await _composed_deployment_records(
+            run_repository,
+            bootstrap.audit_repository,
+            deployment_ref,
+        )
         completed_run_ids = {str(run.run_id) for run in runs if _completed(run)}
         return spend_opportunities(records, eligible_run_ids=completed_run_ids)
 
@@ -345,7 +350,9 @@ def register_rightsizing_routes(app: FastAPI | APIRouter) -> None:
             )
 
         deployment_records, composed_runs = await _composed_deployment_records(
-            bootstrap, deployment_ref
+            bootstrap.run_repository,
+            bootstrap.audit_repository,
+            deployment_ref,
         )
         records, ambiguous_deployments = _experiment_node_records(
             deployment_records,
@@ -655,7 +662,7 @@ def _rightsizing_history(records: list[NodeAuditRecord]) -> list[RunHistoryEntry
 
 async def _write_rightsizing_call_audits(
     *,
-    audit_repository: object,
+    audit_repository: AuditRepository,
     calls: list[object],
     run_id: str,
     campaign_id: str,

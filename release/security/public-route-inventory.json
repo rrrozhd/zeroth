@@ -86,6 +86,16 @@
   },
   {
     "method": "GET",
+    "operation_id": "list_certifications_v1_certifications_get",
+    "path": "/v1/certifications"
+  },
+  {
+    "method": "GET",
+    "operation_id": "get_certification_v1_certifications__certification_id__get",
+    "path": "/v1/certifications/{certification_id}"
+  },
+  {
+    "method": "GET",
     "operation_id": "list_connectors_v1_connectors_get",
     "path": "/v1/connectors"
   },
@@ -133,6 +143,11 @@
     "method": "GET",
     "operation_id": "get_deployment_evidence_v1_deployments__deployment_ref__evidence_get",
     "path": "/v1/deployments/{deployment_ref}/evidence"
+  },
+  {
+    "method": "GET",
+    "operation_id": "get_deployment_guardrails_v1_deployments__deployment_ref__guardrails_get",
+    "path": "/v1/deployments/{deployment_ref}/guardrails"
   },
   {
     "method": "GET",
@@ -336,6 +351,11 @@
   },
   {
     "method": "GET",
+    "operation_id": "get_latest_rightsizing_experiment_v1_econ_rightsizing_experiment_latest_get",
+    "path": "/v1/econ/rightsizing/experiment/latest"
+  },
+  {
+    "method": "GET",
     "operation_id": "rightsizing_opportunities_v1_econ_rightsizing_opportunities_get",
     "path": "/v1/econ/rightsizing/opportunities"
   },
@@ -361,6 +381,16 @@
   },
   {
     "method": "GET",
+    "operation_id": "get_tenant_guardrails_v1_guardrails_get",
+    "path": "/v1/guardrails"
+  },
+  {
+    "method": "GET",
+    "operation_id": "get_guardrail_history_v1_guardrails_history_get",
+    "path": "/v1/guardrails/history"
+  },
+  {
+    "method": "GET",
     "operation_id": "get_identity_v1_identity_get",
     "path": "/v1/identity"
   },
@@ -383,6 +413,11 @@
     "method": "GET",
     "operation_id": "get_metrics_v1_metrics_get",
     "path": "/v1/metrics"
+  },
+  {
+    "method": "GET",
+    "operation_id": "list_erasure_history_v1_retention_erasure_history_get",
+    "path": "/v1/retention/erasure-history"
   },
   {
     "method": "GET",
@@ -498,6 +533,26 @@
     "method": "POST",
     "operation_id": "replay_run_v1_admin_runs__run_id__replay_post",
     "path": "/v1/admin/runs/{run_id}/replay"
+  },
+  {
+    "method": "POST",
+    "operation_id": "create_certification_v1_certifications_post",
+    "path": "/v1/certifications"
+  },
+  {
+    "method": "POST",
+    "operation_id": "override_certification_v1_certifications__certification_id__override_post",
+    "path": "/v1/certifications/{certification_id}/override"
+  },
+  {
+    "method": "POST",
+    "operation_id": "promote_certification_v1_certifications__certification_id__promote_post",
+    "path": "/v1/certifications/{certification_id}/promote"
+  },
+  {
+    "method": "POST",
+    "operation_id": "revoke_certification_v1_certifications__certification_id__revoke_post",
+    "path": "/v1/certifications/{certification_id}/revoke"
   },
   {
     "method": "POST",
@@ -643,6 +698,16 @@
     "method": "PUT",
     "operation_id": "update_connector_v1_connectors__ref__put",
     "path": "/v1/connectors/{ref}"
+  },
+  {
+    "method": "PUT",
+    "operation_id": "put_deployment_guardrails_v1_deployments__deployment_ref__guardrails_put",
+    "path": "/v1/deployments/{deployment_ref}/guardrails"
+  },
+  {
+    "method": "PUT",
+    "operation_id": "put_tenant_guardrails_v1_guardrails_put",
+    "path": "/v1/guardrails"
   },
   {
     "method": "PUT",

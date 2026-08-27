@@ -1,0 +1,262 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from release.app_certification import (
+    AppDeclaration,
+    CertificationRunner,
+    CommandResult,
+    validate_source_archive,
+    write_provenance,
+)
+from tests.app_certification.test_engine import (
+    declaration_data,
+    passing_executor,
+    provenance_kwargs,
+    write_semantic_inputs,
+)
+from tests.app_certification.test_hardening import SOURCE_DIGEST, identity
+
+
+def _migration_declaration(root: Path) -> dict:
+    (root / "candidate_migration.py").write_text(
+        "import sqlite3\n"
+        "def migrate(url):\n"
+        "    connection = sqlite3.connect(url.removeprefix('sqlite:///'))\n"
+        "    connection.execute('create table certification (id integer)')\n"
+        "    connection.commit()\n"
+        "    connection.close()\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["migration_runner"] = "candidate_migration:migrate"
+    return data
+
+
+def test_candidate_startup_ignores_tracked_sitecustomize_before_safe_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "candidate-startup-ran"
+    (tmp_path / "sitecustomize.py").write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('unsafe', encoding='utf-8')\n"
+        "os._exit(0)\n",
+        encoding="utf-8",
+    )
+    data = _migration_declaration(tmp_path)
+    declaration_path = tmp_path / "certification.json"
+    declaration = write_semantic_inputs(tmp_path, data)
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    runner = CertificationRunner(
+        tmp_path,
+        declaration,
+        declaration_path=declaration_path,
+        check_python=Path(sys.executable),
+    )
+
+    result = runner._command("migrations")
+
+    assert result.status == "passed", result.detail
+    assert not marker.exists()
+
+
+def test_candidate_startup_does_not_execute_candidate_interpreter(tmp_path: Path) -> None:
+    candidate_python = tmp_path / ".venv/bin/python"
+    observed: dict[str, list[str]] = {}
+    data = _migration_declaration(tmp_path)
+    declaration = write_semantic_inputs(tmp_path, data)
+
+    def capture(argv: list[str], cwd: Path) -> CommandResult:
+        observed["argv"] = argv
+        sys.path.insert(0, str(cwd))
+        try:
+            return passing_executor(argv, cwd)
+        finally:
+            sys.path.pop(0)
+
+    runner = CertificationRunner(
+        tmp_path,
+        declaration,
+        executor=capture,
+        check_python=candidate_python,
+    )
+
+    result = runner._command("migrations")
+
+    assert result.status == "passed"
+    assert observed["argv"][0] == str(Path(sys.executable).absolute())
+    assert observed["argv"][0] != str(candidate_python)
+    assert observed["argv"][1:4] == ["-I", "-S", "-c"]
+
+
+def test_structured_result_must_match_the_requested_check(tmp_path: Path) -> None:
+    runner = CertificationRunner(
+        tmp_path,
+        AppDeclaration.model_validate(declaration_data()),
+        executor=lambda argv, cwd: CommandResult(
+            0,
+            '{"check":"health","schema_version":1,"status":"passed"}\n',
+            "",
+        ),
+    )
+
+    result = runner._command("migrations")
+
+    assert result.status == "failed"
+    assert "trusted finalization" in result.detail
+
+
+def test_candidate_stdout_and_exit_have_no_trusted_result_channel(
+    tmp_path: Path,
+) -> None:
+    attack = '{"check":"contracts","schema_version":1,"status":"passed"}'
+    (tmp_path / "candidate_attack.py").write_text(
+        f"import os\nprint({attack!r}, flush=True)\nos._exit(0)\nCONTRACTS = {{}}\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
+    declaration = write_semantic_inputs(tmp_path, data)
+    runner = CertificationRunner(
+        tmp_path,
+        declaration,
+        check_python=Path(sys.executable),
+    )
+
+    result = runner._command("contracts")
+
+    assert result.status == "passed", result.detail
+
+
+def test_candidate_provisional_stdout_is_never_executed(
+    tmp_path: Path,
+) -> None:
+    forged = json.dumps(
+        {
+            "check": "contracts",
+            "evidence": {
+                "contracts": {"Fake": {"type": "object", "properties": {}}},
+            },
+            "schema_version": 1,
+        }
+    )
+    (tmp_path / "candidate_attack.py").write_text(
+        f"import os\nprint({forged!r}, flush=True)\nos._exit(0)\nCONTRACTS = {{}}\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
+    runner = CertificationRunner(tmp_path, write_semantic_inputs(tmp_path, data))
+
+    result = runner._command("contracts")
+
+    assert result.status == "passed", result.detail
+
+
+def test_candidate_result_fd_code_is_never_executed(
+    tmp_path: Path,
+) -> None:
+    forged = json.dumps(
+        {
+            "check": "contracts",
+            "evidence": {
+                "contracts": {"Fake": {"type": "object", "properties": {}}},
+            },
+            "schema_version": 1,
+        }
+    ).encode()
+    (tmp_path / "candidate_attack.py").write_text(
+        "import os, sys\n"
+        "fd = int(sys.argv[sys.argv.index('--result-fd') + 1])\n"
+        f"os.write(fd, {forged!r})\n"
+        "os._exit(0)\n"
+        "CONTRACTS = {}\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
+    runner = CertificationRunner(tmp_path, write_semantic_inputs(tmp_path, data))
+
+    result = runner._command("contracts")
+
+    assert result.status == "passed", result.detail
+
+
+def test_source_identity_is_bound_into_provenance(tmp_path: Path) -> None:
+    candidate = identity()
+    provenance = tmp_path / "provenance.json"
+
+    write_provenance(
+        provenance,
+        candidate,
+        **provenance_kwargs(candidate, "sha256:" + "f" * 64),
+    )
+
+    predicate = json.loads(provenance.read_text(encoding="utf-8"))["predicate"]
+    assert candidate.source_digest == SOURCE_DIGEST
+    assert predicate["source_digest"] == SOURCE_DIGEST
+
+
+def _committed_source_archive(tmp_path: Path) -> tuple[Path, Path, str]:
+    repository = tmp_path / "app-repository"
+    repository.mkdir()
+    subprocess.run(["git", "-C", str(repository), "init", "--quiet"], check=True)
+    (repository / "app.py").write_bytes(b"committed source")
+    subprocess.run(["git", "-C", str(repository), "add", "app.py"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ],
+        check=True,
+    )
+    app_commit = subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    archive_path = tmp_path / "source.tar"
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "archive",
+            "--format=tar",
+            f"--output={archive_path}",
+            app_commit,
+        ],
+        check=True,
+    )
+    return repository, archive_path, app_commit
+
+
+def test_source_identity_validation_rejects_tampered_build_context(tmp_path: Path) -> None:
+    repository, archive_path, app_commit = _committed_source_archive(tmp_path)
+    source_digest = "sha256:" + hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    candidate = identity().model_copy(
+        update={"app_commit": app_commit, "source_digest": source_digest}
+    )
+
+    validate_source_archive(archive_path, candidate, repository=repository)
+    archive_path.write_bytes(archive_path.read_bytes() + b"ambient bytes")
+
+    with pytest.raises(ValueError, match="source archive digest"):
+        validate_source_archive(archive_path, candidate, repository=repository)

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import zeroth.platform.dispatch.lease as lease_module
+from tests.conftest import requires_docker
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.dispatch.lease import _HAS_PG, LeaseManager
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.database import CoordinationTimeoutError
 from zeroth.runtime.runs import RunStatus
 
 DEPLOYMENT = "test-deployment"
@@ -23,6 +28,38 @@ async def _create_pending_run(run_repo: RunRepository) -> str:
     run = Run(graph_version_ref="g:v1", deployment_ref=DEPLOYMENT)
     persisted = await run_repo.create(run)
     return persisted.run_id
+
+
+async def _assert_fast_replica_cannot_overallocate(database, monkeypatch) -> None:
+    old_owner = LeaseManager(database, lease_duration_seconds=60)
+    fast_replica = LeaseManager(database, lease_duration_seconds=60)
+    run_repo = RunRepository.for_default_compatibility(database)
+    original_run = await _create_pending_run(run_repo)
+    replacement_run = await _create_pending_run(run_repo)
+    scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+
+    assert await old_owner.claim_pending(DEPLOYMENT, WORKER_A, **scope) == original_run
+    await run_repo.transition(original_run, RunStatus.RUNNING)
+    monkeypatch.setattr(
+        lease_module,
+        "_utc_now",
+        lambda: datetime.now(UTC) + timedelta(days=1),
+        raising=False,
+    )
+
+    replacement = await fast_replica.claim_pending_result(DEPLOYMENT, WORKER_B, **scope)
+    renewed = await old_owner.renew_lease(original_run, WORKER_A, generation=1)
+    async with database.transaction() as connection:
+        leased = await connection.fetch_one(
+            "SELECT COUNT(*) AS count FROM runs WHERE lease_worker_id IS NOT NULL"
+        )
+
+    assert replacement_run != original_run
+    assert replacement.run_id is None
+    assert replacement.concurrency_saturated is True
+    assert replacement.active_count == 1
+    assert renewed is True
+    assert leased is not None and int(leased["count"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +113,7 @@ async def test_release_clears_lease_columns(sqlite_db: AsyncSQLiteDatabase) -> N
 
     run_id = await _create_pending_run(run_repo)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
-    await manager.release_lease(run_id, WORKER_A)
+    await manager.release_lease(run_id, WORKER_A, generation=1)
 
     # After release the run should be claimable again.
     reclaimed = await manager.claim_pending(DEPLOYMENT, WORKER_A)
@@ -105,6 +142,130 @@ async def test_renew_lease_returns_false_for_non_owner(sqlite_db: AsyncSQLiteDat
 
     result = await manager.renew_lease(run_id, WORKER_B)
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_renewal_coordination_timeout_fails_closed(
+    sqlite_db: AsyncSQLiteDatabase,
+    monkeypatch,
+) -> None:
+    manager = LeaseManager(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
+    run_id = await _create_pending_run(run_repo)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    transaction = AsyncMock()
+    transaction.__aenter__.side_effect = CoordinationTimeoutError("coordination lock")
+    monkeypatch.setattr(sqlite_db, "transaction", lambda **_kwargs: transaction)
+
+    assert await manager.renew_lease(run_id, WORKER_A) is False
+
+
+@pytest.mark.asyncio
+async def test_expired_lease_cannot_be_renewed_after_slot_reallocation(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    old_owner = LeaseManager(sqlite_db)
+    new_owner = LeaseManager(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
+    expired_run = await _create_pending_run(run_repo)
+    replacement_run = await _create_pending_run(run_repo)
+    scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+
+    assert await old_owner.claim_pending(DEPLOYMENT, WORKER_A, **scope) == expired_run
+    await run_repo.transition(expired_run, RunStatus.RUNNING)
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
+            "UPDATE runs SET lease_expires_at = ? WHERE run_id = ?",
+            ("2000-01-01T00:00:00+00:00", expired_run),
+        )
+    assert await new_owner.claim_pending(DEPLOYMENT, WORKER_B, **scope) == replacement_run
+
+    assert await old_owner.renew_lease(expired_run, WORKER_A, generation=1) is False
+    async with sqlite_db.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT lease_expires_at FROM runs WHERE run_id = ?",
+            (expired_run,),
+        )
+    assert row["lease_expires_at"] == "2000-01-01T00:00:00+00:00"
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_renewal_reallocation_is_serialized_on_both_backends(
+    dual_database,
+    monkeypatch,
+) -> None:
+    old_owner = LeaseManager(dual_database, lease_duration_seconds=60)
+    new_owner = LeaseManager(dual_database, lease_duration_seconds=60)
+    run_repo = RunRepository.for_default_compatibility(dual_database)
+    expired_run = await _create_pending_run(run_repo)
+    replacement_run = await _create_pending_run(run_repo)
+    scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+    expiry = datetime(2030, 1, 1, tzinfo=UTC)
+    before_expiry = expiry - timedelta(seconds=1)
+    after_expiry = expiry + timedelta(seconds=1)
+
+    assert await old_owner.claim_pending(DEPLOYMENT, WORKER_A, **scope) == expired_run
+    await run_repo.transition(expired_run, RunStatus.RUNNING)
+    async with dual_database.transaction() as connection:
+        await connection.execute(
+            "UPDATE runs SET lease_expires_at = ? WHERE run_id = ?",
+            (expiry.isoformat(), expired_run),
+        )
+
+    renewal_sampled = asyncio.Event()
+    release_renewal = asyncio.Event()
+
+    async def controlled_database_now(connection, *, postgres):
+        del connection
+        del postgres
+        if asyncio.current_task().get_name() == "stale-renewal":
+            renewal_sampled.set()
+            await release_renewal.wait()
+            return before_expiry
+        return after_expiry
+
+    monkeypatch.setattr(lease_module, "_database_now", controlled_database_now)
+    renewal = asyncio.create_task(
+        old_owner.renew_lease(expired_run, WORKER_A, generation=1),
+        name="stale-renewal",
+    )
+    await asyncio.wait_for(renewal_sampled.wait(), timeout=1)
+    replacement = asyncio.create_task(new_owner.claim_pending_result(DEPLOYMENT, WORKER_B, **scope))
+    await asyncio.wait({replacement}, timeout=0.1)
+    release_renewal.set()
+
+    renewed, replacement_result = await asyncio.wait_for(
+        asyncio.gather(renewal, replacement),
+        timeout=2,
+    )
+    async with dual_database.transaction() as connection:
+        leased = await connection.fetch_one(
+            "SELECT COUNT(*) AS count FROM runs "
+            "WHERE lease_worker_id IS NOT NULL AND lease_expires_at >= ?",
+            (after_expiry.isoformat(),),
+        )
+
+    assert renewed is True
+    assert replacement_result.run_id is None, replacement_run
+    assert leased is not None and int(leased["count"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_fast_replica_clock_cannot_overallocate_live_lease(
+    sqlite_db: AsyncSQLiteDatabase,
+    monkeypatch,
+) -> None:
+    await _assert_fast_replica_cannot_overallocate(sqlite_db, monkeypatch)
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_fast_replica_clock_cannot_overallocate_live_lease_on_both_backends(
+    dual_database,
+    monkeypatch,
+) -> None:
+    await _assert_fast_replica_cannot_overallocate(dual_database, monkeypatch)
 
 
 @pytest.mark.asyncio
@@ -142,6 +303,29 @@ async def test_claim_orphaned_finds_running_runs_with_expired_leases(
 
     orphans = await manager.claim_orphaned(DEPLOYMENT, WORKER_B)
     assert run_id in orphans
+
+
+@requires_docker
+async def test_orphan_scan_is_exhausted_when_capacity_is_full_without_an_orphan(
+    dual_database,
+) -> None:
+    manager = LeaseManager(dual_database)
+    run_repo = RunRepository.for_default_compatibility(dual_database)
+    run_id = await _create_pending_run(run_repo)
+    scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A, **scope) == run_id
+    await run_repo.transition(run_id, RunStatus.RUNNING)
+
+    result = await manager.claim_orphaned_result(
+        DEPLOYMENT,
+        WORKER_B,
+        claim_limit=1,
+        **scope,
+    )
+
+    assert result.run_ids == ()
+    assert result.concurrency_saturated is False
 
 
 @pytest.mark.asyncio
@@ -235,7 +419,9 @@ async def test_claim_pending_pg_returns_none_when_no_work() -> None:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
     mock_conn = AsyncMock()
-    mock_conn.fetch_one = AsyncMock(return_value=None)
+    mock_conn.fetch_one = AsyncMock(
+        side_effect=[{"current_time": datetime(2026, 8, 16, tzinfo=UTC)}, None]
+    )
 
     mock_pool = MagicMock()
     pg_db = AsyncPostgresDatabase(pool=mock_pool)
@@ -258,7 +444,17 @@ async def test_claim_pending_pg_returns_run_id_on_success() -> None:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
     mock_conn = AsyncMock()
-    mock_conn.fetch_one = AsyncMock(return_value={"run_id": "test-123"})
+    mock_conn.fetch_one = AsyncMock(
+        side_effect=[
+            {"current_time": datetime(2026, 8, 16, tzinfo=UTC)},
+            {
+                "run_id": "test-123",
+                "tenant_id": "default",
+                "workspace_id": None,
+                "workspace_scope": "null",
+            },
+        ]
+    )
     mock_conn.execute = AsyncMock()
 
     mock_pool = MagicMock()

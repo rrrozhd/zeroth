@@ -5,19 +5,23 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.conftest import requires_docker
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
-from zeroth.platform.dispatch.lease import LeaseManager
+from zeroth.governance.audit import AuditRepository
+from zeroth.platform.observability.metrics import MetricsCollector
+from zeroth.platform.dispatch.lease import LeaseClaimResult, LeaseManager
 from zeroth.runtime.orchestration.token_scheduler import initialize_token_snapshot
 from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.runs import RunStatus
 from zeroth.runtime.runs import Run
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
 
 DEPLOYMENT = "worker-test-deployment"
 
@@ -98,6 +102,158 @@ class _FakeGraph:
     version: int = 1
 
 
+async def test_worker_refreshes_shared_concurrency_and_keeps_static_local_ceiling() -> None:
+    policy_repository = SimpleNamespace(
+        current=AsyncMock(return_value=object()),
+        effective=AsyncMock(
+            side_effect=[
+                SimpleNamespace(max_concurrency=2),
+                SimpleNamespace(max_concurrency=5),
+            ]
+        ),
+    )
+    shared_lease_manager = SimpleNamespace(
+        claim_pending_result=AsyncMock(
+            side_effect=[
+                SimpleNamespace(run_id=None, concurrency_saturated=False),
+                SimpleNamespace(run_id=None, concurrency_saturated=False),
+            ]
+        ),
+    )
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=None,  # type: ignore[arg-type]
+        orchestrator=None,
+        graph=_FakeGraph(),
+        lease_manager=shared_lease_manager,  # type: ignore[arg-type]
+        max_concurrency=8,
+    )
+    worker.guardrail_policy_repository = policy_repository
+
+    await worker._claim_pending()
+    await worker._claim_pending()
+
+    assert [
+        call.kwargs["max_concurrency"]
+        for call in shared_lease_manager.claim_pending_result.call_args_list
+    ] == [2, 5]
+    assert worker._semaphore._value == 8
+
+    static_lease_manager = SimpleNamespace(
+        claim_pending_result=AsyncMock(
+            return_value=SimpleNamespace(run_id=None, concurrency_saturated=False)
+        ),
+    )
+    static_worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=None,  # type: ignore[arg-type]
+        orchestrator=None,
+        graph=_FakeGraph(),
+        lease_manager=static_lease_manager,  # type: ignore[arg-type]
+        max_concurrency=3,
+    )
+    await static_worker._claim_pending()
+    assert static_lease_manager.claim_pending_result.call_args.kwargs["max_concurrency"] is None
+    assert static_worker._semaphore._value == 3
+
+
+async def test_interleaved_poll_and_wakeup_keep_saturation_per_claim() -> None:
+    first_ready = asyncio.Event()
+    second_done = asyncio.Event()
+
+    class _InterleavedClaims:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.last_claim_saturated = False
+
+        async def _result(self):
+            self.calls += 1
+            if self.calls == 1:
+                self.last_claim_saturated = True
+                first_ready.set()
+                await second_done.wait()
+                return LeaseClaimResult(
+                    run_id=None,
+                    concurrency_saturated=True,
+                    active_count=1,
+                    max_concurrency=1,
+                )
+            await first_ready.wait()
+            self.last_claim_saturated = False
+            second_done.set()
+            return LeaseClaimResult(
+                run_id="run-from-wakeup",
+                concurrency_saturated=False,
+                active_count=0,
+                max_concurrency=1,
+            )
+
+        async def claim_pending(self, *args, **kwargs):
+            del args, kwargs
+            return (await self._result()).run_id
+
+        async def claim_pending_result(self, *args, **kwargs):
+            del args, kwargs
+            return await self._result()
+
+    metrics = MetricsCollector()
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=None,  # type: ignore[arg-type]
+        orchestrator=None,
+        graph=_FakeGraph(),
+        lease_manager=_InterleavedClaims(),  # type: ignore[arg-type]
+        metrics_collector=metrics,
+    )
+
+    poll = asyncio.create_task(worker._claim_pending(), name="poll-claim")
+    await first_ready.wait()
+    wakeup = asyncio.create_task(worker._claim_pending(), name="wakeup-claim")
+    assert await asyncio.gather(poll, wakeup) == [None, "run-from-wakeup"]
+
+    assert (
+        metrics.snapshot()["counters"]['zeroth_guardrail_rejections_total{reason="concurrency"}']
+        == 1
+    )
+
+
+async def test_concurrency_audit_identity_distinguishes_null_and_literal_workspace(
+    sqlite_db,
+) -> None:
+    result = LeaseClaimResult(
+        run_id=None,
+        concurrency_saturated=True,
+        active_count=2,
+        max_concurrency=2,
+    )
+    scopes = (
+        (None, NullWorkspaceScopeContext(tenant_id="tenant-collision")),
+        ("None", ScopeContext(tenant_id="tenant-collision", workspace_id="None")),
+    )
+
+    for workspace_id, scope in scopes:
+        audit_repository = AuditRepository.scoped(sqlite_db, scope)
+        worker = RunWorker(
+            deployment_ref=DEPLOYMENT,
+            run_repository=None,  # type: ignore[arg-type]
+            orchestrator=SimpleNamespace(audit_repository=audit_repository),
+            graph=_FakeGraph(),
+            lease_manager=None,  # type: ignore[arg-type]
+            tenant_id="tenant-collision",
+            workspace_id=workspace_id,
+        )
+        await worker._record_concurrency_saturation(result)
+
+    audit_ids = set()
+    for _, scope in scopes:
+        records = await AuditRepository.scoped(sqlite_db, scope).list_by_node(
+            "service.guardrail.concurrency"
+        )
+        assert len(records) == 1
+        audit_ids.add(records[0].audit_id)
+    assert len(audit_ids) == 2
+
+
 async def _worker_tick(worker: RunWorker) -> None:
     """Run one poll cycle then stop."""
     run_id = await worker.lease_manager.claim_pending(worker.deployment_ref, worker.worker_id)
@@ -129,7 +285,8 @@ async def test_renewal_task_failure_does_not_leak_semaphore(sqlite_db) -> None:
         max_concurrency=1,
     )
 
-    async def _raising_renewal(run_id: str) -> None:
+    async def _raising_renewal(run_id: str, generation: int, drive_task) -> None:
+        del run_id, generation, drive_task
         raise RuntimeError("database is locked")
 
     worker._renewal_loop = _raising_renewal  # renewal dies by raising, not cancel
@@ -489,6 +646,81 @@ async def test_worker_recovers_run_whose_lease_expires_after_startup(sqlite_db) 
     assert final is not None
     assert final.status is RunStatus.COMPLETED
     assert orchestrator.driven == [run.run_id]
+
+
+@requires_docker
+async def test_worker_recovers_orphan_after_initial_shared_capacity_saturation(
+    dual_database, monkeypatch
+) -> None:
+    run_repo = RunRepository.for_default_compatibility(dual_database)
+    lease_manager = LeaseManager(dual_database)
+    orchestrator = _FakeOrchestrator(run_repo)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=lease_manager,
+        max_concurrency=1,
+        poll_interval=0.01,
+    )
+    worker.guardrail_policy_repository = SimpleNamespace(
+        effective=AsyncMock(return_value=SimpleNamespace(max_concurrency=1))
+    )
+
+    occupying = await _make_run(run_repo)
+    orphan = await _make_run(run_repo)
+    await run_repo.transition(occupying.run_id, RunStatus.RUNNING)
+    await run_repo.transition(orphan.run_id, RunStatus.RUNNING)
+    async with dual_database.transaction() as connection:
+        await connection.execute(
+            """UPDATE runs
+               SET lease_worker_id = 'occupying-worker',
+                   lease_expires_at = '2999-01-01T00:00:00+00:00',
+                   lease_generation = 1
+               WHERE run_id = ?""",
+            (occupying.run_id,),
+        )
+        await connection.execute(
+            """UPDATE runs
+               SET lease_worker_id = 'crashed-worker',
+                   lease_expires_at = '2000-01-01T00:00:00+00:00',
+                   lease_generation = 1
+               WHERE run_id = ?""",
+            (orphan.run_id,),
+        )
+
+    first_scan = asyncio.Event()
+    method_name = (
+        "claim_orphaned_result"
+        if hasattr(LeaseManager, "claim_orphaned_result")
+        else "claim_orphaned"
+    )
+    original_claim = getattr(LeaseManager, method_name)
+
+    async def _observed_claim(manager, *args, **kwargs):
+        result = await original_claim(manager, *args, **kwargs)
+        first_scan.set()
+        return result
+
+    monkeypatch.setattr(LeaseManager, method_name, _observed_claim)
+
+    await worker.start()
+    recovery_task = next(iter(worker._active_tasks))
+    await asyncio.wait_for(first_scan.wait(), timeout=2)
+    await asyncio.sleep(0)
+    recovery_finished_while_saturated = recovery_task.done()
+
+    await lease_manager.release_lease(
+        occupying.run_id,
+        "occupying-worker",
+        generation=1,
+    )
+    final = await _wait_for_status(run_repo, orphan.run_id, RunStatus.COMPLETED, timeout=2)
+
+    assert recovery_finished_while_saturated is False
+    assert final is not None
+    assert final.status is RunStatus.COMPLETED
 
 
 async def test_worker_does_not_claim_more_runs_than_available_capacity(

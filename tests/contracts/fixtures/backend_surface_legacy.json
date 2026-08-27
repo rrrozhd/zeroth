@@ -8361,6 +8361,16 @@
     },
     {
       "evidence": [
+        "schema_model:zeroth.core.service.guardrail_api"
+      ],
+      "id": "zeroth.core.service.guardrail_api:GuardrailPolicyResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.core.service.guardrail_api",
+      "legacy_name": "GuardrailPolicyResponse",
+      "signature": "(*, tenant_revision: zeroth.core.guardrails.policy.GuardrailPolicyRevision | None, deployment_revision: zeroth.core.guardrails.policy.GuardrailPolicyRevision | None, effective: zeroth.core.guardrails.policy.EffectiveGuardrailSettings) -> None"
+    },
+    {
+      "evidence": [
         "schema_model:zeroth.core.service.health"
       ],
       "id": "zeroth.core.service.health:DependencyStatus",
@@ -10304,6 +10314,116 @@
       "legacy_module": "zeroth.service.api.health",
       "legacy_name": "AuditDeliveryHealth",
       "signature": "(*, queue_depth: int, queued: int, delivered: int, retried: int, rejected: int, failed: int, abandoned: int, losing_events: bool) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.certification_api"
+      ],
+      "id": "zeroth.service.api.certification_api:RegisterCertificationRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.certification_api",
+      "legacy_name": "RegisterCertificationRequest",
+      "signature": "(*, receipt: zeroth.service.certifications.receipt.SignedPromotionReceipt) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.certification_api"
+      ],
+      "id": "zeroth.service.api.certification_api:PromoteCertificationRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.certification_api",
+      "legacy_name": "PromoteCertificationRequest",
+      "signature": "() -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.certification_api"
+      ],
+      "id": "zeroth.service.api.certification_api:RevokeCertificationRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.certification_api",
+      "legacy_name": "RevokeCertificationRequest",
+      "signature": "(*, reason: Annotated[str, MinLen(min_length=1), MaxLen(max_length=500)]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.certification_api"
+      ],
+      "id": "zeroth.service.api.certification_api:CertificationOverrideRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.certification_api",
+      "legacy_name": "CertificationOverrideRequest",
+      "signature": "(*, scopes: Annotated[tuple[zeroth.service.certifications.models.OverrideScope, ...], MinLen(min_length=1)], reason: Annotated[str, MinLen(min_length=1), MaxLen(max_length=500)], expires_at: pydantic.types.AwareDatetime) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.certification_api"
+      ],
+      "id": "zeroth.service.api.certification_api:CertificationResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.certification_api",
+      "legacy_name": "CertificationResponse",
+      "signature": "(*, certification_id: str, tenant_id: str, workspace_id: str | None, app_name: str, app_commit: str, image_digest: str, state: str, promotion_target_key: str | None, override: zeroth.service.certifications.models.CertificationOverride | None, evaluation: zeroth.service.certifications.models.CertificationEvaluation, events: tuple[zeroth.service.certifications.models.CertificationEvent, ...], created_at: datetime.datetime, updated_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.certifications.models"
+      ],
+      "id": "zeroth.service.certifications.models:ServingArtifactIdentity",
+      "kind": "class",
+      "legacy_module": "zeroth.service.certifications.models",
+      "legacy_name": "ServingArtifactIdentity",
+      "signature": "(*, target_key: Annotated[str, MinLen(min_length=1), MaxLen(max_length=255)], app_commit: Annotated[str, _PydanticGeneralMetadata(pattern='^[0-9a-f]{40}$')], image_digest: Annotated[str, _PydanticGeneralMetadata(pattern='^sha256:[0-9a-f]{64}$')]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.certifications.models"
+      ],
+      "id": "zeroth.service.certifications.models:CertificationOverride",
+      "kind": "class",
+      "legacy_module": "zeroth.service.certifications.models",
+      "legacy_name": "CertificationOverride",
+      "signature": "(*, scopes: Annotated[tuple[zeroth.service.certifications.models.OverrideScope, ...], MinLen(min_length=1)], reason: Annotated[str, MinLen(min_length=1), MaxLen(max_length=500)], actor_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=255)], created_at: pydantic.types.AwareDatetime, expires_at: pydantic.types.AwareDatetime) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.certifications.models"
+      ],
+      "id": "zeroth.service.certifications.models:AppCertification",
+      "kind": "class",
+      "legacy_module": "zeroth.service.certifications.models",
+      "legacy_name": "AppCertification",
+      "signature": "(*, certification_id: str, tenant_id: str, workspace_id: str | None = None, receipt: zeroth.service.certifications.receipt.SignedPromotionReceipt, state: zeroth.service.certifications.models.CertificationState, promotion_target_key: str | None = None, promoted_at: datetime.datetime | None = None, revoked_at: datetime.datetime | None = None, revocation_reason: str | None = None, override: zeroth.service.certifications.models.CertificationOverride | None = None, created_at: datetime.datetime, updated_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.certifications.models"
+      ],
+      "id": "zeroth.service.certifications.models:CertificationEvent",
+      "kind": "class",
+      "legacy_module": "zeroth.service.certifications.models",
+      "legacy_name": "CertificationEvent",
+      "signature": "(*, event_id: str, certification_id: str, tenant_id: str, workspace_id: str | None = None, event_type: str, state: zeroth.service.certifications.models.CertificationState, promotion_target_key: str | None = None, actor_id: str, reason: str | None = None, scopes: tuple[zeroth.service.certifications.models.OverrideScope, ...] = (), override_expires_at: pydantic.types.AwareDatetime | None = None, created_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.certifications.models"
+      ],
+      "id": "zeroth.service.certifications.models:CertificationBlocker",
+      "kind": "class",
+      "legacy_module": "zeroth.service.certifications.models",
+      "legacy_name": "CertificationBlocker",
+      "signature": "(*, code: str, message: str, remediation: str, overridable: bool = False) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.certifications.models"
+      ],
+      "id": "zeroth.service.certifications.models:CertificationEvaluation",
+      "kind": "class",
+      "legacy_module": "zeroth.service.certifications.models",
+      "legacy_name": "CertificationEvaluation",
+      "signature": "(*, certification_id: str | None = None, state: zeroth.service.certifications.models.CertificationState | None = None, test_deployable: bool, production_ready: bool, override_active: bool = False, blockers: tuple[zeroth.service.certifications.models.CertificationBlocker, ...] = ()) -> None"
     }
   ],
   "immutable": true,

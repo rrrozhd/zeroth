@@ -820,6 +820,323 @@
         ],
         "type": "object"
       },
+      "CertificationBlocker": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "overridable": {
+            "default": false,
+            "type": "boolean"
+          },
+          "remediation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "remediation"
+        ],
+        "type": "object"
+      },
+      "CertificationEvaluation": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CertificationBlocker"
+            },
+            "type": "array"
+          },
+          "certification_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "override_active": {
+            "default": false,
+            "type": "boolean"
+          },
+          "production_ready": {
+            "type": "boolean"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificationState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "test_deployable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "test_deployable",
+          "production_ready"
+        ],
+        "type": "object"
+      },
+      "CertificationEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "type": "string"
+          },
+          "certification_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "override_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "promotion_target_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scopes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/OverrideScope"
+            },
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CertificationState"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "certification_id",
+          "tenant_id",
+          "event_type",
+          "state",
+          "actor_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "CertificationOverride": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/OverrideScope"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "scopes",
+          "reason",
+          "actor_id",
+          "created_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "CertificationOverrideRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/OverrideScope"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "scopes",
+          "reason",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "CertificationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "app_commit": {
+            "type": "string"
+          },
+          "app_name": {
+            "type": "string"
+          },
+          "certification_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/CertificationEvaluation"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/CertificationEvent"
+            },
+            "type": "array"
+          },
+          "image_digest": {
+            "type": "string"
+          },
+          "override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificationOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "promotion_target_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "certification_id",
+          "tenant_id",
+          "workspace_id",
+          "app_name",
+          "app_commit",
+          "image_digest",
+          "state",
+          "promotion_target_key",
+          "override",
+          "evaluation",
+          "events",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "CertificationState": {
+        "enum": [
+          "buildable",
+          "test_deployable",
+          "certified",
+          "promoted",
+          "revoked"
+        ],
+        "type": "string"
+      },
       "ChildRunSummaryResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2088,6 +2405,54 @@
         },
         "type": "object"
       },
+      "EffectiveGuardrailSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "backpressure_queue_depth": {
+            "default": 100,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "type": "integer"
+          },
+          "max_concurrency": {
+            "default": 8,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "type": "integer"
+          },
+          "quota_daily_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit_burst": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "rate_limit_capacity": {
+            "default": 10,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "type": "number"
+          },
+          "rate_limit_refill_rate": {
+            "default": 1,
+            "maximum": 100000.0,
+            "minimum": 1.1574074074074073e-05,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "ErasureHistoryEntry": {
         "additionalProperties": false,
         "properties": {
@@ -2592,6 +2957,17 @@
             "minLength": 1,
             "type": "string"
           },
+          "source_deployment_ref": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "tolerance_pct": {
             "default": 5.0,
             "maximum": 100.0,
@@ -2613,6 +2989,200 @@
           "enforced"
         ],
         "type": "string"
+      },
+      "GuardrailPolicyPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "backpressure_queue_depth": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quota_daily_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit_burst": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit_capacity": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit_refill_rate": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.1574074074074073e-05,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reset_fields": {
+            "items": {
+              "enum": [
+                "rate_limit_capacity",
+                "rate_limit_refill_rate",
+                "rate_limit_burst",
+                "quota_daily_limit",
+                "backpressure_queue_depth",
+                "max_concurrency"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "GuardrailPolicyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deployment_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true
+          },
+          "deployment_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effective": {
+            "$ref": "#/components/schemas/EffectiveGuardrailSettings"
+          },
+          "tenant_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true
+          },
+          "tenant_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tenant_revision",
+          "deployment_revision",
+          "effective",
+          "tenant_overrides",
+          "deployment_overrides"
+        ],
+        "type": "object"
+      },
+      "GuardrailPolicyRevision": {
+        "additionalProperties": false,
+        "properties": {
+          "changed_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy": {
+            "$ref": "#/components/schemas/GuardrailPolicyPatch"
+          },
+          "revision_id": {
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "tenant",
+              "deployment"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "scope",
+          "deployment_ref",
+          "policy",
+          "changed_by",
+          "created_at"
+        ],
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -2686,6 +3256,16 @@
               }
             ]
           },
+          "certification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificationEvaluation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deployment_ref": {
             "type": "string"
           },
@@ -2704,6 +3284,10 @@
                 "type": "null"
               }
             ]
+          },
+          "production_ready": {
+            "default": false,
+            "type": "boolean"
           },
           "status": {
             "default": "ok",
@@ -4206,6 +4790,16 @@
             "default": 0,
             "type": "integer"
           },
+          "source_deployment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "tool_free_runs": {
             "default": 0,
             "type": "integer"
@@ -4370,6 +4964,13 @@
         ],
         "type": "string"
       },
+      "OverrideScope": {
+        "enum": [
+          "receipt_expired",
+          "environment_policy"
+        ],
+        "type": "string"
+      },
       "PassthroughMappingOperation": {
         "additionalProperties": false,
         "properties": {
@@ -4411,6 +5012,111 @@
           "type",
           "direction",
           "label"
+        ],
+        "type": "object"
+      },
+      "PromoteCertificationRequest": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "PromotionReceiptPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "app_commit": {
+            "pattern": "^[0-9a-f]{40}$",
+            "type": "string"
+          },
+          "app_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "certification_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "environments": {
+            "items": {
+              "enum": [
+                "test",
+                "production"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "type": "array"
+          },
+          "evidence_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "image_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "image_reference": {
+            "maxLength": 255,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9./:_-]*$",
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "report_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "type": "integer"
+          },
+          "source_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "zeroth_version": {
+            "pattern": "^[0-9]+(?:\\.[0-9]+){1,4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "certification_id",
+          "tenant_id",
+          "app_name",
+          "app_commit",
+          "zeroth_version",
+          "image_reference",
+          "image_digest",
+          "source_digest",
+          "evidence_digest",
+          "report_digest",
+          "environments",
+          "issued_at",
+          "expires_at"
         ],
         "type": "object"
       },
@@ -4557,11 +5263,17 @@
       "ReadinessResponse": {
         "additionalProperties": false,
         "properties": {
+          "certification": {
+            "$ref": "#/components/schemas/CertificationEvaluation"
+          },
           "checks": {
             "additionalProperties": {
               "$ref": "#/components/schemas/DependencyStatus"
             },
             "type": "object"
+          },
+          "production_ready": {
+            "type": "boolean"
           },
           "schema_revision": {
             "$ref": "#/components/schemas/SchemaRevision"
@@ -4572,7 +5284,21 @@
         },
         "required": [
           "status",
-          "schema_revision"
+          "schema_revision",
+          "production_ready",
+          "certification"
+        ],
+        "type": "object"
+      },
+      "RegisterCertificationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "receipt": {
+            "$ref": "#/components/schemas/SignedPromotionReceipt"
+          }
+        },
+        "required": [
+          "receipt"
         ],
         "type": "object"
       },
@@ -4723,6 +5449,20 @@
         },
         "required": [
           "tenant_id"
+        ],
+        "type": "object"
+      },
+      "RevokeCertificationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
         ],
         "type": "object"
       },
@@ -5560,6 +6300,53 @@
           "unknown"
         ],
         "type": "string"
+      },
+      "SignedPromotionReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PromotionReceiptPayload"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signing_algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signing_key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "payload",
+          "digest"
+        ],
+        "type": "object"
       },
       "SpendReport": {
         "additionalProperties": false,
@@ -7918,6 +8705,240 @@
         ]
       }
     },
+    "/v1/certifications": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CertificationResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterCertificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/certifications/{certification_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certification_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/certifications/{certification_id}/override": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certification_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertificationOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/certifications/{certification_id}/promote": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certification_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteCertificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/certifications/{certification_id}/revoke": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certification_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeCertificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/connectors": {
       "get": {
         "responses": {
@@ -8605,6 +9626,88 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeploymentEvidenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/deployments/{deployment_ref}/guardrails": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
                 }
               }
             }
@@ -10043,6 +11146,80 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/guardrails": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/guardrails/history": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GuardrailPolicyRevision"
+                  },
+                  "type": "array"
                 }
               }
             }

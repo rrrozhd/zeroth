@@ -1,0 +1,639 @@
+name: Certify Zeroth application
+on:
+  workflow_call:
+    inputs:
+      zeroth_ref:
+        description: Immutable Zeroth commit to certify against
+        required: true
+        type: string
+      declaration_path:
+        description: App-relative certification declaration
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      zeroth_ref:
+        description: Immutable Zeroth commit to certify against
+        required: true
+        type: string
+      declaration_path:
+        description: App-relative certification declaration
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      CERTIFICATION_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      HANDOFF_ROOT: ${{ runner.temp }}/app-certification-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+      CANDIDATE_BUILD_CONTAINER: app-cert-dependencies-${{ github.run_id }}-${{ github.run_attempt }}
+      CANDIDATE_BUILD_DISK: ${{ runner.temp }}/app-cert-dependencies-${{ github.run_id }}-${{ github.run_attempt }}.img
+      CANDIDATE_BUILD_IMAGE: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+      CANDIDATE_BUILDER: app-cert-builder-${{ github.run_id }}-${{ github.run_attempt }}
+      CANDIDATE_BUILDER_DISK: ${{ runner.temp }}/app-cert-builder-${{ github.run_id }}-${{ github.run_attempt }}.img
+      CANDIDATE_IMAGE_REFERENCE: app-cert-candidate:${{ github.run_id }}-${{ github.run_attempt }}
+      RUNTIME_IMAGE_REFERENCE: app-cert-runtime:${{ github.run_id }}-${{ github.run_attempt }}
+      WHEEL_INSPECT_CONTAINER: app-cert-wheel-inspect-${{ github.run_id }}-${{ github.run_attempt }}
+      PACKAGED_CONTAINER: app-cert-packaged-${{ github.run_id }}-${{ github.run_attempt }}
+      EPHEMERAL_CONTAINER: app-cert-ephemeral-${{ github.run_id }}-${{ github.run_attempt }}
+      PACKAGED_NETWORK: app-cert-packaged-net-${{ github.run_id }}-${{ github.run_attempt }}
+      EPHEMERAL_NETWORK: app-cert-ephemeral-net-${{ github.run_id }}-${{ github.run_attempt }}
+      PACKAGED_VOLUME: app-cert-packaged-data-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Initialize certifier-owned handoff
+        id: handoff
+        run: |
+          set -euo pipefail
+          [[ ! -e "$HANDOFF_ROOT" && ! -L "$HANDOFF_ROOT" ]]
+          mkdir -m 700 "$HANDOFF_ROOT"
+      - name: Checkout application candidate
+        id: app-checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: app
+          persist-credentials: false
+      - name: Checkout pinned Zeroth certifier
+        id: certifier-checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: rrrozhd/zeroth
+          ref: ${{ inputs.zeroth_ref }}
+          path: zeroth
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - name: Validate pins and prepare isolated app environment
+        id: prepare
+        env:
+          DECLARATION_PATH: ${{ inputs.declaration_path }}
+          ZEROTH_REF: ${{ inputs.zeroth_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$ZEROTH_REF" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "zeroth_ref must be a full commit SHA" >&2
+            exit 1
+          }
+          [[ "$DECLARATION_PATH" != /* && "/$DECLARATION_PATH/" != *"/../"* ]] || {
+            echo "declaration_path must remain below the app checkout" >&2
+            exit 1
+          }
+          [[ ! -L "app/$DECLARATION_PATH" ]] || {
+            echo "declaration_path must not be a symlink" >&2
+            exit 1
+          }
+          DECLARATION_FILE=$(realpath -e "app/$DECLARATION_PATH")
+          [[ "$DECLARATION_FILE" == "$GITHUB_WORKSPACE/app/"* ]] || {
+            echo "declaration_path resolves outside the app checkout" >&2
+            exit 1
+          }
+          ZEROTH_COMMIT=$(git -C zeroth rev-parse HEAD)
+          [[ "$ZEROTH_COMMIT" == "$ZEROTH_REF" ]] || {
+            echo "checked-out certifier does not match zeroth_ref" >&2
+            exit 1
+          }
+          [[ ! -e app/.zeroth-certifier && ! -L app/.zeroth-certifier && \
+             ! -e app/.app-certification && ! -L app/.app-certification ]] || {
+            echo "reserved certification paths already exist in the app checkout" >&2
+            exit 1
+          }
+          timeout 10m uv sync --directory zeroth --frozen --all-extras
+          timeout 5m npm ci --prefix zeroth/frontend
+          zeroth/.venv/bin/python -m release.app_certification.dependency_sandbox \
+            check-certification-collisions --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --disk "$CANDIDATE_BUILD_DISK" --run-id "$CERTIFICATION_RUN_ID" \
+            --ownership "$HANDOFF_ROOT/resource-ownership.json"
+          mkdir trusted-certifier
+          timeout 5m uv build --directory zeroth --wheel --out-dir trusted-certifier
+          cp zeroth/requirements-image.txt trusted-certifier/requirements-image.txt
+          sudo useradd --system --user-group --password '!' --create-home \
+            --home-dir /home/app-cert-candidate \
+            --shell /usr/sbin/nologin app-cert-candidate
+          chmod -R go-w zeroth app
+          CANDIDATE_UID=$(id -u app-cert-candidate)
+          CANDIDATE_GID=$(id -g app-cert-candidate)
+          UV_BIN=$(realpath "$(command -v uv)")
+          zeroth/.venv/bin/python -m release.app_certification.dependency_sandbox \
+            run-dependency-sandbox --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --disk "$CANDIDATE_BUILD_DISK" --disk-bytes 3221225472 \
+            --image "$CANDIDATE_BUILD_IMAGE" --uv "$UV_BIN" \
+            --uid "$CANDIDATE_UID" --gid "$CANDIDATE_GID" \
+            --cpus 2 --memory 2g --pids-limit 128 --timeout 600 \
+            --output-limit 1048576 --log "$HANDOFF_ROOT/logs/dependency-build.log"
+          sudo chown -R "$USER":"$USER" app/.venv
+          chmod -R go-w zeroth app
+          git -C app diff --exit-code
+          git -C app diff --cached --exit-code
+          APP_COMMIT=$(git -C app rev-parse HEAD)
+          git -C app archive --format=tar \
+            --output="$HANDOFF_ROOT/source.tar" \
+            "$APP_COMMIT"
+          SOURCE_DIGEST="sha256:$(sha256sum "$HANDOFF_ROOT/source.tar" | cut -d ' ' -f 1)"
+          mkdir build-context
+          tar -xf "$HANDOFF_ROOT/source.tar" -C build-context
+          mkdir -m 700 build-context/.zeroth-certifier
+          cp trusted-certifier/* build-context/.zeroth-certifier/
+          [[ ! -L "build-context/$DECLARATION_PATH" ]] || {
+            echo "archived declaration_path must not be a symlink" >&2
+            exit 1
+          }
+          DECLARATION_FILE=$(realpath -e "build-context/$DECLARATION_PATH")
+          [[ "$DECLARATION_FILE" == "$GITHUB_WORKSPACE/build-context/"* && \
+             -f "$DECLARATION_FILE" ]] || {
+            echo "archived declaration_path resolves outside the committed source" >&2
+            exit 1
+          }
+          APP_PYTHON="$GITHUB_WORKSPACE/app/.venv/bin/python"
+          [[ -x "$APP_PYTHON" ]] || {
+            echo "app uv environment has no Python interpreter" >&2
+            exit 1
+          }
+          export PYTHONPATH="$GITHUB_WORKSPACE/zeroth"
+          install -m 600 "$DECLARATION_FILE" "$HANDOFF_ROOT/declaration.json"
+          ZEROTH_PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
+          "$ZEROTH_PYTHON" -m release.app_certification validate-declaration \
+            --declaration "$DECLARATION_FILE" --root build-context
+          DECLARED_VERSION=$("$ZEROTH_PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["zeroth_version"])' \
+            "$DECLARATION_FILE")
+          CERTIFIER_VERSION=$("$ZEROTH_PYTHON" -c \
+            'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' \
+            zeroth/pyproject.toml)
+          [[ "$DECLARED_VERSION" == "$CERTIFIER_VERSION" ]] || {
+            echo "declaration Zeroth pin does not match checked-out certifier" >&2
+            exit 1
+          }
+          DOCKERFILE=$("$ZEROTH_PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["dockerfile"])' \
+            "$DECLARATION_FILE")
+          DOCKERFILE_FILE=$(realpath -e "build-context/$DOCKERFILE")
+          [[ "$DOCKERFILE_FILE" == "$GITHUB_WORKSPACE/build-context/"* && \
+             -f "$DOCKERFILE_FILE" ]] || {
+            echo "declared dockerfile resolves outside the committed build context" >&2
+            exit 1
+          }
+          DOCKERFILE=${DOCKERFILE_FILE#"$GITHUB_WORKSPACE/build-context/"}
+          SEMANTIC_PATH=$("$ZEROTH_PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["semantic_path"])' \
+            "$DECLARATION_FILE")
+          SEMANTIC_FILE=$(realpath -e "build-context/$SEMANTIC_PATH")
+          [[ "$SEMANTIC_FILE" == "$GITHUB_WORKSPACE/build-context/"* && \
+             -f "$SEMANTIC_FILE" ]] || {
+            echo "declared semantic manifest resolves outside committed source" >&2
+            exit 1
+          }
+          "$ZEROTH_PYTHON" -m release.app_certification validate-runtime-settings \
+            --root build-context --declaration "$DECLARATION_FILE" \
+            --output "$HANDOFF_ROOT/runtime-settings.json"
+          RUNTIME_TENANT=$("$ZEROTH_PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["runtime_tenant"])' \
+            "$HANDOFF_ROOT/runtime-settings.json")
+          DATABASE_BACKEND=$("$ZEROTH_PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["database_backend"])' \
+            "$HANDOFF_ROOT/runtime-settings.json")
+          [[ "$DATABASE_BACKEND" == "sqlite" ]] || {
+            echo "callable workflow does not provision a fresh PostgreSQL database" >&2
+            exit 1
+          }
+          echo "app_commit=$APP_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
+          echo "runtime_tenant=$RUNTIME_TENANT" >> "$GITHUB_OUTPUT"
+          echo "database_backend=$DATABASE_BACKEND" >> "$GITHUB_OUTPUT"
+          echo "zeroth_version=$DECLARED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "ZEROTH_DATABASE__BACKEND=$DATABASE_BACKEND" >> "$GITHUB_ENV"
+          APP_CERTIFICATION_API_KEY=$("$ZEROTH_PYTHON" -c \
+            'import secrets; print(secrets.token_hex(32))')
+          echo "::add-mask::$APP_CERTIFICATION_API_KEY"
+          echo "APP_CERTIFICATION_API_KEY=$APP_CERTIFICATION_API_KEY" >> "$GITHUB_ENV"
+      - name: Build and measure application image
+        id: image
+        env:
+          DOCKERFILE: ${{ steps.prepare.outputs.dockerfile }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          CERTIFIER_WHEELS=(trusted-certifier/*.whl)
+          [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]]
+          zeroth/.venv/bin/python -m release.app_certification.dependency_sandbox \
+            run-build-sandbox --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --builder-name "$CANDIDATE_BUILDER" \
+            --disk "$CANDIDATE_BUILDER_DISK" --disk-bytes 4294967296 \
+            --context build-context --dockerfile "build-context/$DOCKERFILE" \
+            --tag "$CANDIDATE_IMAGE_REFERENCE" \
+            --cpus 2 --memory 2g --pids-limit 256 --timeout 900 \
+            --output-limit 1048576 --log "$HANDOFF_ROOT/logs/candidate-build.log"
+          CANDIDATE_IMAGE_DIGEST=$(docker image inspect \
+            "$CANDIDATE_IMAGE_REFERENCE" --format '{{.Id}}')
+          [[ "$CANDIDATE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "docker returned a non-immutable candidate image digest" >&2
+            exit 1
+          }
+          docker image inspect "$CANDIDATE_IMAGE_REFERENCE" --format '{{json .Config}}' \
+            > "$HANDOFF_ROOT/candidate-image-config.json"
+          RUNTIME_CONTEXT=$(mktemp -d "$RUNNER_TEMP/app-cert-runtime.XXXXXX")
+          trap 'rm -rf "$RUNTIME_CONTEXT"' EXIT
+          zeroth/.venv/bin/python -m release.app_certification prepare-runtime-context \
+            --source-root build-context \
+            --certifier-wheel "${CERTIFIER_WHEELS[0]}" \
+            --requirements-lock trusted-certifier/requirements-image.txt \
+            --image-config "$HANDOFF_ROOT/candidate-image-config.json" \
+            --output "$RUNTIME_CONTEXT"
+          timeout 15m docker build \
+            --file "$RUNTIME_CONTEXT/Dockerfile.certification-runtime" \
+            --tag "$RUNTIME_IMAGE_REFERENCE" "$RUNTIME_CONTEXT"
+          IMAGE_DIGEST=$(docker image inspect "$RUNTIME_IMAGE_REFERENCE" --format '{{.Id}}')
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "docker returned a non-immutable image digest" >&2
+            exit 1
+          }
+          docker image inspect "$RUNTIME_IMAGE_REFERENCE" --format '{{json .Config}}' \
+            > "$HANDOFF_ROOT/image-config.json"
+          timeout 5m docker save --output "$HANDOFF_ROOT/image.tar" "$RUNTIME_IMAGE_REFERENCE"
+          echo "candidate_digest=$CANDIDATE_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          rm -rf "$RUNTIME_CONTEXT"
+          trap - EXIT
+      - name: Verify exact trusted wheel installation
+        id: wheel
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          CERTIFIER_WHEELS=(trusted-certifier/*.whl)
+          [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]]
+          WHEEL_SITE=$(mktemp -d "$RUNNER_TEMP/app-cert-wheel-site.XXXXXX")
+          trap 'docker rm -f "$WHEEL_INSPECT_CONTAINER" >/dev/null 2>&1 || true; rm -rf "$WHEEL_SITE"' EXIT
+          docker create --name "$WHEEL_INSPECT_CONTAINER" "$RUNTIME_IMAGE_REFERENCE" >/dev/null
+          docker cp "$WHEEL_INSPECT_CONTAINER":/usr/local/lib/python3.12/site-packages/. "$WHEEL_SITE/"
+          zeroth/.venv/bin/python -m release.app_certification verify-wheel-installation \
+            --wheel "${CERTIFIER_WHEELS[0]}" --site-packages "$WHEEL_SITE" \
+            --image-config "$HANDOFF_ROOT/image-config.json" \
+            --image-digest "$IMAGE_DIGEST" \
+            --output "$HANDOFF_ROOT/installed-wheel.json"
+          docker rm "$WHEEL_INSPECT_CONTAINER" >/dev/null
+          rm -rf "$WHEEL_SITE"
+          trap - EXIT
+      - name: Generate SPDX image SBOM
+        id: sbom
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.RUNTIME_IMAGE_REFERENCE }}
+          format: spdx-json
+          output-file: ${{ env.HANDOFF_ROOT }}/image.spdx.json
+          upload-artifact: "false"
+      - name: Bind SBOM and provenance predicate to measured candidate
+        id: evidence
+        env:
+          PYTHONPATH: ${{ github.workspace }}/zeroth
+          APP_COMMIT: ${{ steps.prepare.outputs.app_commit }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_DIGEST: ${{ steps.prepare.outputs.source_digest }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          CERTIFIER_WHEELS=(trusted-certifier/*.whl)
+          [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]] || {
+            echo "expected exactly one trusted certifier wheel" >&2
+            exit 1
+          }
+          zeroth/.venv/bin/python -m release.app_certification prepare-evidence \
+            --declaration "$HANDOFF_ROOT/declaration.json" \
+            --root app \
+            --app-commit "$APP_COMMIT" \
+            --image-reference "$RUNTIME_IMAGE_REFERENCE" \
+            --image-digest "$IMAGE_DIGEST" \
+            --source-digest "$SOURCE_DIGEST" \
+            --raw-sbom "$HANDOFF_ROOT/image.spdx.json" \
+            --zeroth-commit '${{ inputs.zeroth_ref }}' \
+            --certifier-wheel "${CERTIFIER_WHEELS[0]}" \
+            --requirements-lock trusted-certifier/requirements-image.txt \
+            --image-config "$HANDOFF_ROOT/image-config.json" \
+            --wheel-installation "$HANDOFF_ROOT/installed-wheel.json" \
+            --output-root "$HANDOFF_ROOT"
+      - name: Start isolated packaged and ephemeral containers
+        id: containers
+        env:
+          DATABASE_BACKEND: ${{ steps.prepare.outputs.database_backend }}
+          IMAGE_ID: ${{ steps.image.outputs.digest }}
+          RUNTIME_TENANT: ${{ steps.prepare.outputs.runtime_tenant }}
+        run: |
+          set -euo pipefail
+          docker network create "$PACKAGED_NETWORK"
+          docker network create "$EPHEMERAL_NETWORK"
+          docker volume create "$PACKAGED_VOLUME"
+          docker run --detach --name "$PACKAGED_CONTAINER" \
+            --cpus 2 --memory 2g --pids-limit 256 \
+            --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
+            --network "$PACKAGED_NETWORK" \
+            --mount type=volume,source="$PACKAGED_VOLUME",target=/data \
+            --publish 127.0.0.1:18080:8000 \
+            --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
+            --env ZEROTH_DATABASE__BACKEND="$DATABASE_BACKEND" \
+            --env ZEROTH_DATABASE__SQLITE_PATH=/data/zeroth.sqlite \
+            --env ECP_BASE_URL=http://127.0.0.1:8000/regulus/v1 \
+            --env ECP_SERVICE_PRINCIPAL_TENANT_ID="$RUNTIME_TENANT" \
+            --env ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1 \
+            --env ZEROTH_REGULUS__ENABLED=true \
+            "$IMAGE_ID"
+          docker run --detach --name "$EPHEMERAL_CONTAINER" \
+            --cpus 2 --memory 2g --pids-limit 256 \
+            --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
+            --network "$EPHEMERAL_NETWORK" \
+            --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
+            --publish 127.0.0.1:18081:8000 \
+            --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
+            --env ZEROTH_DATABASE__BACKEND="$DATABASE_BACKEND" \
+            --env ZEROTH_DATABASE__SQLITE_PATH=/data/zeroth.sqlite \
+            --env ECP_BASE_URL=http://127.0.0.1:8000/regulus/v1 \
+            --env ECP_SERVICE_PRINCIPAL_TENANT_ID="$RUNTIME_TENANT" \
+            --env ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1 \
+            --env ZEROTH_REGULUS__ENABLED=true \
+            "$IMAGE_ID"
+      - name: Require healthy container state and readiness payload
+        id: health
+        env:
+          PYTHONPATH: ${{ github.workspace }}/zeroth
+        run: |
+          set -euo pipefail
+          wait_healthy() {
+            local name="$1" status running
+            for _ in {1..90}; do
+              running=$(docker inspect --format '{{.State.Running}}' "$name")
+              status=$(docker inspect --format '{{.State.Health.Status}}' "$name")
+              [[ "$running" == "true" ]] || return 1
+              [[ "$status" == "healthy" ]] && return 0
+              [[ "$status" != "unhealthy" ]] || return 1
+              sleep 2
+            done
+            return 1
+          }
+          wait_healthy "$PACKAGED_CONTAINER"
+          wait_healthy "$EPHEMERAL_CONTAINER"
+          zeroth/.venv/bin/python -m release.app_certification probe-readiness \
+            --url http://127.0.0.1:18080/health/ready
+          zeroth/.venv/bin/python -m release.app_certification probe-readiness \
+            --url http://127.0.0.1:18081/health/ready
+      - name: Probe exact runtime optional extras
+        id: runtime
+        env:
+          PACKAGED_CONTAINER: ${{ env.PACKAGED_CONTAINER }}
+          EPHEMERAL_CONTAINER: ${{ env.EPHEMERAL_CONTAINER }}
+          RUNTIME_TENANT: ${{ steps.prepare.outputs.runtime_tenant }}
+          ZEROTH_VERSION: ${{ steps.prepare.outputs.zeroth_version }}
+        run: |
+          set -euo pipefail
+          probe_mode() {
+            local mode="$1" container="$2" url="$3" token
+            docker exec -i "$container" /usr/local/bin/python -I -s - \
+              "$ZEROTH_VERSION" \
+              < zeroth/release/app_certification/runtime_probe_worker.py
+            token=$(docker exec "$container" /usr/local/bin/python -I -s -c \
+              'from zeroth.econ.analytics.service_auth import mint_econ_service_token as mint; token=mint(); assert token; print(token)')
+            echo "::add-mask::$token"
+            APP_CERTIFICATION_REGULUS_TOKEN="$token" \
+              zeroth/.venv/bin/python -m release.app_certification probe-regulus \
+              --url "$url/regulus/v1" --tenant "$RUNTIME_TENANT" \
+              --probe-id "$CERTIFICATION_RUN_ID" --mode "$mode"
+          }
+          probe_mode packaged "$PACKAGED_CONTAINER" http://127.0.0.1:18080
+          probe_mode ephemeral "$EPHEMERAL_CONTAINER" http://127.0.0.1:18081
+      - name: Run fail-closed certification
+        id: certify
+        env:
+          PYTHONPATH: ${{ github.workspace }}/zeroth
+          APP_COMMIT: ${{ steps.prepare.outputs.app_commit }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_DIGEST: ${{ steps.prepare.outputs.source_digest }}
+        run: |
+          set -euo pipefail
+          zeroth/.venv/bin/python -m release.app_certification run \
+            --declaration "$HANDOFF_ROOT/declaration.json" \
+            --root app \
+            --app-commit "$APP_COMMIT" \
+            --image-reference "$RUNTIME_IMAGE_REFERENCE" \
+            --image-digest "$IMAGE_DIGEST" \
+            --source-digest "$SOURCE_DIGEST" \
+            --packaged-url http://127.0.0.1:18080 \
+            --ephemeral-url http://127.0.0.1:18081 \
+            --report "$HANDOFF_ROOT/report.json" \
+            --check-python app/.venv/bin/python \
+            --evidence-root "$HANDOFF_ROOT/root" \
+            --untrusted-user app-cert-candidate
+      - name: Capture container diagnostics
+        if: ${{ always() }}
+        run: |
+          set +e
+          mkdir -p "$HANDOFF_ROOT/logs"
+          docker logs --tail 2000 "$PACKAGED_CONTAINER" > "$HANDOFF_ROOT/logs/packaged.log" 2>&1
+          docker logs --tail 2000 "$EPHEMERAL_CONTAINER" > "$HANDOFF_ROOT/logs/ephemeral.log" 2>&1
+          docker inspect "$PACKAGED_CONTAINER" "$EPHEMERAL_CONTAINER" \
+            > "$HANDOFF_ROOT/logs/container-inspect.json" 2>&1
+      - name: Clean up certification resources
+        id: cleanup
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          python3 zeroth/release/app_certification/dependency_sandbox.py \
+            cleanup-certification --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --disk "$CANDIDATE_BUILD_DISK" \
+            --builder-name "$CANDIDATE_BUILDER" \
+            --builder-disk "$CANDIDATE_BUILDER_DISK" \
+            --run-id "$CERTIFICATION_RUN_ID" \
+            --candidate-image-id "${{ steps.image.outputs.candidate_digest }}" \
+            --runtime-image-id "${{ steps.image.outputs.digest }}" \
+            --ownership "$HANDOFF_ROOT/resource-ownership.json" \
+            --output "$HANDOFF_ROOT/cleanup.json"
+      - name: Finalize canonical report and stage diagnostics
+        if: ${{ always() }}
+        env:
+          APP_CHECKOUT: ${{ steps.app-checkout.outcome }}
+          CERTIFIER_CHECKOUT: ${{ steps.certifier-checkout.outcome }}
+          PREPARE: ${{ steps.prepare.outcome }}
+          IMAGE: ${{ steps.image.outcome }}
+          WHEEL: ${{ steps.wheel.outcome }}
+          SBOM: ${{ steps.sbom.outcome }}
+          EVIDENCE: ${{ steps.evidence.outcome }}
+          CONTAINERS: ${{ steps.containers.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          RUNTIME: ${{ steps.runtime.outcome }}
+          CERTIFY: ${{ steps.certify.outcome }}
+          CLEANUP: ${{ steps.cleanup.outcome }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/zeroth" zeroth/.venv/bin/python \
+            -m release.app_certification finalize-workflow \
+            --root "$HANDOFF_ROOT" || python3 -c 'import hashlib,json,os,pathlib; r=pathlib.Path(os.environ["HANDOFF_ROOT"]); r.is_symlink() and (_ for _ in ()).throw(ValueError("handoff root must not be a symlink")); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","WHEEL","SBOM","EVIDENCE","CONTAINERS","HEALTH","RUNTIME","CERTIFY","CLEANUP")}; w=r/"workflow-stages.json"; w.write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; t=r/".report.json.tmp"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"optional-extras":"runtime","container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); t.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"certify"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n"); os.replace(t,p); d=lambda x:"sha256:"+hashlib.sha256(x.read_bytes()).hexdigest(); q=r/"cleanup.json"; q.exists() or q.write_text(json.dumps({"daemon_id":None,"errors":["cleanup stage produced no retained evidence"],"resources":[],"run_id":None,"schema_version":1,"status":"failed"},indent=2,sort_keys=True)+"\n"); (r/"workflow-evidence.json").write_text(json.dumps({"schema_version":1,"cleanup_sha256":d(q),"report_sha256":d(p),"workflow_stages_sha256":d(w)},indent=2,sort_keys=True)+"\n")'
+      - name: Upload unprivileged certification handoff
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: app-certification-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.HANDOFF_ROOT }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+  verify:
+    needs: certify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      image_reference: ${{ steps.validate.outputs.image_reference }}
+      image_digest: ${{ steps.validate.outputs.image_digest }}
+      provenance_path: ${{ steps.validate.outputs.provenance_path }}
+      verdict_sha256: ${{ steps.validate.outputs.verdict_sha256 }}
+    steps:
+      - name: Checkout exact application commit for source-tree verification
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: app
+          persist-credentials: false
+      - name: Checkout pinned Zeroth verifier only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: rrrozhd/zeroth
+          ref: ${{ inputs.zeroth_ref }}
+          path: zeroth
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - name: Download immutable unprivileged handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: app-certification-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence
+      - name: Validate and authenticate handoff without candidate execution
+        id: validate
+        env:
+          APP_COMMIT: ${{ github.sha }}
+          ZEROTH_REF: ${{ inputs.zeroth_ref }}
+        run: |
+          set -euo pipefail
+          uv sync --directory zeroth --frozen
+          [[ "$(git -C zeroth rev-parse HEAD)" == "$ZEROTH_REF" ]]
+          [[ "$(git -C app rev-parse HEAD)" == "$APP_COMMIT" ]]
+          PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
+          VERSION=$("$PYTHON" -c \
+            'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
+          PYTHONPATH="$GITHUB_WORKSPACE/zeroth" "$PYTHON" -m release.app_certification \
+            validate-handoff --report evidence/report.json --root evidence/root \
+            --workflow-evidence evidence/workflow-evidence.json \
+            --workflow-stages evidence/workflow-stages.json \
+            --cleanup evidence/cleanup.json \
+            --image-archive evidence/image.tar --source-archive evidence/source.tar \
+            --app-repository app \
+            --app-commit "$APP_COMMIT" \
+            --zeroth-version "$VERSION" --zeroth-commit "$ZEROTH_REF" \
+            --certifier-wheel evidence/materials/zeroth-core.whl \
+            --requirements-lock evidence/materials/requirements-image.txt \
+            --image-config evidence/materials/image-config.json \
+            --wheel-installation evidence/materials/installed-wheel.json \
+            --verdict evidence/verdict.json >> "$GITHUB_OUTPUT"
+      - name: Upload authenticated unprivileged verdict
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: app-certification-verified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 14
+  attest:
+    needs: verify
+    if: ${{ needs.verify.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout exact application commit for source-tree verification
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: app
+          persist-credentials: false
+      - name: Checkout pinned Zeroth verifier only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: rrrozhd/zeroth
+          ref: ${{ inputs.zeroth_ref }}
+          path: zeroth
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - name: Download authenticated unprivileged verdict
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: app-certification-verified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence
+      - name: Authenticate verifier verdict before OIDC
+        id: authenticate
+        run: |
+          set -euo pipefail
+          uv sync --directory zeroth --frozen
+          EXPECTED='${{ needs.verify.outputs.verdict_sha256 }}'
+          ACTUAL="sha256:$(sha256sum evidence/verdict.json | cut -d ' ' -f 1)"
+          [[ "$ACTUAL" == "$EXPECTED" ]]
+          [[ "$(git -C zeroth rev-parse HEAD)" == '${{ inputs.zeroth_ref }}' ]]
+      - name: Extract validated custom predicate
+        env:
+          PROVENANCE_PATH: ${{ needs.verify.outputs.provenance_path }}
+        run: |
+          set -euo pipefail
+          zeroth/.venv/bin/python -c \
+            'import json,pathlib,sys; source=json.load(open(sys.argv[1])); pathlib.Path(sys.argv[2]).write_text(json.dumps(source["predicate"],indent=2,sort_keys=True)+"\n")' \
+            "evidence/root/$PROVENANCE_PATH" evidence/attestation-predicate.json
+      - name: Attest validated immutable candidate
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ needs.verify.outputs.image_reference }}
+          subject-digest: ${{ needs.verify.outputs.image_digest }}
+          predicate-type: https://zeroth.dev/app-certification/provenance/v1
+          predicate-path: evidence/attestation-predicate.json
+      - name: Bind signed provenance into final report
+        id: finalize-attestation
+        env:
+          PYTHONPATH: ${{ github.workspace }}/zeroth
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          VERSION=$(zeroth/.venv/bin/python -c 'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
+          zeroth/.venv/bin/python -m release.app_certification finalize-attestation \
+            --bundle "$BUNDLE" --report evidence/report.json --root evidence/root \
+            --workflow-evidence evidence/workflow-evidence.json \
+            --workflow-stages evidence/workflow-stages.json \
+            --cleanup evidence/cleanup.json \
+            --image-archive evidence/image.tar --source-archive evidence/source.tar \
+            --app-repository app \
+            --app-commit '${{ github.sha }}' --zeroth-version "$VERSION" \
+            --zeroth-commit '${{ inputs.zeroth_ref }}' \
+            --certifier-wheel evidence/materials/zeroth-core.whl \
+            --requirements-lock evidence/materials/requirements-image.txt \
+            --image-config evidence/materials/image-config.json \
+            --wheel-installation evidence/materials/installed-wheel.json \
+            --repository '${{ github.repository }}' --signer-repo rrrozhd/zeroth \
+            --signer-workflow rrrozhd/zeroth/.github/workflows/app-certification.yml \
+            --signer-digest '${{ inputs.zeroth_ref }}' --verdict evidence/verdict.json
+      - name: Upload final signed certification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: app-certification-final-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 14

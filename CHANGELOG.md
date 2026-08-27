@@ -7,6 +7,261 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.11] - 2026-08-26
+
+### Added
+
+- Integrate fail-closed application certification, promotion evidence, and the
+  generated vendor certification workflow.
+- Integrate distributed ingress guardrails, scoped concurrency enforcement,
+  load evidence, and recovery release gates.
+
+## [0.23.10.2] - 2026-08-26
+
+### Security
+
+- Bind production promotion authorization to the currently served deployment
+  scope.
+- Retain immutable promotion-target and override-expiry snapshots in the
+  certification audit timeline.
+
+## [0.23.10.1] - 2026-08-26
+
+### Security
+
+- Reverify finalized signed provenance before issuing promotion receipts.
+- Bind promotion and readiness to the server-owned serving target and artifact
+  identity, revoking certification when the serving artifact changes.
+
+## [0.23.10] - 2026-08-26
+
+### Added
+
+- Add signed, expiring app-certification receipts and a tenant-scoped API for
+  registration, inspection, revocation, authorized overrides, and atomic
+  production promotion.
+- Surface certification blockers and remediation through readiness, bounded
+  metrics, generated API clients, and the deployment console.
+
+### Security
+
+- Fail production promotion closed for untrusted, expired, environment-invalid,
+  revoked, commit-mismatched, or image-mismatched certification evidence while
+  preserving test deployment eligibility.
+
+## [0.23.9.20] - 2026-08-19
+
+### Security
+
+- Keep the root-owned candidate supervisor isolated with `-I -S` while loading
+  certifier dependencies only from its trusted interpreter environment.
+
+## [0.23.9.19] - 2026-08-18
+
+### Security
+
+- Validate the candidate account's locked, private, privilege-free identity and
+  effective POSIX access before direct certification.
+- Contain migration descendants behind a stable run-owned pidfd boundary and
+  treat account-wide process inventory only as a fail-closed leak signal.
+
+## [0.23.9.18] - 2026-08-18
+
+### Security
+
+- Bind every certification check to one certifier-owned declaration snapshot
+  and fail closed when candidate execution changes protected path identities.
+- Require an inactive, login-disabled, privilege-free candidate account and
+  target cleanup only at surviving candidate process IDs.
+
+## [0.23.9.17] - 2026-08-18
+
+### Security
+
+- Validate the source-bound runtime tenant before workflow output and shell use,
+  and keep the physical runtime image tag certifier-owned.
+- Require a distinct low-privilege identity and candidate-inaccessible result
+  paths for every direct certification run.
+
+## [0.23.9.16] - 2026-08-18
+
+### Security
+
+- Bind migrations and runtime containers to the validated semantic database
+  backend, and fail the reusable workflow closed when PostgreSQL is unprovisioned.
+- Emit an executable environment-authenticated certification runtime and retain
+  original certifier diagnostics when cleanup also fails.
+
+## [0.23.9.15] - 2026-08-17
+
+### Security
+
+- Isolate certification images behind collision-checked run tags, remove only
+  exact created image identities, and authenticate a canonical fail-closed
+  cleanup inventory.
+- Probe the exact runtime's Regulus imports, capabilities, authenticated budget,
+  and instrumentation paths in both candidate modes, and generate complete
+  deterministic semantic manifests from scaffold inputs.
+
+## [0.23.9.14] - 2026-08-17
+
+### Security
+
+- Replace candidate-authored semantic results with a committed, source-bound
+  static certification contract; keep only migration effects as dynamic input.
+- Sweep the dedicated candidate user after migration checks, contain candidate
+  builds in a bounded disposable BuildKit scope, include Regulus in the runtime
+  lock, and authenticate retained cleanup and workflow-stage evidence.
+
+## [0.23.9.13] - 2026-08-17
+
+### Security
+
+- Treat candidate evidence as provisional data, reject direct process and
+  descriptor control in declared targets, verify retained source against an
+  external Git commit tree, and contain dependency hooks inside bounded,
+  unconditionally cleaned container scopes.
+
+## [0.23.9.12] - 2026-08-17
+
+### Security
+
+- Supervise candidate imports, reducer resolution, and migration schema changes
+  from certifier-owned processes, and retain workflow reports outside the app checkout.
+
+## [0.23.9.11] - 2026-08-17
+
+### Security
+
+- Run certified applications on a digest-pinned certifier runtime, exercise
+  fresh migrations for the selected database backend, and validate app-local
+  custom reducers inside the contained candidate process.
+
+## [0.23.9.10] - 2026-08-17
+
+### Security
+
+- Bind certified container startup to the exact verified Zeroth wheel and
+  reject Dockerfiles that resolve outside the digest-bound build context.
+
+## [0.23.9.9] - 2026-08-17
+
+### Security
+
+- Isolate trusted certification checks from candidate dependencies and bind the exact installed Zeroth wheel.
+
+### Fixed
+
+- Preserve detailed failed certification reports and reject shape-compatible service authentication objects.
+
+## [0.23.9.8.1] - 2026-08-17
+
+### Fixed
+
+- Use supported bounded rotation for local Docker certification logs.
+
+## [0.23.9.8] - 2026-08-17
+
+### Security
+
+- Require candidate-owned migration targets and complete runtime graph
+  validation, including contract and custom-reducer resolution.
+- Refuse redirected smoke exchanges and frontend symlink escapes, then bind
+  signed provenance to the exact image name, SBOM inventory, certifier commit,
+  and retained build materials.
+- Bound certification jobs, containers, candidate descendants, archives, and
+  retained logs while replacing early-failure reports atomically.
+
+## [0.23.9.7] - 2026-08-16
+
+### Security
+
+- Separate candidate serialization from trusted finalization, execute frontend
+  drift tooling only from the pinned certifier, and terminate the complete HTTP
+  exchange at one wall-clock and response-size boundary.
+
+## [0.23.9.6] - 2026-08-16
+
+### Security
+
+- Isolate candidate target imports from mutable certifier modules, bound smoke
+  response size and read time, and stream retained-file hashing.
+
+## [0.23.9.5] - 2026-08-16
+
+### Security
+
+- Remove the candidate-writable certification result channel, bind semantic
+  evidence to the declared target sources, and cap importer output.
+- Preserve hidden handoffs, declared frontend paths, and final signed-report
+  verdict integrity throughout the reusable workflow.
+
+## [0.23.9.4] - 2026-08-16
+
+### Security
+
+- Separate low-privilege candidate imports and their diagnostic output from
+  supervisor-owned semantic finalization and the authoritative report.
+- Keep Docker inspection in the trusted runner and expose the isolated locked
+  frontend tool tree at the deterministic checker path.
+
+## [0.23.9.3] - 2026-08-16
+
+### Security
+
+- Isolate trusted and candidate check startup from app-controlled Python hooks
+  and require certifier-owned structured results instead of interpreter exit.
+- Build certification images from exact committed source archives and bind the
+  source digest through reports, SBOM, provenance, and verifier verdicts.
+
+## [0.23.9.2.1] - 2026-08-14
+
+### Fixed
+
+- Isolate the vendor-dd readiness regression from collection-time Regulus URL
+  defaults.
+
+## [0.23.9.2] - 2026-08-14
+
+### Security
+
+- Isolate candidate setup and semantic imports from pinned certifier and handoff
+  files, then digest-bind a fresh unprivileged verifier verdict before OIDC.
+- Validate classic Docker config/layer bytes and OCI descriptor/config/layer
+  bytes; reject unsafe or ambiguous archive members.
+
+### Fixed
+
+- Bootstrap the `vendor-dd` certification service in its seeded tenant scope.
+- Register semantic failure fixtures and the reviewed certification persistence
+  binding in the requirement and architecture gates.
+
+## [0.23.9.1] - 2026-08-14
+
+### Security
+
+- Bind app certification to certifier-owned semantic checks and exact retained
+  evidence.
+- Isolate candidate execution from the privileged provenance-attestation job.
+
+### Fixed
+
+- Reject unhealthy readiness payloads and retain canonical reports for
+  pre-certification failures.
+- Add a tested certification scaffold and semantic negative fixtures.
+
+## [0.23.9] - 2026-08-13
+
+### Added
+
+- Publish a reusable generated-app certification workflow with immutable
+  certifier checkout, measured app and image identity, isolated packaged and
+  ephemeral smoke boundaries, SPDX SBOM, provenance attestation, and retained
+  failure diagnostics.
+- Add the ready-to-run `vendor-dd` certification declaration and non-root image
+  reference, including environment-resolved authentication with no literal
+  secret in the declaration.
+
 ## [0.23.8.1.3] - 2026-08-13
 
 ### Changed
@@ -51,6 +306,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.23.8] - 2026-08-13
 
+### Added
+
+- Add a strict generated-app certification declaration and fail-closed runner
+  with argv-only checks, deterministic smoke assertions, measured candidate
+  identity, and retained SBOM and provenance evidence.
+
 ### Fixed
 
 - A tool call from a provider that supplies no call id no longer collides with the same call in a
@@ -90,6 +351,203 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A pre-existing PostgreSQL econ database reports its schema state rather than failing at read time
   on a column only the migration chain adds (ZER-49 follow-up, A01-11).
 
+## [0.23.10.9] - 2026-08-26
+
+### Fixed
+
+- Release load-probe request concurrency immediately after each HTTP response,
+  before terminal settlement or rejection evidence is collected.
+
+## [0.23.10.8] - 2026-08-18
+
+### Fixed
+
+- Measure load latency uniformly to the HTTP response while retaining accepted
+  run settlement as separate lifecycle evidence.
+
+## [0.23.10.7] - 2026-08-18
+
+### Fixed
+
+- Require one ordered, same-row fault recovery chain and retain an atomic receipt
+  binding load observations to the immutable exact-HEAD source archive.
+
+## [0.23.10.6] - 2026-08-18
+
+### Fixed
+
+- Bind baseline and candidate load measurements to distinct fresh PostgreSQL
+  and Redis service instances.
+
+## [0.23.10.5] - 2026-08-18
+
+### Fixed
+
+- Bind the load baseline to the canonical exact-base archive, keep executor
+  attribution within the run settlement bound, and require observed successful
+  work before a service restart is reported as recovered.
+
+## [0.23.10.4] - 2026-08-18
+
+### Fixed
+
+- Fail closed on measured baseline source identity, per-deployment executor fairness,
+  drain and cancellation lifecycles, and local service readiness.
+
+## [0.23.10.3] - 2026-08-18
+
+### Fixed
+
+- Bind load evidence to observed executor ownership and exact request lifecycle,
+  and derive baseline provenance inside the frozen measurement environment.
+
+## [0.23.10.2] - 2026-08-17
+
+### Fixed
+
+- Bind load baselines to measured source receipts, enforce fairness at every workload scope,
+  and retain exact per-request cancellation, drain, and worker-loss evidence.
+
+## [0.23.10.1] - 2026-08-17
+
+### Fixed
+
+- Bind load and recovery comparisons to independent observations from the same
+  pinned capacity environment and require exact lifecycle accounting.
+
+## [0.23.10] - 2026-08-17
+
+### Added
+
+- Gate release candidates on versioned load, fairness, overload and automatic-recovery
+  profiles with candidate-bound raw evidence and accepted-run accounting.
+
+## [0.23.9.11] - 2026-08-17
+
+### Fixed
+
+- Reject run-state writes after their worker lease expires and distributed capacity is reassigned.
+
+## [0.23.9.10] - 2026-08-17
+
+### Fixed
+
+- Fence inline approval drive writes against concurrent cancellation.
+- Publish completed approval audits only after the continuation status transition succeeds.
+- Keep conditional run writes update-only so deleted runs remain deleted.
+
+## [0.23.9.9] - 2026-08-17
+
+### Fixed
+
+- Preserve terminal admin cancellation when a resolved approval resumes concurrently.
+
+## [0.23.9.8] - 2026-08-17
+
+### Fixed
+
+- Preserve admin cancellation across concurrent shutdown and interrupt status writes.
+- Qualify lease and write-fence cleanup by generation when a worker reclaims a replayed run.
+- Expose guardrail controls only for the deployment whose configured baseline the service owns.
+
+## [0.23.9.7] - 2026-08-17
+
+### Fixed
+
+- Make admin cancellation and lease revocation one atomic scoped update.
+
+## [0.23.9.6] - 2026-08-17
+
+### Fixed
+
+- Reject unsafe refill rates and cap rate-limit retry guidance at one day.
+- Return guardrail revision metadata, active overrides, and effective settings from one
+  transactionally consistent snapshot.
+
+## [0.23.9.5] - 2026-08-17
+
+### Fixed
+
+- Scope failed-run replay to the exact tenant and workspace when run IDs collide.
+- Preserve checkpoint recovery after reclaimed-run setup failures.
+
+## [0.23.9.4] - 2026-08-17
+
+### Fixed
+
+- Retry startup orphan recovery after temporary shared concurrency saturation frees.
+
+## [0.23.9.3] - 2026-08-17
+
+### Fixed
+
+- Keep lease claims, recovery checkpoints, lifecycle writes, worker maintenance, and admin
+  cancellation inside the run's composite tenant and workspace identity.
+
+## [0.23.9.2] - 2026-08-17
+
+### Fixed
+
+- Serialize lease renewal with capacity reallocation and use database statement time for
+  distributed token refill and quota rollover decisions.
+
+## [0.23.9.1] - 2026-08-16
+
+### Fixed
+
+- Use the database clock for lease claims, concurrency, orphan recovery, and renewal so replica
+  clock skew cannot exceed the configured concurrency cap.
+
+## [0.23.9] - 2026-08-16
+
+### Fixed
+
+- Keep deployment guardrail reads and writes inside the app tenant, even when a foreign
+  principal owns the referenced deployment.
+- Refuse expired lease renewal from database time after shared concurrency reallocates the slot.
+- Preserve monotonic token-bucket refill timestamps across clock-skewed replicas.
+- Order append-only guardrail revisions by database-generated precedence so later resets remain
+  effective regardless of replica clock skew.
+
+## [0.23.8.2] - 2026-08-16
+
+### Fixed
+
+- Compose active append-only guardrail overrides across partial revisions and support explicit
+  per-field inheritance resets without changing live admission counters.
+
+## [0.23.8.1.1] - 2026-08-14
+
+### Fixed
+
+- Preserve distinct durable concurrency-saturation records for null and literal
+  workspace identities using canonical typed scope encoding.
+- Correct the documented quota retry boundary to its rolling 24-hour window,
+  and retain PostgreSQL replica tests for rate and quota capacity enforcement.
+
+## [0.23.8.1] - 2026-08-14
+
+### Fixed
+
+- Require explicit unscoped tenant authority for tenant-wide guardrail policy
+  and history while preserving workspace-bound deployment administration.
+- Compose API admission and worker concurrency from the same configured
+  baseline, retaining every field across sequential partial revisions.
+- Reserve local recovery capacity before claiming orphans, fence expired or
+  reclaimed leases before execution, and keep saturation outcomes per claim.
+- Persist bounded, deduplicated, scope-isolated concurrency saturation evidence
+  with effective utilization, and use a time-based queue retry interval.
+
+## [0.23.8] - 2026-08-14
+
+### Added
+
+- Add bounded, append-only tenant and deployment ingress-guardrail policies,
+  with field-wise precedence, atomic shared queue and capacity enforcement,
+  actionable retry responses, scoped audit evidence, and guardrail metrics.
+- Add authorized guardrail inspection and editing to the HTTP API and
+  Deployments console, including effective values, inherited overrides, and
+  inline validation and remediation feedback.
 
 ## [0.23.7] - 2026-08-13
 

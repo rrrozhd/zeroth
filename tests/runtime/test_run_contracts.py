@@ -157,7 +157,7 @@ def _assert_implements(protocol: type, implementation: type) -> None:
     ("protocol", "expected_members"),
     [
         (RunReader, {"get"}),
-        (RunWriter, {"create", "put"}),
+        (RunWriter, {"create", "put", "put_if_status"}),
         (CheckpointStore, {"get_checkpoint", "write_checkpoint"}),
         (ThreadStore, {"get", "resolve"}),
     ],

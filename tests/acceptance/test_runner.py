@@ -82,8 +82,8 @@ def _contract() -> dict[str, object]:
                 role="anonymous",
                 expected_json={
                     "schema_revision": {
-                        "applied": "026",
-                        "head": "026",
+                        "applied": "029",
+                        "head": "029",
                         "state": "current",
                     }
                 },
@@ -370,8 +370,8 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
             200,
             {
                 "schema_revision": {
-                    "applied": "026",
-                    "head": "026",
+                    "applied": "029",
+                    "head": "029",
                     "state": "current",
                 }
             },

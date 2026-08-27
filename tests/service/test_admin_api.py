@@ -516,6 +516,7 @@ async def test_interrupt_run_returns_waiting_interrupt_status(sqlite_db) -> None
         "graph-admin-interrupt",
         DEPLOYMENT + "-interrupt",
     )
+    service.worker = None
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -576,6 +577,7 @@ async def test_interrupt_run_pauses_existing_token_snapshot(sqlite_db) -> None:
         "graph-admin-token-interrupt",
         DEPLOYMENT + "-token-interrupt",
     )
+    service.worker = None
 
     with TestClient(app) as client:
         created = client.post(
@@ -701,7 +703,7 @@ async def test_replay_that_fails_midway_leaves_the_run_wholly_unreset(sqlite_db)
     assert before["status"] == RunStatus.FAILED.value
     assert before["failure_state"] is not None
 
-    with _refusing_write(database, "failure_count = 0"):
+    with _refusing_write(database, "failure_count = ?"):
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.post(f"/admin/runs/{run_id}/replay", headers=admin_headers())
     assert response.status_code >= 500
@@ -1075,13 +1077,10 @@ async def _uncontended_running_run(service) -> str:
 
 @contextlib.contextmanager
 def _run_row_deleted_between_the_two_reads(repository, run_id: str):
-    """Delete the run's row in the gap the routes leave between their two reads.
+    """Delete the run after the route guard and inside its atomic command.
 
     Both routes read the run once to answer 404 for an unknown or foreign run,
-    and ``RunRepository.transition`` reads it again before writing. Anything
-    that removes the row in between -- ``RunRepository.delete``, which is what
-    this hook calls, or an out-of-band removal of the same row -- makes that
-    second read return ``None`` and ``transition`` raise ``KeyError(run_id)``.
+    and the atomic cancel/interrupt command reads it again while writing.
 
     The delete is the real repository call, and ``transition`` is never patched,
     so the ``KeyError`` under test is raised by the production code path rather
@@ -1093,21 +1092,37 @@ def _run_row_deleted_between_the_two_reads(repository, run_id: str):
     """
     real_get = repository.get
     real_delete = repository.delete
+    real_cancel = repository.cancel
+    real_interrupt = repository.interrupt
     reads: list[str] = []
 
     async def _vanishing(target: str):  # noqa: ANN202
         if target != run_id:
             return await real_get(target)
         reads.append(target)
-        if len(reads) == 2:
-            await real_delete(target)
         return await real_get(target)
 
+    async def _vanishing_command(command, target: str, *args, **kwargs):  # noqa: ANN001, ANN202
+        if target == run_id:
+            reads.append(target)
+            await real_delete(target)
+        return await command(target, *args, **kwargs)
+
+    async def _cancel(target: str, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        return await _vanishing_command(real_cancel, target, *args, **kwargs)
+
+    async def _interrupt(target: str, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        return await _vanishing_command(real_interrupt, target, *args, **kwargs)
+
     repository.get = _vanishing
+    repository.cancel = _cancel
+    repository.interrupt = _interrupt
     try:
         yield reads
     finally:
         del repository.get
+        del repository.cancel
+        del repository.interrupt
 
 
 async def test_cancel_when_the_run_row_vanishes_is_404_instead_of_500(sqlite_db) -> None:
@@ -1216,17 +1231,17 @@ async def test_a_foreign_key_error_from_the_transition_is_never_dressed_as_404(s
     run_id = await _uncontended_running_run(service)
     attempts: list[str] = []
 
-    async def _foreign_key_error(target, new_status, **kwargs):  # noqa: ANN001, ANN202
-        del new_status, kwargs
+    async def _foreign_key_error(target, *args, **kwargs):  # noqa: ANN001, ANN002, ANN202
+        del args, kwargs
         attempts.append(target)
-        raise KeyError("an incidental lookup below the transition")
+        raise KeyError("an incidental lookup below the command")
 
-    service.run_repository.transition = _foreign_key_error
+    service.run_repository.cancel = _foreign_key_error
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
     finally:
-        del service.run_repository.transition
+        del service.run_repository.cancel
 
     assert attempts, "the transition was never reached; this test proves nothing"
     assert await service.run_repository.get(run_id) is not None, (

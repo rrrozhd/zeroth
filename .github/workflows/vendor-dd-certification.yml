@@ -1,0 +1,19 @@
+name: Certify vendor-dd
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify-vendor-dd:
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+      artifact-metadata: write
+    uses: ./.github/workflows/app-certification.yml
+    with:
+      zeroth_ref: ${{ github.sha }}
+      declaration_path: apps/vendor_dd/certification.json

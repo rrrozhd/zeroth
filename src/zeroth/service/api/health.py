@@ -23,12 +23,18 @@ from zeroth.integrations.http.factory import (
     governed_async_client,
     governed_redis_client,
 )
+from zeroth.platform.primitives import utc_now
 from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 from zeroth.platform.storage.schema_revision import (
     SchemaRevision,
     read_async_schema_revision,
     unknown_schema_revision,
 )
+from zeroth.service.certifications.models import (
+    CertificationBlocker,
+    CertificationEvaluation,
+)
+from zeroth.service.certifications.service import CertificationService
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -66,6 +72,8 @@ class _ReadinessPayload(TypedDict):
     status: str
     checks: NotRequired[dict[str, DependencyStatus]]
     schema_revision: SchemaRevision
+    production_ready: bool
+    certification: CertificationEvaluation
 
 
 # Preserve the established OpenAPI name without replacing the legacy constructor.
@@ -246,13 +254,14 @@ def register_health_routes(app: FastAPI) -> None:
             regulus_base_url = getattr(regulus_client, "base_url", None)
 
         # Run all checks concurrently.
-        db_check, redis_check, regulus_check, schema_revision = await asyncio.gather(
+        db_check, redis_check, regulus_check, schema_revision, certification = await asyncio.gather(
             check_database(database) if database else _unavailable("database not configured"),
             check_redis(redis_url, request.app),
             check_regulus(regulus_base_url, app=request.app),
             check_schema_revision(database)
             if database
             else _unknown_schema_revision(),
+            certification_readiness(bootstrap),
         )
         if (
             regulus_client is not None
@@ -283,6 +292,8 @@ def register_health_routes(app: FastAPI) -> None:
             "status": status,
             "checks": checks,
             "schema_revision": schema_revision,
+            "production_ready": certification.production_ready,
+            "certification": certification,
         }
 
     @app.get("/health/live", response_model=LivenessResponse)
@@ -430,6 +441,8 @@ class HealthResponse(BaseModel):
     campaign_id: str | None = None
     langgraph_gateway: LangGraphGatewayHealth | None = None
     audit_delivery: AuditDeliveryHealth | None = None
+    production_ready: bool = False
+    certification: CertificationEvaluation | None = None
 
 
 _health_parameters = inspect.signature(HealthResponse).parameters
@@ -437,6 +450,40 @@ HealthResponse.__signature__ = inspect.signature(HealthResponse).replace(
     parameters=[
         parameter
         for name, parameter in _health_parameters.items()
-        if name not in {"campaign_id", "langgraph_gateway", "audit_delivery"}
+        if name
+        not in {
+            "campaign_id",
+            "langgraph_gateway",
+            "audit_delivery",
+            "production_ready",
+            "certification",
+        }
     ]
 )
+
+
+async def certification_readiness(bootstrap: object) -> CertificationEvaluation:
+    """Evaluate the serving production target without changing probe health."""
+    service = getattr(bootstrap, "certification_service", None)
+    deployment = getattr(bootstrap, "deployment", None)
+    if not isinstance(service, CertificationService) or deployment is None:
+        return CertificationEvaluation(
+            test_deployable=True,
+            production_ready=False,
+            blockers=(
+                CertificationBlocker(
+                    code="production_not_promoted",
+                    message="No promoted certification is bound to the serving deployment.",
+                    remediation=(
+                        "Register a trusted production receipt and promote it to the "
+                        "serving deployment reference."
+                    ),
+                ),
+            ),
+        )
+    return await service.production_readiness(
+        getattr(bootstrap, "serving_artifact_identity", None),
+        deployment.tenant_id,
+        deployment.workspace_id,
+        now=utc_now(),
+    )

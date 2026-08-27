@@ -22,15 +22,18 @@ from zeroth.service.api.approval_api import register_approval_routes
 from zeroth.service.api.artifact_api import register_artifact_routes
 from zeroth.service.api.audit_api import register_audit_routes
 from zeroth.service.api.authentication import AuthenticationError, record_service_denial
+from zeroth.service.api.certification_api import register_certification_routes
 from zeroth.service.api.console_ui import console_cors_origins, mount_console
 from zeroth.service.api.contracts_api import register_contract_routes
 from zeroth.service.api.cost_api import register_cost_routes
 from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
 from zeroth.service.api.econ_dashboard_api import register_econ_dashboard_routes
 from zeroth.service.api.enforcement_api import register_enforcement_routes
+from zeroth.service.api.guardrail_api import register_guardrail_routes
 from zeroth.service.api.health import (
     HealthResponse,
     audit_delivery_health,
+    certification_readiness,
     langgraph_gateway_health,
 )
 from zeroth.service.api.identity_api import register_identity_routes
@@ -194,6 +197,7 @@ def create_app(
     @app.get("/health", response_model=HealthResponse, response_model_exclude_none=True)
     async def health() -> HealthResponse:
         deployment = app.state.bootstrap.deployment
+        certification = await certification_readiness(app.state.bootstrap)
         return HealthResponse(
             deployment_ref=deployment.deployment_ref,
             deployment_version=deployment.version,
@@ -201,16 +205,20 @@ def create_app(
             campaign_id=getattr(app.state.bootstrap, "evaluation_campaign_id", None),
             langgraph_gateway=langgraph_gateway_health(app.state.bootstrap),
             audit_delivery=audit_delivery_health(app.state.bootstrap),
+            production_ready=certification.production_ready,
+            certification=certification,
         )
 
     # Primary: versioned routes under /v1/ (per D-06)
     v1_router = APIRouter(prefix="/v1", tags=["v1"])
     register_contract_routes(v1_router)
+    register_certification_routes(v1_router)
     register_audit_routes(v1_router)
     register_approval_routes(v1_router)
     register_run_routes(v1_router)
     register_operation_routes(v1_router)
     register_identity_routes(v1_router)
+    register_guardrail_routes(v1_router)
 
     # Studio graph authoring API
     from zeroth.service.api.studio_api import router as studio_router
@@ -267,11 +275,13 @@ def create_app(
     # excluded from OpenAPI spec to avoid duplicate operationIds (per D-06, Pitfall 3)
     compat_router = APIRouter(include_in_schema=False)
     register_contract_routes(compat_router)
+    register_certification_routes(compat_router)
     register_audit_routes(compat_router)
     register_approval_routes(compat_router)
     register_run_routes(compat_router)
     register_operation_routes(compat_router)
     register_identity_routes(compat_router)
+    register_guardrail_routes(compat_router)
     register_admin_routes(compat_router)
     register_cost_routes(compat_router)
     register_rightsizing_routes(compat_router)

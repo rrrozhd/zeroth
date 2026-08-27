@@ -963,6 +963,376 @@
         "title": "CandidateOutcome",
         "type": "object"
       },
+      "CertificationBlocker": {
+        "additionalProperties": false,
+        "description": "Machine-readable blocker paired with a console remediation.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "overridable": {
+            "default": false,
+            "title": "Overridable",
+            "type": "boolean"
+          },
+          "remediation": {
+            "title": "Remediation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "remediation"
+        ],
+        "title": "CertificationBlocker",
+        "type": "object"
+      },
+      "CertificationEvaluation": {
+        "additionalProperties": false,
+        "description": "Central readiness decision reused by API, probes, metrics, and console.",
+        "properties": {
+          "blockers": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CertificationBlocker"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "certification_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certification Id"
+          },
+          "override_active": {
+            "default": false,
+            "title": "Override Active",
+            "type": "boolean"
+          },
+          "production_ready": {
+            "title": "Production Ready",
+            "type": "boolean"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificationState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "test_deployable": {
+            "title": "Test Deployable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "test_deployable",
+          "production_ready"
+        ],
+        "title": "CertificationEvaluation",
+        "type": "object"
+      },
+      "CertificationEvent": {
+        "additionalProperties": false,
+        "description": "One append-only certification audit event.",
+        "properties": {
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "certification_id": {
+            "title": "Certification Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "override_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Expires At"
+          },
+          "promotion_target_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Target Key"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "scopes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/OverrideScope"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CertificationState"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "event_id",
+          "certification_id",
+          "tenant_id",
+          "event_type",
+          "state",
+          "actor_id",
+          "created_at"
+        ],
+        "title": "CertificationEvent",
+        "type": "object"
+      },
+      "CertificationOverride": {
+        "additionalProperties": false,
+        "description": "Time-bound administrative exception retained with the certification.",
+        "properties": {
+          "actor_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/OverrideScope"
+            },
+            "minItems": 1,
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scopes",
+          "reason",
+          "actor_id",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "CertificationOverride",
+        "type": "object"
+      },
+      "CertificationOverrideRequest": {
+        "additionalProperties": false,
+        "description": "Authorized, scoped, expiring exception request.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/OverrideScope"
+            },
+            "minItems": 1,
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scopes",
+          "reason",
+          "expires_at"
+        ],
+        "title": "CertificationOverrideRequest",
+        "type": "object"
+      },
+      "CertificationResponse": {
+        "additionalProperties": false,
+        "description": "One certification with the central decision and audit evidence.",
+        "properties": {
+          "app_commit": {
+            "title": "App Commit",
+            "type": "string"
+          },
+          "app_name": {
+            "title": "App Name",
+            "type": "string"
+          },
+          "certification_id": {
+            "title": "Certification Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/CertificationEvaluation"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/CertificationEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "image_digest": {
+            "title": "Image Digest",
+            "type": "string"
+          },
+          "override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificationOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "promotion_target_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Target Key"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "certification_id",
+          "tenant_id",
+          "workspace_id",
+          "app_name",
+          "app_commit",
+          "image_digest",
+          "state",
+          "promotion_target_key",
+          "override",
+          "evaluation",
+          "events",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CertificationResponse",
+        "type": "object"
+      },
+      "CertificationState": {
+        "description": "Lifecycle state for one immutable candidate identity.",
+        "enum": [
+          "buildable",
+          "test_deployable",
+          "certified",
+          "promoted",
+          "revoked"
+        ],
+        "title": "CertificationState",
+        "type": "string"
+      },
       "ChildRunSummaryResponse": {
         "additionalProperties": false,
         "description": "Payload-free direct-child identity exposed for lineage inspection.",
@@ -2456,6 +2826,62 @@
         "title": "EdgeMapping",
         "type": "object"
       },
+      "EffectiveGuardrailSettings": {
+        "additionalProperties": false,
+        "description": "Concrete product defaults after tenant and deployment composition.",
+        "properties": {
+          "backpressure_queue_depth": {
+            "default": 100,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Backpressure Queue Depth",
+            "type": "integer"
+          },
+          "max_concurrency": {
+            "default": 8,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Max Concurrency",
+            "type": "integer"
+          },
+          "quota_daily_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Daily Limit"
+          },
+          "rate_limit_burst": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Rate Limit Burst",
+            "type": "number"
+          },
+          "rate_limit_capacity": {
+            "default": 10,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Rate Limit Capacity",
+            "type": "number"
+          },
+          "rate_limit_refill_rate": {
+            "default": 1,
+            "maximum": 100000.0,
+            "minimum": 1.1574074074074073e-05,
+            "title": "Rate Limit Refill Rate",
+            "type": "number"
+          }
+        },
+        "title": "EffectiveGuardrailSettings",
+        "type": "object"
+      },
       "ErasureHistoryEntry": {
         "additionalProperties": false,
         "description": "Tenant-scoped durable Retention activity exposed for operator inspection.",
@@ -3088,6 +3514,220 @@
         "title": "GovernanceLevel",
         "type": "string"
       },
+      "GuardrailPolicyPatch": {
+        "additionalProperties": false,
+        "description": "A bounded partial policy; explicitly supplied null quota means unlimited.",
+        "properties": {
+          "backpressure_queue_depth": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backpressure Queue Depth"
+          },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrency"
+          },
+          "quota_daily_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Daily Limit"
+          },
+          "rate_limit_burst": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Burst"
+          },
+          "rate_limit_capacity": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Capacity"
+          },
+          "rate_limit_refill_rate": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.1574074074074073e-05,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Refill Rate"
+          },
+          "reset_fields": {
+            "items": {
+              "enum": [
+                "rate_limit_capacity",
+                "rate_limit_refill_rate",
+                "rate_limit_burst",
+                "quota_daily_limit",
+                "backpressure_queue_depth",
+                "max_concurrency"
+              ],
+              "type": "string"
+            },
+            "title": "Reset Fields",
+            "type": "array"
+          }
+        },
+        "title": "GuardrailPolicyPatch",
+        "type": "object"
+      },
+      "GuardrailPolicyResponse": {
+        "additionalProperties": false,
+        "description": "Latest explicit revisions and their composed effective settings.",
+        "properties": {
+          "deployment_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return the deployment scope's composed active overrides.",
+            "readOnly": true
+          },
+          "deployment_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effective": {
+            "$ref": "#/components/schemas/EffectiveGuardrailSettings"
+          },
+          "tenant_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return the tenant scope's composed active overrides.",
+            "readOnly": true
+          },
+          "tenant_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tenant_revision",
+          "deployment_revision",
+          "effective",
+          "tenant_overrides",
+          "deployment_overrides"
+        ],
+        "title": "GuardrailPolicyResponse",
+        "type": "object"
+      },
+      "GuardrailPolicyRevision": {
+        "additionalProperties": false,
+        "description": "One immutable operator change in the append-only history.",
+        "properties": {
+          "changed_by": {
+            "title": "Changed By",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment Ref"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/GuardrailPolicyPatch"
+          },
+          "revision_id": {
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "tenant",
+              "deployment"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "scope",
+          "deployment_ref",
+          "policy",
+          "changed_by",
+          "created_at"
+        ],
+        "title": "GuardrailPolicyRevision",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3174,6 +3814,16 @@
             ],
             "title": "Campaign Id"
           },
+          "certification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificationEvaluation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deployment_ref": {
             "title": "Deployment Ref",
             "type": "string"
@@ -3195,6 +3845,11 @@
                 "type": "null"
               }
             ]
+          },
+          "production_ready": {
+            "default": false,
+            "title": "Production Ready",
+            "type": "boolean"
           },
           "status": {
             "default": "ok",
@@ -5130,6 +5785,15 @@
         "title": "OperatorResolution",
         "type": "string"
       },
+      "OverrideScope": {
+        "description": "Explicitly overridable production-readiness blockers.",
+        "enum": [
+          "receipt_expired",
+          "environment_policy"
+        ],
+        "title": "OverrideScope",
+        "type": "string"
+      },
       "PassthroughMappingOperation": {
         "additionalProperties": false,
         "description": "Copy a value from the input to the output without changing it.\n\nThe source and target paths are the same logical field, just moved across\nthe edge boundary.",
@@ -5183,6 +5847,130 @@
           "label"
         ],
         "title": "PortDefinitionResponse",
+        "type": "object"
+      },
+      "PromoteCertificationRequest": {
+        "additionalProperties": false,
+        "description": "Promotion intent; the target and artifact identity are server-owned.",
+        "properties": {},
+        "title": "PromoteCertificationRequest",
+        "type": "object"
+      },
+      "PromotionReceiptPayload": {
+        "additionalProperties": false,
+        "description": "Immutable certification claims accepted by the runtime promotion gate.",
+        "properties": {
+          "app_commit": {
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "App Commit",
+            "type": "string"
+          },
+          "app_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "App Name",
+            "type": "string"
+          },
+          "certification_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Certification Id",
+            "type": "string"
+          },
+          "environments": {
+            "items": {
+              "enum": [
+                "test",
+                "production"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "title": "Environments",
+            "type": "array"
+          },
+          "evidence_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Evidence Digest",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "image_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Image Digest",
+            "type": "string"
+          },
+          "image_reference": {
+            "maxLength": 255,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9./:_-]*$",
+            "title": "Image Reference",
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "title": "Issued At",
+            "type": "string"
+          },
+          "report_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Report Digest",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Source Digest",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          },
+          "zeroth_version": {
+            "pattern": "^[0-9]+(?:\\.[0-9]+){1,4}$",
+            "title": "Zeroth Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "certification_id",
+          "tenant_id",
+          "app_name",
+          "app_commit",
+          "zeroth_version",
+          "image_reference",
+          "image_digest",
+          "source_digest",
+          "evidence_digest",
+          "report_digest",
+          "environments",
+          "issued_at",
+          "expires_at"
+        ],
+        "title": "PromotionReceiptPayload",
         "type": "object"
       },
       "PublicContractSchemaResponse": {
@@ -5356,12 +6144,19 @@
         "additionalProperties": false,
         "description": "Serialized readiness payload with schema-revision evidence.",
         "properties": {
+          "certification": {
+            "$ref": "#/components/schemas/CertificationEvaluation"
+          },
           "checks": {
             "additionalProperties": {
               "$ref": "#/components/schemas/DependencyStatus"
             },
             "title": "Checks",
             "type": "object"
+          },
+          "production_ready": {
+            "title": "Production Ready",
+            "type": "boolean"
           },
           "schema_revision": {
             "$ref": "#/components/schemas/SchemaRevision"
@@ -5373,9 +6168,25 @@
         },
         "required": [
           "status",
-          "schema_revision"
+          "schema_revision",
+          "production_ready",
+          "certification"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "RegisterCertificationRequest": {
+        "additionalProperties": false,
+        "description": "A portable certification receipt to retain and evaluate.",
+        "properties": {
+          "receipt": {
+            "$ref": "#/components/schemas/SignedPromotionReceipt"
+          }
+        },
+        "required": [
+          "receipt"
+        ],
+        "title": "RegisterCertificationRequest",
         "type": "object"
       },
       "RegisteredTool": {
@@ -5551,6 +6362,23 @@
           "tenant_id"
         ],
         "title": "RetentionPolicyResponse",
+        "type": "object"
+      },
+      "RevokeCertificationRequest": {
+        "additionalProperties": false,
+        "description": "Operator reason retained with an explicit revocation.",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RevokeCertificationRequest",
         "type": "object"
       },
       "RightsizingRequest": {
@@ -6512,6 +7340,59 @@
         ],
         "title": "SideEffectClass",
         "type": "string"
+      },
+      "SignedPromotionReceipt": {
+        "additionalProperties": false,
+        "description": "Certification payload plus a keyed signature over its canonical digest.",
+        "properties": {
+          "digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Digest",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PromotionReceiptPayload"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature"
+          },
+          "signing_algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signing Algorithm"
+          },
+          "signing_key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signing Key Id"
+          }
+        },
+        "required": [
+          "payload",
+          "digest"
+        ],
+        "title": "SignedPromotionReceipt",
+        "type": "object"
       },
       "SpendReport": {
         "additionalProperties": false,
@@ -9295,6 +10176,268 @@
         ]
       }
     },
+    "/v1/certifications": {
+      "get": {
+        "operationId": "list_certifications_v1_certifications_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CertificationResponse"
+                  },
+                  "title": "Response List Certifications V1 Certifications Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Certifications",
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "operationId": "create_certification_v1_certifications_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterCertificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Certification",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/certifications/{certification_id}": {
+      "get": {
+        "operationId": "get_certification_v1_certifications__certification_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certification_id",
+            "required": true,
+            "schema": {
+              "title": "Certification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Certification",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/certifications/{certification_id}/override": {
+      "post": {
+        "operationId": "override_certification_v1_certifications__certification_id__override_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certification_id",
+            "required": true,
+            "schema": {
+              "title": "Certification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertificationOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Override Certification",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/certifications/{certification_id}/promote": {
+      "post": {
+        "operationId": "promote_certification_v1_certifications__certification_id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certification_id",
+            "required": true,
+            "schema": {
+              "title": "Certification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteCertificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Promote Certification",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/certifications/{certification_id}/revoke": {
+      "post": {
+        "operationId": "revoke_certification_v1_certifications__certification_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certification_id",
+            "required": true,
+            "schema": {
+              "title": "Certification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeCertificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Certification",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/connectors": {
       "get": {
         "description": "All memory connectors registered for this deployment, by ref.\n\nThese are the values a retrieval node's ``connector_ref`` (and an\nagent's ``memory_refs``) can resolve at run time. Runtime-managed\nconnectors include their backend_type and secret-masked params;\nenv-sourced connectors return ``params=None``.",
@@ -10097,6 +11240,98 @@
           }
         },
         "summary": "Get Deployment Evidence",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/deployments/{deployment_ref}/guardrails": {
+      "get": {
+        "operationId": "get_deployment_guardrails_v1_deployments__deployment_ref__guardrails_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Deployment Guardrails",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "operationId": "put_deployment_guardrails_v1_deployments__deployment_ref__guardrails_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Deployment Guardrails",
         "tags": [
           "v1"
         ]
@@ -11772,6 +13007,91 @@
           }
         },
         "summary": "Register Tool Inventory",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/guardrails": {
+      "get": {
+        "operationId": "get_tenant_guardrails_v1_guardrails_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Tenant Guardrails",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "operationId": "put_tenant_guardrails_v1_guardrails_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Tenant Guardrails",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/guardrails/history": {
+      "get": {
+        "operationId": "get_guardrail_history_v1_guardrails_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GuardrailPolicyRevision"
+                  },
+                  "title": "Response Get Guardrail History V1 Guardrails History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Guardrail History",
         "tags": [
           "v1"
         ]
