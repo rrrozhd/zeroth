@@ -445,14 +445,24 @@ def _tool_call_record(
         tool_ref=action.identity.fingerprint,
         alias=action.identity.name,
         arguments=dict(action.arguments),
-        outcome=(
-            {"result_fingerprint": result_fingerprint(result)}
-            if result_observed
-            else None
-        ),
+        outcome=_result_outcome(result) if result_observed else None,
         error=_reason_term(decision) if decision.kind is ToolDecisionKind.DENY else None,
         tool_call_id=action.tool_call_id if result_observed else None,
     )
+
+
+def _result_outcome(result: Any) -> dict[str, Any]:
+    """Project an observed result onto its evidence digest, defensively.
+
+    A result the fingerprint cannot serialize (a ``datetime``, a Pydantic model
+    -- routine for LangChain tools) must not sink the whole record: dropping it
+    would erase the only proof that an approved call executed. Record that the
+    outcome was unfingerprintable instead of losing it.
+    """
+    try:
+        return {"result_fingerprint": result_fingerprint(result)}
+    except ToolGovernanceError:
+        return {"result_fingerprint": None, "unfingerprintable": True}
 
 
 def _approval_records(
@@ -976,6 +986,9 @@ def guard_tool_call(
     Raises:
         ToolGovernanceError: Whenever the call did not proceed. See
             :func:`authorize_tool_call` for which subclass names which condition.
+            Also raised when the call *did* proceed but its result could not be
+            persisted for replay -- the claim is retired to ``UNREPLAYABLE`` and
+            the caller must not reissue the action.
     """
     authorization = _authorize_tool_action(
         action,
@@ -1021,7 +1034,21 @@ def guard_tool_call(
         _fail_authorization(authorization, approval_lifecycle)
         raise
     if execution is not None and execution.may_execute:
-        action_lifecycle.complete(execution, result)
+        try:
+            action_lifecycle.complete(execution, result)
+        except Exception as error:
+            # The side effect already ran. Retire the claim to a terminal state
+            # so a redelivery cannot re-run it (and does not wedge forever), then
+            # surface that the effect executed rather than raising the raw
+            # storage error, which reads as a plain failure and invites a reissue
+            # under a fresh id -- the double execution the fence exists to prevent.
+            with suppress(Exception):
+                action_lifecycle.mark_unreplayable(execution, error)
+            _fail_authorization(authorization, approval_lifecycle)
+            raise ToolGovernanceError(
+                "tool effect executed but its result is not durably replayable; "
+                "do not reissue"
+            ) from error
     _complete_authorization(authorization, approval_lifecycle, audit, actor, result)
     return result
 
@@ -1111,7 +1138,22 @@ async def aguard_tool_call(
         _fail_authorization(authorization, approval_lifecycle)
         raise
     if execution is not None and execution.may_execute:
-        await asyncio.to_thread(action_lifecycle.complete, execution, result)
+        try:
+            await asyncio.to_thread(action_lifecycle.complete, execution, result)
+        except Exception as error:
+            # See the sync guard: the effect ran, so retire the claim terminally
+            # and report that it executed rather than raising the raw error.
+            with suppress(Exception):
+                await asyncio.to_thread(
+                    action_lifecycle.mark_unreplayable,
+                    execution,
+                    error,
+                )
+            _fail_authorization(authorization, approval_lifecycle)
+            raise ToolGovernanceError(
+                "tool effect executed but its result is not durably replayable; "
+                "do not reissue"
+            ) from error
     _complete_authorization(authorization, approval_lifecycle, audit, actor, result)
     return result
 

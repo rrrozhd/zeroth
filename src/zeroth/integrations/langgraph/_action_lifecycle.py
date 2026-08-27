@@ -30,6 +30,7 @@ class ActionExecutionState(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     AMBIGUOUS = "ambiguous"
+    UNREPLAYABLE = "unreplayable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -453,12 +454,54 @@ class SQLiteActionExecutionRepository:
             reconciled_at=now,
         )
 
+    def mark_unreplayable(self, claim: ActionExecutionClaim, error: BaseException) -> None:
+        """Retire a claim whose side effect ran but whose result cannot be persisted.
+
+        The tool already executed, so the record must be terminal -- never left
+        ``IN_FLIGHT``/``AMBIGUOUS``, which a redelivery would read as "still in
+        flight" and raise :class:`DuplicateToolExecutionError` on forever. Unlike
+        :meth:`fail`, this state is not re-armed by :meth:`begin_once`: the effect
+        must not run a second time just because its first result was unstorable.
+
+        Takes the claim, not a bare action key, and matches on the claim token the
+        way :meth:`mark_ambiguous` does. UNREPLAYABLE is terminal and is never
+        re-armed, so keying on the action alone would let a worker that has since
+        been fenced retire a claim another worker legitimately holds -- turning
+        the fencing this class exists to provide into a way to strand live work.
+        The claim is closed on the way out: its holder is done either way.
+        """
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            changed = connection.execute(
+                "UPDATE langgraph_action_executions SET state = ?, error_type = ?, "
+                "claim_open = 0, updated_at = ? WHERE action_key = ? "
+                "AND state IN (?, ?) AND claim_open = 1 AND claim_token_digest = ?",
+                (
+                    ActionExecutionState.UNREPLAYABLE.value,
+                    type(error).__name__,
+                    self._now(),
+                    claim.record.action_key,
+                    ActionExecutionState.IN_FLIGHT.value,
+                    ActionExecutionState.AMBIGUOUS.value,
+                    self._claim_digest(claim.claim_token or ""),
+                ),
+            ).rowcount
+            if changed != 1:
+                raise ToolGovernanceError(
+                    "action execution claim cannot become unreplayable"
+                )
+
     def replay_or_raise(self, record: ActionExecutionRecord) -> Any:
         if record.state is ActionExecutionState.COMPLETED and record.result_available:
             return record.result
         if record.state in (ActionExecutionState.IN_FLIGHT, ActionExecutionState.AMBIGUOUS):
             raise DuplicateToolExecutionError(
                 f"tool action {record.action_key} is already in flight or ambiguous"
+            )
+        if record.state is ActionExecutionState.UNREPLAYABLE:
+            raise ToolGovernanceError(
+                f"tool action {record.action_key} already executed but its result "
+                "is not durably replayable; do not reissue"
             )
         raise ToolGovernanceError("action execution cannot be replayed")
 

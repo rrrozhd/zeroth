@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.6.1]
+
+### Fixed
+
+- The governed LangGraph tool-guard completion fence no longer wedges on a result it cannot serialise
+  for durable replay. The durable `complete()` call ran outside the invoke `try`/`except`, so a
+  non-JSON result raised *after* the side effect executed, left the claim `IN_FLIGHT`, and made every
+  redelivery raise `DuplicateToolExecutionError` forever while reporting the successful effect as a
+  failure. The claim is now retired to a terminal `UNREPLAYABLE` state and never re-executed.
+- A tool result that cannot be fingerprinted records `unfingerprintable` instead of dropping the whole
+  approval-completion audit record.
+
 ## [0.24.6] - 2026-08-26
 
 ### Changed
