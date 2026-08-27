@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1.1]
+
+### Fixed
+
+- The dependency-exception registry's newest entry now follows the registry's own
+  `"Task beyond the 2026-07-18 refactor plan: …"` convention, which
+  `test_repository_exceptions_are_documented_exact_current_edges` enforces.
+- The regulus bootstrap test asserted `base_url == "http://regulus.internal/v1"`. The bootstrap
+  deliberately keeps that value the operator-configured, resolvable one — `ASGITransport` routes the
+  cost-event POST by path, and the readiness probe HTTP-GETs `base_url`, so the unroutable sentinel
+  would flip `/health/ready` to degraded. In-process dispatch is proven by `_asgi_app`, which the
+  test already asserts.
+
 ## [0.25.1]
 
 ### Security
