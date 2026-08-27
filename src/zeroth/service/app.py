@@ -260,9 +260,11 @@ def create_app(
     from zeroth.service.api.connector_api import register_connector_routes
     from zeroth.service.api.deployment_api import register_deployment_routes
     from zeroth.service.api.manifest_api import register_manifest_routes
+    from zeroth.service.api.mcp_server_api import register_mcp_server_routes
 
     register_deployment_routes(v1_router)
     register_connector_routes(v1_router)
+    register_mcp_server_routes(v1_router)
     register_manifest_routes(v1_router)
     for registrar in extra_v1_route_registrars:
         registrar(v1_router)
@@ -337,6 +339,7 @@ def create_app(
     register_enforcement_routes(compat_router)
     register_deployment_routes(compat_router)
     register_connector_routes(compat_router)
+    register_mcp_server_routes(compat_router)
     register_manifest_routes(compat_router)
     register_repo_routes(compat_router, bootstrap)
 

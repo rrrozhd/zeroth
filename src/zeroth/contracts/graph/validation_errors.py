@@ -56,6 +56,10 @@ class ValidationCode(StrEnum):
     INVALID_TOOL_BINDING = "invalid_tool_binding"
     CAPABILITY_GRANT_INSUFFICIENT = "capability_grant_insufficient"
     MISSING_MCP_CAPABILITY = "missing_mcp_capability"
+    # Distinct from the capability code above on purpose: a deprecation is not
+    # a missing grant, and sharing one code would make "does this graph lack an
+    # MCP capability?" unanswerable from the report.
+    DEPRECATED_MCP_SERVERS = "deprecated_mcp_servers"
     MISSING_JOIN_CONFIG = "missing_join_config"
     JOIN_ON_CYCLE = "join_on_cycle"
     IRREDUCIBLE_LOOP = "irreducible_loop"

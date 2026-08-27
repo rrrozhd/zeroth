@@ -23,6 +23,7 @@ from zeroth.contracts.graph.models import (
     HumanApprovalNode,
     IfNode,
     LoopNode,
+    MCPToolNode,
     Node,
 )
 from zeroth.contracts.graph.validation.capabilities import CapabilityChecks
@@ -94,24 +95,29 @@ def validate_node(
             details={"ref": node.graph_version_ref},
         )
 
-    require_ref(
-        issues,
-        graph_id=graph_id,
-        node_id=node.node_id,
-        code=ValidationCode.MISSING_CONTRACT_REF,
-        message="input contract ref is required",
-        value=node.input_contract_ref,
-        path=("nodes", node.node_id, "input_contract_ref"),
-    )
-    require_ref(
-        issues,
-        graph_id=graph_id,
-        node_id=node.node_id,
-        code=ValidationCode.INVALID_OUTPUT_CONTRACT,
-        message="output contract ref is required",
-        value=node.output_contract_ref,
-        path=("nodes", node.node_id, "output_contract_ref"),
-    )
+    # An mcp_tool node's contract is its pinned input_schema, frozen from the
+    # server at import. Requiring a registered contract ref as well would demand
+    # something no MCP tool has, and validate_mcp_tool_node rejects the refs
+    # outright -- so a node of this type could never satisfy both rules.
+    if not isinstance(node, MCPToolNode):
+        require_ref(
+            issues,
+            graph_id=graph_id,
+            node_id=node.node_id,
+            code=ValidationCode.MISSING_CONTRACT_REF,
+            message="input contract ref is required",
+            value=node.input_contract_ref,
+            path=("nodes", node.node_id, "input_contract_ref"),
+        )
+        require_ref(
+            issues,
+            graph_id=graph_id,
+            node_id=node.node_id,
+            code=ValidationCode.INVALID_OUTPUT_CONTRACT,
+            message="output contract ref is required",
+            value=node.output_contract_ref,
+            path=("nodes", node.node_id, "output_contract_ref"),
+        )
 
     validate_ref_list(
         issues,
@@ -144,6 +150,8 @@ def validate_node(
             validate_if_node(graph_id, node, issues)
         case LoopNode():
             validate_loop_node(graph_id, node, issues)
+        case MCPToolNode():
+            validate_mcp_tool_node(graph_id, node, issues)
 
 
 def validate_if_node(
@@ -522,7 +530,17 @@ def validate_entrypoint(
     node_map: dict[str, Node],
     issues: list[ValidationIssue],
 ) -> None:
-    """Check that the graph has an entry step and that it points to a real node."""
+    """Check that the graph has an entry step and that it points to a runnable node.
+
+    "Real node" is not enough. ``NodeDispatcher.dispatch`` handles agent,
+    entrypoint, if, loop, executable-unit, retrieval and http_request nodes and
+    raises ``unsupported node type`` for anything else, so an entry step naming
+    an ``mcp_tool`` node publishes clean and then fails on the run's very first
+    hop. The Studio route normalises ``entry_step`` onto the entrypoint node, so
+    this is only reachable through the API or a code-authored graph -- the same
+    wider-than-the-canvas surface that lets a control-flow edge target an
+    ``mcp_tool`` node.
+    """
     if graph.entry_step is None:
         append_issue(
             issues,
@@ -542,6 +560,21 @@ def validate_entrypoint(
             graph_id=graph.graph_id,
             path=("entry_step",),
             details={"entry_step": graph.entry_step},
+        )
+        return
+    if isinstance(node_map[graph.entry_step], MCPToolNode):
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.UNKNOWN_ENTRYPOINT,
+            message=(
+                f"entry step {graph.entry_step!r} is an mcp_tool node; an mcp_tool node is "
+                "reached only through a tool edge from the agent that binds it, so a run "
+                "entering there would fail on its first dispatch"
+            ),
+            graph_id=graph.graph_id,
+            path=("entry_step",),
+            details={"entry_step": graph.entry_step, "node_type": "mcp_tool"},
         )
         return
     validate_entrypoint_nodes(graph, issues)
@@ -592,4 +625,48 @@ def validate_entrypoint_nodes(graph: Graph, issues: list[ValidationIssue]) -> No
                 node_id=edge.target_node_id,
                 edge_id=edge.edge_id,
                 path=("edges", edge.edge_id),
+            )
+
+
+def validate_mcp_tool_node(
+    graph_id: str,
+    node: MCPToolNode,
+    issues: list[ValidationIssue],
+) -> None:
+    """Check that a pinned MCP tool is actually pinned.
+
+    ``schema_hash`` is the whole reason this node type can be validated at
+    publish at all -- without it the node names a tool whose shape is whatever
+    the server returns at run time, which is the state this design exists to
+    leave behind. An empty hash is therefore an error, not a warning.
+    """
+    if not node.mcp_tool.schema_hash.strip():
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_NODE_ATTACHMENT,
+            message=(
+                "mcp_tool node requires a schema_hash; import the tool with "
+                "`zeroth-core mcp-import` rather than authoring the node by hand"
+            ),
+            graph_id=graph_id,
+            node_id=node.node_id,
+            path=("nodes", node.node_id, "mcp_tool", "schema_hash"),
+        )
+    # An MCP tool's contract is its pinned input_schema. Accepting a contract ref
+    # here would imply the runtime validates against it, which it does not --
+    # silently ignoring an author's ref is how a governance surface starts lying.
+    for field_name in ("input_contract_ref", "output_contract_ref"):
+        if getattr(node, field_name, None):
+            append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_CONTRACT_REF,
+                message=(
+                    f"mcp_tool node must not set {field_name}; the pinned "
+                    "input_schema is the contract for an MCP tool"
+                ),
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=("nodes", node.node_id, field_name),
             )

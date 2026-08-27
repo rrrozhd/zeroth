@@ -45,6 +45,11 @@ type Field = {
   min?: number;
   max?: number;
   step?: number;
+  /** Locked regardless of the inspector's own readOnly state. Used by node
+      types the canvas can show but not author -- an imported MCP tool is
+      pinned to a digest, so letting the canvas edit it here would silently
+      invalidate the pin the runtime checks against. */
+  locked?: boolean;
 };
 
 export const FIELD_SPECS: Record<string, Field[]> = {
@@ -75,6 +80,40 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       required: true,
       placeholder: "3",
       hint: "Additional attempts after the initial body execution. Exhaustion exits through Limit.",
+    },
+  ],
+  // Imported, never authored here. Every field is locked: the node is pinned to
+  // a schema digest the runtime re-checks against the live server before it will
+  // call anything, so an edit made on the canvas would break the run rather than
+  // change it. Re-import with `zeroth-core mcp-import` to change a pin.
+  mcp_tool: [
+    {
+      key: "server_ref",
+      label: "MCP server",
+      kind: "text",
+      locked: true,
+      hint: "The registered server this tool lives on. Only an operator can say what command that server actually runs.",
+    },
+    {
+      key: "tool_name",
+      label: "Tool",
+      kind: "text",
+      locked: true,
+      hint: "The tool's name on that server.",
+    },
+    {
+      key: "description",
+      label: "Description",
+      kind: "textarea",
+      locked: true,
+      hint: "Pinned from the server at import. The model sees this text, so it is screened before exposure.",
+    },
+    {
+      key: "schema_hash",
+      label: "Schema pin",
+      kind: "text",
+      locked: true,
+      hint: "Digest of the tool's name, description and input schema at import. If the live server no longer matches, the run fails instead of calling a tool that changed underneath the graph.",
     },
   ],
   code: [
@@ -458,6 +497,7 @@ export function NodeInspector({
                   checked={Boolean(value)}
                   disabled={
                     readOnly ||
+                    f.locked ||
                     (f.key === "persist_conversation" &&
                       !String(config.input_messages_key ?? "").trim())
                   }
@@ -468,7 +508,7 @@ export function NodeInspector({
             ) : f.kind === "code" ? (
               <CodeEditor
                 value={str}
-                readOnly={readOnly}
+                readOnly={readOnly || f.locked}
                 onChange={(v) => setField(f.key, v, f.kind)}
               />
             ) : f.kind === "textarea" ? (
@@ -476,7 +516,7 @@ export function NodeInspector({
                 data-evidence-id={evidenceId}
                 value={str}
                 placeholder={f.placeholder}
-                disabled={readOnly}
+                disabled={readOnly || f.locked}
                 required={f.required}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 rows={4}
@@ -486,7 +526,7 @@ export function NodeInspector({
               <select
                 data-evidence-id={evidenceId}
                 value={str}
-                disabled={readOnly}
+                disabled={readOnly || f.locked}
                 required={f.required}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 className={inputCls}
@@ -515,7 +555,7 @@ export function NodeInspector({
                 max={f.max}
                 step={f.step}
                 placeholder={f.placeholder}
-                disabled={readOnly}
+                disabled={readOnly || f.locked}
                 required={f.required}
                 onChange={(e) => setField(f.key, e.target.value, f.kind)}
                 className={inputCls}
@@ -529,7 +569,7 @@ export function NodeInspector({
             <InlineConnectorSettings
               selectedRef={str}
               connectors={connectors}
-              readOnly={readOnly}
+              readOnly={readOnly || f.locked}
               onSelectRef={(ref) => setField(f.key, ref, f.kind)}
               onChanged={onConnectorsChanged}
             />
@@ -543,7 +583,7 @@ export function NodeInspector({
               needsTools={(toolTargets?.length ?? 0) > 0}
               nodeId={nodeId}
               instruction={String(config.instruction ?? "")}
-              readOnly={readOnly}
+              readOnly={readOnly || f.locked}
               onPick={(ref) => setField(f.key, ref, f.kind)}
             />
           )}
@@ -615,7 +655,14 @@ export function NodeInspector({
         </fieldset>
       )}
 
-      {onContractRefChange && studioType !== "entrypoint" && (
+      {/* mcp_tool is excluded alongside entrypoint, for the opposite reason: the
+          entrypoint has its own contract fieldset above, while an mcp_tool node
+          has no use for one. It is never dispatched as a graph step -- publish
+          rejects it as an entry step and rejects a data edge touching it -- so
+          nothing ever validates a payload against these refs. Rendering them
+          editable also contradicted this file's own claim that every field on an
+          imported node is locked. */}
+      {onContractRefChange && studioType !== "entrypoint" && studioType !== "mcp_tool" && (
         <fieldset className="space-y-4 border-t border-border pt-4">
           <legend className="sr-only">Contract bindings</legend>
           <ContractPicker

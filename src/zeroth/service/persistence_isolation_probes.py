@@ -59,6 +59,7 @@ from zeroth.integrations.github.models import (
     RepositoryState,
 )
 from zeroth.integrations.langgraph import InventoryCoverage, ToolDecisionKind
+from zeroth.integrations.mcp.config_repository import MCPServerConfigRepository
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.integrations.persistence.runs.run_repository import (
@@ -1291,6 +1292,45 @@ async def _drive_memory_configs(database: AsyncDatabase, operation: ResourceOper
     owner_after = await repository.get("driver-owner-ref", tenant_id="driver-owner")
     assert owner_after is not None
     assert owner_after.params == {}
+    assert await repository.get("driver-owner-ref", tenant_id="driver-foreign") is None
+    assert await repository.get("unknown-ref", tenant_id="driver-foreign") is None
+
+
+async def _drive_mcp_server_configs(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise MCP server config operations through the tenant-isolation matrix."""
+    repository = MCPServerConfigRepository(database)
+    await repository.upsert(
+        "driver-owner-ref", "echo", [], {}, [], tenant_id="driver-owner"
+    )
+    if operation is O.CREATE:
+        with _raises(KeyError):
+            await repository.upsert(
+                "driver-owner-ref", "echo", [], {}, [], tenant_id="driver-foreign"
+            )
+    elif operation is O.READ:
+        assert await repository.get("driver-owner-ref", tenant_id="driver-foreign") is None
+        assert await repository.get("unknown-ref", tenant_id="driver-foreign") is None
+    elif operation is O.ENUMERATE:
+        assert await repository.list(tenant_id="driver-foreign") == []
+    elif operation is O.UPDATE:
+        await repository.upsert(
+            "driver-foreign-ref", "echo", [], {}, [], tenant_id="driver-foreign"
+        )
+        await repository.upsert(
+            "driver-foreign-ref",
+            "echo",
+            ["--foreign"],
+            {"FOREIGN": "1"},
+            [],
+            tenant_id="driver-foreign",
+        )
+    else:
+        assert not await repository.delete("driver-owner-ref", tenant_id="driver-foreign")
+        assert not await repository.delete("unknown-ref", tenant_id="driver-foreign")
+    owner_after = await repository.get("driver-owner-ref", tenant_id="driver-owner")
+    assert owner_after is not None
+    assert owner_after.command == "echo"
+    # env is the reason this table is tenant-scoped at all: it carries API keys.
     assert await repository.get("driver-owner-ref", tenant_id="driver-foreign") is None
     assert await repository.get("unknown-ref", tenant_id="driver-foreign") is None
 

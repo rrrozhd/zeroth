@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25]
+
+### Added
+
+- **MCP tools become pinned graph nodes.** A new `mcp_tool` node kind freezes one tool's contract at
+  import time, so publish validation, diffing and version pinning have something that exists before
+  the run — an MCP server otherwise only advertises its tools at `list_tools()` on the day of the run.
+  It is a separate node kind rather than a mode on `ExecutableUnitNode` because an MCP call still
+  bypasses the operation boundary: it is at-least-once, with no replay suppression and no
+  reconciliation, and that weaker guarantee has to stay visible in the graph JSON, the diff and the
+  audit record.
+- **An operator-owned MCP server registry** (`mcp_server_configs`, migration 035, five routes under
+  `/v1/mcp`). The author references a server by `ref`; only an operator can say what command that ref
+  runs. `MCP_ADMIN` is admin-tier and deliberately NOT held by `OPERATOR` — reusing `CONNECTOR_ADMIN`
+  would have handed the registry to the very role that authors the graphs it constrains. Credentials
+  are masked on read and on the 502.
+- **A run-scoped `MCPSessionPool`**: one process per distinct server per run, spawned lazily on the
+  first call that needs it and stopped once when the run ends, so two agents sharing a server share a
+  process instead of each paying a spawn and a handshake.
+- `zeroth-core mcp-import` pins a registered server's tools into a draft graph, and a how-to at
+  `docs/how-to/mcp.md` covers register → import → publish → run with the capability model.
+
+### Security
+
+- **The capability model says one thing in all four places that enforce it.** For an agent `A`
+  binding an `mcp_tool` node `M` on a server with operator grants `G`: `caps(M)` must contain
+  `{process_spawn, external_api_call}` (floor), `caps(M)` must be within `G` (ceiling), and
+  `effective(A)` must contain `caps(M)` (agent floor). The ceiling's subject is the `mcp_tool` node,
+  never the calling agent — measured against the agent it would deny any agent holding an unrelated
+  capability, and its own remedy ("widen the server's grants") converges `G` on the union of
+  everything any agent holds, dissolving the control. The ceiling is enforced unconditionally,
+  including in advisory mode, because `grants` is operator-owned and does not depend on policy
+  enforcement being active.
+- **The server's tool description is screened before the model sees it**, on the pinned path and
+  again at import. The pin itself stays raw: the digest is taken over the unscreened manifest on both
+  sides, because the pool hashes the live server's raw text and a pin taken over a display transform
+  would read as permanent drift.
+- A data edge touching an `mcp_tool` node, and an `mcp_tool` node named as a graph's `entry_step`, are
+  both rejected at publish. Neither is dispatchable, so both previously validated clean and then
+  failed mid-run with `unsupported node type`.
+- Migration 035's `downgrade()` refuses to drop a populated registry table unless explicitly forced —
+  it is the only irreversible step in the chain and the one holding operator credentials.
+
+### Notes
+
+- `grants` gates which graphs may *reference* a server. It does **not** confine the spawned process:
+  `command`, `args` and `env` are unbounded, so `MCP_ADMIN` is effectively code execution as the
+  service user. Defensible for an admin-tier role, but stated rather than implied.
+- The deprecated inline `agent.mcp_servers` path still publishes on a WARNING and bypasses the
+  registry entirely. While it exists, the claim that `grants` is the one side of the capability check
+  an author cannot edit is **false for that path**.
+
 ## [0.24.6.1]
 
 ### Fixed

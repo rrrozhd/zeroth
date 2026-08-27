@@ -17,7 +17,14 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from zeroth.contracts.graph import ExecutableUnitNode, Graph, Node, OperationIdentity
+from zeroth.contracts.graph import (
+    ExecutableUnitNode,
+    Graph,
+    MCPToolNode,
+    Node,
+    OperationIdentity,
+)
+from zeroth.governance.policy.models import Capability
 from zeroth.runtime.agents.tooling.tool_calls import (
     SYNTHETIC_CALL_ID_PREFIX,
     canonical_json,
@@ -57,6 +64,29 @@ def _supported_kwargs(parameters: Mapping[str, Any], **candidates: Any) -> dict[
     let ``enforcement_context`` be added without breaking existing runners.
     """
     return {name: value for name, value in candidates.items() if name in parameters}
+
+
+def _declared_capabilities(node: MCPToolNode) -> set[Capability]:
+    """``caps(M)`` -- what this ``mcp_tool`` node itself declares.
+
+    This is the subject the operator's server grants are the ceiling on, and it
+    has to be exactly the node's own bindings. ``tool_required_capabilities``
+    looks close enough to reuse, but it unions the *binding's*
+    ``required_capabilities`` as well, and an author-declared extra there would
+    inflate the set being measured against a ceiling the author cannot edit.
+
+    Refs that name no known capability are dropped rather than raising, which
+    matches how the runner factory and the publish validator resolve the same
+    strings: an unrecognised ref cannot be granted, so dropping it keeps the
+    comparison fail-closed without rejecting forward-compatible graphs.
+    """
+    caps: set[Capability] = set()
+    for ref in node.capability_bindings:
+        try:
+            caps.add(Capability(ref))
+        except ValueError:
+            continue
+    return caps
 
 
 def node_by_id(graph: Graph, node_id: str) -> Node:
@@ -154,6 +184,9 @@ class RuntimeToolExecutor:
         ]
         | None = None,
         side_effect_free: Callable[[ExecutableUnitNode], bool] | None = None,
+        mcp_pool: Any | None = None,
+        mcp_agent_node_id: str | None = None,
+        mcp_effective_capabilities: set[Capability] | None = None,
     ) -> Any:
         """Build the executor that runs an agent's attached tool nodes.
 
@@ -181,6 +214,37 @@ class RuntimeToolExecutor:
         ) -> Any:
             target_node_id = str(binding.executable_unit_ref).removeprefix("node://")
             target = node_by_id(graph, target_node_id)
+            if isinstance(target, MCPToolNode):
+                # Deliberately returns before any operation identity is minted.
+                # An MCP call does not pass the side-effect boundary: it is
+                # at-least-once with no replay suppression and no
+                # reconciliation, and wrapping it in the operation guard here
+                # would mint a receipt implying a durability that does not
+                # exist. The pool applies the capability gate and the schema
+                # pin instead.
+                if mcp_pool is None:
+                    raise NodeDispatcherError(
+                        f"tool {binding.alias!r} targets MCP tool node "
+                        f"{target_node_id!r}, but no MCP session pool is wired "
+                        "for this run"
+                    )
+                return await mcp_pool.call(
+                    server_ref=target.mcp_tool.server_ref,
+                    tool_name=target.mcp_tool.tool_name,
+                    arguments=dict(arguments or {}),
+                    # The two ids are separate subjects, not two names for one
+                    # node: the agent carries the capability floor, the
+                    # mcp_tool node carries the ceiling the operator's grants
+                    # bound. One ``node_id`` parameter serving both is what let
+                    # the ceiling be measured against the agent. The fallback is
+                    # unreachable in production -- a dispatch with no pool has
+                    # already raised above -- and only names a denial.
+                    agent_node_id=mcp_agent_node_id or target_node_id,
+                    tool_node_id=target_node_id,
+                    declared_capabilities=_declared_capabilities(target),
+                    effective_capabilities=mcp_effective_capabilities,
+                    pinned_hash=target.mcp_tool.schema_hash,
+                )
             if not isinstance(target, ExecutableUnitNode):
                 raise NodeDispatcherError(
                     f"tool {binding.alias!r} targets {target_node_id!r}, "

@@ -963,6 +963,22 @@
         "title": "CandidateOutcome",
         "type": "object"
       },
+      "Capability": {
+        "description": "A specific permission that a node might need to do its job.\n\nEach value represents one kind of action (like reading from the network\nor writing to the filesystem). Authored tool bindings declare the\ncapabilities they require, and policies use these values to control\nwhat nodes are allowed to do; the policy engine republishes the enum\nfrom :mod:`zeroth.governance.policy.models`.",
+        "enum": [
+          "network_read",
+          "network_write",
+          "filesystem_read",
+          "filesystem_write",
+          "secret_access",
+          "external_api_call",
+          "process_spawn",
+          "memory_read",
+          "memory_write"
+        ],
+        "title": "Capability",
+        "type": "string"
+      },
       "CertificationBlocker": {
         "additionalProperties": false,
         "description": "Machine-readable blocker paired with a console remediation.",
@@ -2736,6 +2752,43 @@
           "updated_at"
         ],
         "title": "DeploymentVersionMetadataResponse",
+        "type": "object"
+      },
+      "DiscoveredToolResponse": {
+        "additionalProperties": false,
+        "description": "One tool a live server advertised, with the digest an import would pin.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "input_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Schema"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "schema_hash": {
+            "title": "Schema Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "schema_hash"
+        ],
+        "title": "DiscoveredToolResponse",
         "type": "object"
       },
       "EconomicsConfigurationResponse": {
@@ -4706,6 +4759,172 @@
         "title": "LivenessResponse",
         "type": "object"
       },
+      "MCPDiscoverResponse": {
+        "additionalProperties": false,
+        "description": "Result of listing tools on a live server.",
+        "properties": {
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "number"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredToolResponse"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ref",
+          "tools",
+          "latency_ms"
+        ],
+        "title": "MCPDiscoverResponse",
+        "type": "object"
+      },
+      "MCPServerCreateRequest": {
+        "additionalProperties": false,
+        "description": "Payload for registering an MCP server.",
+        "properties": {
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Args",
+            "type": "array"
+          },
+          "command": {
+            "title": "Command",
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "object"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "title": "Grants",
+            "type": "array"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "command"
+        ],
+        "title": "MCPServerCreateRequest",
+        "type": "object"
+      },
+      "MCPServerResponse": {
+        "additionalProperties": false,
+        "description": "One registered MCP server, as shown to an operator.",
+        "properties": {
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Args",
+            "type": "array"
+          },
+          "command": {
+            "title": "Command",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "object"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "title": "Grants",
+            "type": "array"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "command",
+          "args",
+          "env",
+          "grants",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MCPServerResponse",
+        "type": "object"
+      },
+      "MCPServerUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Payload for reconfiguring a registered MCP server.",
+        "properties": {
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Args",
+            "type": "array"
+          },
+          "command": {
+            "title": "Command",
+            "type": "string"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "title": "Grants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "MCPServerUpdateRequest",
+        "type": "object"
+      },
       "ManifestDetailResponse": {
         "additionalProperties": false,
         "description": "Secret-free executable-unit configuration suitable for operator inspection.",
@@ -5620,7 +5839,7 @@
         "type": "object"
       },
       "NodeTypeResponse": {
-        "description": "A node type available in the Studio palette.",
+        "description": "A node type the Studio knows how to draw.\n\nKnowing how to *draw* a type and letting an author *create* one are separate\nquestions. An imported MCP tool has to appear here so the canvas can resolve\nits ports -- without an entry it would render with no handles and its tool\nedge would silently fail to attach, showing an agent and its tool as\ndisconnected -- but it must not appear in the palette.",
         "properties": {
           "category": {
             "title": "Category",
@@ -13419,6 +13638,202 @@
           }
         },
         "summary": "List Manifest Runs",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/mcp/servers": {
+      "get": {
+        "description": "Every MCP server registered for this deployment, by ref.",
+        "operationId": "list_mcp_servers_v1_mcp_servers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MCPServerResponse"
+                  },
+                  "title": "Response List Mcp Servers V1 Mcp Servers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Mcp Servers",
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "description": "Register a server. Does not spawn it -- use the discover route for that.",
+        "operationId": "create_mcp_server_v1_mcp_servers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Mcp Server",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/mcp/servers/{ref}": {
+      "delete": {
+        "description": "Deregister a server.",
+        "operationId": "delete_mcp_server_v1_mcp_servers__ref__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Mcp Server",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "description": "Reconfigure a registered server.\n\nNarrowing ``grants`` here can strand an already-published graph whose\nnode was validated against the wider ceiling. That is deliberate:\n``MCPSessionPool`` re-reads this row before it will hand out a session,\nso the graph fails closed rather than keeping a capability the operator\nhas since withdrawn. Published versions are immutable, so the\npublish-time check alone could not achieve that.",
+        "operationId": "update_mcp_server_v1_mcp_servers__ref__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Mcp Server",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/mcp/servers/{ref}/tools": {
+      "get": {
+        "description": "Spawn the server, list its tools with the digests an import would pin, stop.\n\nThis is the only route that runs the operator's command, and it is\nwhy the route set is admin-tier. The returned ``schema_hash`` values\nare what ``mcp-import`` freezes into the graph and what the runtime\ndrift check later compares against.",
+        "operationId": "discover_mcp_tools_v1_mcp_servers__ref__tools_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPDiscoverResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discover Mcp Tools",
         "tags": [
           "v1"
         ]

@@ -46,6 +46,7 @@ from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.langgraph_gateway.events import AuditGatewayEventSink
 from zeroth.governance.policy import (
+    Capability,
     PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
@@ -59,6 +60,7 @@ from zeroth.integrations.execution import (
     SandboxManager,
 )
 from zeroth.integrations.execution.sidecar_client import SandboxSidecarClient
+from zeroth.integrations.mcp.config_repository import MCPServerConfigRepository
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.memory.factory import register_memory_connectors
 from zeroth.integrations.memory.registry import (
@@ -82,6 +84,7 @@ from zeroth.platform.signing import (
 from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ScopeContext
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
+from zeroth.runtime.agents.mcp import RegisteredMCPServerConfig
 from zeroth.runtime.agents.provider import ProviderAdapter
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
@@ -221,7 +224,21 @@ async def bootstrap_scoped_service(
         database,
         contract_scope_context(deployment.tenant_id, deployment.workspace_id),
     )
-    _graph_validator = GraphValidator(contract_registry=_contract_registry)
+    # The operator-owned ceiling for mcp_tool nodes. Without this resolver the
+    # validator's grants pass returns immediately and publish accepts any
+    # capability an author declares -- the check exists in exactly one place,
+    # so leaving it unwired made the whole registry decorative rather than
+    # merely unenforced.
+    _mcp_server_configs = MCPServerConfigRepository(database)
+
+    async def _resolve_mcp_grants(server_ref: str) -> set[Capability] | None:
+        record = await _mcp_server_configs.get(server_ref, tenant_id=deployment.tenant_id)
+        return None if record is None else set(record.grants)
+
+    _graph_validator = GraphValidator(
+        contract_registry=_contract_registry,
+        mcp_grants_resolver=_resolve_mcp_grants,
+    )
     from zeroth.service.templates import TemplateReferenceIndex  # noqa: PLC0415
 
     template_reference_index = TemplateReferenceIndex(
@@ -296,6 +313,25 @@ async def bootstrap_scoped_service(
         deployment_scope,
         metrics_collector=metrics_collector,
     )
+    async def _resolve_mcp_server(server_ref: str) -> RegisteredMCPServerConfig | None:
+        """Turn a graph's server_ref into the operator's registration.
+
+        The graph author writes only the ref; the command, args, env and grants
+        all come from this row, which they cannot edit. Returning None lets the
+        pool report an unregistered server by name instead of failing somewhere
+        further in.
+        """
+        record = await _mcp_server_configs.get(server_ref, tenant_id=deployment.tenant_id)
+        if record is None:
+            return None
+        return RegisteredMCPServerConfig(
+            name=record.ref,
+            command=record.command,
+            args=list(record.args),
+            env=dict(record.env) or None,
+            grants=list(record.grants),
+        )
+
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repository,
         agent_runners=resolved_agent_runners,
@@ -303,6 +339,7 @@ async def bootstrap_scoped_service(
         audit_repository=audit_repository,
         approval_service=approval_service,
         operation_store=operation_store,
+        mcp_server_resolver=_resolve_mcp_server,
     ).use_token_snapshot_store(run_repository)
     resolved_auth_config = auth_config or ServiceAuthConfig.from_env()
     authenticator = ServiceAuthenticator(
@@ -492,6 +529,11 @@ async def bootstrap_scoped_service(
     # Runtime-managed connectors: re-register persisted console-authored
     # configs on top of the env-based ones. Bad rows are logged and skipped.
     memory_connector_config_repository = MemoryConnectorConfigRepository(database)
+    # Operator-registered MCP servers. Nothing is spawned at bootstrap: a
+    # server starts lazily on the first tool call that needs it. Same instance
+    # the publish-time grants resolver reads, so the admin API and the ceiling
+    # can never disagree about what is registered.
+    mcp_server_config_repository = _mcp_server_configs
     # WS-B: a deployment is tenant-pinned; load only its tenant's persisted
     # connector configs so another tenant's DSN-bearing rows on a shared DB
     # are never registered into this process.
@@ -1188,6 +1230,7 @@ async def bootstrap_scoped_service(
             probe_instrumentation=probe_instrumentation,
             memory_registry=memory_registry,
             memory_connector_config_repository=memory_connector_config_repository,
+            mcp_server_config_repository=mcp_server_config_repository,
             memory_resolver=memory_resolver,
             webhook_service=webhook_service_obj,
             webhook_repository=webhook_repository,

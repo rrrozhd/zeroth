@@ -36,6 +36,8 @@ from zeroth.contracts.graph.models import (
     IfNodeData,
     LoopNode,
     LoopNodeData,
+    MCPToolNode,
+    MCPToolNodeData,
     Node,
     RetrievalNode,
     RetrievalNodeData,
@@ -171,6 +173,17 @@ _NODE_TYPES: list[NodeTypeResponse] = [
             ),
         ],
     ),
+    NodeTypeResponse(
+        type="mcp_tool",
+        label="MCP Tool",
+        category="imported",
+        # Attachment target only: an agent reaches it over a tool edge, and no
+        # data flows through it, so it carries the tool input port alone.
+        ports=[_TOOL_TARGET_PORT],
+        # Imported with `zeroth-core mcp-import`, never dragged from the palette:
+        # the node is pinned to a schema digest taken from a live server, which
+        # canvas authoring has no way to produce.
+    ),
     NodeTypeResponse(type="retrieval", label="Retrieval", category="core", ports=_io_ports()),
     NodeTypeResponse(
         type="http_request",
@@ -194,6 +207,11 @@ _NODE_BUILDERS: dict[str, tuple[type[Node], str, type]] = {
     "human_approval": (HumanApprovalNode, "human_approval", HumanApprovalNodeData),
     "if": (IfNode, "condition", IfNodeData),
     "loop": (LoopNode, "loop", LoopNodeData),
+    # Registered so a graph containing an imported MCP tool round-trips through
+    # the canvas intact. The console cannot CREATE one this increment (no
+    # DEFAULT_CONFIG entry, no palette entry); without the builder here,
+    # _node_config would KeyError the moment such a graph is opened.
+    "mcp_tool": (MCPToolNode, "mcp_tool", MCPToolNodeData),
     "retrieval": (RetrievalNode, "retrieval", RetrievalNodeData),
     "http_request": (HttpRequestNode, "http_request", HttpRequestNodeData),
     "subgraph": (SubgraphNode, "subgraph", SubgraphNodeData),

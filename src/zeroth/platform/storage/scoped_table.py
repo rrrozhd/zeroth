@@ -95,6 +95,7 @@ _SERVICE_TABLES = (
     "langgraph_inventories",
     "langgraph_run_attestations",
     "legal_holds",
+    "mcp_server_configs",
     "memory_connector_configs",
     "node_audits",
     "prompt_templates",

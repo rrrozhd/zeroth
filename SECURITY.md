@@ -59,10 +59,28 @@ Zeroth is a governance-focused runtime; a few defaults matter when deploying it:
   single-flight locks, so a slow Vault cannot block the event loop and N
   concurrent misses collapse into one fetch. Sync resolution remains only for
   synchronous callers; service paths use the async helpers.
-- **MCP servers require capabilities before any process is spawned.** Under
-  active enforcement an agent must hold BOTH `process_spawn` and
-  `external_api_call` before its configured MCP server subprocesses are started
-  — a missing grant denies at startup, not after the side effect. Graph
+- **MCP servers require capabilities before any process is spawned.** Reaching
+  an MCP server spawns a subprocess that calls out to an external service, so
+  both `process_spawn` and `external_api_call` are required before any process
+  exists — a missing grant denies at startup, not after the side effect. Graph
   validation reports the same requirement at publish time
   (`missing_mcp_capability`), so enforced deployments never learn about the gap
   at dispatch.
+- **An `mcp_tool` node cannot exceed the operator's grants for its server.**
+  This is the control that matters, and it is not the bullet above. Operators
+  register servers in a table graph authors cannot edit; the node's declared
+  `capability_bindings` are checked against that row's `grants` at publish and
+  again in `MCPSessionPool` before a process exists — unconditionally, including
+  on deployments running without policy enforcement, because the grants are the
+  operator's assertion about their own server and do not depend on a policy
+  switch. A published version is immutable, so the run-time check is what makes
+  narrowing `grants` actually withdraw a capability.
+  What `grants` does **not** bound is the server process: `command`, `args` and
+  `env` are used verbatim with no allowlist, digest pin, or sandbox, so the
+  `mcp:admin` permission is arbitrary code execution as the service user.
+- **The deprecated inline `agent.mcp_servers` path has no operator side at
+  all.** It still publishes, on a warning, and there the agent floor above is
+  the only check — the server's binary, argv and env are author-controlled and
+  its tools are discovered rather than pinned. "Grants are the one side an
+  author cannot edit" is true of `mcp_tool` nodes and false of this path. Use
+  the registry and `zeroth-core mcp-import` instead.

@@ -1,722 +1,747 @@
 [
   {
     "method": "DELETE",
-    "operation_id": "delete_workflow_api_studio_v1_workflows__workflow_id__delete",
-    "path": "/api/studio/v1/workflows/{workflow_id}"
+    "path": "/api/studio/v1/workflows/{workflow_id}",
+    "operation_id": "delete_workflow_api_studio_v1_workflows__workflow_id__delete"
   },
   {
     "method": "DELETE",
-    "operation_id": "delete_connector_v1_connectors__ref__delete",
-    "path": "/v1/connectors/{ref}"
+    "path": "/v1/connectors/{ref}",
+    "operation_id": "delete_connector_v1_connectors__ref__delete"
   },
   {
     "method": "DELETE",
-    "operation_id": "release_legal_hold_v1_retention_legal_holds__hold_id__delete",
-    "path": "/v1/retention/legal-holds/{hold_id}"
+    "path": "/v1/mcp/servers/{ref}",
+    "operation_id": "delete_mcp_server_v1_mcp_servers__ref__delete"
   },
   {
     "method": "DELETE",
-    "operation_id": "delete_template_v1_templates__name___version__delete",
-    "path": "/v1/templates/{name}/{version}"
+    "path": "/v1/retention/legal-holds/{hold_id}",
+    "operation_id": "release_legal_hold_v1_retention_legal_holds__hold_id__delete"
   },
   {
     "method": "DELETE",
-    "operation_id": "deactivate_subscription_v1_webhooks_subscriptions__subscription_id__delete",
-    "path": "/v1/webhooks/subscriptions/{subscription_id}"
+    "path": "/v1/templates/{name}/{version}",
+    "operation_id": "delete_template_v1_templates__name___version__delete"
   },
   {
+    "method": "DELETE",
+    "path": "/v1/webhooks/subscriptions/{subscription_id}",
+    "operation_id": "deactivate_subscription_v1_webhooks_subscriptions__subscription_id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/studio/v1/contracts",
+    "operation_id": "list_contracts_api_studio_v1_contracts_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/studio/v1/node-types",
+    "operation_id": "list_node_types_api_studio_v1_node_types_get"
+  },
+  {
     "method": "GET",
-    "operation_id": "list_contracts_api_studio_v1_contracts_get",
-    "path": "/api/studio/v1/contracts"
+    "path": "/api/studio/v1/workflows",
+    "operation_id": "list_workflows_api_studio_v1_workflows_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_node_types_api_studio_v1_node_types_get",
-    "path": "/api/studio/v1/node-types"
+    "path": "/api/studio/v1/workflows/{workflow_id}",
+    "operation_id": "get_workflow_api_studio_v1_workflows__workflow_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "list_workflows_api_studio_v1_workflows_get",
-    "path": "/api/studio/v1/workflows"
+    "path": "/api/studio/v1/workflows/{workflow_id}/diff",
+    "operation_id": "diff_workflow_api_studio_v1_workflows__workflow_id__diff_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_workflow_api_studio_v1_workflows__workflow_id__get",
-    "path": "/api/studio/v1/workflows/{workflow_id}"
+    "path": "/health",
+    "operation_id": "health_health_get"
   },
   {
     "method": "GET",
-    "operation_id": "diff_workflow_api_studio_v1_workflows__workflow_id__diff_get",
-    "path": "/api/studio/v1/workflows/{workflow_id}/diff"
+    "path": "/health/live",
+    "operation_id": "health_live_health_live_get"
   },
   {
     "method": "GET",
-    "operation_id": "health_health_get",
-    "path": "/health"
+    "path": "/health/ready",
+    "operation_id": "health_ready_health_ready_get"
   },
   {
     "method": "GET",
-    "operation_id": "health_live_health_live_get",
-    "path": "/health/live"
+    "path": "/v1/admin/audits",
+    "operation_id": "list_tenant_audits_v1_admin_audits_get"
   },
   {
     "method": "GET",
-    "operation_id": "health_ready_health_ready_get",
-    "path": "/health/ready"
+    "path": "/v1/admin/runs",
+    "operation_id": "list_admin_runs_v1_admin_runs_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_tenant_audits_v1_admin_audits_get",
-    "path": "/v1/admin/audits"
+    "path": "/v1/artifacts/{artifact_id}",
+    "operation_id": "get_artifact_v1_artifacts__artifact_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "list_admin_runs_v1_admin_runs_get",
-    "path": "/v1/admin/runs"
+    "path": "/v1/audit-readiness",
+    "operation_id": "audit_readiness_v1_audit_readiness_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_artifact_v1_artifacts__artifact_id__get",
-    "path": "/v1/artifacts/{artifact_id}"
+    "path": "/v1/certifications",
+    "operation_id": "list_certifications_v1_certifications_get"
   },
   {
     "method": "GET",
-    "operation_id": "audit_readiness_v1_audit_readiness_get",
-    "path": "/v1/audit-readiness"
+    "path": "/v1/certifications/{certification_id}",
+    "operation_id": "get_certification_v1_certifications__certification_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "list_certifications_v1_certifications_get",
-    "path": "/v1/certifications"
+    "path": "/v1/connectors",
+    "operation_id": "list_connectors_v1_connectors_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_certification_v1_certifications__certification_id__get",
-    "path": "/v1/certifications/{certification_id}"
+    "path": "/v1/deployments",
+    "operation_id": "list_deployments_v1_deployments_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_connectors_v1_connectors_get",
-    "path": "/v1/connectors"
+    "path": "/v1/deployments/{deployment_ref}/approvals",
+    "operation_id": "list_approvals_v1_deployments__deployment_ref__approvals_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_deployments_v1_deployments_get",
-    "path": "/v1/deployments"
+    "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
+    "operation_id": "get_approval_v1_deployments__deployment_ref__approvals__approval_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "list_approvals_v1_deployments__deployment_ref__approvals_get",
-    "path": "/v1/deployments/{deployment_ref}/approvals"
+    "path": "/v1/deployments/{deployment_ref}/attestation",
+    "operation_id": "get_attestation_v1_deployments__deployment_ref__attestation_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_approval_v1_deployments__deployment_ref__approvals__approval_id__get",
-    "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}"
+    "path": "/v1/deployments/{deployment_ref}/attestation/verify",
+    "operation_id": "get_attestation_verify_v1_deployments__deployment_ref__attestation_verify_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_attestation_v1_deployments__deployment_ref__attestation_get",
-    "path": "/v1/deployments/{deployment_ref}/attestation"
+    "path": "/v1/deployments/{deployment_ref}/audit-verification",
+    "operation_id": "verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_attestation_verify_v1_deployments__deployment_ref__attestation_verify_get",
-    "path": "/v1/deployments/{deployment_ref}/attestation/verify"
+    "path": "/v1/deployments/{deployment_ref}/audits",
+    "operation_id": "list_audits_v1_deployments__deployment_ref__audits_get"
   },
   {
     "method": "GET",
-    "operation_id": "verify_deployment_audit_chain_v1_deployments__deployment_ref__audit_verification_get",
-    "path": "/v1/deployments/{deployment_ref}/audit-verification"
+    "path": "/v1/deployments/{deployment_ref}/cost",
+    "operation_id": "get_deployment_cost_v1_deployments__deployment_ref__cost_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_audits_v1_deployments__deployment_ref__audits_get",
-    "path": "/v1/deployments/{deployment_ref}/audits"
+    "path": "/v1/deployments/{deployment_ref}/evidence",
+    "operation_id": "get_deployment_evidence_v1_deployments__deployment_ref__evidence_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_deployment_cost_v1_deployments__deployment_ref__cost_get",
-    "path": "/v1/deployments/{deployment_ref}/cost"
+    "path": "/v1/deployments/{deployment_ref}/guardrails",
+    "operation_id": "get_deployment_guardrails_v1_deployments__deployment_ref__guardrails_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_deployment_evidence_v1_deployments__deployment_ref__evidence_get",
-    "path": "/v1/deployments/{deployment_ref}/evidence"
+    "path": "/v1/deployments/{deployment_ref}/input-contract",
+    "operation_id": "get_input_contract_v1_deployments__deployment_ref__input_contract_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_deployment_guardrails_v1_deployments__deployment_ref__guardrails_get",
-    "path": "/v1/deployments/{deployment_ref}/guardrails"
+    "path": "/v1/deployments/{deployment_ref}/metadata",
+    "operation_id": "get_deployment_metadata_v1_deployments__deployment_ref__metadata_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_input_contract_v1_deployments__deployment_ref__input_contract_get",
-    "path": "/v1/deployments/{deployment_ref}/input-contract"
+    "path": "/v1/deployments/{deployment_ref}/output-contract",
+    "operation_id": "get_output_contract_v1_deployments__deployment_ref__output_contract_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_deployment_metadata_v1_deployments__deployment_ref__metadata_get",
-    "path": "/v1/deployments/{deployment_ref}/metadata"
+    "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
+    "operation_id": "get_result_error_state_schema_v1_deployments__deployment_ref__result_error_state_schema_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_output_contract_v1_deployments__deployment_ref__output_contract_get",
-    "path": "/v1/deployments/{deployment_ref}/output-contract"
+    "path": "/v1/deployments/{deployment_ref}/timeline",
+    "operation_id": "get_deployment_timeline_v1_deployments__deployment_ref__timeline_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_result_error_state_schema_v1_deployments__deployment_ref__result_error_state_schema_get",
-    "path": "/v1/deployments/{deployment_ref}/result-error-state-schema"
+    "path": "/v1/econ/configuration",
+    "operation_id": "get_economics_configuration_v1_econ_configuration_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_deployment_timeline_v1_deployments__deployment_ref__timeline_get",
-    "path": "/v1/deployments/{deployment_ref}/timeline"
+    "path": "/v1/econ/dashboard/action-suppression",
+    "operation_id": "econ_dashboard_action_suppression_v1_econ_dashboard_action_suppression_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_economics_configuration_v1_econ_configuration_get",
-    "path": "/v1/econ/configuration"
+    "path": "/v1/econ/dashboard/calibration-trend",
+    "operation_id": "econ_dashboard_calibration_trend_v1_econ_dashboard_calibration_trend_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_action_suppression_v1_econ_dashboard_action_suppression_get",
-    "path": "/v1/econ/dashboard/action-suppression"
+    "path": "/v1/econ/dashboard/capability-ranking",
+    "operation_id": "econ_dashboard_capability_ranking_v1_econ_dashboard_capability_ranking_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_calibration_trend_v1_econ_dashboard_calibration_trend_get",
-    "path": "/v1/econ/dashboard/calibration-trend"
+    "path": "/v1/econ/dashboard/capital-destroyers",
+    "operation_id": "econ_dashboard_capital_destroyers_v1_econ_dashboard_capital_destroyers_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_capability_ranking_v1_econ_dashboard_capability_ranking_get",
-    "path": "/v1/econ/dashboard/capability-ranking"
+    "path": "/v1/econ/dashboard/confidence-trend",
+    "operation_id": "econ_dashboard_confidence_trend_v1_econ_dashboard_confidence_trend_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_capital_destroyers_v1_econ_dashboard_capital_destroyers_get",
-    "path": "/v1/econ/dashboard/capital-destroyers"
+    "path": "/v1/econ/dashboard/data-quality-mix",
+    "operation_id": "econ_dashboard_data_quality_mix_v1_econ_dashboard_data_quality_mix_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_confidence_trend_v1_econ_dashboard_confidence_trend_get",
-    "path": "/v1/econ/dashboard/confidence-trend"
+    "path": "/v1/econ/dashboard/efficiency-trend",
+    "operation_id": "econ_dashboard_efficiency_trend_v1_econ_dashboard_efficiency_trend_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_data_quality_mix_v1_econ_dashboard_data_quality_mix_get",
-    "path": "/v1/econ/dashboard/data-quality-mix"
+    "path": "/v1/econ/dashboard/kpis",
+    "operation_id": "econ_dashboard_kpis_v1_econ_dashboard_kpis_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_efficiency_trend_v1_econ_dashboard_efficiency_trend_get",
-    "path": "/v1/econ/dashboard/efficiency-trend"
+    "path": "/v1/econ/dashboard/top-creators",
+    "operation_id": "econ_dashboard_top_creators_v1_econ_dashboard_top_creators_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_kpis_v1_econ_dashboard_kpis_get",
-    "path": "/v1/econ/dashboard/kpis"
+    "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest",
+    "operation_id": "regulus_costing_estimate_v1_econ_regulus_costing_estimates__capability_id__latest_get"
   },
   {
     "method": "GET",
-    "operation_id": "econ_dashboard_top_creators_v1_econ_dashboard_top_creators_get",
-    "path": "/v1/econ/dashboard/top-creators"
+    "path": "/v1/econ/regulus/costing/profiles/{profile_id}",
+    "operation_id": "regulus_costing_profile_v1_econ_regulus_costing_profiles__profile_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_costing_estimate_v1_econ_regulus_costing_estimates__capability_id__latest_get",
-    "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest"
+    "path": "/v1/econ/regulus/dashboard/action-suppression",
+    "operation_id": "regulus_dashboard_action_suppression_v1_econ_regulus_dashboard_action_suppression_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_costing_profile_v1_econ_regulus_costing_profiles__profile_id__get",
-    "path": "/v1/econ/regulus/costing/profiles/{profile_id}"
+    "path": "/v1/econ/regulus/dashboard/calibration-trend",
+    "operation_id": "regulus_dashboard_calibration_trend_v1_econ_regulus_dashboard_calibration_trend_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_action_suppression_v1_econ_regulus_dashboard_action_suppression_get",
-    "path": "/v1/econ/regulus/dashboard/action-suppression"
+    "path": "/v1/econ/regulus/dashboard/capability-ranking",
+    "operation_id": "regulus_dashboard_capability_ranking_v1_econ_regulus_dashboard_capability_ranking_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_calibration_trend_v1_econ_regulus_dashboard_calibration_trend_get",
-    "path": "/v1/econ/regulus/dashboard/calibration-trend"
+    "path": "/v1/econ/regulus/dashboard/capital-destroyers",
+    "operation_id": "regulus_dashboard_capital_destroyers_v1_econ_regulus_dashboard_capital_destroyers_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_capability_ranking_v1_econ_regulus_dashboard_capability_ranking_get",
-    "path": "/v1/econ/regulus/dashboard/capability-ranking"
+    "path": "/v1/econ/regulus/dashboard/confidence-gate-status",
+    "operation_id": "regulus_dashboard_confidence_gate_v1_econ_regulus_dashboard_confidence_gate_status_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_capital_destroyers_v1_econ_regulus_dashboard_capital_destroyers_get",
-    "path": "/v1/econ/regulus/dashboard/capital-destroyers"
+    "path": "/v1/econ/regulus/dashboard/confidence-trend",
+    "operation_id": "regulus_dashboard_confidence_trend_v1_econ_regulus_dashboard_confidence_trend_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_confidence_gate_v1_econ_regulus_dashboard_confidence_gate_status_get",
-    "path": "/v1/econ/regulus/dashboard/confidence-gate-status"
+    "path": "/v1/econ/regulus/dashboard/data-quality-mix",
+    "operation_id": "regulus_dashboard_data_quality_v1_econ_regulus_dashboard_data_quality_mix_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_confidence_trend_v1_econ_regulus_dashboard_confidence_trend_get",
-    "path": "/v1/econ/regulus/dashboard/confidence-trend"
+    "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}",
+    "operation_id": "regulus_dashboard_drift_timeline_v1_econ_regulus_dashboard_drift_timeline__capability_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_data_quality_v1_econ_regulus_dashboard_data_quality_mix_get",
-    "path": "/v1/econ/regulus/dashboard/data-quality-mix"
+    "path": "/v1/econ/regulus/dashboard/efficiency-trend",
+    "operation_id": "regulus_dashboard_efficiency_trend_v1_econ_regulus_dashboard_efficiency_trend_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_drift_timeline_v1_econ_regulus_dashboard_drift_timeline__capability_id__get",
-    "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}"
+    "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}",
+    "operation_id": "regulus_dashboard_implementation_compare_v1_econ_regulus_dashboard_implementation_compare__capability_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_efficiency_trend_v1_econ_regulus_dashboard_efficiency_trend_get",
-    "path": "/v1/econ/regulus/dashboard/efficiency-trend"
+    "path": "/v1/econ/regulus/dashboard/kpis",
+    "operation_id": "regulus_dashboard_kpis_v1_econ_regulus_dashboard_kpis_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_implementation_compare_v1_econ_regulus_dashboard_implementation_compare__capability_id__get",
-    "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}"
+    "path": "/v1/econ/regulus/dashboard/policy-timeline",
+    "operation_id": "regulus_dashboard_policy_timeline_v1_econ_regulus_dashboard_policy_timeline_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_kpis_v1_econ_regulus_dashboard_kpis_get",
-    "path": "/v1/econ/regulus/dashboard/kpis"
+    "path": "/v1/econ/regulus/dashboard/top-creators",
+    "operation_id": "regulus_dashboard_top_creators_v1_econ_regulus_dashboard_top_creators_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_policy_timeline_v1_econ_regulus_dashboard_policy_timeline_get",
-    "path": "/v1/econ/regulus/dashboard/policy-timeline"
+    "path": "/v1/econ/regulus/enforcement/actions",
+    "operation_id": "regulus_enforcement_actions_v1_econ_regulus_enforcement_actions_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_dashboard_top_creators_v1_econ_regulus_dashboard_top_creators_get",
-    "path": "/v1/econ/regulus/dashboard/top-creators"
+    "path": "/v1/econ/regulus/enforcement/policy-actions",
+    "operation_id": "regulus_enforcement_policy_actions_v1_econ_regulus_enforcement_policy_actions_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_enforcement_actions_v1_econ_regulus_enforcement_actions_get",
-    "path": "/v1/econ/regulus/enforcement/actions"
+    "path": "/v1/econ/regulus/evaluations/{capability_id}/history",
+    "operation_id": "regulus_evaluations_history_v1_econ_regulus_evaluations__capability_id__history_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_enforcement_policy_actions_v1_econ_regulus_enforcement_policy_actions_get",
-    "path": "/v1/econ/regulus/enforcement/policy-actions"
+    "path": "/v1/econ/regulus/evaluations/{capability_id}/latest",
+    "operation_id": "regulus_evaluations_latest_v1_econ_regulus_evaluations__capability_id__latest_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_evaluations_history_v1_econ_regulus_evaluations__capability_id__history_get",
-    "path": "/v1/econ/regulus/evaluations/{capability_id}/history"
+    "path": "/v1/econ/regulus/performance/capabilities",
+    "operation_id": "regulus_performance_capabilities_v1_econ_regulus_performance_capabilities_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_evaluations_latest_v1_econ_regulus_evaluations__capability_id__latest_get",
-    "path": "/v1/econ/regulus/evaluations/{capability_id}/latest"
+    "path": "/v1/econ/regulus/performance/summary",
+    "operation_id": "regulus_performance_summary_v1_econ_regulus_performance_summary_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_performance_capabilities_v1_econ_regulus_performance_capabilities_get",
-    "path": "/v1/econ/regulus/performance/capabilities"
+    "path": "/v1/econ/regulus/reconciliation/calibration-summary",
+    "operation_id": "regulus_reconciliation_calibration_v1_econ_regulus_reconciliation_calibration_summary_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_performance_summary_v1_econ_regulus_performance_summary_get",
-    "path": "/v1/econ/regulus/performance/summary"
+    "path": "/v1/econ/regulus/registry/capabilities",
+    "operation_id": "regulus_registry_capabilities_v1_econ_regulus_registry_capabilities_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_reconciliation_calibration_v1_econ_regulus_reconciliation_calibration_summary_get",
-    "path": "/v1/econ/regulus/reconciliation/calibration-summary"
+    "path": "/v1/econ/regulus/registry/capabilities/{capability_id}",
+    "operation_id": "regulus_registry_capability_v1_econ_regulus_registry_capabilities__capability_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_registry_capabilities_v1_econ_regulus_registry_capabilities_get",
-    "path": "/v1/econ/regulus/registry/capabilities"
+    "path": "/v1/econ/regulus/registry/implementations/{implementation_id}",
+    "operation_id": "regulus_registry_implementation_v1_econ_regulus_registry_implementations__implementation_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_registry_capability_v1_econ_regulus_registry_capabilities__capability_id__get",
-    "path": "/v1/econ/regulus/registry/capabilities/{capability_id}"
+    "path": "/v1/econ/rightsizing/experiment/latest",
+    "operation_id": "get_latest_rightsizing_experiment_v1_econ_rightsizing_experiment_latest_get"
   },
   {
     "method": "GET",
-    "operation_id": "regulus_registry_implementation_v1_econ_regulus_registry_implementations__implementation_id__get",
-    "path": "/v1/econ/regulus/registry/implementations/{implementation_id}"
+    "path": "/v1/econ/rightsizing/opportunities",
+    "operation_id": "rightsizing_opportunities_v1_econ_rightsizing_opportunities_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_latest_rightsizing_experiment_v1_econ_rightsizing_experiment_latest_get",
-    "path": "/v1/econ/rightsizing/experiment/latest"
+    "path": "/v1/econ/unit-economics",
+    "operation_id": "get_unit_economics_v1_econ_unit_economics_get"
   },
   {
     "method": "GET",
-    "operation_id": "rightsizing_opportunities_v1_econ_rightsizing_opportunities_get",
-    "path": "/v1/econ/rightsizing/opportunities"
+    "path": "/v1/econ/waste",
+    "operation_id": "get_waste_v1_econ_waste_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_unit_economics_v1_econ_unit_economics_get",
-    "path": "/v1/econ/unit-economics"
+    "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+    "operation_id": "read_run_status_v1_enforcement_deployments__deployment_ref__runs__correlation_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "get_waste_v1_econ_waste_get",
-    "path": "/v1/econ/waste"
+    "path": "/v1/enforcement/deployments/{deployment_ref}/status",
+    "operation_id": "read_deployment_status_v1_enforcement_deployments__deployment_ref__status_get"
   },
   {
     "method": "GET",
-    "operation_id": "read_run_status_v1_enforcement_deployments__deployment_ref__runs__correlation_id__get",
-    "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}"
+    "path": "/v1/guardrails",
+    "operation_id": "get_tenant_guardrails_v1_guardrails_get"
   },
   {
     "method": "GET",
-    "operation_id": "read_deployment_status_v1_enforcement_deployments__deployment_ref__status_get",
-    "path": "/v1/enforcement/deployments/{deployment_ref}/status"
+    "path": "/v1/guardrails/history",
+    "operation_id": "get_guardrail_history_v1_guardrails_history_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_tenant_guardrails_v1_guardrails_get",
-    "path": "/v1/guardrails"
+    "path": "/v1/identity",
+    "operation_id": "get_identity_v1_identity_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_guardrail_history_v1_guardrails_history_get",
-    "path": "/v1/guardrails/history"
+    "path": "/v1/manifests",
+    "operation_id": "list_manifests_v1_manifests_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_identity_v1_identity_get",
-    "path": "/v1/identity"
+    "path": "/v1/manifests/{manifest_ref}",
+    "operation_id": "get_manifest_v1_manifests__manifest_ref__get"
   },
   {
     "method": "GET",
-    "operation_id": "list_manifests_v1_manifests_get",
-    "path": "/v1/manifests"
+    "path": "/v1/manifests/{manifest_ref}/runs",
+    "operation_id": "list_manifest_runs_v1_manifests__manifest_ref__runs_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_manifest_v1_manifests__manifest_ref__get",
-    "path": "/v1/manifests/{manifest_ref}"
+    "path": "/v1/mcp/servers",
+    "operation_id": "list_mcp_servers_v1_mcp_servers_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_manifest_runs_v1_manifests__manifest_ref__runs_get",
-    "path": "/v1/manifests/{manifest_ref}/runs"
+    "path": "/v1/mcp/servers/{ref}/tools",
+    "operation_id": "discover_mcp_tools_v1_mcp_servers__ref__tools_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_metrics_v1_metrics_get",
-    "path": "/v1/metrics"
+    "path": "/v1/metrics",
+    "operation_id": "get_metrics_v1_metrics_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_erasure_history_v1_retention_erasure_history_get",
-    "path": "/v1/retention/erasure-history"
+    "path": "/v1/retention/erasure-history",
+    "operation_id": "list_erasure_history_v1_retention_erasure_history_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_legal_holds_v1_retention_legal_holds_get",
-    "path": "/v1/retention/legal-holds"
+    "path": "/v1/retention/legal-holds",
+    "operation_id": "list_legal_holds_v1_retention_legal_holds_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_retention_policy_v1_retention_policy_get",
-    "path": "/v1/retention/policy"
+    "path": "/v1/retention/policy",
+    "operation_id": "get_retention_policy_v1_retention_policy_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_run_v1_runs__run_id__get",
-    "path": "/v1/runs/{run_id}"
+    "path": "/v1/runs/{run_id}",
+    "operation_id": "get_run_v1_runs__run_id__get"
   },
   {
     "method": "GET",
-    "operation_id": "verify_run_audit_chain_v1_runs__run_id__audit_verification_get",
-    "path": "/v1/runs/{run_id}/audit-verification"
+    "path": "/v1/runs/{run_id}/audit-verification",
+    "operation_id": "verify_run_audit_chain_v1_runs__run_id__audit_verification_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_child_runs_v1_runs__run_id__children_get",
-    "path": "/v1/runs/{run_id}/children"
+    "path": "/v1/runs/{run_id}/children",
+    "operation_id": "list_child_runs_v1_runs__run_id__children_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_run_evidence_v1_runs__run_id__evidence_get",
-    "path": "/v1/runs/{run_id}/evidence"
+    "path": "/v1/runs/{run_id}/evidence",
+    "operation_id": "get_run_evidence_v1_runs__run_id__evidence_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_run_timeline_v1_runs__run_id__timeline_get",
-    "path": "/v1/runs/{run_id}/timeline"
+    "path": "/v1/runs/{run_id}/timeline",
+    "operation_id": "get_run_timeline_v1_runs__run_id__timeline_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_templates_v1_templates_get",
-    "path": "/v1/templates"
+    "path": "/v1/templates",
+    "operation_id": "list_templates_v1_templates_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_template_v1_templates__name__get",
-    "path": "/v1/templates/{name}"
+    "path": "/v1/templates/{name}",
+    "operation_id": "get_template_v1_templates__name__get"
   },
   {
     "method": "GET",
-    "operation_id": "get_tenant_cost_v1_tenants__tenant_id__cost_get",
-    "path": "/v1/tenants/{tenant_id}/cost"
+    "path": "/v1/tenants/{tenant_id}/cost",
+    "operation_id": "get_tenant_cost_v1_tenants__tenant_id__cost_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_dead_letters_v1_webhooks_dead_letters_get",
-    "path": "/v1/webhooks/dead-letters"
+    "path": "/v1/webhooks/dead-letters",
+    "operation_id": "list_dead_letters_v1_webhooks_dead_letters_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_deliveries_v1_webhooks_deliveries_get",
-    "path": "/v1/webhooks/deliveries"
+    "path": "/v1/webhooks/deliveries",
+    "operation_id": "list_deliveries_v1_webhooks_deliveries_get"
   },
   {
     "method": "GET",
-    "operation_id": "list_subscriptions_v1_webhooks_subscriptions_get",
-    "path": "/v1/webhooks/subscriptions"
+    "path": "/v1/webhooks/subscriptions",
+    "operation_id": "list_subscriptions_v1_webhooks_subscriptions_get"
   },
   {
     "method": "GET",
-    "operation_id": "get_subscription_v1_webhooks_subscriptions__subscription_id__get",
-    "path": "/v1/webhooks/subscriptions/{subscription_id}"
+    "path": "/v1/webhooks/subscriptions/{subscription_id}",
+    "operation_id": "get_subscription_v1_webhooks_subscriptions__subscription_id__get"
   },
   {
     "method": "POST",
-    "operation_id": "create_contract_api_studio_v1_contracts_post",
-    "path": "/api/studio/v1/contracts"
+    "path": "/api/studio/v1/contracts",
+    "operation_id": "create_contract_api_studio_v1_contracts_post"
   },
   {
     "method": "POST",
-    "operation_id": "create_workflow_api_studio_v1_workflows_post",
-    "path": "/api/studio/v1/workflows"
+    "path": "/api/studio/v1/workflows",
+    "operation_id": "create_workflow_api_studio_v1_workflows_post"
   },
   {
     "method": "POST",
-    "operation_id": "clone_workflow_api_studio_v1_workflows__workflow_id__clone_post",
-    "path": "/api/studio/v1/workflows/{workflow_id}/clone"
+    "path": "/api/studio/v1/workflows/{workflow_id}/clone",
+    "operation_id": "clone_workflow_api_studio_v1_workflows__workflow_id__clone_post"
   },
   {
     "method": "POST",
-    "operation_id": "preflight_workflow_api_studio_v1_workflows__workflow_id__preflight_post",
-    "path": "/api/studio/v1/workflows/{workflow_id}/preflight"
+    "path": "/api/studio/v1/workflows/{workflow_id}/preflight",
+    "operation_id": "preflight_workflow_api_studio_v1_workflows__workflow_id__preflight_post"
   },
   {
     "method": "POST",
-    "operation_id": "publish_workflow_api_studio_v1_workflows__workflow_id__publish_post",
-    "path": "/api/studio/v1/workflows/{workflow_id}/publish"
+    "path": "/api/studio/v1/workflows/{workflow_id}/publish",
+    "operation_id": "publish_workflow_api_studio_v1_workflows__workflow_id__publish_post"
   },
   {
     "method": "POST",
-    "operation_id": "verify_workflow_providers_api_studio_v1_workflows__workflow_id__verify_provider_post",
-    "path": "/api/studio/v1/workflows/{workflow_id}/verify-provider"
+    "path": "/api/studio/v1/workflows/{workflow_id}/verify-provider",
+    "operation_id": "verify_workflow_providers_api_studio_v1_workflows__workflow_id__verify_provider_post"
   },
   {
     "method": "POST",
-    "operation_id": "cancel_run_v1_admin_runs__run_id__cancel_post",
-    "path": "/v1/admin/runs/{run_id}/cancel"
+    "path": "/v1/admin/runs/{run_id}/cancel",
+    "operation_id": "cancel_run_v1_admin_runs__run_id__cancel_post"
   },
   {
     "method": "POST",
-    "operation_id": "interrupt_run_v1_admin_runs__run_id__interrupt_post",
-    "path": "/v1/admin/runs/{run_id}/interrupt"
+    "path": "/v1/admin/runs/{run_id}/interrupt",
+    "operation_id": "interrupt_run_v1_admin_runs__run_id__interrupt_post"
   },
   {
     "method": "POST",
-    "operation_id": "replay_run_v1_admin_runs__run_id__replay_post",
-    "path": "/v1/admin/runs/{run_id}/replay"
+    "path": "/v1/admin/runs/{run_id}/replay",
+    "operation_id": "replay_run_v1_admin_runs__run_id__replay_post"
   },
   {
     "method": "POST",
-    "operation_id": "create_certification_v1_certifications_post",
-    "path": "/v1/certifications"
+    "path": "/v1/certifications",
+    "operation_id": "create_certification_v1_certifications_post"
   },
   {
     "method": "POST",
-    "operation_id": "override_certification_v1_certifications__certification_id__override_post",
-    "path": "/v1/certifications/{certification_id}/override"
+    "path": "/v1/certifications/{certification_id}/override",
+    "operation_id": "override_certification_v1_certifications__certification_id__override_post"
   },
   {
     "method": "POST",
-    "operation_id": "promote_certification_v1_certifications__certification_id__promote_post",
-    "path": "/v1/certifications/{certification_id}/promote"
+    "path": "/v1/certifications/{certification_id}/promote",
+    "operation_id": "promote_certification_v1_certifications__certification_id__promote_post"
   },
   {
     "method": "POST",
-    "operation_id": "revoke_certification_v1_certifications__certification_id__revoke_post",
-    "path": "/v1/certifications/{certification_id}/revoke"
+    "path": "/v1/certifications/{certification_id}/revoke",
+    "operation_id": "revoke_certification_v1_certifications__certification_id__revoke_post"
   },
   {
     "method": "POST",
-    "operation_id": "create_connector_v1_connectors_post",
-    "path": "/v1/connectors"
+    "path": "/v1/connectors",
+    "operation_id": "create_connector_v1_connectors_post"
   },
   {
     "method": "POST",
-    "operation_id": "test_connector_v1_connectors__ref__test_post",
-    "path": "/v1/connectors/{ref}/test"
+    "path": "/v1/connectors/{ref}/test",
+    "operation_id": "test_connector_v1_connectors__ref__test_post"
   },
   {
     "method": "POST",
-    "operation_id": "create_deployment_v1_deployments_post",
-    "path": "/v1/deployments"
+    "path": "/v1/deployments",
+    "operation_id": "create_deployment_v1_deployments_post"
   },
   {
     "method": "POST",
-    "operation_id": "resolve_approval_v1_deployments__deployment_ref__approvals__approval_id__resolve_post",
-    "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve"
+    "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+    "operation_id": "resolve_approval_v1_deployments__deployment_ref__approvals__approval_id__resolve_post"
   },
   {
     "method": "POST",
-    "operation_id": "resolve_ambiguous_operation_v1_deployments__deployment_ref__operations__operation_key__resolve_post",
-    "path": "/v1/deployments/{deployment_ref}/operations/{operation_key}/resolve"
+    "path": "/v1/deployments/{deployment_ref}/operations/{operation_key}/resolve",
+    "operation_id": "resolve_ambiguous_operation_v1_deployments__deployment_ref__operations__operation_key__resolve_post"
   },
   {
     "method": "POST",
-    "operation_id": "rollback_deployment_v1_deployments__deployment_ref__rollback_post",
-    "path": "/v1/deployments/{deployment_ref}/rollback"
+    "path": "/v1/deployments/{deployment_ref}/rollback",
+    "operation_id": "rollback_deployment_v1_deployments__deployment_ref__rollback_post"
   },
   {
     "method": "POST",
-    "operation_id": "post_verify_attestation_v1_deployments__deployment_ref__verify_attestation_post",
-    "path": "/v1/deployments/{deployment_ref}/verify-attestation"
+    "path": "/v1/deployments/{deployment_ref}/verify-attestation",
+    "operation_id": "post_verify_attestation_v1_deployments__deployment_ref__verify_attestation_post"
   },
   {
     "method": "POST",
-    "operation_id": "attach_quality_verdict_v1_econ_quality_verdict_post",
-    "path": "/v1/econ/quality-verdict"
+    "path": "/v1/econ/quality-verdict",
+    "operation_id": "attach_quality_verdict_v1_econ_quality_verdict_post"
   },
   {
     "method": "POST",
-    "operation_id": "regulus_enforcement_approve_v1_econ_regulus_enforcement_actions__action_id__approve_post",
-    "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve"
+    "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve",
+    "operation_id": "regulus_enforcement_approve_v1_econ_regulus_enforcement_actions__action_id__approve_post"
   },
   {
     "method": "POST",
-    "operation_id": "regulus_enforcement_reject_v1_econ_regulus_enforcement_actions__action_id__reject_post",
-    "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject"
+    "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject",
+    "operation_id": "regulus_enforcement_reject_v1_econ_regulus_enforcement_actions__action_id__reject_post"
   },
   {
     "method": "POST",
-    "operation_id": "suggest_rightsizing_v1_econ_rightsizing_post",
-    "path": "/v1/econ/rightsizing"
+    "path": "/v1/econ/rightsizing",
+    "operation_id": "suggest_rightsizing_v1_econ_rightsizing_post"
   },
   {
     "method": "POST",
-    "operation_id": "run_rightsizing_experiment_v1_econ_rightsizing_experiment_post",
-    "path": "/v1/econ/rightsizing/experiment"
+    "path": "/v1/econ/rightsizing/experiment",
+    "operation_id": "run_rightsizing_experiment_v1_econ_rightsizing_experiment_post"
   },
   {
     "method": "POST",
-    "operation_id": "attest_run_start_v1_enforcement_attestations_post",
-    "path": "/v1/enforcement/attestations"
+    "path": "/v1/enforcement/attestations",
+    "operation_id": "attest_run_start_v1_enforcement_attestations_post"
   },
   {
     "method": "POST",
-    "operation_id": "decide_tool_call_v1_enforcement_decisions_post",
-    "path": "/v1/enforcement/decisions"
+    "path": "/v1/enforcement/decisions",
+    "operation_id": "decide_tool_call_v1_enforcement_decisions_post"
   },
   {
     "method": "POST",
-    "operation_id": "report_heartbeat_v1_enforcement_heartbeats_post",
-    "path": "/v1/enforcement/heartbeats"
+    "path": "/v1/enforcement/heartbeats",
+    "operation_id": "report_heartbeat_v1_enforcement_heartbeats_post"
   },
   {
     "method": "POST",
-    "operation_id": "register_tool_inventory_v1_enforcement_registrations_post",
-    "path": "/v1/enforcement/registrations"
+    "path": "/v1/enforcement/registrations",
+    "operation_id": "register_tool_inventory_v1_enforcement_registrations_post"
   },
   {
     "method": "POST",
-    "operation_id": "attest_v1_langgraph_deployments__deployment_ref__attestations_post",
-    "path": "/v1/langgraph/deployments/{deployment_ref}/attestations"
+    "path": "/v1/langgraph/deployments/{deployment_ref}/attestations",
+    "operation_id": "attest_v1_langgraph_deployments__deployment_ref__attestations_post"
   },
   {
     "method": "POST",
-    "operation_id": "decide_v1_langgraph_deployments__deployment_ref__decisions_post",
-    "path": "/v1/langgraph/deployments/{deployment_ref}/decisions"
+    "path": "/v1/langgraph/deployments/{deployment_ref}/decisions",
+    "operation_id": "decide_v1_langgraph_deployments__deployment_ref__decisions_post"
   },
   {
     "method": "POST",
-    "operation_id": "heartbeat_v1_langgraph_deployments__deployment_ref__heartbeat_post",
-    "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat"
+    "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat",
+    "operation_id": "heartbeat_v1_langgraph_deployments__deployment_ref__heartbeat_post"
   },
   {
     "method": "POST",
-    "operation_id": "register_inventory_v1_langgraph_deployments__deployment_ref__inventories_post",
-    "path": "/v1/langgraph/deployments/{deployment_ref}/inventories"
+    "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+    "operation_id": "register_inventory_v1_langgraph_deployments__deployment_ref__inventories_post"
   },
   {
     "method": "POST",
-    "operation_id": "request_erasure_v1_retention_erasure_requests_post",
-    "path": "/v1/retention/erasure-requests"
+    "path": "/v1/mcp/servers",
+    "operation_id": "create_mcp_server_v1_mcp_servers_post"
   },
   {
     "method": "POST",
-    "operation_id": "place_legal_hold_v1_retention_legal_holds_post",
-    "path": "/v1/retention/legal-holds"
+    "path": "/v1/retention/erasure-requests",
+    "operation_id": "request_erasure_v1_retention_erasure_requests_post"
   },
   {
     "method": "POST",
-    "operation_id": "create_run_v1_runs_post",
-    "path": "/v1/runs"
+    "path": "/v1/retention/legal-holds",
+    "operation_id": "place_legal_hold_v1_retention_legal_holds_post"
   },
   {
     "method": "POST",
-    "operation_id": "post_verify_run_chain_v1_runs__run_id__verify_chain_post",
-    "path": "/v1/runs/{run_id}/verify-chain"
+    "path": "/v1/runs",
+    "operation_id": "create_run_v1_runs_post"
   },
   {
     "method": "POST",
-    "operation_id": "create_template_v1_templates_post",
-    "path": "/v1/templates"
+    "path": "/v1/runs/{run_id}/verify-chain",
+    "operation_id": "post_verify_run_chain_v1_runs__run_id__verify_chain_post"
   },
   {
     "method": "POST",
-    "operation_id": "replay_dead_letter_v1_webhooks_dead_letters__dead_letter_id__replay_post",
-    "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay"
+    "path": "/v1/templates",
+    "operation_id": "create_template_v1_templates_post"
   },
   {
     "method": "POST",
-    "operation_id": "create_subscription_v1_webhooks_subscriptions_post",
-    "path": "/v1/webhooks/subscriptions"
+    "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
+    "operation_id": "replay_dead_letter_v1_webhooks_dead_letters__dead_letter_id__replay_post"
+  },
+  {
+    "method": "POST",
+    "path": "/v1/webhooks/subscriptions",
+    "operation_id": "create_subscription_v1_webhooks_subscriptions_post"
   },
   {
     "method": "PUT",
-    "operation_id": "update_workflow_api_studio_v1_workflows__workflow_id__put",
-    "path": "/api/studio/v1/workflows/{workflow_id}"
+    "path": "/api/studio/v1/workflows/{workflow_id}",
+    "operation_id": "update_workflow_api_studio_v1_workflows__workflow_id__put"
   },
   {
     "method": "PUT",
-    "operation_id": "update_connector_v1_connectors__ref__put",
-    "path": "/v1/connectors/{ref}"
+    "path": "/v1/connectors/{ref}",
+    "operation_id": "update_connector_v1_connectors__ref__put"
   },
   {
     "method": "PUT",
-    "operation_id": "put_deployment_guardrails_v1_deployments__deployment_ref__guardrails_put",
-    "path": "/v1/deployments/{deployment_ref}/guardrails"
+    "path": "/v1/deployments/{deployment_ref}/guardrails",
+    "operation_id": "put_deployment_guardrails_v1_deployments__deployment_ref__guardrails_put"
   },
   {
     "method": "PUT",
-    "operation_id": "put_tenant_guardrails_v1_guardrails_put",
-    "path": "/v1/guardrails"
+    "path": "/v1/guardrails",
+    "operation_id": "put_tenant_guardrails_v1_guardrails_put"
   },
   {
     "method": "PUT",
-    "operation_id": "put_retention_policy_v1_retention_policy_put",
-    "path": "/v1/retention/policy"
+    "path": "/v1/mcp/servers/{ref}",
+    "operation_id": "update_mcp_server_v1_mcp_servers__ref__put"
   },
   {
     "method": "PUT",
-    "operation_id": "set_tenant_budget_v1_tenants__tenant_id__budget_put",
-    "path": "/v1/tenants/{tenant_id}/budget"
+    "path": "/v1/retention/policy",
+    "operation_id": "put_retention_policy_v1_retention_policy_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/v1/tenants/{tenant_id}/budget",
+    "operation_id": "set_tenant_budget_v1_tenants__tenant_id__budget_put"
   }
 ]

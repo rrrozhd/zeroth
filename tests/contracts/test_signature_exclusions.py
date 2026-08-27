@@ -175,8 +175,10 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "estimated_cost_usd",
     ),
     "zeroth.runtime.orchestration.orchestrator:RuntimeOrchestrator": (
+        "_mcp_pools",
         "_token_snapshot_store",
         "cost_instrumentation",
+        "mcp_server_resolver",
         "operation_store",
     ),
     "zeroth.service.api.connector_api:ConnectorTestResponse": (
@@ -256,6 +258,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "langgraph_gateway_proxy",
         "langgraph_gateway_transport",
         "langgraph_gateway_websocket_handler",
+        "mcp_server_config_repository",
         "policy_guard",
         "probe_instrumentation",
         # ZER-37 orchestration glue: repository-unit persistence, service, and

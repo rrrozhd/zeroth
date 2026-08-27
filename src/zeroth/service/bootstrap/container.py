@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         QuotaEnforcer,
         TokenBucketRateLimiter,
     )
+    from zeroth.integrations.mcp.config_repository import MCPServerConfigRepository
     from zeroth.integrations.memory.config_repository import (
         MemoryConnectorConfigRepository,
     )
@@ -82,6 +83,10 @@ class ServiceBootstrap:
     memory_registry: InMemoryConnectorRegistry | None = None
     # Runtime-managed connector configs (console CRUD; persisted across boots).
     memory_connector_config_repository: MemoryConnectorConfigRepository | None = None
+    # Operator-registered MCP servers (admin CRUD; persisted across boots). The
+    # graph author cannot write these rows, which is what makes their `grants`
+    # a real ceiling on a referencing node's capability_bindings.
+    mcp_server_config_repository: MCPServerConfigRepository | None = None
     # Phase 20: Memory resolver for dispatch-time injection.
     memory_resolver: object | None = None
     # Phase 17: Database reference for health probes.
@@ -245,6 +250,9 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             "repo_run_repository",
             "repository_unit_service",
             "repo_run_worker",
+            # And again for the MCP server registry: an additive repository,
+            # not a change to the capability ServiceBootstrap.__init__ names.
+            "mcp_server_config_repository",
         }
     ]
 )

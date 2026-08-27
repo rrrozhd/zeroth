@@ -647,6 +647,35 @@ class HttpRequestNodeData(BaseModel):
         return value
 
 
+class MCPToolNodeData(BaseModel):
+    """One MCP tool, pinned at import time.
+
+    An MCP server advertises its tools at ``list_tools()`` on the day of the
+    run, which is the opposite of what the graph model assumes: publish-time
+    validation, diffing and version pinning all need a contract that exists
+    before the run. Importing freezes one tool's shape here so those mechanisms
+    have something to act on, and ``schema_hash`` is what the runtime compares
+    the live server against before it will call anything.
+
+    Note what this does NOT change: an MCP call still bypasses the operation
+    boundary, so it stays at-least-once with no replay suppression and no
+    reconciliation. Pinning constrains the tool's *shape*, not its delivery
+    semantics -- which is why this is its own node type rather than a mode on
+    ExecutableUnitNode, where the weaker guarantee would be invisible.
+    """
+
+    #: Registry key. The author references a server; only an operator (MCP_ADMIN)
+    #: can say what command that ref actually runs.
+    server_ref: str = Field(min_length=1)
+    tool_name: str = Field(min_length=1)
+    #: Pinned verbatim from discovery. Still screened before model exposure --
+    #: it is text an external process controls.
+    description: str = ""
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    #: ``tool_schema_hash(tool_name, description, input_schema)`` at import.
+    schema_hash: str = Field(min_length=1)
+
+
 class EntrypointNodeData(BaseModel):
     """Configuration for the workflow's entrypoint. Deliberately empty.
 
@@ -900,6 +929,27 @@ class HttpRequestNode(NodeBase):
         )
 
 
+class MCPToolNode(NodeBase):
+    """A graph node exposing one pinned MCP tool as an agent-callable target."""
+
+    node_type: Literal["mcp_tool"] = "mcp_tool"
+    mcp_tool: MCPToolNodeData
+
+    def to_governed_step_spec(self) -> GovernedStepSpec:
+        """Convert this node into a spec the execution engine understands."""
+        return GovernedStepSpec(
+            name=self.node_id,
+            tool={
+                "kind": "mcp_tool_ref",
+                "server_ref": self.mcp_tool.server_ref,
+                "tool_name": self.mcp_tool.tool_name,
+                "schema_hash": self.mcp_tool.schema_hash,
+                "policy_refs": list(self.policy_bindings),
+                "capability_refs": list(self.capability_bindings),
+            },
+        )
+
+
 Node = Annotated[
     EntrypointNode
     | IfNode
@@ -909,7 +959,8 @@ Node = Annotated[
     | HumanApprovalNode
     | SubgraphNode
     | RetrievalNode
-    | HttpRequestNode,
+    | HttpRequestNode
+    | MCPToolNode,
     Field(discriminator="node_type"),
 ]
 

@@ -122,6 +122,10 @@ zeroth.governance.retention.policy_repository|RetentionPolicyRepository|upsert|C
 zeroth.governance.retention.policy_repository|EnabledPolicyMaintenanceReader|list_all_enabled_for_maintenance|N
 zeroth.governance.retention.workspace_reader|RetentionOwnerMaintenanceReader|list_tenant_ids|N
 zeroth.governance.retention.workspace_reader|RetentionWorkspaceMaintenanceReader|list_workspace_ids|N
+zeroth.integrations.mcp.config_repository|MCPServerConfigRepository|delete|D
+zeroth.integrations.mcp.config_repository|MCPServerConfigRepository|get|R
+zeroth.integrations.mcp.config_repository|MCPServerConfigRepository|list|N
+zeroth.integrations.mcp.config_repository|MCPServerConfigRepository|upsert|CRU
 zeroth.integrations.memory.config_repository|MemoryConnectorConfigRepository|delete|D
 zeroth.integrations.memory.config_repository|MemoryConnectorConfigRepository|get|R
 zeroth.integrations.memory.config_repository|MemoryConnectorConfigRepository|list|N
@@ -326,7 +330,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 240
+    assert len(METHOD_METADATA_ORACLE) == 244
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

@@ -51,7 +51,7 @@ runtime → ship it as an API → governance → advanced.
 | `30_contracts_and_mappings.py`    | All four `MappingOperation` types in one graph: passthrough, rename, constant, default. |
 | `31_guardrails.py`                | `GuardrailConfig` + `DeadLetterManager.handle_run_failure` transitioning a run to `dead_letter`. |
 | `32_observability.py`             | `MetricsCollector` + correlation IDs; renders Prometheus exposition text.       |
-| `33_mcp_tools.py`                 | `MCPServerConfig` wired onto an `AgentConfig`. Points at the real discovery flow in `zeroth.runtime.agents.mcp`. |
+| `33_mcp_tools.py`                 | The pinned `mcp_tool` node: builds what `zeroth-core mcp-import` writes, then runs the real `GraphValidator` over four variants to show the capability floor, ceiling and agent floor accepting and refusing. |
 
 ### 4× · Real backends — real LLM *and* real stores
 

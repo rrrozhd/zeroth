@@ -82,21 +82,44 @@ query; there is no runtime-side substitute.
 ## What sits outside the boundary entirely
 
 Everything above describes executable units, which reach the runtime through
-`RuntimeToolExecutor`. **MCP tools do not.** An MCP tool is not a graph node, so
-an agent's MCP call goes straight to the MCP client manager and never passes the
-side-effect boundary at all. Concretely, an MCP call has:
+`RuntimeToolExecutor`. **MCP tools do not — and they are graph nodes.**
+
+An `mcp_tool` node is a first-class node, and an agent's call to one arrives at
+the same `RuntimeToolExecutor` an executable unit does. It is governed on the
+way: the call is routed through the run's MCP session pool, which applies the
+capability gate before a server process exists and refuses to call a tool whose
+live shape has drifted from what the graph pinned at import. What the executor
+does *not* do is mint an operation identity — it returns before that point, on
+purpose, because a receipt would imply a durability that does not exist here.
+So an MCP call has:
 
 - no operation identity and no durable operation record;
 - no replay suppression — a retried agent turn calls the tool again;
 - no reconciliation path for an ambiguous outcome.
 
+Pinning constrains the tool's *shape*, not its delivery semantics. That is why
+`mcp_tool` is its own node kind rather than a mode on `ExecutableUnitNode`,
+where the weaker guarantee would sit invisibly beside nodes that really do
+carry a receipt.
+
 This is a real limit, not an oversight to be read past. It is marked rather than
 implied: a tool-call audit record for an MCP call carries
-`operation_support: at_least_once` and `operation_residual_duplicate_risk: true`,
-so a record that *lacks* those fields is one the guarantee actually covered.
+`operation_support: at_least_once` and `operation_residual_duplicate_risk: true`
+— on a call that *failed* after reaching the server as much as on one that
+succeeded, because a failed MCP call is precisely the case that may have taken
+effect anyway.
 
-If you need suppression for a side-effecting MCP tool today, wrap it as an
-executable unit so it dispatches through the guarded path.
+Read the absence of those fields carefully, though: it means two different
+things. For an executable unit it means the operation guarantee covered the
+call. For an MCP call it means the runtime refused *before* dispatch — unknown
+server, capability denial, ceiling, a spawn that never completed its handshake,
+schema drift — so the tool was never invoked and nothing happened.
+
+Closing the gap for a side-effecting MCP tool takes the same thing it takes for
+any `AT_LEAST_ONCE` integration above: idempotency or an outcome query on the
+server's side. There is no runtime-side substitute, and no graph-side one —
+what the registry and the pin *do* bound is covered in the
+[MCP tools how-to](../how-to/mcp.md).
 
 ## Fencing stale workers
 

@@ -269,9 +269,14 @@ class TestListNodeTypes:
         resp = client.get("/api/studio/v1/node-types")
         assert resp.status_code == 200
         data = resp.json()
-        # The palette mirrors the executable graph model's node_type
-        # discriminator, plus "code" — the canvas alias for an executable
-        # unit whose source is authored inline.
+        # The registry mirrors the executable graph model's node_type
+        # discriminator, plus "code" — the canvas alias for an executable unit
+        # whose source is authored inline. It is no longer the same list as the
+        # *palette*: "mcp_tool" is registered so the canvas can resolve its
+        # ports (a node with none would draw without handles and its tool edge
+        # would silently fail to attach) but is served creatable=False and
+        # filtered out of the palette, because an imported tool is pinned to a
+        # schema digest canvas authoring cannot produce.
         type_names = {item["type"] for item in data}
         assert type_names == {
             "agent",
@@ -282,9 +287,13 @@ class TestListNodeTypes:
             "http_request",
             "if",
             "loop",
+            "mcp_tool",
             "retrieval",
             "subgraph",
         }
+        creatable = {item["type"] for item in data if item.get("creatable", True)}
+        assert "mcp_tool" not in creatable
+        assert creatable == type_names - {"mcp_tool"}
         # Each should have type, label, category, ports
         for item in data:
             assert "type" in item

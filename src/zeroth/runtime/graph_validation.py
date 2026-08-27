@@ -20,10 +20,16 @@ re-exports this class, resolved lazily.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
-from zeroth.contracts.graph.models import AgentNode, ExecutableUnitNode, Graph, Node
+from zeroth.contracts.graph.models import (
+    AgentNode,
+    ExecutableUnitNode,
+    Graph,
+    MCPToolNode,
+    Node,
+)
 from zeroth.contracts.graph.validation import ContractValidator
 from zeroth.contracts.graph.validation.issues import append_issue
 from zeroth.contracts.graph.validation_errors import (
@@ -35,6 +41,25 @@ from zeroth.contracts.graph.validation_errors import (
 from zeroth.contracts.mappings import MappingValidator
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.governance.policy.models import Capability
+
+# The floor is imported from the module that enforces it at dispatch rather
+# than respelled here. It used to be a literal in two places in this file, a
+# third in ``service/mcp_import.py`` and a fourth in the tests, so "publish
+# demands exactly what the pool demands" was four copies agreeing by habit.
+#
+# ``zeroth.runtime.agents.__init__`` eagerly imports the provider stack, so
+# naming a submodule under it pulls litellm in. Importing *this module alone*
+# therefore went from 472 to 2775 modules. That number is not the cost, though,
+# and it is worth not being misread as one: the only two runtime importers of
+# this validator are ``service/bootstrap/factory.py`` and ``service/demo.py``,
+# both of which build agent runners and so already loaded the provider stack --
+# measured, ``import zeroth.service.bootstrap.factory`` is 3802 modules with
+# litellm resident both before and after this import edge existed, and
+# ``zeroth.service.cli`` resolves the validator lazily and is unchanged at 166.
+# What actually regressed is importing the validator in isolation, which only
+# test collection and contract-only consumers do. If that ever has to go, the
+# fix is making the agents package init lazy -- not respelling the pair here.
+from zeroth.runtime.agents.mcp import MCP_REQUIRED_CAPABILITIES
 from zeroth.runtime.parallel.errors import ReducerRefValidationError
 from zeroth.runtime.parallel.reducers import resolve_reducer_ref
 
@@ -54,6 +79,12 @@ def _capabilities_from_refs(refs: Iterable[str]) -> set[Capability]:
     return caps
 
 
+#: Resolves an MCP ``server_ref`` to the capabilities its operator declared,
+#: or ``None`` when this deployment has no such server registered. Async because
+#: the registry is a database table, not an in-process dict.
+MCPGrantsResolver = Callable[[str], Awaitable[set[Capability] | None]]
+
+
 class GraphValidator:
     """Check a graph for structural and reference errors.
 
@@ -66,8 +97,13 @@ class GraphValidator:
         self,
         mapping_validator: MappingValidator | None = None,
         contract_registry: ContractRegistry | None = None,
+        mcp_grants_resolver: MCPGrantsResolver | None = None,
     ):
         self._contract_registry = contract_registry
+        # Resolves an ``mcp_tool`` node's server_ref to the operator-declared
+        # ceiling. Optional for the same reason contract_registry is: callers
+        # doing contract-only validation have no deployment to resolve against.
+        self._mcp_grants_resolver = mcp_grants_resolver
         # ``self`` is the CapabilityChecks implementation, so the governance
         # rules below run at their original positions inside the contract
         # validators rather than as a separate pass afterwards.
@@ -85,6 +121,7 @@ class GraphValidator:
         issues: list[ValidationIssue] = []
         self._contract_validator.validate(graph, issues)
         await self._validate_parallel_configs(graph, issues)
+        await self._validate_mcp_tool_grants(graph, issues)
 
         return GraphValidationReport(graph_id=graph.graph_id, issues=issues)
 
@@ -93,6 +130,92 @@ class GraphValidator:
         report = await self.validate(graph)
         report.raise_for_errors()
         return report
+
+    async def _validate_mcp_tool_grants(
+        self,
+        graph: Graph,
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Hold every ``mcp_tool`` node inside its server's operator-declared ceiling.
+
+        This is the check the registry exists for. ``capability_bindings`` are
+        author-declared -- ``PolicyGuard`` resolves required capabilities from
+        the node and lets policies (bound in the same graph) decide only whether
+        they are permitted -- so without an operator-owned side, an author who
+        wants a capability simply writes it. The server's ``grants`` are the one
+        side of this comparison the author cannot edit.
+
+        With no resolver wired this pass is skipped, matching the posture the
+        class already takes toward ``contract_registry``: contract-only callers
+        have no deployment to resolve a ref against.
+        """
+        if self._mcp_grants_resolver is None:
+            return
+        for node in graph.nodes:
+            if not isinstance(node, MCPToolNode):
+                continue
+            granted = await self._mcp_grants_resolver(node.mcp_tool.server_ref)
+            if granted is None:
+                append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.INVALID_NODE_ATTACHMENT,
+                    message=(
+                        f"mcp_tool node {node.node_id!r} references unknown MCP server "
+                        f"{node.mcp_tool.server_ref!r}; register it before publishing"
+                    ),
+                    graph_id=graph.graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "mcp_tool", "server_ref"),
+                    details={"server_ref": node.mcp_tool.server_ref},
+                )
+                continue
+            declared = _capabilities_from_refs(node.capability_bindings)
+            # The floor. Starting an MCP server spawns a subprocess that talks
+            # to an external service, and MCPSessionPool demands both
+            # unconditionally before it will hand out a session. Checking only
+            # a ceiling here made declaring *nothing* the cheapest way past
+            # publish -- it left `excess` empty -- and then the run failed at
+            # dispatch instead, so publish and runtime disagreed about the same
+            # node. It also made "grants=[] denies every referencing node" false
+            # at publish, since a node declaring nothing exceeded nothing.
+            missing = sorted(
+                capability.value for capability in (MCP_REQUIRED_CAPABILITIES - declared)
+            )
+            if missing:
+                append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.MISSING_MCP_CAPABILITY,
+                    message=(
+                        f"mcp_tool node {node.node_id!r} is missing {', '.join(missing)}; "
+                        "reaching an MCP server spawns a subprocess that calls out to an "
+                        "external service, so both are required"
+                    ),
+                    graph_id=graph.graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "capability_bindings"),
+                    details={"missing_capabilities": missing},
+                )
+            excess = sorted(capability.value for capability in (declared - granted))
+            if excess:
+                append_issue(
+                    issues,
+                    severity=ValidationSeverity.ERROR,
+                    code=ValidationCode.INVALID_CAPABILITY_REF,
+                    message=(
+                        f"mcp_tool node {node.node_id!r} declares {', '.join(excess)}, which "
+                        f"MCP server {node.mcp_tool.server_ref!r} does not grant; an operator "
+                        "must widen the server's grants or the node must ask for less"
+                    ),
+                    graph_id=graph.graph_id,
+                    node_id=node.node_id,
+                    path=("nodes", node.node_id, "capability_bindings"),
+                    details={
+                        "excess_capabilities": excess,
+                        "server_ref": node.mcp_tool.server_ref,
+                    },
+                )
 
     async def _validate_parallel_configs(
         self,
@@ -214,12 +337,32 @@ class GraphValidator:
     ) -> None:
         """Governance-owned capability rules for an agent node."""
         if node.agent.mcp_servers:
+            # Superseded by mcp_tool nodes. This path lets the graph author pick
+            # the binary, argv and env themselves, with no operator-owned row to
+            # bound it -- the exact gap the registry exists to close -- and the
+            # tools it reaches are discovered at run time, so nothing about them
+            # is knowable here. Warned rather than rejected: existing graphs
+            # keep working until the removal in a later high-tier bump.
+            append_issue(
+                issues,
+                severity=ValidationSeverity.WARNING,
+                code=ValidationCode.DEPRECATED_MCP_SERVERS,
+                message=(
+                    f"agent {node.node_id!r} declares inline mcp_servers, which is "
+                    "deprecated: the server's command is author-controlled and its tools "
+                    "are unpinned. Register the server with an operator (POST "
+                    "/v1/mcp/servers) and import its tools with `zeroth-core mcp-import`"
+                ),
+                graph_id=graph_id,
+                node_id=node.node_id,
+                path=("nodes", node.node_id, "agent", "mcp_servers"),
+                details={"replacement": "mcp_tool"},
+            )
             # MCP servers are spawned subprocesses that call out to external
             # services; publishing a graph whose agent lacks either capability
             # would only fail later, at dispatch on an enforced deployment.
             granted = _capabilities_from_refs(node.capability_bindings)
-            required = {Capability.PROCESS_SPAWN, Capability.EXTERNAL_API_CALL}
-            missing = sorted(cap.value for cap in (required - granted))
+            missing = sorted(cap.value for cap in (MCP_REQUIRED_CAPABILITIES - granted))
             if missing:
                 append_issue(
                     issues,
@@ -245,18 +388,31 @@ class GraphValidator:
     ) -> None:
         """WS-C: an agent's capability grant must cover every attached tool's needs.
 
-        The required set for a tool is its target unit node's declared
+        The required set for a tool is its target node's declared
         ``capability_bindings`` unioned with the binding's own
-        ``required_capabilities`` — the SAME source the runner factory uses at
-        runtime, so a graph that passes here cannot be denied at dispatch for an
-        under-granted capability (and vice versa). Surfaced at author time so the
-        gap is fixed on the canvas rather than as a run-time denial.
+        ``required_capabilities``. The target arm must stay identical to
+        ``factory.tool_required_capabilities`` -- ``ExecutableUnitNode |
+        MCPToolNode``, not just the former. While this checked only executable
+        units, an ``mcp_tool`` target contributed nothing here, so an agent was
+        never required at publish to hold what the runner gate demands: exactly
+        what ``zeroth-core mcp-import`` produces, which writes the spawn pair
+        onto the ``mcp_tool`` node and nothing onto the agent, published with
+        zero errors and was then denied at its first tool call.
+
+        What that identity buys is that no tool's requirement is *invisible*
+        here: both sides read the same source. It is not a promise that a graph
+        passing this check cannot be denied at dispatch. The subjects differ --
+        this compares the agent's author-declared ``capability_bindings``, while
+        ``ToolBridge.check_capabilities`` compares the effective set
+        ``PolicyGuard`` yields for the node, which a policy bound in the same
+        graph can make smaller. Surfaced at author time so the gap that *is*
+        knowable here is fixed on the canvas rather than as a run-time denial.
         """
         granted = _capabilities_from_refs(node.capability_bindings)
         for binding in node.agent.tool_bindings:
             required = set(binding.required_capabilities)
             target = node_map.get(binding.target_node_id)
-            if isinstance(target, ExecutableUnitNode):
+            if isinstance(target, ExecutableUnitNode | MCPToolNode):
                 required |= _capabilities_from_refs(target.capability_bindings)
             missing = sorted(cap.value for cap in (required - granted))
             if missing:
