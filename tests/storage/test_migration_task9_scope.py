@@ -579,7 +579,19 @@ def test_upgrade_from_024_preserves_owners_and_allows_scope_local_collisions(
 
 def test_fresh_head_matches_upgraded_task9_schema(tmp_path: Path) -> None:
     upgraded_url = f"sqlite:///{tmp_path / 'task9-upgraded.db'}"
-    upgraded_signature = _assert_upgrade_and_collisions(upgraded_url)
+    _assert_upgrade_and_collisions(upgraded_url)
+    # The helper stops at 025 so it can make its collision assertions there, and
+    # its signature was being compared against a database taken all the way to
+    # head. That held only while nothing after 025 touched the schema; migration
+    # 031 added runs.parent_run_id and idx_runs_parent, so the comparison had
+    # been asserting that two different revisions agree. Carry the same database
+    # the rest of the way, which is what "fresh head matches upgraded" means.
+    command.upgrade(_config(upgraded_url), "head")
+    upgraded_engine = create_engine(upgraded_url)
+    try:
+        upgraded_signature = _signature(upgraded_engine)
+    finally:
+        upgraded_engine.dispose()
     fresh_url = f"sqlite:///{tmp_path / 'task9-fresh.db'}"
     command.upgrade(_config(fresh_url), "head")
     fresh_engine = create_engine(fresh_url)
