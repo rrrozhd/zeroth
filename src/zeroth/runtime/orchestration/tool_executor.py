@@ -87,13 +87,29 @@ class RuntimeToolExecutor:
         input_payload: Mapping[str, Any],
         *,
         enforcement_context: Mapping[str, Any],
+        timeout_seconds: int | None = None,
         operation_identity: OperationIdentity | None = None,
     ) -> Any:
-        """Call executable-unit runners with enforcement context when supported."""
+        """Call executable-unit runners with the node's bounded timeout enforced.
+
+        Registered manifests carry their own default timeout, but Studio nodes
+        may intentionally choose a tighter deadline.  The runner already
+        resolves ``timeout_override_seconds`` as the minimum of manifest and
+        policy bounds, so the node deadline joins that same fail-closed path
+        instead of being silently ignored for manifest-backed units.
+        """
+        context = dict(enforcement_context)
+        if timeout_seconds is not None:
+            policy_timeout = context.get("timeout_override_seconds")
+            context["timeout_override_seconds"] = (
+                min(timeout_seconds, policy_timeout)
+                if isinstance(policy_timeout, (int, float)) and policy_timeout > 0
+                else timeout_seconds
+            )
         parameters = inspect.signature(self.executable_unit_runner.run).parameters
         optional = _supported_kwargs(
             parameters,
-            enforcement_context=enforcement_context,
+            enforcement_context=context,
             operation_identity=operation_identity,
         )
         return await self.executable_unit_runner.run(manifest_ref, input_payload, **optional)
@@ -232,6 +248,7 @@ class RuntimeToolExecutor:
                     target.executable_unit.manifest_ref,
                     payload,
                     enforcement_context=context,
+                    timeout_seconds=target.executable_unit.timeout_seconds,
                     operation_identity=identity,
                 )
 

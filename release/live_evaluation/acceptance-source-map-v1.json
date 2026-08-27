@@ -1,0 +1,300 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "control-gate": {
+      "root": "control-gate-sanitized-accepted-20260826-2",
+      "record": "acceptance.json"
+    },
+    "live-control-probes-reviewed": {
+      "root": "evaluation-studio-v1-20260826T192455.115634Z-58900ddc923c49ae826c6f911436b4fb",
+      "record": "acceptance.json"
+    },
+    "full-surface": {
+      "root": "full-surface-visual-20260824-5",
+      "record": "results.json"
+    },
+    "workflow-configuration": {
+      "root": "live-workflow-config-ui-20260824-9",
+      "record": "results.json"
+    },
+    "studio-authoring": {
+      "root": "studio-authoring-deterministic-20260824-1",
+      "record": "results.json"
+    },
+    "studio-live-authoring-reviewed": {
+      "root": "studio-live-authoring-checkpoint-20260824-1",
+      "record": "acceptance.json"
+    },
+    "provider-independent": {
+      "root": "provider-independent-20260824T000000Z",
+      "record": "acceptance.json"
+    },
+    "economics-truth": {
+      "root": "economics-truth-ui-20260824-3",
+      "record": "results.json"
+    },
+    "graph-repair-live": {
+      "root": "graph-repair-live-20260824-1",
+      "record": "results.json"
+    },
+    "workflow2-parent-pin-reviewed": {
+      "root": "workflow2-parent-v3-pin-checkpoint-20260824-1",
+      "record": "acceptance.json"
+    },
+    "workflow2-retrieval-miss-reviewed": {
+      "root": "workflow2-retrieval-miss-accepted-20260826-1",
+      "record": "acceptance.json"
+    },
+    "workflow1-local": {
+      "root": "workflow1-local-20260824-1",
+      "record": "results.json"
+    },
+    "workflow3-live": {
+      "root": "workflow3-local-20260824-2",
+      "record": "results.json"
+    },
+    "workflow3-v4-reviewed": {
+      "root": "workflow3-v4-checkpoint-20260824-2",
+      "record": "results.json"
+    },
+    "workflow3-current-happy-reviewed": {
+      "root": "workflow3-current-happy-checkpoint-20260824-1",
+      "record": "acceptance.json"
+    },
+    "workflow3-current-negative-reviewed": {
+      "root": "workflow3-current-negative-checkpoint-20260824-1",
+      "record": "acceptance.json"
+    },
+    "workflow3-ambiguous-reviewed": {
+      "root": "workflow3-ambiguous-live-checkpoint-20260824",
+      "record": "acceptance.json"
+    },
+    "workflow3-v5-lifecycle-reviewed": {
+      "root": "workflow3-v5-lifecycle-checkpoint-20260824-1",
+      "record": "acceptance.json"
+    },
+    "workflow3-v6-restart-receipt-reviewed": {
+      "root": "workflow3-v6-restart-receipt-safari-20260824-2",
+      "record": "acceptance.json"
+    },
+    "runs-operations": {
+      "root": "runs-operations-ui-20260824-2",
+      "record": "results.json"
+    },
+    "economics-pipeline-reviewed": {
+      "root": "economics-pipeline-checkpoint-20260824-2",
+      "record": "acceptance.json"
+    },
+    "rightsizing-quality-verdict-reviewed": {
+      "root": "rightsizing-quality-verdict-safari-20260824-1",
+      "record": "acceptance.json"
+    },
+    "security-rejection-reviewed": {
+      "root": "security-rejection-checkpoint-20260824-2",
+      "record": "acceptance.json"
+    },
+    "chroma-corpus-reviewed": {
+      "root": "chroma-corpus-checkpoint-20260824-2",
+      "record": "acceptance.json"
+    },
+    "health-graph-stop-reviewed": {
+      "root": "health-graph-stop-checkpoint-20260824-1",
+      "record": "acceptance.json"
+    },
+    "workflow1-chroma-unavailable-reviewed": {
+      "root": "workflow1-chroma-unavailable-checkpoint-20260824-2",
+      "record": "acceptance.json"
+    },
+    "workflow1-bad-credential-reviewed": {
+      "root": "workflow1-bad-credential-live-20260826-3",
+      "record": "acceptance.json"
+    },
+    "workflow1-excessive-revision-reviewed": {
+      "root": "workflow1-excessive-revision-checkpoint-20260826-1",
+      "record": "acceptance.json"
+    },
+    "workflow1-provider-faults-reviewed": {
+      "root": "workflow1-provider-faults-checkpoint-20260826-3",
+      "record": "acceptance.json"
+    },
+    "workflow1-deterministic-retrieval-reviewed": {
+      "root": "workflow1-deterministic-retrieval-accepted-20260826-7",
+      "record": "acceptance.json"
+    },
+    "native-safari-loop-refresh-reviewed": {
+      "root": "native-safari-loop-refresh-checkpoint-20260825-1",
+      "record": "acceptance.json"
+    },
+    "handoff-reviewed": {
+      "root": "handoff-checkpoint-20260825-4",
+      "record": "acceptance.json"
+    },
+    "provider-free-batch-reviewed": {
+      "root": "provider-free-batch-concurrency-20260826-3",
+      "record": "acceptance.json"
+    },
+    "live-batch-closeout-reviewed": {
+      "root": "batch-provider-live-closeout-20260826-1",
+      "record": "acceptance.json"
+    },
+    "batch-negative-recovery-reviewed": {
+      "root": "batch-negative-recovery-accepted-20260826-2",
+      "record": "acceptance.json"
+    },
+    "workflow2-child-pause-reviewed": {
+      "root": "workflow2-child-pause-accepted-20260826-1",
+      "record": "acceptance.json"
+    }
+  },
+  "mappings": [
+    {"criterion_id": "evidence.manifest", "source": "provider-independent", "files": ["manifest.json"]},
+    {"criterion_id": "evidence.events", "source": "provider-independent", "files": ["events.ndjson"]},
+    {"criterion_id": "evidence.acceptance", "source": "provider-independent", "files": ["acceptance.json"]},
+    {"criterion_id": "evidence.report", "source": "provider-independent", "files": ["report.md"]},
+    {"criterion_id": "evidence.screenshots", "source": "provider-independent", "files": ["screenshots/approval-action-1440.png", "screenshots/approval-action-390.png", "screenshots/audit.png", "screenshots/economics.png", "screenshots/loop-architecture-1440.png", "screenshots/loop-architecture-390.png", "screenshots/rightsizing.png"]},
+    {"criterion_id": "evidence.playwright-html-report", "source": "provider-independent", "files": ["handoff/external-evidence-index.json", "playwright-report/dashboard-results.json", "playwright-report/graph-results.json"]},
+    {"criterion_id": "evidence.videos", "source": "provider-independent", "files": ["videos/dashboard-journey.webm", "videos/graph-journey.webm"]},
+    {"criterion_id": "evidence.accessibility-results", "source": "provider-independent", "files": ["accessibility/dashboard-axe.json"]},
+    {"criterion_id": "evidence.sha256-checksums", "source": "provider-independent", "files": ["SHA256SUMS"]},
+    {"criterion_id": "evidence.command-output-and-exit-codes", "source": "provider-independent", "files": ["commands/0001-backend-full-suite.json", "commands/0002-frontend-unit-suite.json", "commands/0003-frontend-production-build.json", "commands/0004-dashboard-playwright-rerun.json", "commands/0005-graph-playwright.json"]},
+    {"criterion_id": "audit.zero-secrets", "source": "economics-pipeline-reviewed", "source_criterion_id": "audit.zero-secrets", "files": ["SHA256SUMS", "runtime/economics-summary.json"]},
+    {"criterion_id": "handoff.project-model-updated", "source": "economics-pipeline-reviewed", "source_criterion_id": "handoff.project-model-updated", "files": ["manifest.json", "commands/0001-live-evaluation-tests.json"]},
+    {"criterion_id": "evidence.secret-rejection", "source": "security-rejection-reviewed", "source_criterion_id": "evidence.secret-rejection", "files": ["commands/0001-direct-secret-rejection-probe.json", "runtime/rejection-observation.json", "SHA256SUMS"]},
+    {"criterion_id": "stop.no-secret-artifact", "source": "security-rejection-reviewed", "source_criterion_id": "stop.no-secret-artifact", "files": ["commands/0001-direct-secret-rejection-probe.json", "runtime/rejection-observation.json", "SHA256SUMS"]},
+    {"criterion_id": "control.chroma-corpus-seeded", "source": "chroma-corpus-reviewed", "source_criterion_id": "control.chroma-corpus-seeded", "files": ["commands/0001-persistent-chroma-corpus-probe.json", "runtime/corpus-observation.json", "SHA256SUMS"]},
+    {"criterion_id": "control.provider-credential-valid", "source": "live-control-probes-reviewed", "source_criterion_id": "control.provider-credential-valid", "files": ["events.ndjson", "SHA256SUMS"]},
+    {"criterion_id": "control.provider-credential-not-persisted", "source": "live-control-probes-reviewed", "source_criterion_id": "control.provider-credential-not-persisted", "files": ["events.ndjson", "SHA256SUMS"]},
+    {"criterion_id": "control.provider-probe-reconciled", "source": "live-control-probes-reviewed", "source_criterion_id": "control.provider-probe-reconciled", "files": ["events.ndjson", "SHA256SUMS"]},
+    {"criterion_id": "control.chroma-probe-reconciled", "source": "live-control-probes-reviewed", "source_criterion_id": "control.chroma-probe-reconciled", "files": ["events.ndjson", "SHA256SUMS"]},
+    {"criterion_id": "audit.probe-events-instrumented", "source": "live-control-probes-reviewed", "source_criterion_id": "audit.probe-events-instrumented", "files": ["events.ndjson", "SHA256SUMS"]},
+    {"criterion_id": "stop.health-matches-graph", "source": "health-graph-stop-reviewed", "source_criterion_id": "stop.health-matches-graph", "files": ["sources/workflow1.json", "sources/workflow2.json", "sources/workflow3.json", "SHA256SUMS"]},
+    {"criterion_id": "handoff.discrepancy-register", "source": "handoff-reviewed", "source_criterion_id": "handoff.discrepancy-register", "files": ["handoff/discrepancy-register.md", "commands/0001-persistent-services.json", "commands/0002-primary-exact-health.json", "commands/0003-twin-exact-health.json", "SHA256SUMS"]},
+    {"criterion_id": "handoff.execution-and-rollback-instructions", "source": "handoff-reviewed", "source_criterion_id": "handoff.execution-and-rollback-instructions", "files": ["handoff/execution-and-rollback-instructions.md", "commands/0001-persistent-services.json", "commands/0002-primary-exact-health.json", "commands/0003-twin-exact-health.json", "SHA256SUMS"]},
+
+    {"criterion_id": "control.revision-frozen", "source": "control-gate", "source_criterion_id": "control.revision-frozen"},
+    {"criterion_id": "control.diff-hashed", "source": "control-gate", "source_criterion_id": "control.diff-hashed"},
+    {"criterion_id": "control.database-snapshots", "source": "control-gate", "source_criterion_id": "control.database-snapshots"},
+    {"criterion_id": "control.audit-signed", "source": "control-gate", "source_criterion_id": "control.audit-signed"},
+    {"criterion_id": "control.tenant-budget-10", "source": "control-gate", "source_criterion_id": "control.tenant-budget-10"},
+    {"criterion_id": "control.run-budget-025", "source": "control-gate", "source_criterion_id": "control.run-budget-025"},
+    {"criterion_id": "control.budget-concurrency", "source": "control-gate", "source_criterion_id": "control.budget-concurrency"},
+    {"criterion_id": "control.budget-rejection", "source": "control-gate", "source_criterion_id": "control.budget-rejection"},
+    {"criterion_id": "control.budget-commit-release", "source": "control-gate", "source_criterion_id": "control.budget-commit-release"},
+    {"criterion_id": "control.budget-recovery", "source": "control-gate", "source_criterion_id": "control.budget-recovery"},
+    {"criterion_id": "control.chroma-pinned-loopback", "source": "control-gate", "source_criterion_id": "control.chroma-pinned-loopback"},
+    {"criterion_id": "stop.no-ambiguous-auto-retry", "source": "control-gate", "source_criterion_id": "stop.no-ambiguous-auto-retry"},
+
+    {"criterion_id": "ui.operational-surfaces", "source": "full-surface", "source_criterion_id": "ui.operational-surfaces"},
+    {"criterion_id": "ui.viewport-1440x900", "source": "full-surface", "source_criterion_id": "ui.viewport-1440x900"},
+    {"criterion_id": "ui.viewport-1280x800", "source": "full-surface", "source_criterion_id": "ui.viewport-1280x800"},
+    {"criterion_id": "ui.viewport-768x1024", "source": "full-surface", "source_criterion_id": "ui.viewport-768x1024"},
+    {"criterion_id": "ui.viewport-390x844", "source": "full-surface", "source_criterion_id": "ui.viewport-390x844"},
+    {"criterion_id": "ui.zoom-200-percent", "source": "full-surface", "source_criterion_id": "ui.zoom-200-percent"},
+    {"criterion_id": "ui.no-document-overflow", "source": "full-surface", "source_criterion_id": "ui.no-document-overflow"},
+    {"criterion_id": "ui.focus-visible-order", "source": "full-surface", "source_criterion_id": "ui.focus-visible-order"},
+    {"criterion_id": "ui.reduced-motion", "source": "full-surface", "source_criterion_id": "ui.reduced-motion"},
+    {"criterion_id": "ui.axe-wcag22-aa", "source": "full-surface", "source_criterion_id": "ui.axe-wcag22-aa"},
+    {"criterion_id": "stop.no-indefinite-loading", "source": "full-surface", "source_criterion_id": "stop.no-indefinite-loading"},
+
+    {"criterion_id": "ui.node-inspector", "source": "workflow-configuration", "source_criterion_id": "ui.node-inspector"},
+    {"criterion_id": "ui.connector-configuration", "source": "workflow-configuration", "source_criterion_id": "ui.connector-configuration"},
+    {"criterion_id": "ui.loop-configuration", "source": "workflow-configuration", "source_criterion_id": "ui.loop-configuration"},
+    {"criterion_id": "ui.batch-join-configuration", "source": "workflow-configuration", "source_criterion_id": "ui.batch-join-configuration"},
+    {"criterion_id": "ui.approval-configuration", "source": "workflow-configuration", "source_criterion_id": "ui.approval-configuration"},
+    {"criterion_id": "ui.target-size", "source": "workflow-configuration", "source_criterion_id": "ui.target-size"},
+    {"criterion_id": "ui.modal-focus", "source": "workflow-configuration", "source_criterion_id": "ui.modal-focus"},
+
+    {"criterion_id": "ui.empty-canvas-authoring", "source": "studio-authoring", "source_criterion_id": "ui.empty-canvas-authoring"},
+    {"criterion_id": "ui.node-placement", "source": "studio-authoring", "source_criterion_id": "ui.node-placement"},
+    {"criterion_id": "ui.contract-configuration", "source": "studio-authoring", "source_criterion_id": "ui.contract-configuration"},
+    {"criterion_id": "ui.provider-configuration", "source": "studio-authoring", "source_criterion_id": "ui.provider-configuration"},
+    {"criterion_id": "ui.undo-redo-refresh", "source": "studio-authoring", "source_criterion_id": "ui.undo-redo-refresh"},
+    {"criterion_id": "ui.preflight-error-focus", "source": "studio-authoring", "source_criterion_id": "ui.preflight-error-focus"},
+    {"criterion_id": "ui.canvas-gestures", "source": "studio-authoring", "source_criterion_id": "ui.canvas-gestures"},
+    {"criterion_id": "ui.node-menu", "source": "studio-live-authoring-reviewed", "source_criterion_id": "ui.node-menu", "files": ["runtime/workflow-correlation.json", "source/results.json", "console/296ec767872c5f19-response-identities.json", "console/d70ccb29cf966ce4-keyboard-save-runtime.json", "console/e25d763034578afe-sanitized-console.json", "network/550fb716a254d02a-sanitized-network.json", "screenshots/6c0bf9e35ac11bfa-node-menu-configured.png", "screenshots/8025827b62480c2e-keyboard-save-result.png", "screenshots/b7c6044de2d477a0-keyboard-save-refresh-restored.png", "videos/70e1578efc6b0967-video.webm", "SHA256SUMS"]},
+    {"criterion_id": "ui.keyboard-shortcuts", "source": "studio-live-authoring-reviewed", "source_criterion_id": "ui.keyboard-shortcuts", "files": ["runtime/workflow-correlation.json", "source/results.json", "console/296ec767872c5f19-response-identities.json", "console/d70ccb29cf966ce4-keyboard-save-runtime.json", "console/e25d763034578afe-sanitized-console.json", "network/550fb716a254d02a-sanitized-network.json", "screenshots/6c0bf9e35ac11bfa-node-menu-configured.png", "screenshots/8025827b62480c2e-keyboard-save-result.png", "screenshots/b7c6044de2d477a0-keyboard-save-refresh-restored.png", "videos/70e1578efc6b0967-video.webm", "SHA256SUMS"]},
+
+    {"criterion_id": "workflow2.health-exact-graph-version", "source": "workflow2-parent-pin-reviewed", "source_criterion_id": "workflow2.health-exact-graph-version", "files": ["runtime/health.json", "screenshots/01-parent-v3-child-v2-inspector-native-safari.jpg"]},
+    {"criterion_id": "workflow2.child-publish-deploy", "source": "graph-repair-live", "source_criterion_id": "workflow2.child-publish-deploy"},
+    {"criterion_id": "workflow2.parent-publish-deploy-restart", "source": "workflow2-parent-pin-reviewed", "source_criterion_id": "workflow2.parent-publish-deploy-restart", "files": ["runtime/workflow.json", "runtime/deployment-snapshot.json", "screenshots/02-parent-v3-preflight-passed-native-safari.jpg", "screenshots/03-parent-v3-published-native-safari.jpg", "screenshots/04-parent-v3-deployment-created-native-safari.jpg"]},
+    {"criterion_id": "workflow2.recursive-runner-inventory", "source": "workflow2-parent-pin-reviewed", "source_criterion_id": "workflow2.recursive-runner-inventory", "files": ["runtime/runner-inventory.json", "runtime/graph-snapshot.json", "runtime/deployment-snapshot.json"]},
+    {"criterion_id": "workflow2.negative-empty-batch", "source": "graph-repair-live", "source_criterion_id": "workflow2.negative-empty-batch"},
+    {"criterion_id": "workflow2.negative-over-24-batch", "source": "graph-repair-live", "source_criterion_id": "workflow2.negative-over-24-batch"},
+    {"criterion_id": "workflow2.negative-malformed-item", "source": "graph-repair-live", "source_criterion_id": "workflow2.negative-malformed-item"},
+    {"criterion_id": "workflow2.negative-retrieval-miss", "source": "workflow2-retrieval-miss-reviewed", "source_criterion_id": "workflow2.negative-retrieval-miss", "files": ["manifest.json", "console/workflow2-retrieval-miss-summary.json", "console/browser-results.json", "screenshots/03-zero-result-retrieval-child-detail.png", "videos/video.webm", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.negative-refresh-restoration", "source": "workflow2-retrieval-miss-reviewed", "source_criterion_id": "runs.refresh-restoration", "files": ["manifest.json", "console/workflow2-retrieval-miss-summary.json", "screenshots/04-failed-child-refresh-restored.png", "videos/video.webm", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.negative-child-failure-partial-collection", "source": "workflow2-retrieval-miss-reviewed", "source_criterion_id": "subgraphs.child-failure-and-partial-collection", "files": ["manifest.json", "console/workflow2-retrieval-miss-summary.json", "screenshots/02-seven-successes-one-retrieval-failure.png", "videos/video.webm", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.eight-items-concurrency-four", "source": "provider-free-batch-reviewed", "source_criterion_ids": ["BATCH-THREE-REPETITIONS-001", "BATCH-CONCURRENCY-FOUR-002"], "files": ["manifest.json", "database-snapshots/provider-free-composed-structured-20260826-3-projection.sqlite3", "playwright/results.json", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.happy-1", "source": "live-batch-closeout-reviewed", "source_criterion_id": "workflow2.happy-1", "files": ["runtime/parents.json", "events.ndjson", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.happy-2", "source": "live-batch-closeout-reviewed", "source_criterion_id": "workflow2.happy-2", "files": ["runtime/parents.json", "events.ndjson", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.child-runs-isolated", "source": "provider-free-batch-reviewed", "source_criterion_id": "BATCH-CHILD-ISOLATION-003", "files": ["manifest.json", "database-snapshots/provider-free-composed-structured-20260826-3-projection.sqlite3", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.ordering-and-join", "source": "provider-free-batch-reviewed", "source_criterion_id": "BATCH-ORDERED-JOIN-004", "files": ["manifest.json", "database-snapshots/provider-free-composed-structured-20260826-3-projection.sqlite3", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.negative-cancellation", "source": "batch-negative-recovery-reviewed", "source_criterion_id": "runs.cancel", "files": ["manifest.json", "reconciliation/runtime-validation.json", "reconciliation/snapshot-attestations.json", "SHA256SUMS"]},
+    {"criterion_id": "workflow2.negative-child-pause-partial-collection", "source": "workflow2-child-pause-reviewed", "source_criterion_id": "workflow2.negative-child-pause-partial-collection", "files": ["manifest.json", "console/4227d3c91c79af4c-workflow2-child-pause-summary.json", "playwright-report/results.json", "SHA256SUMS"]},
+    {"criterion_id": "audit.child-parallel-relationships", "source": "provider-free-batch-reviewed", "source_criterion_ids": ["BATCH-CHILD-ISOLATION-003", "BATCH-SIGNED-AUDIT-006"], "files": ["manifest.json", "database-snapshots/provider-free-composed-structured-20260826-3-projection.sqlite3", "SHA256SUMS"]},
+    {"criterion_id": "audit.operation-and-cost-identities", "source": "live-batch-closeout-reviewed", "source_criterion_ids": ["workflow2.happy-1", "workflow2.happy-2"], "files": ["runtime/parents.json", "events.ndjson", "SHA256SUMS"]},
+
+    {"criterion_id": "workflow1.publish-deploy-restart", "source": "workflow1-local", "source_criterion_id": "workflow1.publish-deploy-restart"},
+    {"criterion_id": "workflow1.health-exact-graph-version", "source": "workflow1-local", "source_criterion_id": "workflow1.health-exact-graph-version"},
+    {"criterion_id": "workflow1.negative-empty-query", "source": "workflow1-local", "source_criterion_id": "workflow1.negative-empty-query"},
+    {"criterion_id": "workflow1.negative-oversized-query", "source": "workflow1-local", "source_criterion_id": "workflow1.negative-oversized-query"},
+    {"criterion_id": "workflow1.negative-bad-credential", "source": "workflow1-bad-credential-reviewed", "source_criterion_id": "workflow1.negative-bad-credential", "files": ["manifest.json", "summary.json", "authentication-sink.json", "run-chain-verification.json", "post-reconciliation.json", "01-configured.png", "02-failed.png", "03-refresh-restored.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.negative-chroma-unavailable", "source": "workflow1-chroma-unavailable-reviewed", "source_criterion_id": "workflow1.negative-chroma-unavailable", "files": ["runtime/health.json", "runtime/run.json", "runtime/timeline.json", "runtime/run-evidence.json", "runtime/run-chain-verification.json", "runtime/deployment-audit-verification.json", "screenshots/02-exact-configured-run-native-safari.jpg", "screenshots/03-failed-at-retrieve-native-safari.jpg", "screenshots/04-runs-detail-native-safari.jpg", "screenshots/05-run-chain-verified-native-safari.jpg", "screenshots/08-deployment-audit-chain-intact-native-safari.jpg", "screenshots/09-run-detail-1440x900-playwright.png", "screenshots/10-run-chain-verified-1440x900-playwright.png", "screenshots/11-deployment-audit-chain-verified-1440x900-playwright.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.negative-no-result", "source": "workflow1-deterministic-retrieval-reviewed", "source_criterion_id": "workflow1.negative-no-result", "files": ["manifest.json", "runtime/summary.json", "screenshots/b5879a40af93a48c-03-no-result-abstention.png", "screenshots/4a10320cb5e4e008-04-no-result-refresh-restored.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.negative-conflicting-document", "source": "workflow1-deterministic-retrieval-reviewed", "source_criterion_id": "workflow1.negative-conflicting-document", "files": ["manifest.json", "runtime/summary.json", "screenshots/0bf6f5e33056bb08-05-conflict-both-sources.png", "screenshots/53d7d5047f83dc76-06-conflict-refresh-restored.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.negative-excessive-revision", "source": "workflow1-excessive-revision-reviewed", "source_criterion_id": "workflow1.negative-excessive-revision", "files": ["manifest.json", "runtime/summary.json", "screenshots/6b0d31ff35c217d7-02-exact-two-research-visits-loop-guard.png", "screenshots/55517bba6582c907-03-loop-guard-refresh-restored.png", "videos/766bcc3399cec3cd-video.webm", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.loop-bound-two", "source": "workflow1-excessive-revision-reviewed", "source_criterion_id": "workflow1.negative-excessive-revision", "files": ["runtime/summary.json", "screenshots/6b0d31ff35c217d7-02-exact-two-research-visits-loop-guard.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.negative-provider-timeout", "source": "workflow1-provider-faults-reviewed", "source_criterion_id": "workflow1.negative-provider-timeout", "files": ["manifest.json", "runtime/summary.json", "network/summary.json", "handoff/browser-observations.json", "screenshots/01-timeout-configured.png", "screenshots/02-timeout-failed.png", "screenshots/03-timeout-refresh.png", "screenshots/12-timeout-chain-verified.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.negative-rate-limit", "source": "workflow1-provider-faults-reviewed", "source_criterion_id": "workflow1.negative-rate-limit", "files": ["manifest.json", "runtime/summary.json", "network/summary.json", "handoff/browser-observations.json", "screenshots/04-rate-limit-configured.png", "screenshots/05-rate-limit-failed.png", "screenshots/06-rate-limit-refresh.png", "screenshots/11-rate-limit-chain-verified.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.negative-malformed-response", "source": "workflow1-provider-faults-reviewed", "source_criterion_id": "workflow1.negative-malformed-response", "files": ["manifest.json", "runtime/summary.json", "network/summary.json", "handoff/browser-observations.json", "screenshots/07-malformed-configured.png", "screenshots/08-malformed-failed.png", "screenshots/09-malformed-refresh.png", "screenshots/10-malformed-chain-verified.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow1.deterministic-provider-fault-injection", "source": "workflow1-provider-faults-reviewed", "source_criterion_id": "workflow1.deterministic-provider-fault-injection", "files": ["manifest.json", "runtime/summary.json", "network/summary.json", "handoff/browser-observations.json", "screenshots/01-timeout-configured.png", "screenshots/02-timeout-failed.png", "screenshots/03-timeout-refresh.png", "screenshots/04-rate-limit-configured.png", "screenshots/05-rate-limit-failed.png", "screenshots/06-rate-limit-refresh.png", "screenshots/07-malformed-configured.png", "screenshots/08-malformed-failed.png", "screenshots/09-malformed-refresh.png", "screenshots/10-malformed-chain-verified.png", "screenshots/11-rate-limit-chain-verified.png", "screenshots/12-timeout-chain-verified.png", "events.ndjson", "SHA256SUMS"]},
+
+    {"criterion_id": "ui.publish-deploy-run", "source": "workflow3-v5-lifecycle-reviewed", "source_criterion_id": "ui.publish-deploy-run", "files": ["screenshots/workflow3-v5-published.jpeg", "screenshots/workflow3-v5-deployment-created.jpeg", "screenshots/workflow3-v5-awaiting-approval.jpeg", "screenshots/workflow3-v5-chain-verified-painted-after-shell-fix.jpeg", "accessibility/workflow3-v5-chain-verified-painted-after-shell-fix-ax.txt", "console/workflow-published-v5.json", "console/run-failed-approval-rejected.json", "console/signed-chain-verification.json", "SHA256SUMS"]},
+    {"criterion_id": "workflow3.publish-deploy-restart", "source": "workflow3-v5-lifecycle-reviewed", "source_criterion_id": "workflow3.publish-deploy-restart", "files": ["screenshots/workflow3-v5-published.jpeg", "screenshots/workflow3-v5-deployment-created.jpeg", "console/native-backend-restart-v5.txt", "console/native-health-serving-v5.json", "console/native-backend-restore-v4.txt", "console/native-deployments-after-restore.json", "SHA256SUMS"]},
+    {"criterion_id": "workflow3.health-exact-graph-version", "source": "workflow3-v5-lifecycle-reviewed", "source_criterion_id": "workflow3.health-exact-graph-version", "files": ["console/native-health-restored-v4.json", "console/native-backend-restore-v4.txt", "console/health-restored-stable.json", "SHA256SUMS"]},
+    {"criterion_id": "workflow3.signed-action-sink-registered", "source": "workflow3-current-happy-reviewed", "source_criterion_id": "workflow3.signed-action-sink-registered", "files": ["runtime/platform.json", "runtime/run-1.json", "screenshots/5414e61cf957359b-happy-1-approval.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow3.exactly-one-marker-each", "source": "workflow3-current-happy-reviewed", "source_criterion_id": "workflow3.exactly-one-marker-each", "files": ["runtime/run-1.json", "runtime/run-2.json", "runtime/run-3.json", "screenshots/9627978fd4c77425-happy-1-succeeded.png", "screenshots/f4c7ec0c22d48aa3-happy-2-succeeded.png", "screenshots/c70e1051bf27186a-happy-3-succeeded.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow3.negative-refresh-before-approval", "source": "workflow3-current-negative-reviewed", "source_criterion_id": "workflow3.negative-refresh-before-approval", "files": ["runtime/refresh_reject.json", "screenshots/724f08ba1f53adba-refresh-reject-restored.png", "screenshots/7ff78a85441b476d-refresh-reject-result.png", "SHA256SUMS"]},
+    {"criterion_id": "workflow3.negative-sla-expiry", "source": "workflow3-v5-lifecycle-reviewed", "source_criterion_id": "workflow3.negative-sla-expiry", "files": ["screenshots/workflow3-v5-awaiting-approval.jpeg", "screenshots/workflow3-v5-run-failed-sla.jpeg", "screenshots/workflow3-v5-run-chain-verified.jpeg", "console/run-failed-approval-rejected.json", "console/approval-sla-rejected.json", "console/three-signed-audits.json", "console/signed-chain-verification.json", "console/zero-side-effects-and-markers.json", "console/zero-economics-activity.json", "console/signed-audit-readiness.json", "SHA256SUMS"]},
+    {"criterion_id": "workflow3.negative-restart-around-receipt", "source": "workflow3-v6-restart-receipt-reviewed", "source_criterion_id": "workflow3.negative-restart-around-receipt", "files": ["screenshots/01-configured-payload.jpeg", "screenshots/02-approved.jpeg", "screenshots/03-recovered-run-succeeded.jpeg", "screenshots/04-audit-chain-verified-painted.jpeg", "runtime/proof.json", "runtime/timeline-pre-restart.json", "runtime/timeline-final.json", "database-snapshots/action-sink.sqlite3", "database-snapshots/receipt-restart-barriers.sqlite3", "SHA256SUMS"]},
+    {"criterion_id": "workflow3.ambiguous-no-reexecution", "source": "workflow3-ambiguous-reviewed", "source_criterion_id": "workflow3.ambiguous-no-reexecution", "files": ["runtime/proof.json", "events.ndjson", "SHA256SUMS"]},
+
+    {"criterion_id": "workflow3.happy-1", "source": "provider-independent", "source_criterion_id": "approval.governed-remediation.three-repetitions"},
+    {"criterion_id": "workflow3.happy-2", "source": "provider-independent", "source_criterion_id": "approval.governed-remediation.three-repetitions"},
+    {"criterion_id": "workflow3.happy-3", "source": "provider-independent", "source_criterion_id": "approval.governed-remediation.three-repetitions"},
+    {"criterion_id": "workflow3.negative-rejection-zero-marker", "source": "provider-independent", "source_criterion_id": "negative.local-and-governed-matrix"},
+    {"criterion_id": "workflow3.negative-duplicate-submission", "source": "provider-independent", "source_criterion_id": "negative.local-and-governed-matrix"},
+    {"criterion_id": "workflow3.negative-cancellation-after-approval", "source": "provider-independent", "source_criterion_id": "negative.local-and-governed-matrix"},
+    {"criterion_id": "workflow3.negative-sink-unavailable", "source": "provider-independent", "source_criterion_id": "negative.local-and-governed-matrix"},
+    {"criterion_id": "workflow3.negative-timeout-after-commit", "source": "provider-independent", "source_criterion_id": "negative.local-and-governed-matrix"},
+    {"criterion_id": "audit.signed-chain-verifies", "source": "native-safari-loop-refresh-reviewed", "source_criterion_id": "audit.signed-chain-verifies", "files": ["runtime/run-audit-verification.json", "runtime/audits.json", "screenshots/02-loop-succeeded-after-refresh-native-safari.jpg", "SHA256SUMS"]},
+    {"criterion_id": "audit.run-thread-deployment-graph-node-correlation", "source": "runs-operations", "source_criterion_id": "runs.evidence", "files": ["indexed/2e348c419f602a4e-runs-operations-result.json", "indexed/0d1e4dd1a7c7a5c7-runs-signed-evidence-and-safe-invoke.png"]},
+    {"criterion_id": "audit.every-node-timeline-entry", "source": "native-safari-loop-refresh-reviewed", "source_criterion_id": "audit.every-node-timeline-entry", "files": ["runtime/run.json", "runtime/timeline.json", "runtime/audits.json", "screenshots/01-loop-succeeded-before-refresh-native-safari.jpg", "SHA256SUMS"]},
+    {"criterion_id": "audit.approval-action-linkage", "source": "workflow3-current-happy-reviewed", "source_criterion_id": "audit.approval-action-linkage", "files": ["runtime/run-1.json", "runtime/run-2.json", "runtime/run-3.json", "screenshots/5414e61cf957359b-happy-1-approval.png", "screenshots/e9217daddfef5c50-happy-2-approval.png", "screenshots/3a5b72163f9a842b-happy-3-approval.png", "SHA256SUMS"]},
+    {"criterion_id": "audit.receipts-linked", "source": "workflow3-current-happy-reviewed", "source_criterion_id": "audit.receipts-linked", "files": ["runtime/run-1.json", "runtime/run-2.json", "runtime/run-3.json", "screenshots/9627978fd4c77425-happy-1-succeeded.png", "screenshots/f4c7ec0c22d48aa3-happy-2-succeeded.png", "screenshots/c70e1051bf27186a-happy-3-succeeded.png", "SHA256SUMS"]},
+    {"criterion_id": "stop.rejection-zero-effects", "source": "provider-independent", "source_criterion_id": "negative.local-and-governed-matrix"},
+
+    {"criterion_id": "economics.zero-value-before-valuation", "source": "economics-truth", "source_criterion_id": "economics-and-rightsizing.regulus-valuation-state"},
+    {"criterion_id": "economics.synthetic-outcome-explicit", "source": "economics-truth", "source_criterion_id": "economics-and-rightsizing.regulus-valuation-state", "files": ["indexed/bcc7ee34f697ac36-regulus-valuation-state.json", "indexed/ae4a51d3081d414c-regulus-explicit-valuation-empty-state.png"]},
+    {"criterion_id": "economics.quality-verdict-nonrewriting", "source": "rightsizing-quality-verdict-reviewed", "source_criterion_id": "economics.quality-verdict-nonrewriting", "files": ["runtime/before.json", "runtime/after.json", "runtime/comparison.json", "screenshots/02-verdict-configured.jpeg", "screenshots/03-verdict-attached.jpeg", "screenshots/04-refresh-restored.jpeg", "SHA256SUMS"]},
+    {"criterion_id": "economics.campaign-and-run-caps", "source": "control-gate", "source_criterion_ids": ["control.tenant-budget-10", "control.run-budget-025"]},
+    {"criterion_id": "stop.cost-cap-enforced", "source": "control-gate", "source_criterion_ids": ["control.tenant-budget-10", "control.run-budget-025", "control.budget-concurrency", "control.budget-rejection", "control.budget-commit-release", "control.budget-recovery"]}
+  ],
+  "blocked": {
+    "workflow1.happy-1": "No accepted live Workflow 1 repetition was executed during the bounded provider closeout.",
+    "workflow1.happy-2": "No accepted live Workflow 1 repetition was executed during the bounded provider closeout.",
+    "workflow1.happy-3": "No accepted live Workflow 1 repetition was executed during the bounded provider closeout.",
+    "workflow1.semantic-retrieval": "The deterministic retrieval matrix passed, but live embedding and grounded-agent correlation was not executed for Workflow 1.",
+    "workflow1.structured-payload": "No accepted live Workflow 1 terminal payload proves the answer and source_ids contract.",
+    "workflow1.final-output": "No accepted live Workflow 1 provider output was produced during the bounded closeout.",
+    "workflow1.audit-chain": "No accepted live Workflow 1 provider-call audit chain was produced during the bounded closeout.",
+    "workflow1.economics": "No accepted live Workflow 1 priced run was produced during the bounded closeout.",
+    "workflow2.happy-3": "A third paid live repetition was intentionally not run during the bounded closeout.",
+    "workflow2.aggregate-economics": "Two live repetitions reconcile, but the original gate requires three successful repetitions.",
+    "audit.provider-model-usage-cost-identity": "Two live batch runs carry correlated identities, but no campaign-wide accepted reconciliation source is mapped yet.",
+    "economics.one-event-per-noncache-call": "The two live batch repetitions reconcile one event per call; the unexecuted live matrices prevent a campaign-wide claim.",
+    "economics.reconciled-totals": "The two live batch repetitions reconcile; the unexecuted live matrices prevent a campaign-wide totals claim.",
+    "economics.shared-provider-window-upper-bound": "The OpenAI organization usage endpoint returned 403 for the project-scoped credential, so the shared-project upper-bound cross-check is unavailable.",
+    "stop.no-economic-double-count": "The corrected live batch repetitions do not double count, but the unexecuted live matrices prevent a campaign-wide stop-gate claim."
+  }
+}

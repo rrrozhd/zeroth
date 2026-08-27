@@ -11,9 +11,25 @@ from zeroth.governance.identity import AuthMethod, AuthenticatedPrincipal, Servi
 from zeroth.service.api.regulus_proxy_api import ROUTES, register_regulus_proxy_routes
 
 
-def _app(*, with_backend: bool = True, with_credentials: bool = True) -> FastAPI:
+def _app(
+    *,
+    with_backend: bool = True,
+    with_credentials: bool = True,
+    deployment_tenant: str | None = None,
+) -> FastAPI:
     app = FastAPI()
-    app.state.bootstrap = type("Bootstrap", (), {"audit_repository": None, "deployment": None})()
+    deployment = None
+    if deployment_tenant is not None:
+        deployment = type(
+            "DeploymentScope",
+            (),
+            {"tenant_id": deployment_tenant, "workspace_id": None},
+        )()
+    app.state.bootstrap = type(
+        "Bootstrap",
+        (),
+        {"audit_repository": None, "deployment": deployment},
+    )()
     if with_backend:
         app.state.regulus_base_url = "https://regulus.invalid/v1"
     if with_credentials:
@@ -53,23 +69,106 @@ def _app(*, with_backend: bool = True, with_credentials: bool = True) -> FastAPI
 PLATFORM = {"X-Test-Role": ServiceRole.PLATFORM_ADMIN.value}
 
 
-@pytest.mark.parametrize("role", [ServiceRole.OPERATOR, ServiceRole.REVIEWER, ServiceRole.ADMIN])
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [
-        ("GET", "/v1/econ/regulus/dashboard/kpis"),
-        ("POST", "/v1/econ/regulus/enforcement/actions/12/approve"),
-        ("POST", "/v1/econ/regulus/enforcement/actions/12/reject"),
-    ],
-)
-def test_only_platform_admin_can_reach_regulus(role: ServiceRole, method: str, path: str) -> None:
+@pytest.mark.parametrize("role", [ServiceRole.OPERATOR, ServiceRole.REVIEWER])
+def test_regulus_reads_require_metrics_permission(role: ServiceRole) -> None:
     response = TestClient(_app()).request(
-        method,
-        path,
+        "GET",
+        "/v1/econ/regulus/dashboard/kpis",
         headers={"X-Test-Role": role.value, "X-Test-Tenant": "foreign"},
-        json={"reason": "reviewed"} if method == "POST" else None,
     )
     assert response.status_code == 403
+
+
+def test_admin_can_read_regulus_kpis() -> None:
+    response = TestClient(_app()).get(
+        "/v1/econ/regulus/dashboard/kpis",
+        headers={"X-Test-Role": ServiceRole.ADMIN.value},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("role", [ServiceRole.OPERATOR, ServiceRole.REVIEWER, ServiceRole.ADMIN])
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_only_platform_admin_can_mutate_regulus(role: ServiceRole, action: str) -> None:
+    response = TestClient(_app()).post(
+        f"/v1/econ/regulus/enforcement/actions/12/{action}",
+        headers={"X-Test-Role": role.value, "X-Test-Tenant": "foreign"},
+        json={"reason": "reviewed"},
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("role", "expected_own", "expected_cross_tenant"),
+    [
+        (ServiceRole.OPERATOR, 403, 403),
+        (ServiceRole.REVIEWER, 403, 403),
+        (ServiceRole.ADMIN, 200, 404),
+        (ServiceRole.PLATFORM_ADMIN, 200, 404),
+    ],
+)
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/v1/econ/regulus/registry/capabilities",
+        "/v1/econ/regulus/enforcement/actions",
+        "/v1/econ/regulus/enforcement/policy-actions",
+    ],
+)
+def test_capabilities_and_enforcement_reads_apply_role_then_tenant_scope(
+    role: ServiceRole,
+    expected_own: int,
+    expected_cross_tenant: int,
+    path: str,
+) -> None:
+    client = TestClient(_app(deployment_tenant="tenant-a"))
+
+    own = client.get(path, headers={"X-Test-Role": role.value, "X-Test-Tenant": "tenant-a"})
+    cross_tenant = client.get(
+        path,
+        headers={"X-Test-Role": role.value, "X-Test-Tenant": "tenant-b"},
+    )
+
+    assert own.status_code == expected_own
+    assert cross_tenant.status_code == expected_cross_tenant
+    if expected_cross_tenant != 200:
+        assert set(cross_tenant.json()) == {"detail"}
+
+
+@pytest.mark.parametrize(
+    ("role", "expected_own", "expected_cross_tenant"),
+    [
+        (ServiceRole.OPERATOR, 403, 403),
+        (ServiceRole.REVIEWER, 403, 403),
+        (ServiceRole.ADMIN, 403, 403),
+        (ServiceRole.PLATFORM_ADMIN, 200, 404),
+    ],
+)
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_enforcement_mutations_apply_econ_admin_then_tenant_scope(
+    role: ServiceRole,
+    expected_own: int,
+    expected_cross_tenant: int,
+    decision: str,
+) -> None:
+    client = TestClient(_app(deployment_tenant="tenant-a"))
+    path = f"/v1/econ/regulus/enforcement/actions/12/{decision}"
+
+    own = client.post(
+        path,
+        headers={"X-Test-Role": role.value, "X-Test-Tenant": "tenant-a"},
+        json={"reason": "deterministic governance acceptance"},
+    )
+    cross_tenant = client.post(
+        path,
+        headers={"X-Test-Role": role.value, "X-Test-Tenant": "tenant-b"},
+        json={"reason": "deterministic governance acceptance"},
+    )
+
+    assert own.status_code == expected_own
+    assert cross_tenant.status_code == expected_cross_tenant
+    if expected_cross_tenant != 200:
+        assert set(cross_tenant.json()) == {"detail"}
 
 
 @pytest.mark.parametrize("route", ROUTES, ids=lambda route: route.name)
@@ -156,3 +255,20 @@ def test_redirects_and_upstream_failures_are_sanitized(status_code: int) -> None
     assert response.json() == {"detail": "Regulus backend request failed"}
     assert "secret" not in response.text
     assert "token.example" not in response.text
+
+
+def test_upstream_not_found_preserves_empty_state_status_without_body() -> None:
+    app = _app()
+
+    def missing(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="secret upstream detail")
+
+    app.state.regulus_transport = httpx.MockTransport(missing)
+    response = TestClient(app).get(
+        "/v1/econ/regulus/evaluations/cap-1/latest",
+        headers=PLATFORM,
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Regulus resource not found"}
+    assert "secret" not in response.text

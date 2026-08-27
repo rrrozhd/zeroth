@@ -27,16 +27,19 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Button,
-  Card,
   CodeBlock,
+  ConsoleNotice,
   MonoLabel,
   Pill,
   Skeleton,
   StatusDot,
 } from "@/app/components/primitives";
+import { EconomicsPanel } from "@/app/regulus/EconomicsPanel";
 import { useLoad, type Loadable } from "@/app/hooks/useLoad";
-import { ApiError } from "@/app/lib/api";
+import { ApiError, getIdentity } from "@/app/lib/api";
+import { fmtUsd } from "@/app/components/ui";
 import { isConfigured } from "@/app/lib/config";
+import { regulusAccess, type RegulusAccess } from "@/app/regulus/regulus-access";
 import {
   rgCapabilities,
   rgCapability,
@@ -48,20 +51,11 @@ import {
   type ImplementationCompareRow,
   type TrendPoint,
 } from "@/app/lib/regulusApi";
+import styles from "./capabilities.module.css";
 
 // --------------------------------------------------------------------------
 // Formatting + tone helpers
 // --------------------------------------------------------------------------
-
-const USD = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2,
-});
-
-function fmtUsd(n: number): string {
-  return Number.isFinite(n) ? USD.format(n) : String(n);
-}
 
 /** Trim trailing zeros off a fixed-precision number (drift scores etc.). */
 function fmtNum(n: number): string {
@@ -136,13 +130,97 @@ function marginTone(n: number): string {
 // --------------------------------------------------------------------------
 
 export default function CapabilitiesPage() {
-  const capabilities = useLoad<CapabilityOut[]>(rgCapabilities);
-
   // localStorage-derived config is read only after mount so the static prerender
   // and the first client render agree (no hydration mismatch).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const connected = mounted && isConfigured();
+
+  if (!connected) return <CapabilitiesDisconnected mounted={mounted} />;
+  return <CapabilitiesAccessBoundary />;
+}
+
+function CapabilitiesDisconnected({ mounted }: { mounted: boolean }) {
+  const capabilities: Loadable<CapabilityOut[]> = {
+    data: null,
+    error: null,
+    loading: !mounted,
+    reload: () => undefined,
+  };
+  return (
+    <div className={styles.workspace} data-evidence-id="regulus.capabilities.page">
+      <ListPane
+        capabilities={capabilities}
+        connected={false}
+        mounted={mounted}
+        selectedId={null}
+        onSelect={() => undefined}
+      />
+      <div className={styles.detailPane}><DetailPlaceholder /></div>
+    </div>
+  );
+}
+
+function CapabilitiesAccessBoundary() {
+  const identity = useLoad(getIdentity);
+  if (identity.loading && !identity.data) {
+    return (
+      <CapabilitiesAccessState title="Verifying access">
+        Resolving role and tenant scope.
+      </CapabilitiesAccessState>
+    );
+  }
+
+  const access = regulusAccess(identity.data, identity.error);
+  if (!access.canRead) {
+    return (
+      <CapabilitiesAccessState
+        access={access}
+        evidenceId="regulus.capabilities.access.restricted"
+        title="Capabilities access restricted"
+      >
+        This role does not include metrics:read. Capability registry data is hidden for this
+        credential and no protected read was issued.
+      </CapabilitiesAccessState>
+    );
+  }
+  return <CapabilitiesWorkspace access={access} />;
+}
+
+function CapabilitiesAccessState({
+  access,
+  evidenceId = "regulus.capabilities.access.resolving",
+  title,
+  children,
+}: {
+  access?: RegulusAccess;
+  evidenceId?: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={styles.workspace} data-evidence-id="regulus.capabilities.page">
+      <aside aria-label="Capability list" className={styles.listPane}>
+        <div className={styles.listHeader}><h1 className={styles.listTitle}>Capabilities</h1></div>
+      </aside>
+      <div className={styles.detailPane}>
+        <div className={styles.detail}>
+          {access?.scope && (
+            <div data-evidence-id="regulus.capabilities.scope" className={styles.emptyNote}>
+              Scope: {access.scope} · Role: {access.roles}
+            </div>
+          )}
+          <div data-evidence-id={evidenceId}>
+            <ConsoleNotice title={title}>{children}</ConsoleNotice>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CapabilitiesWorkspace({ access }: { access: RegulusAccess }) {
+  const capabilities = useLoad<CapabilityOut[]>(rgCapabilities);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -153,15 +231,22 @@ export default function CapabilitiesPage() {
   );
 
   return (
-    <div style={{ display: "flex", height: "100%", minHeight: 0 }}>
+    <div
+      className={styles.workspace}
+      data-evidence-id="regulus.capabilities.registry"
+      data-access-source={access.source}
+    >
       <ListPane
         capabilities={capabilities}
-        connected={connected}
-        mounted={mounted}
+        connected
+        mounted
         selectedId={selectedId}
         onSelect={(c) => setSelectedId(c.id)}
       />
-      <div style={{ flex: 1, minWidth: 0, overflowY: "auto" }}>
+      <div className={styles.detailPane}>
+        <div data-evidence-id="regulus.capabilities.scope" className={styles.emptyNote}>
+          Scope: {access.scope} · Role: {access.roles}
+        </div>
         {selected ? (
           <CapabilityDetail key={selected.id} capability={selected} />
         ) : (
@@ -191,38 +276,19 @@ function ListPane({
 }) {
   const list = capabilities.data ?? [];
   return (
-    <aside
-      style={{
-        width: 320,
-        flexShrink: 0,
-        borderRight: "1px solid var(--hair)",
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-        background: "var(--bg-chrome)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          padding: "13px 14px",
-          borderBottom: "1px solid var(--hair)",
-        }}
-      >
-        <MonoLabel>Capabilities</MonoLabel>
+    <aside aria-label="Capability list" className={styles.listPane}>
+      <div className={styles.listHeader}>
+        <h1 className={styles.listTitle}>Capabilities</h1>
         {capabilities.data != null && (
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-faint)" }}>
+          <span className={styles.listCount}>
             {list.length}
           </span>
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+      <div className={styles.listBody}>
         {capabilities.loading && !capabilities.data ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14 }}>
+          <div className={styles.loading}>
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} height={42} />
             ))}
@@ -230,7 +296,7 @@ function ListPane({
         ) : mounted && !connected ? (
           <EmptyNote>Connect to the API (top bar) to load capabilities.</EmptyNote>
         ) : capabilities.error ? (
-          <div style={{ padding: 14 }}>
+          <div className={styles.emptyNote}>
             <InlineError message={capabilities.error} onRetry={capabilities.reload} />
           </div>
         ) : list.length === 0 ? (
@@ -263,33 +329,14 @@ function CapabilityRow({
     <button
       type="button"
       onClick={onSelect}
-      style={{
-        display: "block",
-        width: "100%",
-        textAlign: "left",
-        cursor: "pointer",
-        padding: "10px 14px",
-        border: "none",
-        borderLeft: `2px solid ${selected ? "var(--accent)" : "transparent"}`,
-        borderBottom: "1px solid var(--hair)",
-        background: selected ? "rgba(94,234,212,0.07)" : "transparent",
-        color: "inherit",
-        transition: "background 120ms ease",
-      }}
+      aria-pressed={selected}
+      data-evidence-id={`regulus.capabilities.capability.${c.id}`}
+      className={`${styles.row} ${selected ? styles.rowSelected : ""}`}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className={styles.rowPrimary}>
         <StatusDot tone={critTone(c.criticality)} />
         <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 12,
-            color: "var(--text-primary)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            flex: 1,
-            minWidth: 0,
-          }}
+          className={styles.rowId}
           title={c.id}
         >
           {c.id}
@@ -298,25 +345,9 @@ function CapabilityRow({
           {c.type || "—"}
         </Pill>
       </div>
-      <div
-        style={{
-          marginTop: 4,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          minWidth: 0,
-        }}
-      >
+      <div className={styles.rowSecondary}>
         <span
-          style={{
-            fontSize: 11.5,
-            color: "var(--text-muted)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            flex: 1,
-            minWidth: 0,
-          }}
+          className={styles.rowName}
           title={c.name}
         >
           {c.name}
@@ -337,16 +368,7 @@ function CapabilityRow({
 
 function DetailPlaceholder() {
   return (
-    <div
-      style={{
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "var(--text-faint)",
-        fontSize: 13,
-      }}
-    >
+    <div className={styles.placeholder}>
       Select a capability to inspect.
     </div>
   );
@@ -354,16 +376,16 @@ function DetailPlaceholder() {
 
 function CapabilityDetail({ capability: c }: { capability: CapabilityOut }) {
   return (
-    <div style={{ padding: "22px 26px", display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className={styles.detail}>
       {/* Header: name + id + type/criticality/protected */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 17, fontWeight: 600 }}>{c.name}</span>
+      <div className={styles.detailHeader}>
+        <div className={styles.detailHeading}>
+          <span className={styles.detailName}>{c.name}</span>
           <Pill tone={typeTone(c.type)}>{c.type || "—"}</Pill>
           <Pill tone={critTone(c.criticality)}>{c.criticality || "—"}</Pill>
           {c.is_protected && <Pill tone="accent">protected</Pill>}
         </div>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-muted)" }}>
+        <span className={styles.detailId}>
           {c.id}
         </span>
       </div>
@@ -394,12 +416,12 @@ function OverviewPanel({
   const data = cap.data ?? fallback;
 
   return (
-    <Card label="Overview" pad={14}>
+    <EconomicsPanel title="Overview" density="compact">
       {cap.error && !cap.data ? (
         <InlineError message={cap.error} onRetry={cap.reload} />
       ) : (
         <>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 28px", marginBottom: 12 }}>
+          <div className={styles.metaGrid}>
             <Meta label="id" value={data.id} />
             <Meta label="tenant" value={data.tenant_id} />
             <Meta label="type" value={data.type || "—"} />
@@ -409,18 +431,18 @@ function OverviewPanel({
           </div>
 
           {data.description ? (
-            <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+            <p className={styles.description}>
               {data.description}
             </p>
           ) : (
-            <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--text-faint)" }}>
+            <p className={styles.empty}>
               No description.
             </p>
           )}
 
           {/* Valuation config — typed fields surfaced, then the raw block (its
               proxy_parameters are an open object). */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 28px", marginBottom: 12 }}>
+          <div className={styles.metaGrid}>
             <Meta label="valuation method" value={data.valuation_config.valuation_method} />
             <Meta label="proxy formula" value={data.valuation_config.proxy_formula_id} />
             <Meta label="baseline source" value={data.valuation_config.baseline_source} />
@@ -444,7 +466,7 @@ function OverviewPanel({
           <CodeBlock label="Valuation config" code={jsonText(data.valuation_config)} />
         </>
       )}
-    </Card>
+    </EconomicsPanel>
   );
 }
 
@@ -462,7 +484,7 @@ function ComparePanel({ capabilityId }: { capabilityId: string }) {
   );
 
   return (
-    <Card label="Implementation compare" pad={14}>
+    <EconomicsPanel title="Implementation compare" density="compact">
       {compare.loading && !compare.data ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {Array.from({ length: 3 }).map((_, i) => (
@@ -475,8 +497,14 @@ function ComparePanel({ capabilityId }: { capabilityId: string }) {
         <EmptyInline>No implementation comparisons yet.</EmptyInline>
       ) : (
         <>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <div
+            className={styles.tableScroll}
+            role="region"
+            aria-label="Implementation comparison"
+            data-evidence-id="regulus.capability.table.implementation-comparison"
+            tabIndex={0}
+          >
+            <table className={styles.table}>
               <thead>
                 <tr>
                   <Th>Implementation</Th>
@@ -514,7 +542,7 @@ function ComparePanel({ capabilityId }: { capabilityId: string }) {
           )}
         </>
       )}
-    </Card>
+    </EconomicsPanel>
   );
 }
 
@@ -525,11 +553,8 @@ function Th({ children, align = "left" }: { children: React.ReactNode; align?: "
         textAlign: align,
         padding: "6px 10px",
         borderBottom: "1px solid var(--hair-strong)",
-        fontFamily: "var(--font-mono)",
-        fontSize: 10.5,
+        fontSize: 11,
         fontWeight: 500,
-        textTransform: "uppercase",
-        letterSpacing: "0.06em",
         color: "var(--text-muted)",
         whiteSpace: "nowrap",
       }}
@@ -584,7 +609,7 @@ function DriftPanel({ capabilityId }: { capabilityId: string }) {
   const points = Array.isArray(drift.data) ? drift.data : [];
 
   return (
-    <Card label="Drift timeline" pad={14}>
+    <EconomicsPanel title="Drift timeline" density="compact">
       {drift.loading && !drift.data ? (
         <Skeleton height={48} />
       ) : drift.error ? (
@@ -594,7 +619,7 @@ function DriftPanel({ capabilityId }: { capabilityId: string }) {
       ) : (
         <Sparkline points={points} />
       )}
-    </Card>
+    </EconomicsPanel>
   );
 }
 
@@ -622,7 +647,7 @@ function Sparkline({ points }: { points: TrendPoint[] }) {
   return (
     <div>
       {n === 1 ? (
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 600 }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums", fontSize: 22, fontWeight: 500 }}>
           {fmtNum(last.y)}
         </div>
       ) : (
@@ -681,7 +706,7 @@ function LatestEvaluationPanel({ capabilityId }: { capabilityId: string }) {
   );
 
   return (
-    <Card label="Latest evaluation" pad={14}>
+    <EconomicsPanel title="Latest evaluation" density="compact">
       {latest.loading && !latest.data ? (
         <Skeleton height={90} />
       ) : latest.error ? (
@@ -691,7 +716,7 @@ function LatestEvaluationPanel({ capabilityId }: { capabilityId: string }) {
       ) : (
         <CodeBlock code={jsonText(latest.data)} />
       )}
-    </Card>
+    </EconomicsPanel>
   );
 }
 
@@ -703,16 +728,16 @@ function EvaluationHistoryPanel({ capabilityId }: { capabilityId: string }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Card label="Evaluation history" pad={14}>
+    <EconomicsPanel title="Evaluation history" density="compact">
       <Button variant="neutral" onClick={() => setOpen((v) => !v)}>
         {open ? "Hide history" : "Show history"}
       </Button>
       {open && (
-        <div style={{ marginTop: 12 }}>
+        <div className={styles.history}>
           <EvaluationHistoryBody capabilityId={capabilityId} />
         </div>
       )}
-    </Card>
+    </EconomicsPanel>
   );
 }
 
@@ -733,16 +758,9 @@ function EvaluationHistoryBody({ capabilityId }: { capabilityId: string }) {
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ minWidth: 0 }}>
-      <MonoLabel style={{ display: "block", marginBottom: 3 }}>{label}</MonoLabel>
-      <span
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 11.5,
-          color: "var(--text-secondary)",
-          wordBreak: "break-all",
-        }}
-      >
+    <div className={styles.meta}>
+      <MonoLabel className={styles.metaLabel}>{label}</MonoLabel>
+      <span className={styles.metaValue}>
         {value}
       </span>
     </div>
@@ -751,45 +769,24 @@ function Meta({ label, value }: { label: string; value: string }) {
 
 function EmptyNote({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ padding: 18, fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.55 }}>
+    <p className={styles.emptyNote}>
       {children}
-    </div>
+    </p>
   );
 }
 
 function EmptyInline({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>{children}</div>;
+  return <p className={styles.empty}>{children}</p>;
 }
 
 function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "rgba(248,113,113,0.08)",
-        border: "1px solid rgba(248,113,113,0.3)",
-        borderRadius: 8,
-        padding: "10px 12px",
-      }}
+    <ConsoleNotice
+      tone="danger"
+      title="Capability data unavailable"
+      actions={<Button variant="neutral" onClick={onRetry}>Retry</Button>}
     >
-      <span
-        style={{
-          fontSize: 12.5,
-          color: "var(--danger)",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {message}
-      </span>
-      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Retry
-      </Button>
-    </div>
+      {message}
+    </ConsoleNotice>
   );
 }

@@ -112,6 +112,11 @@ async def test_run_and_deployment_evidence_bundles_include_governance_lineage(sq
     assert run_payload["summary"]["tool_call_count"] == 1
     assert run_payload["summary"]["memory_interaction_count"] == 1
     assert run_payload["summary"]["approval_count"] == 1
+    assert run_payload["summary"]["priced_call_count"] == 0
+    assert run_payload["summary"]["cost_event_count"] == 0
+    assert run_payload["summary"]["total_cost_usd"] == 0.0
+    assert run_payload["summary"]["cost_identity_state"] == "not_applicable_no_priced_call"
+    assert run_payload["summary"]["reconciliation_state"] == "reconciled_zero_activity"
     assert run_payload["policy_events"] == ["service.authorization deny: capability_denied"]
     assert run_payload["approvals"][0]["run_id"] == run.run_id
 

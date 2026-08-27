@@ -69,6 +69,11 @@ def build_inline_manifest(
         input_contract_ref=input_contract_ref,
         output_contract_ref=output_contract_ref,
         timeout_seconds=timeout_seconds,
+        # Studio inline code is a local sandbox boundary, not a priced
+        # provider/connector boundary. Declaring that on the synthesized
+        # manifest lets the runner carry an authoritative measured-zero cost
+        # even when the subprocess fails before returning its normal audit.
+        metadata={"external_calls": False},
     )
 
 

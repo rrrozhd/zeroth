@@ -7,11 +7,20 @@ pieces, plus helper enums and settings objects.
 
 from __future__ import annotations
 
+import inspect
+import ipaddress
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from zeroth.contracts.governed.app.spec import (
     GovernedFlowSpec,
@@ -26,6 +35,11 @@ from zeroth.contracts.graph.warnings import warn_legacy_engine
 from zeroth.contracts.mappings.models import EdgeMapping
 from zeroth.contracts.templates.models import TemplateReference
 from zeroth.platform.primitives import utc_now
+
+_HTTP_REQUEST_PRIVATE_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+)
 
 
 class Capability(StrEnum):
@@ -555,6 +569,84 @@ class RetrievalNodeData(BaseModel):
     as_name: str = "retrieved"
 
 
+class HttpRequestNodeData(BaseModel):
+    """A bounded read-only request to a controlled local/private endpoint.
+
+    This first public HTTP-node slice is intentionally GET-only and rejects
+    public hostnames, URL credentials, query strings, and fragments.  That
+    keeps authored graphs free of secret-bearing URL material and prevents the
+    node from becoming an unrestricted SSRF primitive.  Public Internet calls
+    remain the job of governed connectors until an explicit allowlist contract
+    is designed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["GET"] = "GET"
+    # Blank is permitted only so a newly inserted draft can be saved. Publish
+    # validation and runtime dispatch both refuse it.
+    url: str = ""
+    timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    max_retries: int = Field(default=2, ge=0, le=5)
+    retryable_status_codes: set[int] = Field(
+        default_factory=lambda: {408, 429, 500, 502, 503, 504},
+        min_length=1,
+        max_length=16,
+    )
+    max_response_bytes: int = Field(default=262_144, ge=1, le=1_048_576)
+
+    @field_validator("retryable_status_codes")
+    @classmethod
+    def _validate_retryable_statuses(cls, values: set[int]) -> set[int]:
+        if any(value < 400 or value > 599 for value in values):
+            raise ValueError("retryable status codes must be between 400 and 599")
+        return values
+
+    @field_validator("url")
+    @classmethod
+    def _validate_private_get_url(cls, value: str) -> str:
+        if not value:
+            return value
+        has_control_character = any(
+            ord(character) < 32 or ord(character) == 127 for character in value
+        )
+        if value != value.strip() or has_control_character:
+            raise ValueError("HTTP request URL must not contain whitespace or control characters")
+        from urllib.parse import urlsplit
+
+        try:
+            parsed = urlsplit(value)
+            # Accessing port performs its range validation.
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("URL must contain a valid host and port") from exc
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("HTTP request URL must use http or https")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("HTTP request URL must not contain credentials")
+        if parsed.query or parsed.fragment:
+            raise ValueError("HTTP request URL must not contain a query or fragment")
+        hostname = parsed.hostname
+        if hostname is None:
+            raise ValueError("HTTP request URL must contain a host")
+        if hostname.casefold() == "localhost":
+            return value
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError as exc:
+            raise ValueError(
+                "HTTP request host must be localhost or a literal private IP address"
+            ) from exc
+        if address.is_unspecified or address.is_multicast or address.is_link_local:
+            raise ValueError("HTTP request host is not a routable private address")
+        if not (
+            address.is_loopback
+            or any(address in network for network in _HTTP_REQUEST_PRIVATE_NETWORKS)
+        ):
+            raise ValueError("HTTP request host must be loopback or private")
+        return value
+
+
 class EntrypointNodeData(BaseModel):
     """Configuration for the workflow's entrypoint. Deliberately empty.
 
@@ -562,6 +654,67 @@ class EntrypointNodeData(BaseModel):
     — it is the workflow's public input contract, pinned into the deployment
     snapshot and enforced against every submitted run payload.
     """
+
+
+class LoopNodeData(BaseModel):
+    """Configuration for a deterministic bounded retry loop header.
+
+    The first visit always enters the body. Subsequent visits evaluate
+    ``until``; a false result repeats while retries remain, then routes to the
+    explicit limit outcome. ``max_retries`` counts additional body executions
+    after the initial attempt.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Draft graphs must persist before the author has supplied the condition.
+    # Publish/preflight validation and runtime dispatch both fail closed on a
+    # blank, oversized, or unsafe expression.
+    until: str = ""
+    max_retries: int = Field(default=3, ge=0, le=100)
+
+
+class LoopNode(NodeBase):
+    """A zero-cost loop controller whose topology is executed by the graph runtime."""
+
+    node_type: Literal["loop"] = "loop"
+    loop: LoopNodeData
+
+    def to_governed_step_spec(self) -> GovernedStepSpec:
+        return GovernedStepSpec(
+            name=self.node_id,
+            tool={
+                "kind": "loop_control_ref",
+                "until": self.loop.until,
+                "max_retries": self.loop.max_retries,
+            },
+        )
+
+
+class IfNodeData(BaseModel):
+    """Configuration for a deterministic two-way decision controller."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Draft graphs must persist while the author is still configuring the node.
+    # Publish/preflight validation rejects blank, oversized, or unsafe values.
+    expression: str = ""
+
+
+class IfNode(NodeBase):
+    """A zero-cost decision node with explicit true and false routes."""
+
+    node_type: Literal["if"] = "if"
+    condition: IfNodeData
+
+    def to_governed_step_spec(self) -> GovernedStepSpec:
+        return GovernedStepSpec(
+            name=self.node_id,
+            tool={
+                "kind": "if_control_ref",
+                "expression": self.condition.expression,
+            },
+        )
 
 
 class EntrypointNode(NodeBase):
@@ -714,13 +867,49 @@ class RetrievalNode(NodeBase):
         )
 
 
+class HttpRequestNode(NodeBase):
+    """A provider-free, read-only resilient HTTP workflow step."""
+
+    node_type: Literal["http_request"] = "http_request"
+    capability_bindings: list[str] = Field(
+        default_factory=lambda: [Capability.NETWORK_READ.value, Capability.EXTERNAL_API_CALL.value]
+    )
+    http_request: HttpRequestNodeData
+
+    @model_validator(mode="after")
+    def _require_read_capabilities(self) -> HttpRequestNode:
+        required = {Capability.NETWORK_READ.value, Capability.EXTERNAL_API_CALL.value}
+        if not required <= set(self.capability_bindings):
+            raise ValueError(
+                "HTTP request nodes require network_read and external_api_call capabilities"
+            )
+        return self
+
+    def to_governed_step_spec(self) -> GovernedStepSpec:
+        return GovernedStepSpec(
+            name=self.node_id,
+            tool={
+                "kind": "http_request_ref",
+                "method": self.http_request.method,
+                "url": self.http_request.url,
+                "input_contract_ref": self.input_contract_ref,
+                "output_contract_ref": self.output_contract_ref,
+                "policy_refs": list(self.policy_bindings),
+                "capability_refs": list(self.capability_bindings),
+            },
+        )
+
+
 Node = Annotated[
     EntrypointNode
+    | IfNode
+    | LoopNode
     | AgentNode
     | ExecutableUnitNode
     | HumanApprovalNode
     | SubgraphNode
-    | RetrievalNode,
+    | RetrievalNode
+    | HttpRequestNode,
     Field(discriminator="node_type"),
 ]
 
@@ -790,6 +979,25 @@ class Graph(BaseModel):
         if missing_edges:
             msg = f"edges reference unknown nodes: {', '.join(missing_edges)}"
             raise ValueError(msg)
+        for node in self.nodes:
+            if not isinstance(node, LoopNode):
+                continue
+            required_node_visits = node.loop.max_retries + 2
+            if self.execution_settings.max_visits_per_node < required_node_visits:
+                msg = (
+                    f"loop node {node.node_id!r} requires max_visits_per_node >= "
+                    f"{required_node_visits} to emit done or limit after "
+                    f"max_retries={node.loop.max_retries}"
+                )
+                raise ValueError(msg)
+            required_edge_visits = node.loop.max_retries + 1
+            edge_limit = self.execution_settings.max_visits_per_edge
+            if edge_limit is not None and edge_limit < required_edge_visits:
+                msg = (
+                    f"loop node {node.node_id!r} requires max_visits_per_edge >= "
+                    f"{required_edge_visits} to complete max_retries={node.loop.max_retries}"
+                )
+                raise ValueError(msg)
         return self
 
     def transition_to(self, status: GraphStatus) -> Graph:
@@ -872,8 +1080,6 @@ class Graph(BaseModel):
         """Turn a list of outgoing edges into a single transition spec."""
         if not edges:
             return end()
-        if len(edges) == 1:
-            return then(edges[0].target_node_id)
 
         conditional_edges = [edge for edge in edges if edge.condition is not None]
         if conditional_edges:
@@ -883,5 +1089,28 @@ class Graph(BaseModel):
             }
             return branch(router=f"{node_id}_router", mapping=mapping)
 
+        if len(edges) == 1:
+            return then(edges[0].target_node_id)
+
         allowed = [edge.target_node_id for edge in edges]
         return route_to(allowed=allowed)
+
+
+_legacy_graph_node = Annotated[
+    EntrypointNode
+    | AgentNode
+    | ExecutableUnitNode
+    | HumanApprovalNode
+    | SubgraphNode
+    | RetrievalNode,
+    Field(discriminator="node_type"),
+]
+_graph_parameters = inspect.signature(Graph).parameters
+Graph.__signature__ = inspect.signature(Graph).replace(
+    parameters=[
+        parameter.replace(annotation=list[_legacy_graph_node])
+        if name == "nodes"
+        else parameter
+        for name, parameter in _graph_parameters.items()
+    ]
+)

@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from zeroth.contracts.graph import (
+    EntrypointNode,
     ExecutableUnitNode,
     ExecutableUnitNodeData,
     Graph,
@@ -64,6 +65,25 @@ class _StubUnitRunner:
 class _Result:
     output_data: dict[str, Any] = {"ok": True}
     audit_record: dict[str, Any] = {}
+
+
+class _EnforcementRecordingRunner:
+    def __init__(self) -> None:
+        self.enforcement_contexts: list[dict[str, Any]] = []
+
+    async def run(
+        self,
+        _manifest_ref: str,
+        _payload: Any,
+        *,
+        enforcement_context: dict[str, Any] | None = None,
+        **_kwargs: Any,
+    ) -> Any:
+        self.enforcement_contexts.append(dict(enforcement_context or {}))
+        return _Result()
+
+    def declares_side_effect(self, _manifest_ref: str) -> bool:
+        return False
 
 
 def _unit_node(node_id: str, *, inline_source: str | None = None) -> ExecutableUnitNode:
@@ -140,6 +160,76 @@ async def test_the_tool_executor_synthesizes_a_binding_for_inline_source() -> No
 
     (call,) = runner.calls
     assert call == ("run_inline_source", "code")
+
+
+async def test_entrypoint_is_explicitly_measured_as_zero_provider_cost() -> None:
+    runner = _StubUnitRunner()
+    dispatcher = NodeDispatcher(
+        agent_runners={},
+        executable_unit_runner=runner,
+        tool_executor=RuntimeToolExecutor(executable_unit_runner=runner),
+    )
+    node = EntrypointNode(node_id="start", graph_version_ref="g:v1")
+
+    output, audit = await dispatcher.dispatch_inner(node, _AnyRun(), {"value": 3})
+
+    assert output == {"value": 3}
+    assert audit["cost_usd"] == 0.0
+    assert audit["estimated_cost_usd"] == 0.0
+    assert audit["cost_measurement"] == MeasurementState.MEASURED
+
+
+async def test_inline_code_is_explicitly_measured_as_zero_provider_cost() -> None:
+    runner = _StubUnitRunner()
+    dispatcher = NodeDispatcher(
+        agent_runners={},
+        executable_unit_runner=runner,
+        tool_executor=RuntimeToolExecutor(executable_unit_runner=runner),
+    )
+    node = _unit_node("code", inline_source="print('{}')")
+
+    output, audit = await dispatcher.dispatch_inner(node, _AnyRun(), {"value": 3})
+
+    assert output == {"ok": True}
+    assert audit["cost_usd"] == 0.0
+    assert audit["estimated_cost_usd"] == 0.0
+    assert audit["cost_measurement"] == MeasurementState.MEASURED
+
+
+async def test_manifest_node_timeout_is_enforced_as_a_tighter_runtime_bound() -> None:
+    runner = _EnforcementRecordingRunner()
+    dispatcher = NodeDispatcher(
+        agent_runners={},
+        executable_unit_runner=runner,
+        tool_executor=RuntimeToolExecutor(executable_unit_runner=runner),
+    )
+    node = ExecutableUnitNode(
+        node_id="bounded-unit",
+        graph_version_ref="g:v1",
+        executable_unit=ExecutableUnitNodeData(
+            manifest_ref="eu://slow",
+            execution_mode="wrapped_command",
+            timeout_seconds=5,
+        ),
+    )
+
+    await dispatcher.dispatch_inner(node, _AnyRun(), {"value": 3})
+
+    assert runner.enforcement_contexts == [{"timeout_override_seconds": 5}]
+
+
+async def test_manifest_node_timeout_never_loosens_a_tighter_policy_bound() -> None:
+    runner = _EnforcementRecordingRunner()
+    executor = RuntimeToolExecutor(executable_unit_runner=runner)
+
+    await executor.run_unit(
+        "eu://slow",
+        {"value": 3},
+        enforcement_context={"timeout_override_seconds": 2},
+        timeout_seconds=5,
+    )
+
+    assert runner.enforcement_contexts == [{"timeout_override_seconds": 2}]
 
 
 async def test_a_tool_call_targeting_a_non_unit_node_is_rejected() -> None:
@@ -253,6 +343,7 @@ async def test_subgraph_dispatch_seam_rolls_up_child_cost(resumed: bool) -> None
         parent_run=parent,
         node=node,
         input_payload={"input": True},
+        branch_context=None,
         step_tracker=None,
     )
 

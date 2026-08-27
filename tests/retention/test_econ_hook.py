@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
+import pytest
+
 from tests.retention.conftest import make_audit_record
 from zeroth.governance.retention import RetentionErasureService, SqlAlchemyEconEventEraser
 from zeroth.governance.retention.econ_eraser import EconEventEraser
 from zeroth.runtime.runs import Run
+from zeroth.service.bootstrap.factory import _build_retention_econ_eraser
 
 
 class _RecordingEconEraser:
@@ -57,6 +63,38 @@ async def test_erase_run_calls_econ_hook_with_run_and_metadata_join_keys(env) ->
 
     actions = [e["action"] for e in await env.log_repo.list_for_run("run-econ")]
     assert "econ_erase" in actions
+
+
+async def test_enabled_but_unavailable_econ_cleanup_is_failed_not_skipped(
+    env,
+    monkeypatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "zeroth.econ.plane.database", None)
+    eraser = _build_retention_econ_eraser(
+        SimpleNamespace(regulus=SimpleNamespace(enabled=True))
+    )
+    service = RetentionErasureService(
+        audit_repository=env.audit_repo,
+        run_repository=env.run_repo,
+        policy_repository=env.policy_repo,
+        legal_hold_repository=env.hold_repo,
+        log_repository=env.log_repo,
+        artifact_store=env.artifact_store,
+        econ_eraser=eraser,
+    )
+    await env.run_repo.put(
+        Run(run_id="run-econ-unavailable", graph_version_ref="graph:v1", deployment_ref="deploy")
+    )
+
+    result = await service.erase_run("run-econ-unavailable", "rte")
+
+    assert result.external_cleanup_status == "failed"
+    assert result.econ_events_deleted == 0
+    actions = [
+        event["action"] for event in await env.log_repo.list_for_run("run-econ-unavailable")
+    ]
+    assert "econ_erase_failed" in actions
+    assert "econ_erase_skipped" not in actions
 
 
 async def test_sqlalchemy_econ_eraser_noop_on_empty_keys() -> None:
@@ -161,3 +199,47 @@ async def test_sqlalchemy_econ_eraser_replays_durable_receipt(monkeypatch) -> No
 
     assert first == second == 2
     assert execute_calls == 2
+
+
+async def test_sqlalchemy_econ_eraser_uses_injected_session_factory(monkeypatch) -> None:
+    from zeroth.econ.plane import database as econ_database
+
+    created = []
+
+    class _Result:
+        rowcount = 0
+
+    class _Session:
+        def get(self, model, operation_id):
+            return None
+
+        def execute(self, statement):
+            return _Result()
+
+        def add(self, receipt):
+            return None
+
+        def flush(self):
+            return None
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    def configured_session_factory():
+        created.append("configured")
+        return _Session()
+
+    def wrong_global_session_factory():
+        raise AssertionError("global econ session factory must not be used")
+
+    monkeypatch.setattr(econ_database, "SessionLocal", wrong_global_session_factory)
+    eraser = SqlAlchemyEconEventEraser(session_factory=configured_session_factory)
+
+    assert eraser._delete_sync("tenant-a", ["join-a"], "operation-a") == 0
+    assert created == ["configured"]

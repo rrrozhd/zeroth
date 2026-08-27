@@ -9,9 +9,13 @@ import pytest
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
+    Condition,
     Edge,
     Graph,
+    IfNode,
+    IfNodeData,
 )
+from zeroth.contracts.graph.validation.control_nodes import canonical_if_route_condition
 from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
 from zeroth.runtime.subgraphs.resolver import (
@@ -19,6 +23,7 @@ from zeroth.runtime.subgraphs.resolver import (
     merge_governance,
     namespace_subgraph,
 )
+from zeroth.runtime.subgraphs import resolver as resolver_module
 from zeroth.service.deployments.models import Deployment
 
 # ---------------------------------------------------------------------------
@@ -233,6 +238,175 @@ class TestNamespaceSubgraph:
         assert edge.source_node_id == "subgraph:child-ref:1:a1"
         assert edge.target_node_id == "subgraph:child-ref:1:a2"
 
+    @pytest.mark.parametrize("route", ["true", "false"])
+    @pytest.mark.parametrize("branch_index", [None, 7])
+    def test_recanonicalizes_if_route_condition_for_namespace(
+        self,
+        route: str,
+        branch_index: int | None,
+    ) -> None:
+        decision = IfNode(
+            node_id="pause-decision",
+            graph_version_ref="child-g@1",
+            condition=IfNodeData(expression="payload.index == 7"),
+        )
+        target = AgentNode(
+            node_id="approval-delay",
+            graph_version_ref="child-g@1",
+            agent=AgentNodeData(instruction="delay", model_provider="openai/gpt-4"),
+        )
+        original_condition = canonical_if_route_condition("pause-decision", route)
+        graph = Graph(
+            graph_id="child-g",
+            name="child-g",
+            version=1,
+            nodes=[decision, target],
+            edges=[
+                Edge(
+                    edge_id="decision-approval",
+                    source_node_id="pause-decision",
+                    target_node_id="approval-delay",
+                    condition=original_condition,
+                    metadata={"source_handle": route},
+                )
+            ],
+            entry_step="pause-decision",
+        )
+
+        namespaced = namespace_subgraph(
+            graph,
+            "approval-child",
+            depth=1,
+            branch_index=branch_index,
+        )
+
+        branch_prefix = "" if branch_index is None else f"branch:{branch_index}:"
+        qualified_id = f"{branch_prefix}subgraph:approval-child:1:pause-decision"
+        assert namespaced.edges[0].condition == canonical_if_route_condition(
+            qualified_id,
+            route,
+        )
+        assert graph.edges[0].condition == original_condition
+
+    def test_preserves_non_if_custom_condition(self) -> None:
+        graph = _make_graph()
+        custom = Condition(expression="payload.route == 'custom'", metadata={"owner": "author"})
+        graph.edges[0] = graph.edges[0].model_copy(update={"condition": custom})
+
+        namespaced = namespace_subgraph(graph, "child-ref", depth=1, branch_index=3)
+
+        assert namespaced.edges[0].condition == custom
+        assert graph.edges[0].condition == custom
+
+    def test_preserves_if_tool_edge_condition(self) -> None:
+        decision = IfNode(
+            node_id="pause-decision",
+            graph_version_ref="child-g@1",
+            condition=IfNodeData(expression="payload.index == 7"),
+        )
+        target = AgentNode(
+            node_id="tool-target",
+            graph_version_ref="child-g@1",
+            agent=AgentNodeData(instruction="tool", model_provider="openai/gpt-4"),
+        )
+        custom = Condition(expression="payload.tool_enabled == True")
+        graph = Graph(
+            graph_id="child-g",
+            name="child-g",
+            version=1,
+            nodes=[decision, target],
+            edges=[
+                Edge(
+                    edge_id="tool-edge",
+                    source_node_id="pause-decision",
+                    target_node_id="tool-target",
+                    kind="tool",
+                    condition=custom,
+                    metadata={"source_handle": "true"},
+                )
+            ],
+            entry_step="pause-decision",
+        )
+
+        namespaced = namespace_subgraph(graph, "child-ref", depth=1, branch_index=3)
+
+        assert namespaced.edges[0].condition == custom
+        assert graph.edges[0].condition == custom
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("index", "route"), [(7, "true"), (6, "false")])
+    async def test_namespaced_if_dispatch_selects_one_qualified_target(
+        self,
+        index: int,
+        route: str,
+    ) -> None:
+        from zeroth.contracts.conditions import BranchResolver
+        from zeroth.contracts.conditions.models import ConditionContext
+        from zeroth.runtime.orchestration import NodeDispatcher, RuntimeToolExecutor
+        from zeroth.runtime.runs import Run
+
+        decision = IfNode(
+            node_id="pause-decision",
+            graph_version_ref="child-g@1",
+            condition=IfNodeData(expression="payload.index == 7"),
+        )
+        targets = [
+            AgentNode(
+                node_id=f"{candidate}-target",
+                graph_version_ref="child-g@1",
+                agent=AgentNodeData(
+                    instruction=candidate,
+                    model_provider="openai/gpt-4",
+                ),
+            )
+            for candidate in ("true", "false")
+        ]
+        graph = Graph(
+            graph_id="child-g",
+            name="child-g",
+            version=1,
+            nodes=[decision, *targets],
+            edges=[
+                Edge(
+                    edge_id=f"{candidate}-edge",
+                    source_node_id="pause-decision",
+                    target_node_id=f"{candidate}-target",
+                    condition=canonical_if_route_condition("pause-decision", candidate),
+                    metadata={"source_handle": candidate},
+                )
+                for candidate in ("true", "false")
+            ],
+            entry_step="pause-decision",
+        )
+        namespaced = namespace_subgraph(graph, "approval-child", depth=1, branch_index=7)
+        qualified_source = "branch:7:subgraph:approval-child:1:pause-decision"
+        namespaced_decision = next(
+            node for node in namespaced.nodes if node.node_id == qualified_source
+        )
+        unused_runner = object()
+        dispatcher = NodeDispatcher(
+            agent_runners={},
+            executable_unit_runner=unused_runner,
+            tool_executor=RuntimeToolExecutor(executable_unit_runner=unused_runner),
+        )
+
+        output, _audit = await dispatcher.dispatch_inner(
+            namespaced_decision,
+            Run(graph_version_ref="parent@1", deployment_ref="parent"),
+            {"index": index},
+        )
+        resolution = BranchResolver().resolve(
+            namespaced,
+            qualified_source,
+            ConditionContext(payload=output),
+        )
+
+        assert resolution.next_node_ids == [
+            f"branch:7:subgraph:approval-child:1:{route}-target"
+        ]
+        assert len(resolution.active_edge_ids) == 1
+        assert len(resolution.suppressed_edge_ids) == 1
+
     def test_prefixes_entry_step(self) -> None:
         graph = _make_graph(entry_step="a1")
         ns = namespace_subgraph(graph, "child-ref", depth=1)
@@ -262,6 +436,16 @@ class TestNamespaceSubgraph:
         graph = Graph(graph_id="g1", name="empty")
         ns = namespace_subgraph(graph, "ref", depth=1)
         assert ns.entry_step is None
+
+    def test_runner_key_strips_only_parallel_branch_prefixes(self) -> None:
+        canonical_runner_id = getattr(resolver_module, "canonical_runner_id", None)
+
+        assert canonical_runner_id is not None
+        assert (
+            canonical_runner_id("branch:7:subgraph:child-ref:1:a1")
+            == "subgraph:child-ref:1:a1"
+        )
+        assert canonical_runner_id("subgraph:child-ref:1:a1") == "subgraph:child-ref:1:a1"
 
 
 # ---------------------------------------------------------------------------

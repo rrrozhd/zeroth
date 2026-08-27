@@ -39,7 +39,12 @@ class DeployedOutputContractV2(BaseModel):
     request_id: str
 
 
-async def _deploy_contract_service(sqlite_db, *, deployment_ref: str = "contract-api-service"):
+async def _deploy_contract_service(
+    sqlite_db,
+    *,
+    deployment_ref: str = "contract-api-service",
+    additional_deployment_ref: str | None = None,
+):
     graph_repository = GraphRepository(sqlite_db)
     contract_registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await contract_registry.register(DeployedInputContract, name="contract://input")
@@ -55,6 +60,14 @@ async def _deploy_contract_service(sqlite_db, *, deployment_ref: str = "contract
     graph = await graph_repository.create(build_graph())
     await graph_repository.publish(graph.graph_id, graph.version)
     deployment = await deployment_service.deploy(deployment_ref, graph.graph_id, graph.version)
+    if additional_deployment_ref is not None:
+        await deployment_service.deploy(
+            additional_deployment_ref,
+            graph.graph_id,
+            graph.version,
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
+        )
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
@@ -181,6 +194,50 @@ async def test_deployment_metadata_endpoint_returns_version_snapshot(sqlite_db) 
     assert parsed.model_dump(mode="json") == response.json()
 
 
+async def test_deployment_inspection_resolves_listed_non_serving_deployment(sqlite_db) -> None:
+    """Every deployment returned by the registry list must be inspectable.
+
+    A service process executes one bound deployment, but the console lists the
+    tenant/workspace deployment registry.  Detail reads therefore cannot be
+    limited to the process-bound deployment.
+    """
+    app, service, serving = await _deploy_contract_service(
+        sqlite_db,
+        deployment_ref="contract-api-serving",
+        additional_deployment_ref="contract-api-inspected",
+    )
+    inspected = await service.deployment_service.get(
+        "contract-api-inspected",
+        tenant_id=serving.tenant_id,
+        workspace_id=serving.workspace_id,
+    )
+    assert inspected is not None
+
+    paths = (
+        "metadata",
+        "input-contract",
+        "output-contract",
+        "result-error-state-schema",
+    )
+    with TestClient(app) as client:
+        listed = client.get("/deployments", headers=admin_headers())
+        responses = {
+            path: client.get(
+                f"/deployments/{inspected.deployment_ref}/{path}",
+                headers=admin_headers(),
+            )
+            for path in paths
+        }
+
+    assert listed.status_code == 200
+    assert inspected.deployment_ref in {row["deployment_ref"] for row in listed.json()}
+    assert service.deployment.deployment_ref == serving.deployment_ref
+    assert {path: response.status_code for path, response in responses.items()} == {
+        path: 200 for path in paths
+    }
+    assert responses["metadata"].json()["deployment_ref"] == inspected.deployment_ref
+
+
 async def test_schema_serialization_round_trip(sqlite_db) -> None:
     app, _, deployment = await _deploy_contract_service(sqlite_db)
 
@@ -223,6 +280,40 @@ async def test_contract_endpoints_use_deployed_contract_versions(sqlite_db) -> N
     assert output_response.json()["version"] == 1
     assert "request_id" not in input_response.json()["json_schema"]["properties"]
     assert "request_id" not in output_response.json()["json_schema"]["properties"]
+
+
+async def test_contract_endpoints_parse_explicitly_versioned_snapshot_refs(sqlite_db) -> None:
+    """A pinned ``name@version`` ref must not become the literal registry name."""
+    _, _, deployment = await _deploy_contract_service(sqlite_db)
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
+            """
+            UPDATE deployment_versions
+            SET entry_input_contract_ref = ?, entry_output_contract_ref = ?
+            WHERE deployment_id = ?
+            """,
+            ("contract://input@1", "contract://output@1", deployment.deployment_id),
+        )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
+
+    with TestClient(app) as client:
+        input_response = client.get(
+            f"/deployments/{deployment.deployment_ref}/input-contract",
+            headers=admin_headers(),
+        )
+        output_response = client.get(
+            f"/deployments/{deployment.deployment_ref}/output-contract",
+            headers=admin_headers(),
+        )
+
+    assert input_response.status_code == 200
+    assert output_response.status_code == 200
+    assert input_response.json()["name"] == "contract://input"
+    assert output_response.json()["name"] == "contract://output"
 
 
 async def test_contract_endpoints_fail_closed_for_legacy_unpinned_deployment(sqlite_db) -> None:

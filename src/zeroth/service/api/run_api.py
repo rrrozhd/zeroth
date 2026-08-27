@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -57,6 +58,13 @@ class RunInvocationRequest(BaseModel):
 
     input_payload: dict[str, Any] = Field(default_factory=dict)
     thread_id: str | None = None
+    campaign_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    campaign_strict: Literal[True] = True
 
 
 class ApprovalPausedState(BaseModel):
@@ -69,6 +77,28 @@ class ApprovalPausedState(BaseModel):
     input_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class RoutingDecisionResponse(BaseModel):
+    """Content-free record of one persisted conditional-route decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    condition_id: str
+    selected_edge_id: str | None = None
+    matched: bool
+    suppression_reason: Literal["edge_disabled", "condition_false", "visit_limit"] | None = None
+
+
+class RunTraversalResponse(BaseModel):
+    """Sanitized traversal proof for loops and conditional routing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_visit_counts: dict[str, int] = Field(default_factory=dict)
+    edge_visit_counts: dict[str, int] = Field(default_factory=dict)
+    routing_decisions: list[RoutingDecisionResponse] = Field(default_factory=list)
+    stop_reason: Literal["no_outgoing_edges", "branch_suppressed"] | None = None
+
+
 class RunStatusResponse(BaseModel):
     """Public serialization of run state."""
 
@@ -79,8 +109,10 @@ class RunStatusResponse(BaseModel):
     deployment_ref: str
     graph_version_ref: str
     thread_id: str
+    parent_run_id: str | None = None
     tenant_id: str = "default"
     workspace_id: str | None = None
+    campaign_id: str | None = None
     submitted_by: ActorIdentity | None = None
     current_step: str | None = None
     terminal_output: Any | None = None
@@ -89,10 +121,51 @@ class RunStatusResponse(BaseModel):
     audit_refs: list[str] = Field(default_factory=list)
     timeline_ref: str | None = None
     evidence_ref: str | None = None
+    traversal: RunTraversalResponse = Field(default_factory=RunTraversalResponse)
 
 
 class RunInvocationResponse(RunStatusResponse):
     """Response body for run creation."""
+
+
+class ChildRunSummaryResponse(BaseModel):
+    """Payload-free direct-child identity exposed for lineage inspection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    status: RunPublicStatus
+    deployment_ref: str
+    graph_version_ref: str
+    thread_id: str
+    parent_run_id: str
+    campaign_id: str | None = None
+
+
+_run_invocation_parameters = inspect.signature(RunInvocationRequest).parameters
+RunInvocationRequest.__signature__ = inspect.signature(RunInvocationRequest).replace(
+    parameters=[
+        parameter
+        for name, parameter in _run_invocation_parameters.items()
+        if name not in {"campaign_id", "campaign_strict"}
+    ]
+)
+_run_status_parameters = inspect.signature(RunStatusResponse).parameters
+RunStatusResponse.__signature__ = inspect.signature(RunStatusResponse).replace(
+    parameters=[
+        parameter
+        for name, parameter in _run_status_parameters.items()
+        if name not in {"campaign_id", "traversal"}
+    ]
+)
+_run_invocation_response_parameters = inspect.signature(RunInvocationResponse).parameters
+RunInvocationResponse.__signature__ = inspect.signature(RunInvocationResponse).replace(
+    parameters=[
+        parameter
+        for name, parameter in _run_invocation_response_parameters.items()
+        if name not in {"campaign_id", "traversal"}
+    ]
+)
 
 
 def register_run_routes(app: FastAPI | APIRouter) -> None:
@@ -102,6 +175,12 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
     async def create_run(request: Request, payload: RunInvocationRequest) -> RunInvocationResponse:
         """Validate, guard-check, and queue a new run; requires ``Permission.RUN_CREATE``."""
         bootstrap = _bootstrap(request)
+        strict_campaign_id = getattr(bootstrap, "evaluation_campaign_id", None)
+        if strict_campaign_id is not None and payload.campaign_id != strict_campaign_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="strict evaluation requires the configured campaign identity",
+            )
         deployment = bootstrap.deployment
         graph = bootstrap.graph
         principal = await require_permission(request, Permission.RUN_CREATE)
@@ -109,6 +188,14 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
         # Validate against the pinned deployment contract version.
         validated_input = await _validate_input_payload(bootstrap, payload.input_payload)
         thread_id = await _validate_thread_id(bootstrap, payload.thread_id) or ""
+        metadata = _initial_metadata(graph, validated_input)
+        if payload.campaign_id is not None:
+            metadata.update(
+                {
+                    "campaign_id": payload.campaign_id,
+                    "campaign_strict": True,
+                }
+            )
         run = Run(
             graph_version_ref=deployment.graph_version_ref,
             deployment_ref=deployment.deployment_ref,
@@ -120,7 +207,7 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
             pending_node_ids=(
                 [] if token_engine_enabled(graph.execution_settings) else [_entry_step(graph)]
             ),
-            metadata=_initial_metadata(graph, validated_input),
+            metadata=metadata,
         )
         # Guardrail checks before persisting.
         await _check_guardrails(bootstrap, run)
@@ -147,11 +234,7 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
         bootstrap = _bootstrap(request)
         await require_permission(request, Permission.RUN_READ)
         run = await bootstrap.run_repository.get(run_id)
-        if (
-            run is None
-            or run.deployment_ref != bootstrap.deployment.deployment_ref
-            or run.graph_version_ref != bootstrap.deployment.graph_version_ref
-        ):
+        if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         await require_resource_scope(
             request,
@@ -160,6 +243,35 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
             not_found_detail="run not found",
         )
         return _serialize_run(run)
+
+    @app.get(
+        "/runs/{run_id}/children",
+        response_model=list[ChildRunSummaryResponse],
+    )
+    async def list_child_runs(request: Request, run_id: str) -> list[ChildRunSummaryResponse]:
+        """Return payload-free direct-child linkage within the caller's scope."""
+        bootstrap = _bootstrap(request)
+        await require_permission(request, Permission.RUN_READ)
+        parent = await bootstrap.run_repository.get(run_id)
+        if parent is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+        children = await bootstrap.run_repository.list_child_runs(parent.run_id)
+        return [
+            ChildRunSummaryResponse(
+                run_id=child.run_id,
+                status=_public_status(child),
+                deployment_ref=child.deployment_ref,
+                graph_version_ref=child.graph_version_ref,
+                thread_id=child.thread_id,
+                parent_run_id=parent.run_id,
+                campaign_id=(
+                    str(child.metadata["campaign_id"])
+                    if child.metadata.get("campaign_id") is not None
+                    else None
+                ),
+            )
+            for child in children
+        ]
 
 
 def _bootstrap(request: Request) -> RunApiBootstrapLike:
@@ -188,9 +300,10 @@ async def _validate_input_payload(
             status_code=status.HTTP_409_CONFLICT,
             detail="deployment snapshot is missing pinned input contract version",
         )
+    parsed_ref = ContractReference.parse(contract_ref)
     try:
         contract_model = await bootstrap.contract_registry.resolve_model_type(
-            ContractReference(name=contract_ref, version=contract_version)
+            ContractReference(name=parsed_ref.name, version=contract_version)
         )
         # Model validation keeps the API contract aligned with the deployed graph snapshot.
         validated = contract_model.model_validate(payload)
@@ -273,8 +386,14 @@ def _serialize_run(run: Run) -> RunStatusResponse:
         deployment_ref=run.deployment_ref,
         graph_version_ref=run.graph_version_ref,
         thread_id=run.thread_id,
+        parent_run_id=run.parent_run_id,
         tenant_id=run.tenant_id,
         workspace_id=run.workspace_id,
+        campaign_id=(
+            str(run.metadata["campaign_id"])
+            if run.metadata.get("campaign_id") is not None
+            else None
+        ),
         submitted_by=run.submitted_by,
         current_step=run.current_step,
         terminal_output=run.final_output,
@@ -283,6 +402,41 @@ def _serialize_run(run: Run) -> RunStatusResponse:
         audit_refs=list(run.audit_refs),
         timeline_ref=f"/runs/{run.run_id}/timeline",
         evidence_ref=f"/runs/{run.run_id}/evidence",
+        traversal=_serialize_traversal(run),
+    )
+
+
+def _serialize_traversal(run: Run) -> RunTraversalResponse:
+    """Project persisted traversal state without condition values or payloads."""
+    allowed_suppression = {"edge_disabled", "condition_false", "visit_limit"}
+    allowed_stop = {"no_outgoing_edges", "branch_suppressed"}
+    decisions = []
+    for result in run.condition_results:
+        reason = result.details.get("suppression_reason")
+        decisions.append(
+            RoutingDecisionResponse(
+                condition_id=result.condition_id,
+                selected_edge_id=result.selected_edge_id,
+                matched=result.matched,
+                suppression_reason=reason if reason in allowed_suppression else None,
+            )
+        )
+    raw_edge_counts = run.metadata.get("edge_visit_counts", {})
+    edge_counts = (
+        {
+            str(edge_id): count
+            for edge_id, count in raw_edge_counts.items()
+            if isinstance(count, int) and count >= 0
+        }
+        if isinstance(raw_edge_counts, Mapping)
+        else {}
+    )
+    raw_stop = run.metadata.get("terminal_reason")
+    return RunTraversalResponse(
+        node_visit_counts=dict(run.node_visit_counts),
+        edge_visit_counts=edge_counts,
+        routing_decisions=decisions,
+        stop_reason=raw_stop if raw_stop in allowed_stop else None,
     )
 
 

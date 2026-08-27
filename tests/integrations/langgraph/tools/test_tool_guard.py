@@ -251,7 +251,7 @@ def test_lifecycle_recording_failure_does_not_mask_the_tool_error(
         del args, kwargs
         raise ToolGovernanceError("storage unavailable")
 
-    monkeypatch.setattr(lifecycle, "fail", fail_recording)
+    monkeypatch.setattr(lifecycle, "mark_ambiguous", fail_recording)
     with pytest.raises(RuntimeError) as raised:
         guard_tool_call(
             action,
@@ -262,6 +262,133 @@ def test_lifecycle_recording_failure_does_not_mask_the_tool_error(
         )
 
     assert raised.value is failure
+
+
+def test_timeout_after_effect_is_ambiguous_and_never_retried(tmp_path: Any) -> None:
+    lifecycle = SQLiteActionExecutionRepository(tmp_path / "timeout-actions.sqlite3")
+    action = dataclasses.replace(ACTION, tool_call_id="call-timeout-after-effect")
+    markers: list[str] = []
+
+    def timeout_after_effect() -> None:
+        markers.append("effect")
+        raise TimeoutError("receipt lost")
+
+    with pytest.raises(TimeoutError):
+        guard_tool_call(
+            action,
+            THREADED,
+            timeout_after_effect,
+            client=StubClient(ALLOW),
+            action_lifecycle=lifecycle,
+        )
+    assert lifecycle.records()[0].state.value == "ambiguous"
+
+    with pytest.raises(ToolGovernanceError):
+        guard_tool_call(
+            action,
+            THREADED,
+            lambda: markers.append("duplicate"),
+            client=StubClient(ALLOW),
+            action_lifecycle=lifecycle,
+        )
+    assert markers == ["effect"]
+
+
+def test_structural_action_repository_is_accepted(tmp_path: Any) -> None:
+    inner = SQLiteActionExecutionRepository(tmp_path / "structural-actions.sqlite3")
+
+    class StructuralRepository:
+        begin_once = inner.begin_once
+        complete = inner.complete
+        mark_ambiguous = inner.mark_ambiguous
+        fail_pre_effect = inner.fail_pre_effect
+        replay_or_raise = inner.replay_or_raise
+        reconcile_completed = inner.reconcile_completed
+        reconcile_no_effect = inner.reconcile_no_effect
+
+    action = dataclasses.replace(ACTION, tool_call_id="call-structural")
+
+    result = guard_tool_call(
+        action,
+        THREADED,
+        lambda: {"ok": True},
+        client=StubClient(ALLOW),
+        action_lifecycle=StructuralRepository(),
+    )
+
+    assert result == {"ok": True}
+    assert inner.records()[0].state.value == "completed"
+
+
+def test_structural_approval_repository_is_accepted(tmp_path: Any) -> None:
+    inner = SQLiteApprovalRepository(tmp_path / "structural-approvals.sqlite3")
+
+    class StructuralRepository:
+        get = inner.get
+        replay_for = inner.replay_for
+        _claimed_replay = inner._claimed_replay
+        _replay_for_claim = inner._replay_for_claim
+        begin_once = inner.begin_once
+        decide = inner.decide
+        consume = inner.consume
+        claim = inner.claim
+        finish = inner.finish
+        fail = inner.fail
+        ready = inner.ready
+        terminal = inner.terminal
+        _claim = inner._claim
+        _acquire_resume_lock = inner._acquire_resume_lock
+        _release_resume_lock = inner._release_resume_lock
+
+    result = guard_tool_call(
+        ACTION,
+        THREADED,
+        lambda: "ok",
+        client=StubClient(ALLOW),
+        approval_lifecycle=StructuralRepository(),
+    )
+
+    assert result == "ok"
+
+
+async def test_cancellation_after_effect_propagates_and_resume_never_reexecutes(
+    tmp_path: Any,
+) -> None:
+    lifecycle = SQLiteActionExecutionRepository(tmp_path / "cancel-actions.sqlite3")
+    action = dataclasses.replace(ACTION, tool_call_id="call-cancel-after-effect")
+    started = asyncio.Event()
+    never = asyncio.Event()
+    markers: list[str] = []
+
+    async def cancel_after_effect() -> None:
+        markers.append("effect")
+        started.set()
+        await never.wait()
+
+    task = asyncio.create_task(
+        aguard_tool_call(
+            action,
+            THREADED,
+            cancel_after_effect,
+            client=StubClient(ALLOW),
+            action_lifecycle=lifecycle,
+        )
+    )
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert lifecycle.records()[0].state.value == "ambiguous"
+
+    with pytest.raises(ToolGovernanceError):
+        await aguard_tool_call(
+            action,
+            THREADED,
+            lambda: markers.append("duplicate"),  # type: ignore[arg-type,return-value]
+            client=StubClient(ALLOW),
+            action_lifecycle=lifecycle,
+        )
+    assert markers == ["effect"]
 
 
 def test_authorizing_without_invoking_returns_the_allow_verdict() -> None:

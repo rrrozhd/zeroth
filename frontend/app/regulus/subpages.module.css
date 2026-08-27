@@ -1,0 +1,251 @@
+.stack {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.panelStack,
+.loadingStack,
+.resultStack {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.sectionNote {
+  max-width: var(--copy-measure);
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.subheading {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.toolbar,
+.recordHeader,
+.decisionRecord,
+.trendSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbar {
+  align-items: stretch;
+}
+
+.toolbar > :first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.actionRecord {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.recordHeader {
+  min-width: 0;
+}
+
+.recordIdentity,
+.recordMeta,
+.tableCellMono,
+.metricCaption {
+  font-family: var(--font-mono);
+}
+
+.recordIdentity {
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.recordType {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.recordCapability {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recordStatus {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.recordReason,
+.decisionHelp,
+.inlineError,
+.emptyInline,
+.overflowNote {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.recordMeta,
+.decisionHelp,
+.overflowNote {
+  color: var(--text-faint);
+  font-size: 0.6875rem;
+}
+
+.actionBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15.5rem;
+  gap: var(--space-4);
+}
+
+.actionMain {
+  min-width: 0;
+}
+
+.decisionRail,
+.decisionRecord {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.decisionRail button {
+  width: 100%;
+}
+
+.inlineError {
+  color: var(--danger);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--hair);
+  padding: 0.5625rem 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.table td {
+  max-width: 16.25rem;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+}
+
+.tableCellStrong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.375rem, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-surface);
+  background: var(--hair);
+}
+
+.metricTile {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  background: var(--bg-card);
+  padding: var(--space-3);
+}
+
+.metricLabel,
+.metricCaption {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+.metricValue {
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.trendSummary {
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.trendLatest {
+  min-width: 0;
+}
+
+.trendValue {
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.trendMeta {
+  max-width: 14rem;
+  overflow: hidden;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jsonInset {
+  padding: var(--space-3);
+  border-top: 1px solid var(--hair);
+}
+
+@media (max-width: 44rem) {
+  .actionBody {
+    grid-template-columns: 1fr;
+  }
+
+  .recordHeader {
+    flex-wrap: wrap;
+  }
+
+  .recordCapability {
+    order: 5;
+    width: 100%;
+  }
+
+  .recordStatus {
+    margin-left: 0;
+  }
+
+  .toolbar {
+    flex-direction: column;
+  }
+}

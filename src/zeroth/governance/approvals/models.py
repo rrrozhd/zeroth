@@ -71,6 +71,7 @@ class ApprovalResolution(BaseModel):
     decision: ApprovalDecision
     actor: ActorIdentity
     edited_payload: dict[str, Any] | None = None
+    reason: str | None = Field(default=None, min_length=1, max_length=1000)
     resolved_at: datetime = Field(default_factory=utc_now)
 
 

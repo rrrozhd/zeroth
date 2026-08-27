@@ -102,6 +102,21 @@ async def test_right_to_erasure_via_api_strips_pii_and_chain_still_verifies(sqli
         body = erase.json()
         assert body["reason"] == "rte"
         assert body["runs"][0]["audits_erased"] == 2
+        assert body["runs"][0]["cleanup_state"] == "complete"
+        assert body["runs"][0]["authorization_log_id"]
+
+        history = client.get("/v1/retention/erasure-history", headers=admin_headers())
+        assert history.status_code == 200, history.text
+        completion = next(
+            row for row in history.json() if row["action"] == "erase_run_complete"
+        )
+        assert completion["run_id"] == "run-rte"
+        assert completion["detail"]["external_cleanup_status"] == "complete"
+
+        denied_history = client.get(
+            "/v1/retention/erasure-history", headers=operator_headers()
+        )
+        assert denied_history.status_code == 403
 
         # Evidence bundle still returns 200, PII stripped, continuity intact.
         evidence = client.get("/runs/run-rte/evidence", headers=admin_headers())
@@ -137,6 +152,10 @@ async def test_legal_hold_makes_erasure_conflict_then_release_allows_it(sqlite_d
         assert placed.status_code == 201, placed.text
         hold_id = placed.json()["hold_id"]
 
+        listed = client.get("/v1/retention/legal-holds", headers=admin_headers())
+        assert listed.status_code == 200, listed.text
+        assert [hold["hold_id"] for hold in listed.json()] == [hold_id]
+
         conflict = client.post(
             "/v1/retention/erasure-requests",
             json={"run_id": "run-hold"},
@@ -147,6 +166,10 @@ async def test_legal_hold_makes_erasure_conflict_then_release_allows_it(sqlite_d
         released = client.delete(f"/v1/retention/legal-holds/{hold_id}", headers=admin_headers())
         assert released.status_code == 200
         assert released.json()["active"] is False
+
+        listed_after_release = client.get("/v1/retention/legal-holds", headers=admin_headers())
+        assert listed_after_release.status_code == 200
+        assert listed_after_release.json() == []
 
         ok = client.post(
             "/v1/retention/erasure-requests",
@@ -220,7 +243,7 @@ async def test_put_retention_policy_rejects_invalid_ttls(sqlite_db) -> None:
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        for bad in (0, -1, 1.5):
+        for bad in (0, -1, 1.5, 2_147_483_648):
             r = client.put(
                 "/v1/retention/policy",
                 json={"audit_ttl_seconds": bad, "run_ttl_seconds": None, "enabled": True},
@@ -233,3 +256,16 @@ async def test_put_retention_policy_rejects_invalid_ttls(sqlite_db) -> None:
                 headers=admin_headers(),
             )
             assert r.status_code == 422, f"run_ttl_seconds={bad}: {r.status_code} {r.text}"
+
+        maximum = client.put(
+            "/v1/retention/policy",
+            json={
+                "audit_ttl_seconds": 2_147_483_647,
+                "run_ttl_seconds": 2_147_483_647,
+                "enabled": True,
+            },
+            headers=admin_headers(),
+        )
+        assert maximum.status_code == 200, maximum.text
+        assert maximum.json()["audit_ttl_seconds"] == 2_147_483_647
+        assert maximum.json()["run_ttl_seconds"] == 2_147_483_647

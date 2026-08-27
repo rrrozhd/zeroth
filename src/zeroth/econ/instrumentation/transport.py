@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import threading
 import time
 import logging
 from collections import deque
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,11 +32,13 @@ class TelemetryTransport:
         self,
         config: InstrumentationConfig,
         headers_provider: Callable[[], dict[str, str]] | None = None,
+        _asgi_app: Any | None = None,
     ):
         # headers_provider (Zeroth vendor addition): called once per flush to
         # obtain fresh request headers (e.g. a short-lived auth token). See
         # VENDOR.md.
         self._headers_provider = headers_provider
+        self._asgi_app = _asgi_app
         self.config = config
         self._queue: deque[_QueuedEvent] = deque()
         self._lock = threading.Lock()
@@ -56,6 +61,37 @@ class TelemetryTransport:
 
     def enqueue_execution(self, event: ExecutionEvent) -> None:
         self._enqueue("/instrumentation/executions", event.model_dump(mode="json"))
+
+    def deliver_execution_confirmed(self, event: ExecutionEvent) -> None:
+        """Deliver one execution synchronously or raise before reporting success.
+
+        Explicit provider probes use this path because their API response is an
+        acceptance boundary: returning while an event exists only in the
+        in-memory retry deque would mislabel an unreconciled call as complete.
+        The ingestion endpoint is idempotent by tenant/execution identity, so a
+        caller can safely reconcile an ambiguous response without duplicating it.
+        """
+        queued = _QueuedEvent(
+            endpoint="/instrumentation/executions",
+            payload=event.model_dump(mode="json"),
+            next_attempt_at=time.time(),
+        )
+        headers = self._headers_provider() if self._headers_provider is not None else None
+        if self._asgi_app is not None:
+            response = self._post_in_process(queued, headers)
+        else:
+            with httpx.Client(
+                timeout=self.config.request_timeout_s,
+                headers=headers,
+            ) as client:
+                response = client.post(
+                    f"{self.config.base_url.rstrip('/')}{queued.endpoint}",
+                    json=queued.payload,
+                )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"confirmed instrumentation delivery failed with status {response.status_code}"
+            )
 
     async def aenqueue_execution(self, event: ExecutionEvent) -> None:
         self.enqueue_execution(event)
@@ -105,10 +141,21 @@ class TelemetryTransport:
 
         failed: list[_QueuedEvent] = []
         headers = self._headers_provider() if self._headers_provider is not None else None
-        with httpx.Client(timeout=self.config.request_timeout_s, headers=headers) as client:
+        client_context = (
+            nullcontext(None)
+            if self._asgi_app is not None
+            else httpx.Client(timeout=self.config.request_timeout_s, headers=headers)
+        )
+        with client_context as client:
             for evt in ready_events:
                 try:
-                    resp = client.post(f"{self.config.base_url.rstrip('/')}{evt.endpoint}", json=evt.payload)
+                    if self._asgi_app is not None:
+                        resp = self._post_in_process(evt, headers)
+                    else:
+                        resp = client.post(
+                            f"{self.config.base_url.rstrip('/')}{evt.endpoint}",
+                            json=evt.payload,
+                        )
                     if resp.status_code >= 400:
                         raise RuntimeError(f"status {resp.status_code}")
                 except Exception:
@@ -134,6 +181,64 @@ class TelemetryTransport:
                         self._record_drop(dropped, "retry_buffer_overflow")
                     self._queue.append(evt)
 
+    def _post_in_process(
+        self, event: _QueuedEvent, headers: dict[str, str] | None
+    ) -> httpx.Response:
+        """Dispatch through ASGI with a hard bound and no loopback socket."""
+
+        async def send() -> httpx.Response:
+            transport = httpx.ASGITransport(app=self._asgi_app)
+            request = httpx.Request(
+                "POST",
+                f"{self.config.base_url.rstrip('/')}{event.endpoint}",
+                json=event.payload,
+                headers=headers,
+            )
+            try:
+                response = await asyncio.wait_for(
+                    transport.handle_async_request(request),
+                    timeout=self.config.request_timeout_s,
+                )
+                content = await asyncio.wait_for(
+                    response.aread(),
+                    timeout=self.config.request_timeout_s,
+                )
+                await response.aclose()
+                return httpx.Response(
+                    status_code=response.status_code,
+                    headers=response.headers,
+                    content=content,
+                    request=request,
+                )
+            finally:
+                await transport.aclose()
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(send())
+
+        # ``stop()`` can flush from the service's running event loop. Execute
+        # that one synchronous flush in a bounded helper thread rather than
+        # nesting an event loop or blocking forever.
+        result: list[httpx.Response] = []
+        failure: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                result.append(asyncio.run(send()))
+            except BaseException as exc:  # noqa: BLE001 - re-raised to retry logic
+                failure.append(exc)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        thread.join(timeout=self.config.request_timeout_s + 0.25)
+        if thread.is_alive():
+            raise TimeoutError("in-process instrumentation delivery timed out")
+        if failure:
+            raise failure[0]
+        return result[0]
+
     def _record_drop(self, event: _QueuedEvent, reason: str) -> None:
         self.dropped_events += 1
         logger.warning(
@@ -142,3 +247,13 @@ class TelemetryTransport:
             reason,
             self.dropped_events,
         )
+
+
+_telemetry_transport_parameters = inspect.signature(TelemetryTransport).parameters
+TelemetryTransport.__signature__ = inspect.signature(TelemetryTransport).replace(
+    parameters=[
+        parameter
+        for name, parameter in _telemetry_transport_parameters.items()
+        if name != "_asgi_app"
+    ]
+)

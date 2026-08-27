@@ -378,6 +378,39 @@ class CandidateOutcome(BaseModel):
     meets_bar: bool = False
 
 
+class ExperimentCallEvidence(BaseModel):
+    """Credential-free provider identity and economics for one measured call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str
+    provider_request_id: str | None = None
+    cost_event_id: str | None = None
+    audit_event_id: str | None = None
+    model: str
+    cost_measurement: str
+    measured_cost_usd: float | None = None
+    estimated_cost_usd: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cleanup_status: str
+    provider_call_attempted: bool
+    cache_hit: bool
+
+
+class ExperimentExecutionEvidence(BaseModel):
+    """Additive run/cost correlation returned by a live measured experiment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    campaign_id: str | None = None
+    provider_call_count: int = 0
+    measured_cost_usd: float = 0.0
+    estimated_cost_usd: float = 0.0
+    calls: list[ExperimentCallEvidence] = Field(default_factory=list)
+
+
 class ExperimentReport(BaseModel):
     """Result of a measured right-sizing experiment for one node."""
 
@@ -405,6 +438,7 @@ class ExperimentReport(BaseModel):
     # no data) — the same vocabulary as econ waste findings.
     verdict: str = "none"
     note: str = ""
+    execution: ExperimentExecutionEvidence | None = None
 
 
 def _cost_per_1k_calls(option: ModelOption, mean_input: float, mean_output: float) -> float:

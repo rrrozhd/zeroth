@@ -167,6 +167,26 @@ class TestRefreshArtifactTtls:
         store.refresh_ttl.assert_any_call("run1/node1/bbb", 7200)
 
     @pytest.mark.anyio()
+    async def test_preserves_explicit_reference_ttl(self) -> None:
+        """A checkpoint does not silently widen the producer's lifecycle bound."""
+        store = AsyncMock()
+        store.refresh_ttl = AsyncMock(return_value=True)
+        data = {
+            "artifact": {
+                "store": "filesystem",
+                "key": "run1/node1/short-lived",
+                "content_type": "text/plain",
+                "size": 10,
+                "ttl_seconds": 1,
+            }
+        }
+
+        count = await refresh_artifact_ttls(store, data, ttl=3600)
+
+        assert count == 1
+        store.refresh_ttl.assert_awaited_once_with("run1/node1/short-lived", 1)
+
+    @pytest.mark.anyio()
     async def test_returns_success_count(self) -> None:
         """Returns count of successfully refreshed artifacts."""
         store = AsyncMock()

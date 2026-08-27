@@ -115,7 +115,12 @@ async def test_studio_stamps_scope_and_owner_lifecycle_still_works(sqlite_db) ->
                         "id": "start",
                         "type": "entrypoint",
                         "position": {"x": 0, "y": 0},
-                        "data": {"label": "Start", "config": {}},
+                        "data": {
+                            "label": "Start",
+                            "config": {},
+                            "input_contract_ref": "contract://input",
+                            "output_contract_ref": "contract://output",
+                        },
                     }
                 ],
                 "edges": [],

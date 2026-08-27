@@ -19,7 +19,11 @@ from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
 from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap.container import DeploymentBootstrapError
-from zeroth.service.bootstrap.factory import bootstrap_app, bootstrap_service
+from zeroth.service.bootstrap.factory import (
+    _build_retention_econ_eraser,
+    bootstrap_app,
+    bootstrap_service,
+)
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 
@@ -60,6 +64,21 @@ async def test_bootstrap_service_loads_valid_deployment(sqlite_db) -> None:
     assert service.contract_registry is not None
 
 
+async def test_bootstrap_shares_webhook_audit_recorder_across_enqueue_and_delivery(
+    sqlite_db,
+) -> None:
+    deployment = await _deploy_test_graph(sqlite_db, "webhook-audit-wiring")
+
+    service = await bootstrap_service(sqlite_db, deployment_ref=deployment.deployment_ref)
+
+    assert service.webhook_service is not None
+    assert service.delivery_worker is not None
+    recorder = service.webhook_service.audit_recorder
+    assert recorder is service.delivery_worker.audit_recorder
+    assert recorder.repository is service.audit_repository
+    assert recorder.deployment is service.deployment
+
+
 async def test_bootstrap_wires_one_deployment_scoped_artifact_store(sqlite_db) -> None:
     deployment = await _deploy_test_graph(sqlite_db, "artifact-scope-service")
 
@@ -76,6 +95,53 @@ async def test_bootstrap_wires_one_deployment_scoped_artifact_store(sqlite_db) -
             workspace_id=deployment.workspace_id,
         ).scope_digest
     )
+
+
+async def test_bootstrap_wires_configured_econ_erasure_into_live_retention_service(
+    sqlite_db,
+) -> None:
+    from zeroth.econ.plane.database import SessionLocal
+
+    deployment = await _deploy_test_graph(sqlite_db, "econ-erasure-service")
+
+    service = await bootstrap_service(sqlite_db, deployment_ref=deployment.deployment_ref)
+
+    eraser = service.retention_erasure_service._econ_eraser
+    assert eraser is not None
+    assert eraser.__class__.__name__ == "SqlAlchemyEconEventEraser"
+    assert eraser._session_factory is SessionLocal
+
+
+def test_retention_econ_erasure_binds_the_configured_bundled_session_factory() -> None:
+    from zeroth.econ.plane.database import SessionLocal
+
+    disabled = SimpleNamespace(regulus=SimpleNamespace(enabled=False))
+    enabled = SimpleNamespace(regulus=SimpleNamespace(enabled=True))
+
+    assert _build_retention_econ_eraser(disabled) is None
+    eraser = _build_retention_econ_eraser(enabled)
+    assert eraser is not None
+    assert eraser.__class__.__name__ == "SqlAlchemyEconEventEraser"
+    assert eraser._session_factory is SessionLocal
+
+
+async def test_retention_econ_erasure_fails_closed_when_enabled_dependency_is_missing(
+    monkeypatch,
+) -> None:
+    import sys
+
+    enabled = SimpleNamespace(regulus=SimpleNamespace(enabled=True))
+    monkeypatch.setitem(sys.modules, "zeroth.econ.plane.database", None)
+
+    eraser = _build_retention_econ_eraser(enabled)
+
+    assert eraser is not None
+    with pytest.raises(RuntimeError, match="economics erasure unavailable"):
+        await eraser.delete_events_for_run(
+            "tenant-a",
+            ["run-a"],
+            idempotency_key="retention-operation-a",
+        )
 
 
 async def test_bootstrap_service_accepts_injected_runners(sqlite_db) -> None:
@@ -160,6 +226,22 @@ async def test_health_endpoint_returns_success(sqlite_db) -> None:
     assert response.headers["referrer-policy"] == "no-referrer"
 
 
+async def test_health_exposes_strict_campaign_identity_for_ui_runs(sqlite_db) -> None:
+    deployment = await _deploy_test_graph(sqlite_db, "campaign-health-service")
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
+    app.state.bootstrap.evaluation_campaign_id = "evaluation-studio-v1"
+
+    with TestClient(app) as client:
+        response = client.get("/health", headers=operator_headers())
+
+    assert response.status_code == 200
+    assert response.json()["campaign_id"] == "evaluation-studio-v1"
+
+
 async def test_unhandled_500_response_keeps_security_headers(sqlite_db) -> None:
     deployment = await _deploy_test_graph(sqlite_db, "graph-unhandled-error")
     app = await bootstrap_app(
@@ -198,6 +280,30 @@ async def test_lifespan_closes_secret_provider_exactly_once(sqlite_db) -> None:
             closes += 1
 
     app.state.bootstrap.secret_provider = _ClosableProvider()
+    with TestClient(app):
+        pass
+    assert closes == 1
+
+
+async def test_lifespan_closes_resilient_http_client_exactly_once(sqlite_db) -> None:
+    deployment = await _deploy_test_graph(sqlite_db, "graph-http-close")
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
+    original = app.state.bootstrap.http_client
+    if original is not None:
+        await original.aclose()
+
+    closes = 0
+
+    class _ClosableClient:
+        async def aclose(self) -> None:
+            nonlocal closes
+            closes += 1
+
+    app.state.bootstrap.http_client = _ClosableClient()
     with TestClient(app):
         pass
     assert closes == 1
@@ -592,11 +698,13 @@ def test_valid_cors_preflight_is_handled_before_authentication_and_gateway(
             headers={
                 "Origin": "https://console.example",
                 "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "X-API-Key,X-Tenant-ID",
             },
         )
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "https://console.example"
+    assert "X-Tenant-ID" in response.headers["access-control-allow-headers"]
     assert proxy_calls == 0
 
 

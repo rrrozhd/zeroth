@@ -24,12 +24,23 @@ def register_artifact_routes(app: FastAPI | APIRouter) -> None:
         store = _artifact_store(request)
         try:
             data = await store.retrieve(artifact_id)
+            describe = getattr(store, "reference", None)
+            reference = await describe(artifact_id) if callable(describe) else None
         except (ArtifactNotFoundError, ArtifactStorageError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="artifact not found",
             ) from exc
-        return Response(content=data, media_type="application/octet-stream")
+        media_type = (
+            reference.content_type
+            if reference is not None
+            else "application/octet-stream"
+        )
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={"X-Zeroth-Artifact-Size": str(len(data))},
+        )
 
 
 def _artifact_store(request: Request) -> Any:

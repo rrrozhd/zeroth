@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -48,6 +49,11 @@ class DeploymentService:
     # WS-D signer: when None the attestation is stored unsigned-legacy. Injected
     # post-construction by bootstrap once the shared secret provider is built.
     signer: SigningKeyProvider | None = None
+    # Local read-only graphs may remain conspicuously unsigned. Production and
+    # any graph capable of consequential actions fail closed without a signer.
+    # "legacy" is reserved for direct/internal constructors that predate
+    # environment classification. Production bootstrap always replaces it.
+    deployment_mode: str = "legacy"
 
     async def deploy(
         self,
@@ -73,6 +79,17 @@ class DeploymentService:
             tenant_id=trusted_tenant_id,
             workspace_id=trusted_workspace_id,
         )
+        from zeroth.governance.audit.readiness import (
+            signed_audit_required,
+            signer_is_available,
+        )
+
+        if signed_audit_required(graph, self.deployment_mode) and not signer_is_available(
+            self.signer
+        ):
+            raise DeploymentError(
+                "signed audit readiness is required for production or consequential deployments"
+            )
         if (graph.tenant_id, graph.workspace_id) != (
             trusted_tenant_id,
             trusted_workspace_id,
@@ -325,10 +342,21 @@ class DeploymentService:
         if self.contract_registry is None:
             raise DeploymentError(f"contract registry is required to deploy {contract_ref!r}")
         registry = self.contract_registry.for_scope(contract_scope_context(tenant_id, workspace_id))
+        reference = ContractReference.parse(contract_ref)
         try:
-            contract = await registry.resolve(ContractReference(name=contract_ref))
+            contract = await registry.resolve(reference)
         except ContractNotFoundError as exc:
             raise DeploymentError(
                 f"deployment contract {contract_ref!r} is not registered"
             ) from exc
         return contract.version
+
+
+_deployment_service_parameters = inspect.signature(DeploymentService).parameters
+DeploymentService.__signature__ = inspect.signature(DeploymentService).replace(
+    parameters=[
+        parameter
+        for name, parameter in _deployment_service_parameters.items()
+        if name != "deployment_mode"
+    ]
+)

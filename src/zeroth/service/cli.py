@@ -125,6 +125,10 @@ def build_parser() -> argparse.ArgumentParser:
     migrate = sub.add_parser("migrate", help="apply database migrations and exit")
     migrate.set_defaults(func=_cmd_migrate)
 
+    from zeroth.check.cli import attach_check_parser
+
+    attach_check_parser(sub)
+
     return parser
 
 

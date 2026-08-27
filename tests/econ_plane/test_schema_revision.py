@@ -16,26 +16,40 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
 
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": None,
-        "head": "20260812_07",
+        "head": "20260824_10",
         "state": "unknown",
     }
 
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
-        connection.execute(
-            text("INSERT INTO alembic_version (version_num) VALUES ('20260811_05')")
-        )
+        connection.execute(text("INSERT INTO alembic_version (version_num) VALUES ('20260811_05')"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260811_05",
-        "head": "20260812_07",
+        "head": "20260824_10",
         "state": "behind",
     }
 
     with engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20260812_07'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260822_08'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
-        "applied": "20260812_07",
-        "head": "20260812_07",
+        "applied": "20260822_08",
+        "head": "20260824_10",
+        "state": "behind",
+    }
+
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260823_09'"))
+    assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
+        "applied": "20260823_09",
+        "head": "20260824_10",
+        "state": "behind",
+    }
+
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260824_10'"))
+    assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
+        "applied": "20260824_10",
+        "head": "20260824_10",
         "state": "current",
     }
 

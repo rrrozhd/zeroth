@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
+from fastapi import FastAPI
+
 from zeroth.econ.instrumentation import client
 from zeroth.econ.instrumentation.config import InstrumentationConfig
 from zeroth.econ.instrumentation.integrations import anthropic, langchain, openai
@@ -136,3 +138,29 @@ def test_buffer_and_final_retry_drops_are_logged(monkeypatch, caplog) -> None:
     assert transport.dropped_events == 2
     assert caplog.text.count("instrumentation event dropped") == 2
     assert "/instrumentation/executions" in caplog.text
+
+
+def test_in_process_transport_delivers_without_opening_a_socket(monkeypatch) -> None:
+    received: list[dict[str, Any]] = []
+    app = FastAPI()
+
+    @app.post("/v1/instrumentation/executions")
+    async def receive_execution(payload: dict[str, Any]) -> dict[str, str]:
+        received.append(payload)
+        return {"status": "inserted"}
+
+    config = InstrumentationConfig(base_url="http://regulus.internal/v1", max_retries=1)
+    transport = TelemetryTransport(config, _asgi_app=app)
+    monkeypatch.setattr(
+        "zeroth.econ.instrumentation.transport.httpx.Client",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("opened a network client")),
+    )
+
+    transport.enqueue_execution(
+        ExecutionEvent(capability_id="cap", implementation_id="impl")
+    )
+    transport.flush_once()
+
+    assert len(received) == 1
+    assert received[0]["capability_id"] == "cap"
+    assert transport.queue_size() == 0

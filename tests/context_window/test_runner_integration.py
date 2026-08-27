@@ -144,6 +144,12 @@ async def test_compaction_metadata_in_audit_record() -> None:
     assert cw["tokens_after"] == 2000
     assert cw["messages_before"] == 10
     assert cw["messages_after"] == 6
+    assert result.audit_record["context_compaction_applied"] is True
+    assert result.audit_record["context_compaction_strategy"] == "observation_masking"
+    assert result.audit_record["context_tokens_before"] == 5000
+    assert result.audit_record["context_tokens_after"] == 2000
+    assert result.audit_record["context_messages_before"] == 10
+    assert result.audit_record["context_messages_after"] == 6
 
 
 # ---------------------------------------------------------------------------
@@ -167,12 +173,16 @@ async def test_compacted_messages_persisted_in_thread_state() -> None:
         thread_state_store=store,
         context_tracker=tracker,
     )
-    await runner.run({"query": "hi"}, thread_id="thread-1")
+    result = await runner.run({"query": "hi"}, thread_id="thread-1")
 
     state = await store.load("thread-1")
     assert state is not None
     assert "compacted_messages" in state
     assert state["compacted_messages"] == compacted_msgs
+    assert result.audit_record["thread_state_checkpointed"] is True
+    assert result.audit_record["compacted_thread_state_saved"] is True
+    assert state["audit"]["thread_state_checkpointed"] is True
+    assert state["audit"]["compacted_thread_state_saved"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -245,9 +255,13 @@ async def test_compacted_messages_restored_from_thread_state() -> None:
     result2 = await runner.run({"query": "second"}, thread_id="thread-2")
     assert result2.output_data == {"answer": "second"}
 
-    # Verify the second call to maybe_compact used the compacted messages
+    # The saved compacted context is the prefix, but the new turn must still be
+    # present. Replacing the new prompt with the checkpoint silently ignored
+    # every continuation input after the first compaction.
     second_call_messages = tracker.maybe_compact.call_args_list[1][0][0]
-    assert second_call_messages == compacted_msgs
+    assert second_call_messages[: len(compacted_msgs)] == compacted_msgs
+    assert len(second_call_messages) > len(compacted_msgs)
+    assert "second" in str(second_call_messages[len(compacted_msgs) :])
 
 
 # ---------------------------------------------------------------------------

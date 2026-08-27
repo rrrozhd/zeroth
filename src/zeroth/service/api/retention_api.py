@@ -12,15 +12,21 @@ makes an erasure request fail with 409 Conflict — a hold beats erasure.
 
 from __future__ import annotations
 
-from typing import Protocol
+import json
+from datetime import datetime
+from typing import Any, Literal, Protocol
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.governance.audit import AuditQuery
 from zeroth.governance.identity import AuthenticatedPrincipal
 from zeroth.governance.retention.erasure_service import LegalHoldError
-from zeroth.governance.retention.models import LegalHold, RetentionPolicy
+from zeroth.governance.retention.models import (
+    MAX_TTL_SECONDS,
+    LegalHold,
+    RetentionPolicy,
+)
 from zeroth.service.api.authorization import (
     Permission,
     require_permission,
@@ -35,6 +41,7 @@ class RetentionBootstrapLike(Protocol):
     run_repository: object
     retention_policy_repository: object
     legal_hold_repository: object
+    retention_log_repository: object
     retention_erasure_service: object
 
 
@@ -43,8 +50,8 @@ class RetentionPolicyBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    audit_ttl_seconds: int | None = Field(default=None, ge=1)
-    run_ttl_seconds: int | None = Field(default=None, ge=1)
+    audit_ttl_seconds: int | None = Field(default=None, ge=1, le=MAX_TTL_SECONDS)
+    run_ttl_seconds: int | None = Field(default=None, ge=1, le=MAX_TTL_SECONDS)
     enabled: bool = True
 
 
@@ -54,8 +61,8 @@ class RetentionPolicyResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tenant_id: str
-    audit_ttl_seconds: int | None = Field(default=None, ge=1)
-    run_ttl_seconds: int | None = Field(default=None, ge=1)
+    audit_ttl_seconds: int | None = Field(default=None, ge=1, le=MAX_TTL_SECONDS)
+    run_ttl_seconds: int | None = Field(default=None, ge=1, le=MAX_TTL_SECONDS)
     enabled: bool = True
 
 
@@ -108,6 +115,9 @@ class ErasureRunResult(BaseModel):
     run_redacted: bool = False
     artifacts_deleted: int = 0
     econ_events_deleted: int | None = None
+    cleanup_state: Literal["complete", "failed", "pending"]
+    authorization_log_id: str | None = None
+    retry_log_id: str | None = None
 
 
 class ErasureResponse(BaseModel):
@@ -117,6 +127,19 @@ class ErasureResponse(BaseModel):
 
     reason: str
     runs: list[ErasureRunResult] = Field(default_factory=list)
+
+
+class ErasureHistoryEntry(BaseModel):
+    """Tenant-scoped durable Retention activity exposed for operator inspection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    log_id: str
+    run_id: str | None = None
+    action: str
+    reason: str | None = None
+    detail: dict[str, Any] | None = None
+    created_at: datetime
 
 
 def _policy_response(policy: RetentionPolicy) -> RetentionPolicyResponse:
@@ -179,6 +202,36 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         saved = await bootstrap.retention_policy_repository.upsert(policy)
         return _policy_response(saved)
 
+    @app.get("/retention/erasure-history", response_model=list[ErasureHistoryEntry])
+    async def list_erasure_history(
+        request: Request,
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> list[ErasureHistoryEntry]:
+        """Return recent append-only Retention activity for the caller's tenant."""
+        principal = await require_permission(request, Permission.RETENTION_ADMIN)
+        bootstrap = _bootstrap(request)
+        repository = bootstrap.retention_log_repository
+        if principal.tenant_id != repository.tenant_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="history not found")
+        rows = await repository.list_for_tenant()
+        result: list[ErasureHistoryEntry] = []
+        for row in rows[-limit:]:
+            detail = row.get("detail")
+            if isinstance(detail, str):
+                parsed = json.loads(detail)
+                detail = parsed if isinstance(parsed, dict) else None
+            result.append(
+                ErasureHistoryEntry(
+                    log_id=str(row["log_id"]),
+                    run_id=row.get("run_id"),
+                    action=str(row["action"]),
+                    reason=row.get("reason"),
+                    detail=detail,
+                    created_at=row["created_at"],
+                )
+            )
+        return result[::-1]
+
     @app.post(
         "/retention/legal-holds",
         response_model=LegalHoldResponse,
@@ -200,6 +253,14 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
             placed_by=principal.subject,
         )
         return _hold_response(hold)
+
+    @app.get("/retention/legal-holds", response_model=list[LegalHoldResponse])
+    async def list_legal_holds(request: Request) -> list[LegalHoldResponse]:
+        """List active legal holds for the caller's tenant."""
+        await require_permission(request, Permission.RETENTION_ADMIN)
+        bootstrap = _bootstrap(request)
+        holds = await bootstrap.legal_hold_repository.list_for_tenant(active_only=True)
+        return [_hold_response(hold) for hold in holds]
 
     @app.delete("/retention/legal-holds/{hold_id}", response_model=LegalHoldResponse)
     async def release_legal_hold(
@@ -333,4 +394,7 @@ def _run_result(result: object) -> ErasureRunResult:
         run_redacted=result.run_redacted,
         artifacts_deleted=result.artifacts_deleted,
         econ_events_deleted=result.econ_events_deleted,
+        cleanup_state=result.external_cleanup_status,
+        authorization_log_id=result.authorization_log_id,
+        retry_log_id=result.retry_log_id,
     )

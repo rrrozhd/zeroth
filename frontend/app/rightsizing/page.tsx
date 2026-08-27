@@ -34,6 +34,7 @@ import {
   attachQualityVerdict,
   errMsg,
   getRightsizing,
+  getLatestRightsizingExperiment,
   getRightsizingOpportunities,
   getUnitEconomics,
   getWaste,
@@ -48,6 +49,13 @@ import {
   type WasteRollup,
 } from "@/app/lib/api";
 import { isConfigured } from "@/app/lib/config";
+import { fmtUsd } from "@/app/components/ui";
+import styles from "./rightsizing.module.css";
+import {
+  validateExperimentOptions,
+  validateSuggestBounds,
+  type ExperimentOptions,
+} from "./validation";
 
 const MONO = "var(--font-mono)";
 
@@ -63,11 +71,6 @@ function perMtok(usd: number): string {
   return `$${usd.toPrecision(2)}`;
 }
 
-/** A spend figure: cents matter under $1, dollars above. */
-function fmtUsd(n: number): string {
-  return n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
-}
-
 /** A 0..1 ratio as a whole-percent string. */
 function pctRatio(n: number): string {
   return `${Math.round(n * 100)}%`;
@@ -78,8 +81,52 @@ function pctVal(n: number): string {
   return `${Math.round(n)}%`;
 }
 
+/** Measured provider calls are commonly below one tenth of a cent. Preserve
+ * enough ledger precision to distinguish them instead of rounding real spend
+ * into a misleading zero. */
+function fmtExperimentUsd(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "$0.00";
+  if (Math.abs(n) >= 0.01) return fmtUsd(n);
+  const sign = n < 0 ? "-" : "";
+  const rendered = Math.abs(n).toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  return `${sign}$${rendered}`;
+}
+
 function candidateRef(c: RightsizingOption): string {
   return c.provider ? `${c.provider}/${c.model}` : c.model;
+}
+
+function metricsReadError(message: string, surface: "opportunities" | "economics"): string {
+  if (!/\b403\b.*forbidden/i.test(message)) return message;
+  return surface === "opportunities"
+    ? "This role cannot read tenant Rightsizing opportunities. Metrics read permission is required."
+    : "This role cannot read tenant economics. Metrics read permission is required.";
+}
+
+function experimentError(error: unknown): string {
+  const rendered = errMsg(error);
+  const status = typeof error === "object" && error !== null && "status" in error
+    ? Number((error as { status: unknown }).status)
+    : null;
+  if (status === 403 || /\b403\b.*forbidden/i.test(rendered)) {
+    return (
+      "Running measured experiments requires Metrics admin permission. " +
+      "Ask a tenant admin or platform admin to run this comparison."
+    );
+  }
+  return rendered;
+}
+
+function updateValidatedValue<Field extends string>(
+  value: string,
+  field: Field,
+  invalidField: Field | undefined,
+  setValue: (next: string) => void,
+  clearOwnedValidation: () => void,
+) {
+  setValue(value);
+  if (invalidField === field) clearOwnedValidation();
 }
 
 // --------------------------------------------------------------------------
@@ -87,7 +134,12 @@ function candidateRef(c: RightsizingOption): string {
 // --------------------------------------------------------------------------
 
 type SuggestSeed = { incumbent: string; needsTools: boolean; needsVision: boolean };
-type ExpSeed = { nodeId: string; incumbent: string; needsTools: boolean };
+type ExpSeed = {
+  nodeId: string;
+  sourceDeploymentRef?: string | null;
+  incumbent: string;
+  needsTools: boolean;
+};
 
 export default function RightsizingPage() {
   const opportunities = useLoad<SpendReport>(getRightsizingOpportunities);
@@ -121,6 +173,7 @@ export default function RightsizingPage() {
   function testNode(node: NodeSpend) {
     setExpSeed({
       nodeId: node.node_id,
+      sourceDeploymentRef: node.source_deployment_ref,
       incumbent: node.incumbent_model ?? "",
       needsTools: node.uses_tools,
     });
@@ -134,7 +187,9 @@ export default function RightsizingPage() {
   }
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+    // WebKit can leave a large hydrated page permanently in a blank compositor
+    // layer when the whole page owns the transform-based z-fade animation.
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: "28px 28px 48px" }}>
       <header
         style={{
           display: "flex",
@@ -158,6 +213,7 @@ export default function RightsizingPage() {
             variant="neutral"
             onClick={refreshAll}
             disabled={opportunities.loading || econ.loading || waste.loading}
+            data-evidence-id="rightsizing.action.refresh"
             style={{ flexShrink: 0 }}
           >
             Refresh
@@ -210,7 +266,12 @@ function OpportunitiesCard({
       {load.loading && !load.data ? (
         <TableSkeleton rows={4} />
       ) : load.error ? (
-        <InlineError message={load.error} onRetry={load.reload} />
+        <InlineError
+          message={metricsReadError(load.error, "opportunities")}
+          onRetry={load.reload}
+          evidenceId="rightsizing.opportunities.error"
+          retryEvidenceId="rightsizing.opportunities.retry"
+        />
       ) : !load.data || load.data.nodes.length === 0 ? (
         <EmptyNote>
           {load.data?.note ?? "No spend attributed yet — needs run history with model costs."}
@@ -218,8 +279,10 @@ function OpportunitiesCard({
       ) : (
         <>
           <div style={{ marginBottom: 12 }}>
-            <span style={{ fontSize: 22, fontWeight: 600, fontFamily: MONO }}>
-              {fmtUsd(load.data.total_cost_usd)}
+            <span style={{ fontSize: 22, fontWeight: 500, fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums" }}>
+              {load.data.total_cost_usd > 0
+                ? fmtUsd(load.data.total_cost_usd)
+                : `${fmtUsd(load.data.total_estimated_cost_usd)} estimated`}
             </span>
             <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)" }}>
               attributed spend across {load.data.nodes.length} node
@@ -227,8 +290,21 @@ function OpportunitiesCard({
             </span>
           </div>
 
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyle}>
+          <ScrollableRegion
+            label="Rightsizing opportunities"
+            evidenceId="rightsizing.region.opportunities-scroll"
+          >
+            <table className={styles.opportunityTable} style={tableStyle}>
+              <colgroup>
+                <col style={{ width: "16%" }} />
+                <col style={{ width: "27%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "8%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "16%" }} />
+                <col style={{ width: "8%" }} />
+                <col style={{ width: "9%" }} />
+              </colgroup>
               <thead>
                 <tr>
                   <Th>Node</Th>
@@ -243,11 +319,16 @@ function OpportunitiesCard({
               </thead>
               <tbody>
                 {load.data.nodes.map((n) => (
-                  <OpportunityRow key={n.node_id} node={n} onPrice={onPrice} onTest={onTest} />
+                  <OpportunityRow
+                    key={`${n.source_deployment_ref ?? "active"}:${n.node_id}`}
+                    node={n}
+                    onPrice={onPrice}
+                    onTest={onTest}
+                  />
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollableRegion>
           <p style={noteStyle}>{load.data.note}</p>
         </>
       )}
@@ -265,9 +346,36 @@ function OpportunityRow({
   onTest: (n: NodeSpend) => void;
 }) {
   const hasSavings = node.best_savings_pct != null;
+  const total =
+    node.total_cost_usd > 0
+      ? node.total_estimated_cost_usd > 0
+        ? `${fmtUsd(node.total_cost_usd)} measured · ${fmtUsd(node.total_estimated_cost_usd)} estimated`
+        : fmtUsd(node.total_cost_usd)
+      : node.total_estimated_cost_usd > 0
+        ? `${fmtUsd(node.total_estimated_cost_usd)} estimated`
+        : fmtUsd(0);
+  const mean =
+    node.mean_cost_per_call_usd > 0
+      ? node.mean_estimated_cost_per_call_usd > 0
+        ? `${fmtUsd(node.mean_cost_per_call_usd)} measured · ${fmtUsd(node.mean_estimated_cost_per_call_usd)} estimated`
+        : fmtUsd(node.mean_cost_per_call_usd)
+      : node.mean_estimated_cost_per_call_usd > 0
+        ? `${fmtUsd(node.mean_estimated_cost_per_call_usd)} estimated`
+        : fmtUsd(0);
+  const projected =
+    node.projected_savings_usd != null && node.projected_savings_usd > 0
+      ? node.projected_estimated_savings_usd != null && node.projected_estimated_savings_usd > 0
+        ? `≈ ${fmtUsd(node.projected_savings_usd)} measured · ≈ ${fmtUsd(node.projected_estimated_savings_usd)} estimated`
+        : `≈ ${fmtUsd(node.projected_savings_usd)}`
+      : node.projected_estimated_savings_usd != null
+        ? `≈ ${fmtUsd(node.projected_estimated_savings_usd)} estimated`
+        : "—";
+  const bestSavings = hasSavings
+    ? `up to −${pctVal(node.best_savings_pct as number)}`
+    : "no cheaper capable model";
   return (
     <tr style={rowStyle}>
-      <Td>
+      <Td title={node.node_id}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
           <span
             aria-hidden
@@ -284,7 +392,7 @@ function OpportunityRow({
           </span>
         </span>
       </Td>
-      <Td>
+      <Td title={node.incumbent_model ?? "—"}>
         <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--text-secondary)" }}>
           {node.incumbent_model ?? "—"}
         </span>
@@ -292,23 +400,23 @@ function OpportunityRow({
       <Td align="right" mono>
         {node.runs}
       </Td>
-      <Td align="right" mono>
-        {fmtUsd(node.total_cost_usd)}
+      <Td align="right" mono title={total}>
+        {total}
       </Td>
-      <Td align="right" mono>
-        {fmtUsd(node.mean_cost_per_call_usd)}
+      <Td align="right" mono title={mean}>
+        {mean}
       </Td>
-      <Td>
+      <Td title={bestSavings}>
         {hasSavings ? (
           <span style={{ color: "var(--success)", fontFamily: MONO, fontSize: 12 }}>
-            up to −{pctVal(node.best_savings_pct as number)}
+            {bestSavings}
           </span>
         ) : (
           <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>no cheaper capable model</span>
         )}
       </Td>
-      <Td align="right" mono>
-        {node.projected_savings_usd != null ? `≈ ${fmtUsd(node.projected_savings_usd)}` : "—"}
+      <Td align="right" mono title={projected}>
+        {projected}
       </Td>
       <Td align="right">
         <span
@@ -318,6 +426,7 @@ function OpportunityRow({
             <Button
               variant="neutral"
               onClick={() => onPrice(node)}
+              data-evidence-id={`rightsizing.opportunity.${node.node_id}.price`}
               style={{ padding: "4px 9px", fontSize: 11 }}
             >
               Price
@@ -327,6 +436,7 @@ function OpportunityRow({
             <Button
               variant="primary"
               onClick={() => onTest(node)}
+              data-evidence-id={`rightsizing.opportunity.${node.node_id}.test`}
               style={{ padding: "4px 9px", fontSize: 11 }}
             >
               Test
@@ -356,6 +466,7 @@ function SuggestCard({ seed, connected }: { seed: SuggestSeed | null; connected:
   const [result, setResult] = useState<RightsizingResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [invalidBound, setInvalidBound] = useState<"min_savings_pct" | "limit">();
 
   // Re-sync from an Opportunities "Price" click. Fires on the seed object's
   // identity — each click mints a fresh one — so the user's own edits between
@@ -367,6 +478,7 @@ function SuggestCard({ seed, connected }: { seed: SuggestSeed | null; connected:
     setNeedsVision(seed.needsVision);
     setResult(null);
     setError(null);
+    setInvalidBound(undefined);
   }, [seed]);
 
   const trimmed = incumbent.trim();
@@ -377,16 +489,22 @@ function SuggestCard({ seed, connected }: { seed: SuggestSeed | null; connected:
     if (!canSubmit) return;
     setLoading(true);
     setError(null);
+    const bounds = validateSuggestBounds(minSavings, limit);
+    if (bounds.error) {
+      setError(bounds.error);
+      setInvalidBound(bounds.invalidField);
+      setLoading(false);
+      return;
+    }
+    setInvalidBound(undefined);
     try {
       const body: Parameters<typeof getRightsizing>[0] = {
         incumbent: trimmed,
         needs_tools: needsTools,
         needs_vision: needsVision,
       };
-      const minPct = Number(minSavings.trim());
-      if (minSavings.trim() && Number.isFinite(minPct)) body.min_savings_pct = minPct;
-      const lim = Number(limit.trim());
-      if (limit.trim() && Number.isInteger(lim) && lim > 0) body.limit = lim;
+      if (bounds.minSavingsPct != null) body.min_savings_pct = bounds.minSavingsPct;
+      if (bounds.limit != null) body.limit = bounds.limit;
 
       setResult(await getRightsizing(body));
     } catch (err) {
@@ -404,7 +522,11 @@ function SuggestCard({ seed, connected }: { seed: SuggestSeed | null; connected:
         price and capability only, never on quality.
       </p>
 
-      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <form
+        onSubmit={submit}
+        data-evidence-id="rightsizing.suggest.form"
+        style={{ display: "flex", flexDirection: "column", gap: 14 }}
+      >
         <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", gap: 12 }}>
           <Field label="incumbent" hint="The model you run today (e.g. gpt-4o, claude-sonnet-4).">
             <TextInput
@@ -412,26 +534,90 @@ function SuggestCard({ seed, connected }: { seed: SuggestSeed | null; connected:
               onChange={setIncumbent}
               placeholder="gpt-4o"
               autoFocus={false}
+              required
+              evidenceId="rightsizing.suggest.incumbent"
             />
           </Field>
           <Field label="min_savings_%" hint="Optional floor.">
-            <TextInput value={minSavings} onChange={setMinSavings} placeholder="20" inputMode="numeric" />
+            <TextInput
+              value={minSavings}
+              onChange={(value) => updateValidatedValue(
+                value,
+                "min_savings_pct",
+                invalidBound,
+                setMinSavings,
+                () => {
+                  setInvalidBound(undefined);
+                  setError(null);
+                },
+              )}
+              placeholder="20"
+              inputMode="decimal"
+              invalid={invalidBound === "min_savings_pct"}
+              describedBy="suggest-options-error"
+              evidenceId="rightsizing.suggest.min-savings-pct"
+            />
           </Field>
           <Field label="limit" hint="Optional cap.">
-            <TextInput value={limit} onChange={setLimit} placeholder="5" inputMode="numeric" />
+            <TextInput
+              value={limit}
+              onChange={(value) => updateValidatedValue(
+                value,
+                "limit",
+                invalidBound,
+                setLimit,
+                () => {
+                  setInvalidBound(undefined);
+                  setError(null);
+                },
+              )}
+              placeholder="5"
+              inputMode="numeric"
+              invalid={invalidBound === "limit"}
+              describedBy="suggest-options-error"
+              evidenceId="rightsizing.suggest.limit"
+            />
           </Field>
         </div>
 
         <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
-          <Checkbox label="needs tools" checked={needsTools} onChange={setNeedsTools} />
-          <Checkbox label="needs vision" checked={needsVision} onChange={setNeedsVision} />
-          <Button type="submit" variant="primary" disabled={!canSubmit} style={{ marginLeft: "auto" }}>
+          <Checkbox
+            label="needs tools"
+            checked={needsTools}
+            onChange={setNeedsTools}
+            evidenceId="rightsizing.suggest.needs-tools"
+          />
+          <Checkbox
+            label="needs vision"
+            checked={needsVision}
+            onChange={setNeedsVision}
+            evidenceId="rightsizing.suggest.needs-vision"
+          />
+          <span
+            id="suggest-submit-note"
+            style={{ ...noteStyle, margin: "0 0 0 auto" }}
+          >
+            {canSubmit
+              ? "Pricing and capability lookup only · no provider call."
+              : "Add the incumbent model to search."}
+          </span>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!canSubmit}
+            aria-describedby="suggest-submit-note"
+            data-evidence-id="rightsizing.suggest.submit"
+          >
             {loading ? "Pricing…" : "Find cheaper models"}
           </Button>
         </div>
       </form>
 
-      {error && <div style={{ marginTop: 12 }}><InlineError message={error} /></div>}
+      {error && (
+        <div id="suggest-options-error" style={{ marginTop: 12 }}>
+          <InlineError message={error} evidenceId="rightsizing.suggest.error" />
+        </div>
+      )}
 
       {result && !error && <SuggestResult result={result} />}
     </Card>
@@ -461,7 +647,10 @@ function SuggestResult({ result }: { result: RightsizingResult }) {
         )}
       </div>
 
-      <div style={{ overflowX: "auto" }}>
+      <ScrollableRegion
+        label="Cheaper model candidates"
+        evidenceId="rightsizing.region.candidates-scroll"
+      >
         <table style={tableStyle}>
           <thead>
             <tr>
@@ -501,7 +690,7 @@ function SuggestResult({ result }: { result: RightsizingResult }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollableRegion>
 
       <p style={noteStyle}>
         Capability-matched &amp; cheaper — worth A/B testing on your real traffic, not a guarantee of
@@ -528,51 +717,117 @@ const VERDICT_LABEL: Record<ExperimentReport["verdict"], string> = {
 
 function ExperimentCard({ seed, connected }: { seed: ExpSeed | null; connected: boolean }) {
   const [nodeId, setNodeId] = useState(seed?.nodeId ?? "");
+  const [sourceDeploymentRef, setSourceDeploymentRef] = useState(
+    seed?.sourceDeploymentRef ?? null,
+  );
   const [incumbent, setIncumbent] = useState(seed?.incumbent ?? "");
   const [needsTools, setNeedsTools] = useState(seed?.needsTools ?? false);
+  const [needsVision, setNeedsVision] = useState(false);
   const [instruction, setInstruction] = useState("");
   const [mode, setMode] = useState<"equivalence" | "correctness">("equivalence");
+  const [judgeModel, setJudgeModel] = useState("");
   const [tolerance, setTolerance] = useState("");
   const [maxCases, setMaxCases] = useState("");
+  const [maxCandidates, setMaxCandidates] = useState("");
+  const [minCases, setMinCases] = useState("");
 
   const [report, setReport] = useState<ExperimentReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [invalidOption, setInvalidOption] = useState<ExperimentOptions["invalidField"]>();
 
   useEffect(() => {
     if (!seed) return;
     setNodeId(seed.nodeId);
+    setSourceDeploymentRef(seed.sourceDeploymentRef ?? null);
     setIncumbent(seed.incumbent);
     setNeedsTools(seed.needsTools);
     setReport(null);
     setError(null);
+    setInvalidOption(undefined);
   }, [seed]);
+
+  useEffect(() => {
+    if (!connected) return;
+    let cancelled = false;
+    getLatestRightsizingExperiment()
+      .then((stored) => {
+        if (!cancelled && stored) setReport(stored);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(experimentError(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected]);
 
   const canSubmit =
     connected && nodeId.trim().length > 0 && incumbent.trim().length > 0 && instruction.trim().length > 0 && !loading;
+  const missingRequirements = [
+    !connected && "connect to the API",
+    nodeId.trim().length === 0 && "add a node ID",
+    incumbent.trim().length === 0 && "add the incumbent model",
+    instruction.trim().length === 0 && "add the system prompt",
+  ].filter((item): item is string => Boolean(item));
+  const disabledReason = loading
+    ? "The experiment is already running."
+    : `To run this experiment, ${missingRequirements.join(", ")}.`;
+
+  function handleModeKeyDown(
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    current: "equivalence" | "correctness",
+  ) {
+    const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
+    const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
+    if (!forward && !backward && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const next = event.key === "Home"
+      ? "equivalence"
+      : event.key === "End"
+        ? "correctness"
+        : current === "equivalence"
+          ? "correctness"
+          : "equivalence";
+    setMode(next);
+    event.currentTarget.parentElement
+      ?.querySelector<HTMLButtonElement>(`[data-mode="${next}"]`)
+      ?.focus();
+  }
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
+    const options = validateExperimentOptions(tolerance, maxCases, maxCandidates, minCases);
+    if (options.error) {
+      setReport(null);
+      setError(options.error);
+      setInvalidOption(options.invalidField);
+      return;
+    }
     setLoading(true);
     setError(null);
+    setInvalidOption(undefined);
     try {
       const body: Parameters<typeof runRightsizingExperiment>[0] = {
         node_id: nodeId.trim(),
         incumbent: incumbent.trim(),
         instruction: instruction.trim(),
         needs_tools: needsTools,
+        needs_vision: needsVision,
         mode,
       };
-      const tol = Number(tolerance.trim());
-      if (tolerance.trim() && Number.isFinite(tol)) body.tolerance_pct = tol;
-      const mc = Number(maxCases.trim());
-      if (maxCases.trim() && Number.isInteger(mc) && mc > 0) body.max_cases = mc;
+      if (sourceDeploymentRef) body.source_deployment_ref = sourceDeploymentRef;
+      if (judgeModel.trim()) body.judge_model = judgeModel.trim();
+      if (options.tolerancePct != null) body.tolerance_pct = options.tolerancePct;
+      if (options.maxCases != null) body.max_cases = options.maxCases;
+      if (options.maxCandidates != null) body.max_candidates = options.maxCandidates;
+      if (options.minCases != null) body.min_cases = options.minCases;
 
       setReport(await runRightsizingExperiment(body));
     } catch (err) {
       setReport(null);
-      setError(errMsg(err));
+      setError(experimentError(err));
     } finally {
       setLoading(false);
     }
@@ -586,13 +841,37 @@ function ExperimentCard({ seed, connected }: { seed: ExpSeed | null; connected: 
         (configured server-side, never entered here).
       </p>
 
-      <form onSubmit={run} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <form
+        onSubmit={run}
+        className={styles.experimentForm}
+        data-evidence-id="rightsizing.experiment.form"
+      >
+        <div className={styles.experimentIdentityGrid}>
           <Field label="node_id" hint="The agent node whose audit history is harvested.">
-            <TextInput value={nodeId} onChange={setNodeId} placeholder="answer_node" />
+            <TextInput
+              value={nodeId}
+              onChange={(value) => {
+                setNodeId(value);
+                if (value !== seed?.nodeId) setSourceDeploymentRef(null);
+              }}
+              placeholder="answer_node"
+              required
+              evidenceId="rightsizing.experiment.node-id"
+            />
+            {sourceDeploymentRef && (
+              <span style={{ display: "block", marginTop: 5, fontSize: 11, color: "var(--text-muted)" }}>
+                Source deployment: <code>{sourceDeploymentRef}</code>
+              </span>
+            )}
           </Field>
           <Field label="incumbent" hint="The model it runs today.">
-            <TextInput value={incumbent} onChange={setIncumbent} placeholder="gpt-4o" />
+            <TextInput
+              value={incumbent}
+              onChange={setIncumbent}
+              placeholder="gpt-4o"
+              required
+              evidenceId="rightsizing.experiment.incumbent"
+            />
           </Field>
         </div>
 
@@ -601,59 +880,179 @@ function ExperimentCard({ seed, connected }: { seed: ExpSeed | null; connected: 
             value={instruction}
             onChange={setInstruction}
             placeholder="Answer the question using only the provided context."
+            required
+            evidenceId="rightsizing.experiment.instruction"
           />
         </Field>
 
-        <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div>
-            <MonoLabel style={{ display: "block", marginBottom: 5 }}>mode</MonoLabel>
-            <div style={{ display: "inline-flex", border: "1px solid var(--hair-strong)", borderRadius: 6, padding: 2 }}>
+        <div className={styles.experimentOptionsGrid}>
+          <fieldset className={styles.experimentModeFieldset}>
+            <legend className={styles.experimentLegend}>Comparison method</legend>
+            <div
+              role="radiogroup"
+              aria-label="Comparison method"
+              className={styles.experimentModeGroup}
+            >
               {(["equivalence", "correctness"] as const).map((m) => (
                 <button
                   key={m}
                   type="button"
+                  role="radio"
+                  aria-checked={mode === m}
+                  tabIndex={mode === m ? 0 : -1}
                   onClick={() => setMode(m)}
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: 11,
-                    fontWeight: 500,
-                    padding: "5px 10px",
-                    borderRadius: 4,
-                    border: "none",
-                    cursor: "pointer",
-                    background: mode === m ? "rgba(94,234,212,0.15)" : "transparent",
-                    color: mode === m ? "var(--accent)" : "var(--text-muted)",
-                  }}
+                  onKeyDown={(event) => handleModeKeyDown(event, m)}
+                  className={styles.experimentModeOption}
+                  data-selected={mode === m}
+                  data-mode={m}
+                  data-evidence-id={`rightsizing.experiment.mode.${m}`}
                 >
                   {m === "equivalence" ? "vs. incumbent" : "vs. correct answer"}
                 </button>
               ))}
             </div>
-          </div>
-          <div style={{ width: 120 }}>
-            <Field label="tolerance_%" hint="Optional.">
-              <TextInput value={tolerance} onChange={setTolerance} placeholder="5" inputMode="numeric" />
+            <span className={styles.experimentHelper}>Choose what candidate answers are measured against.</span>
+          </fieldset>
+          <div className={styles.experimentOptionField}>
+            <Field label="Tolerance (%)" hint="Optional difference allowed.">
+              <TextInput
+                value={tolerance}
+                onChange={(value) => updateValidatedValue(
+                  value,
+                  "tolerance_pct",
+                  invalidOption,
+                  setTolerance,
+                  () => {
+                    setInvalidOption(undefined);
+                    setError(null);
+                  },
+                )}
+                placeholder="5"
+                inputMode="numeric"
+                invalid={invalidOption === "tolerance_pct"}
+                describedBy="experiment-options-error"
+                evidenceId="rightsizing.experiment.tolerance-pct"
+              />
             </Field>
           </div>
-          <div style={{ width: 120 }}>
-            <Field label="max_cases" hint="Optional.">
-              <TextInput value={maxCases} onChange={setMaxCases} placeholder="20" inputMode="numeric" />
+          <div className={styles.experimentOptionField}>
+            <Field label="Maximum cases" hint="Optional replay limit.">
+              <TextInput
+                value={maxCases}
+                onChange={(value) => updateValidatedValue(
+                  value,
+                  "max_cases",
+                  invalidOption,
+                  setMaxCases,
+                  () => {
+                    setInvalidOption(undefined);
+                    setError(null);
+                  },
+                )}
+                placeholder="20"
+                inputMode="numeric"
+                invalid={invalidOption === "max_cases"}
+                describedBy="experiment-options-error"
+                evidenceId="rightsizing.experiment.max-cases"
+              />
             </Field>
           </div>
-          <Checkbox label="needs tools" checked={needsTools} onChange={setNeedsTools} />
-          <Button type="submit" variant="primary" disabled={!canSubmit} style={{ marginLeft: "auto" }}>
+          <div className={styles.experimentToolsField}>
+            <Checkbox
+              label="Candidate needs tools"
+              checked={needsTools}
+              onChange={setNeedsTools}
+              evidenceId="rightsizing.experiment.needs-tools"
+            />
+            <Checkbox
+              label="Candidate needs vision"
+              checked={needsVision}
+              onChange={setNeedsVision}
+              evidenceId="rightsizing.experiment.needs-vision"
+            />
+            <span className={styles.experimentHelper}>Require candidates with the capabilities this node uses.</span>
+          </div>
+        </div>
+
+        <div className={styles.experimentAdvancedGrid}>
+          <Field label="Judge model" hint="Optional model used to compare candidate answers.">
+            <TextInput
+              value={judgeModel}
+              onChange={setJudgeModel}
+              placeholder="Provider default"
+              evidenceId="rightsizing.experiment.judge-model"
+            />
+          </Field>
+          <Field label="Maximum candidates" hint="Optional whole number from 1 through 6.">
+            <TextInput
+              value={maxCandidates}
+              onChange={(value) => updateValidatedValue(
+                value,
+                "max_candidates",
+                invalidOption,
+                setMaxCandidates,
+                () => {
+                  setInvalidOption(undefined);
+                  setError(null);
+                },
+              )}
+              placeholder="3"
+              inputMode="numeric"
+              invalid={invalidOption === "max_candidates"}
+              describedBy="experiment-options-error"
+              evidenceId="rightsizing.experiment.max-candidates"
+            />
+          </Field>
+          <Field label="Minimum cases" hint="Optional confirmation floor from 1 through 50.">
+            <TextInput
+              value={minCases}
+              onChange={(value) => updateValidatedValue(
+                value,
+                "min_cases",
+                invalidOption,
+                setMinCases,
+                () => {
+                  setInvalidOption(undefined);
+                  setError(null);
+                },
+              )}
+              placeholder="5"
+              inputMode="numeric"
+              invalid={invalidOption === "min_cases"}
+              describedBy="experiment-options-error"
+              evidenceId="rightsizing.experiment.min-cases"
+            />
+          </Field>
+        </div>
+
+        <div className={styles.experimentActionFooter}>
+          <p
+            id={!canSubmit ? "experiment-disabled-reason" : "experiment-mode-note"}
+            className={styles.experimentActionNote}
+          >
+            {!canSubmit
+              ? disabledReason
+              : mode === "correctness"
+                ? "Grades against human-labeled answers. Labeled runs are required."
+                : 'Scores against the incumbent. "Confirmed" requires enough matching cases.'}
+          </p>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!canSubmit}
+            aria-describedby={!canSubmit ? "experiment-disabled-reason" : "experiment-mode-note"}
+            data-evidence-id="rightsizing.experiment.submit"
+          >
             {loading ? "Replaying real cases… (~1 min)" : "Run experiment"}
           </Button>
         </div>
       </form>
 
-      <p style={{ fontSize: 11, color: "var(--text-faint)", lineHeight: 1.5, marginTop: 8 }}>
-        {mode === "correctness"
-          ? "Grades candidates against human-labeled correct answers — catches cases the incumbent itself gets wrong. Needs labeled runs (attach verdicts below)."
-          : "Scores whether candidates answer the way you run today. \"Confirmed\" only past the case bar."}
-      </p>
-
-      {error && <div style={{ marginTop: 12 }}><InlineError message={error} /></div>}
+      {error && (
+        <div id="experiment-options-error" style={{ marginTop: 12 }}>
+          <InlineError message={error} evidenceId="rightsizing.experiment.error" />
+        </div>
+      )}
 
       {report && !error && <ExperimentResult report={report} />}
 
@@ -682,7 +1081,10 @@ function ExperimentResult({ report }: { report: ExperimentReport }) {
       </div>
 
       {report.outcomes.length > 0 ? (
-        <div style={{ overflowX: "auto" }}>
+        <ScrollableRegion
+          label="Rightsizing experiment outcomes"
+          evidenceId="rightsizing.region.experiment-outcomes-scroll"
+        >
           <table style={tableStyle}>
             <thead>
               <tr>
@@ -699,7 +1101,7 @@ function ExperimentResult({ report }: { report: ExperimentReport }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollableRegion>
       ) : (
         <EmptyNote>No candidates were evaluated.</EmptyNote>
       )}
@@ -711,8 +1113,101 @@ function ExperimentResult({ report }: { report: ExperimentReport }) {
           {report.harvest.token_profile_measured ? " (measured)" : " (estimated)"}.
         </p>
       )}
+      {report.execution && <ExperimentExecution evidence={report.execution} />}
       <p style={noteStyle}>{report.note}</p>
     </div>
+  );
+}
+
+function ExperimentExecution({
+  evidence,
+}: {
+  evidence: NonNullable<ExperimentReport["execution"]>;
+}) {
+  return (
+    <section
+      className={styles.executionEvidence}
+      data-evidence-id="rightsizing.experiment.execution-evidence"
+      aria-labelledby="rightsizing-execution-heading"
+    >
+      <div className={styles.executionHeader}>
+        <div>
+          <h3 id="rightsizing-execution-heading" className={styles.executionTitle}>
+            Live execution evidence
+          </h3>
+          <p className={styles.executionIntro}>
+            Runtime and ledger identities returned by this measured experiment.
+          </p>
+        </div>
+        <Pill tone={evidence.provider_call_count > 0 ? "success" : "muted"}>
+          {evidence.provider_call_count} live call{evidence.provider_call_count === 1 ? "" : "s"}
+        </Pill>
+      </div>
+
+      <dl className={styles.executionSummary}>
+        <div>
+          <dt>Experiment run</dt>
+          <dd title={evidence.run_id}>{evidence.run_id}</dd>
+        </div>
+        {evidence.campaign_id && (
+          <div>
+            <dt>Campaign</dt>
+            <dd title={evidence.campaign_id}>{evidence.campaign_id}</dd>
+          </div>
+        )}
+        <div>
+          <dt>Provider spend</dt>
+          <dd>{fmtExperimentUsd(evidence.measured_cost_usd)} measured</dd>
+        </div>
+        <div>
+          <dt>Pricing estimate</dt>
+          <dd>{fmtExperimentUsd(evidence.estimated_cost_usd)} estimated</dd>
+        </div>
+      </dl>
+
+      {evidence.calls.length > 0 && (
+        <ScrollableRegion
+          label="Rightsizing provider call evidence"
+          evidenceId="rightsizing.region.experiment-call-evidence-scroll"
+        >
+          <table className={styles.executionTable} style={tableStyle}>
+            <thead>
+              <tr>
+                <Th>Model</Th>
+                <Th>Operation</Th>
+                <Th>Provider request</Th>
+                <Th>Cost event</Th>
+                <Th align="right">Call cost</Th>
+                <Th>Cleanup</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {evidence.calls.map((call) => {
+                const cost = call.measured_cost_usd != null
+                  ? `${fmtExperimentUsd(call.measured_cost_usd)} measured`
+                  : call.estimated_cost_usd != null
+                    ? `${fmtExperimentUsd(call.estimated_cost_usd)} estimated`
+                    : "—";
+                return (
+                  <tr key={call.operation_id} style={rowStyle}>
+                    <Td mono>{call.model}</Td>
+                    <Td mono title={call.operation_id}>{call.operation_id}</Td>
+                    <Td mono title={call.provider_request_id ?? undefined}>
+                      {call.provider_request_id ?? "not supplied"}
+                    </Td>
+                    <Td mono title={call.cost_event_id ?? undefined}>
+                      {call.cost_event_id ?? "not recorded"}
+                    </Td>
+                    <Td align="right" mono>{cost}</Td>
+                    <Td>{call.cleanup_status}</Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </ScrollableRegion>
+      )}
+    </section>
   );
 }
 
@@ -778,6 +1273,7 @@ function QualityVerdictForm() {
   const [expected, setExpected] = useState("");
   const [detail, setDetail] = useState("");
   const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
   const canSubmit = runId.trim().length > 0 && source.trim().length > 0 && !busy;
 
@@ -785,6 +1281,7 @@ function QualityVerdictForm() {
     e.preventDefault();
     if (!canSubmit) return;
     setBusy(true);
+    setFeedback(null);
     try {
       await attachQualityVerdict({
         run_id: runId.trim(),
@@ -793,12 +1290,17 @@ function QualityVerdictForm() {
         detail: detail.trim(),
         expected_output: expected.trim() || null,
       });
-      toast(`Verdict "${verdict}" attached to ${runId.trim().slice(0, 8)}`);
+      const submittedRunId = runId.trim();
+      const message = `Verdict "${verdict}" attached to ${submittedRunId}.`;
+      toast(`Verdict "${verdict}" attached to ${submittedRunId.slice(0, 8)}`);
+      setFeedback({ kind: "success", message });
       setRunId("");
       setExpected("");
       setDetail("");
     } catch (err) {
-      toast(`Attach failed: ${errMsg(err)}`);
+      const message = `Attach failed: ${errMsg(err)}`;
+      toast(message);
+      setFeedback({ kind: "error", message });
     } finally {
       setBusy(false);
     }
@@ -806,6 +1308,7 @@ function QualityVerdictForm() {
 
   return (
     <div
+      data-evidence-id="rightsizing.quality-verdict.region"
       style={{
         marginTop: 16,
         paddingTop: 14,
@@ -816,34 +1319,85 @@ function QualityVerdictForm() {
       <p style={{ fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.5, margin: "0 0 12px" }}>
         Label a real run good or bad so correctness experiments have ground truth to grade against.
       </p>
-      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <form
+        onSubmit={submit}
+        data-evidence-id="rightsizing.quality-verdict.form"
+        style={{ display: "flex", flexDirection: "column", gap: 12 }}
+      >
         <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 1fr", gap: 12 }}>
           <Field label="run_id">
-            <TextInput value={runId} onChange={setRunId} placeholder="run id" />
+            <TextInput
+              value={runId}
+              onChange={setRunId}
+              placeholder="run id"
+              required
+              evidenceId="rightsizing.quality-verdict.run-id"
+            />
           </Field>
           <Field label="verdict">
             <Select
               value={verdict}
               onChange={(v) => setVerdict(v as "good" | "bad" | "unknown")}
               options={["good", "bad", "unknown"]}
+              evidenceId="rightsizing.quality-verdict.verdict"
             />
           </Field>
           <Field label="source" hint="Who/what judged it.">
-            <TextInput value={source} onChange={setSource} placeholder="human:alice" />
+            <TextInput
+              value={source}
+              onChange={setSource}
+              placeholder="human:alice"
+              required
+              evidenceId="rightsizing.quality-verdict.source"
+            />
           </Field>
         </div>
         <Field label="expected_output" hint="Optional — the correct answer for this run.">
-          <TextInput value={expected} onChange={setExpected} placeholder="Optional" />
+          <TextInput
+            value={expected}
+            onChange={setExpected}
+            placeholder="Optional"
+            evidenceId="rightsizing.quality-verdict.expected-output"
+          />
         </Field>
         <Field label="detail" hint="Optional — a note on the judgement.">
-          <TextInput value={detail} onChange={setDetail} placeholder="Optional" />
+          <TextInput
+            value={detail}
+            onChange={setDetail}
+            placeholder="Optional"
+            evidenceId="rightsizing.quality-verdict.detail"
+          />
         </Field>
         <div>
-          <Button type="submit" variant="neutral" disabled={!canSubmit}>
+          <Button
+            type="submit"
+            variant="neutral"
+            disabled={!canSubmit}
+            aria-describedby={!canSubmit ? "quality-verdict-disabled-reason" : undefined}
+            data-evidence-id="rightsizing.quality-verdict.submit"
+          >
             {busy ? "Attaching…" : "Attach verdict"}
           </Button>
+          {!canSubmit && !busy && (
+            <span id="quality-verdict-disabled-reason" style={{ ...noteStyle, marginLeft: 10 }}>
+              Add a run ID and source to attach a verdict.
+            </span>
+          )}
         </div>
       </form>
+      {feedback && (
+        <p
+          role={feedback.kind === "error" ? "alert" : "status"}
+          aria-live={feedback.kind === "error" ? "assertive" : "polite"}
+          data-evidence-id="rightsizing.quality-verdict.feedback"
+          style={{
+            ...noteStyle,
+            color: feedback.kind === "error" ? "var(--danger)" : "var(--success)",
+          }}
+        >
+          {feedback.message}
+        </p>
+      )}
     </div>
   );
 }
@@ -863,7 +1417,12 @@ function UnitEconomicsCard({ load }: { load: Loadable<UnitEconomicsReport> }) {
       {load.loading && !load.data ? (
         <StatSkeleton />
       ) : load.error ? (
-        <InlineError message={load.error} onRetry={load.reload} />
+        <InlineError
+          message={metricsReadError(load.error, "economics")}
+          onRetry={load.reload}
+          evidenceId="rightsizing.unit-economics.error"
+          retryEvidenceId="rightsizing.unit-economics.retry"
+        />
       ) : !load.data ? (
         <EmptyNote>Needs run history.</EmptyNote>
       ) : (
@@ -875,8 +1434,35 @@ function UnitEconomicsCard({ load }: { load: Loadable<UnitEconomicsReport> }) {
 
 function UnitEconomicsBody({ report }: { report: UnitEconomicsReport }) {
   const headline = report.cost_per_successful_run_usd;
-  const noData = report.window_runs === 0 || report.runs_with_cost === 0 || headline == null;
-  if (noData) return <EmptyNote>{report.note}</EmptyNote>;
+  const estimatedHeadline = report.estimated_cost_per_successful_run_usd;
+  const noData =
+    report.window_runs === 0 ||
+    (report.runs_with_cost === 0 && report.runs_with_estimated_cost === 0);
+  if (noData) {
+    return (
+      <>
+        <EmptyNote>{report.note}</EmptyNote>
+        {report.quality && <QualityCoveragePanel quality={report.quality} />}
+      </>
+    );
+  }
+
+  const headlineValue =
+    headline != null
+      ? estimatedHeadline != null
+        ? `${fmtUsd(headline)} measured · ${fmtUsd(estimatedHeadline)} estimated`
+        : fmtUsd(headline)
+      : estimatedHeadline != null
+        ? `${fmtUsd(estimatedHeadline)} estimated`
+        : "—";
+  const failureTaxValue =
+    report.failure_tax_usd > 0
+      ? report.estimated_failure_tax_usd > 0
+        ? `${fmtUsd(report.failure_tax_usd)} · ${pctRatio(report.failure_tax_ratio)} measured · ${fmtUsd(report.estimated_failure_tax_usd)} · ${pctRatio(report.estimated_failure_tax_ratio)} estimated`
+        : `${fmtUsd(report.failure_tax_usd)} · ${pctRatio(report.failure_tax_ratio)}`
+      : report.estimated_failure_tax_usd > 0
+        ? `${fmtUsd(report.estimated_failure_tax_usd)} · ${pctRatio(report.estimated_failure_tax_ratio)} estimated`
+        : `${fmtUsd(0)} · 0%`;
 
   return (
     <>
@@ -884,12 +1470,16 @@ function UnitEconomicsBody({ report }: { report: UnitEconomicsReport }) {
         Over the last {report.window_runs} runs.
       </p>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 40px" }}>
-        <StatTile label="Cost / successful run" value={fmtUsd(headline as number)} emphasis />
+        <StatTile label="Cost / successful run" value={headlineValue} emphasis />
         <StatTile label="Success rate" value={pctRatio(report.success_rate)} />
         <StatTile
           label="Failure tax"
-          value={`${fmtUsd(report.failure_tax_usd)} · ${pctRatio(report.failure_tax_ratio)}`}
-          tone={report.failure_tax_usd > 0 ? "warning" : undefined}
+          value={failureTaxValue}
+          tone={
+            report.failure_tax_usd > 0 || report.estimated_failure_tax_usd > 0
+              ? "warning"
+              : undefined
+          }
         />
         <StatTile
           label="Runs (ok / failed / in-flight)"
@@ -904,7 +1494,11 @@ function UnitEconomicsBody({ report }: { report: UnitEconomicsReport }) {
       )}
 
       {report.by_workflow.length > 1 && (
-        <div style={{ marginTop: 16, overflowX: "auto" }}>
+        <ScrollableRegion
+          label="Unit economics by workflow"
+          evidenceId="rightsizing.region.unit-economics-scroll"
+          style={{ marginTop: 16 }}
+        >
           <MonoLabel style={{ display: "block", marginBottom: 8 }}>By workflow</MonoLabel>
           <table style={tableStyle}>
             <thead>
@@ -929,45 +1523,71 @@ function UnitEconomicsBody({ report }: { report: UnitEconomicsReport }) {
                     {pctRatio(w.success_rate)}
                   </Td>
                   <Td align="right" mono>
-                    {w.cost_per_successful_run_usd != null ? fmtUsd(w.cost_per_successful_run_usd) : "—"}
+                    {w.cost_per_successful_run_usd != null
+                      ? fmtUsd(w.cost_per_successful_run_usd)
+                      : w.estimated_cost_per_successful_run_usd != null
+                        ? `${fmtUsd(w.estimated_cost_per_successful_run_usd)} estimated`
+                        : "—"}
                   </Td>
                   <Td align="right" mono>
-                    {fmtUsd(w.failure_tax_usd)}
+                    {w.failure_tax_usd > 0
+                      ? fmtUsd(w.failure_tax_usd)
+                      : w.estimated_failure_tax_usd > 0
+                        ? `${fmtUsd(w.estimated_failure_tax_usd)} estimated`
+                        : fmtUsd(0)}
                   </Td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollableRegion>
       )}
 
-      {report.quality && report.quality.state === "ok" && report.quality.cost_per_quality_success_usd != null && (
-        <div
-          style={{
-            marginTop: 16,
-            border: "1px solid var(--hair)",
-            borderRadius: 8,
-            padding: 12,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 20, fontWeight: 600, fontFamily: MONO }}>
-              {fmtUsd(report.quality.cost_per_quality_success_usd)}
-            </span>
-            <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-              cost / good outcome · {pctRatio(report.quality.coverage)} labeled · via{" "}
-              {report.quality.sources.join(", ")}
-            </span>
-          </div>
-          <p style={{ ...noteStyle, marginBottom: 0 }}>
-            A stricter success — only runs a reviewer judged good.{" "}
-            {pctRatio(report.quality.quality_success_rate_over_labeled)} of labeled runs were good.
-          </p>
-        </div>
-      )}
+      {report.quality && <QualityCoveragePanel quality={report.quality} />}
 
       <p style={{ ...noteStyle, marginBottom: 0 }}>{report.note}</p>
     </>
+  );
+}
+
+function QualityCoveragePanel({
+  quality,
+}: {
+  quality: NonNullable<UnitEconomicsReport["quality"]>;
+}) {
+  if (quality.labeled_terminal_runs === 0) return null;
+  const hasQualityCost =
+    quality.state === "ok" && quality.cost_per_quality_success_usd != null;
+  return (
+    <div
+      style={{
+        marginTop: 16,
+        border: "1px solid var(--hair)",
+        borderRadius: 8,
+        padding: 12,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span
+          style={{
+            fontSize: 20,
+            fontWeight: 500,
+            fontFamily: "var(--font-sans)",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {hasQualityCost
+            ? fmtUsd(quality.cost_per_quality_success_usd as number)
+            : `${quality.labeled_terminal_runs} labeled`}
+        </span>
+        <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+          {hasQualityCost ? "cost / good outcome" : "terminal run"}
+          {quality.labeled_terminal_runs === 1 ? "" : "s"} · {pctRatio(quality.coverage)} coverage ·{" "}
+          {quality.quality_successes} good · via {quality.sources.join(", ")}
+        </span>
+      </div>
+      <p style={{ ...noteStyle, marginBottom: 0 }}>{quality.note}</p>
+    </div>
   );
 }
 
@@ -986,7 +1606,12 @@ function WasteCard({ load }: { load: Loadable<WasteRollup> }) {
       {load.loading && !load.data ? (
         <StatSkeleton />
       ) : load.error ? (
-        <InlineError message={load.error} onRetry={load.reload} />
+        <InlineError
+          message={metricsReadError(load.error, "economics")}
+          onRetry={load.reload}
+          evidenceId="rightsizing.waste.error"
+          retryEvidenceId="rightsizing.waste.retry"
+        />
       ) : !load.data ? (
         <EmptyNote>Needs run history.</EmptyNote>
       ) : (
@@ -1016,7 +1641,11 @@ function WasteBody({ report }: { report: WasteRollup }) {
       </div>
 
       {report.by_kind.length > 0 && (
-        <div style={{ marginTop: 16, overflowX: "auto" }}>
+        <ScrollableRegion
+          label="Economic waste by kind"
+          evidenceId="rightsizing.region.waste-kind-scroll"
+          style={{ marginTop: 16 }}
+        >
           <MonoLabel style={{ display: "block", marginBottom: 8 }}>By kind</MonoLabel>
           <table style={tableStyle}>
             <thead>
@@ -1042,11 +1671,15 @@ function WasteBody({ report }: { report: WasteRollup }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollableRegion>
       )}
 
       {report.top_findings.length > 0 && (
-        <div style={{ marginTop: 16, overflowX: "auto" }}>
+        <ScrollableRegion
+          label="Top economic waste findings"
+          evidenceId="rightsizing.region.waste-findings-scroll"
+          style={{ marginTop: 16 }}
+        >
           <MonoLabel style={{ display: "block", marginBottom: 8 }}>Top findings</MonoLabel>
           <table style={tableStyle}>
             <thead>
@@ -1080,7 +1713,7 @@ function WasteBody({ report }: { report: WasteRollup }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollableRegion>
       )}
 
       <p style={{ ...noteStyle, marginBottom: 0 }}>{report.note}</p>
@@ -1108,6 +1741,7 @@ const noteStyle: React.CSSProperties = {
 
 const tableStyle: React.CSSProperties = {
   width: "100%",
+  tableLayout: "fixed",
   borderCollapse: "collapse",
   fontSize: 13,
 };
@@ -1127,7 +1761,7 @@ function Th({
     <th
       style={{
         textAlign: align,
-        fontFamily: MONO,
+        fontFamily: "var(--font-sans)",
         fontSize: 10.5,
         fontWeight: 500,
         textTransform: "uppercase",
@@ -1147,13 +1781,16 @@ function Td({
   children,
   align = "left",
   mono = false,
+  title,
 }: {
   children: React.ReactNode;
   align?: "left" | "right" | "center";
   mono?: boolean;
+  title?: string;
 }) {
   return (
     <td
+      title={title}
       style={{
         textAlign: align,
         padding: "8px 10px",
@@ -1183,10 +1820,10 @@ function StatTile({
     <div>
       <div
         style={{
-          fontFamily: MONO,
+          fontFamily: "var(--font-sans)",
           fontVariantNumeric: "tabular-nums",
           fontSize: emphasis ? 26 : 17,
-          fontWeight: 600,
+          fontWeight: 500,
           color: tone === "warning" ? "var(--warning)" : "var(--text-primary)",
           lineHeight: 1.15,
         }}
@@ -1241,12 +1878,20 @@ function TextInput({
   placeholder,
   autoFocus,
   inputMode,
+  invalid,
+  describedBy,
+  evidenceId,
+  required,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
-  inputMode?: "numeric";
+  inputMode?: "numeric" | "decimal";
+  invalid?: boolean;
+  describedBy?: string;
+  evidenceId: string;
+  required?: boolean;
 }) {
   return (
     <input
@@ -1255,6 +1900,10 @@ function TextInput({
       placeholder={placeholder}
       autoFocus={autoFocus}
       inputMode={inputMode}
+      required={required}
+      aria-invalid={invalid || undefined}
+      aria-describedby={invalid ? describedBy : undefined}
+      data-evidence-id={evidenceId}
       style={{
         width: "100%",
         boxSizing: "border-box",
@@ -1262,10 +1911,9 @@ function TextInput({
         fontSize: 12.5,
         color: "var(--text-primary)",
         background: "var(--bg-code)",
-        border: "1px solid var(--hair-strong)",
+        border: `1px solid ${invalid ? "var(--danger)" : "var(--hair-strong)"}`,
         borderRadius: 6,
         padding: "8px 10px",
-        outline: "none",
       }}
     />
   );
@@ -1275,18 +1923,24 @@ function TextArea({
   value,
   onChange,
   placeholder,
+  evidenceId,
+  required,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  evidenceId: string;
+  required?: boolean;
 }) {
   return (
     <textarea
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      required={required}
       rows={4}
       spellCheck={false}
+      data-evidence-id={evidenceId}
       style={{
         width: "100%",
         boxSizing: "border-box",
@@ -1299,7 +1953,6 @@ function TextArea({
         border: "1px solid var(--hair-strong)",
         borderRadius: 6,
         padding: "10px 12px",
-        outline: "none",
       }}
     />
   );
@@ -1309,15 +1962,18 @@ function Select({
   value,
   onChange,
   options,
+  evidenceId,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: string[];
+  evidenceId: string;
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      data-evidence-id={evidenceId}
       style={{
         width: "100%",
         boxSizing: "border-box",
@@ -1328,7 +1984,6 @@ function Select({
         border: "1px solid var(--hair-strong)",
         borderRadius: 6,
         padding: "8px 10px",
-        outline: "none",
       }}
     >
       {options.map((o) => (
@@ -1344,10 +1999,12 @@ function Checkbox({
   label,
   checked,
   onChange,
+  evidenceId,
 }: {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  evidenceId: string;
 }) {
   return (
     <label
@@ -1356,7 +2013,7 @@ function Checkbox({
         alignItems: "center",
         gap: 7,
         cursor: "pointer",
-        fontFamily: MONO,
+        fontFamily: "var(--font-sans)",
         fontSize: 12,
         color: "var(--text-secondary)",
         userSelect: "none",
@@ -1366,10 +2023,36 @@ function Checkbox({
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
+        data-evidence-id={evidenceId}
         style={{ accentColor: "var(--accent)", width: 14, height: 14, cursor: "pointer" }}
       />
       {label}
     </label>
+  );
+}
+
+function ScrollableRegion({
+  label,
+  evidenceId,
+  children,
+  style,
+}: {
+  label: string;
+  evidenceId: string;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      className={styles.scrollableRegion}
+      role="region"
+      aria-label={label}
+      data-evidence-id={evidenceId}
+      tabIndex={0}
+      style={style}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -1402,9 +2085,22 @@ function EmptyNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-function InlineError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+function InlineError({
+  message,
+  onRetry,
+  evidenceId,
+  retryEvidenceId,
+}: {
+  message: string;
+  onRetry?: () => void;
+  evidenceId: string;
+  retryEvidenceId?: string;
+}) {
   return (
     <div
+      role="alert"
+      aria-live="assertive"
+      data-evidence-id={evidenceId}
       style={{
         display: "flex",
         alignItems: "center",
@@ -1421,15 +2117,18 @@ function InlineError({ message, onRetry }: { message: string; onRetry?: () => vo
           fontSize: 12.5,
           color: "var(--danger)",
           minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
+          lineHeight: 1.45,
         }}
       >
         {message}
       </span>
       {onRetry && (
-        <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
+        <Button
+          variant="danger"
+          onClick={onRetry}
+          data-evidence-id={retryEvidenceId}
+          style={{ flexShrink: 0 }}
+        >
           Retry
         </Button>
       )}

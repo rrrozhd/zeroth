@@ -14,6 +14,10 @@ from zeroth.platform.primitives import utc_now
 # The reserved tenant that owns the system-wide default retention policy,
 # consulted whenever a tenant has no explicit policy row of its own.
 SYSTEM_DEFAULT_TENANT = "default"
+# Migration 008 stores TTLs as SQL INTEGER for SQLite/PostgreSQL portability.
+# Keep the public contract within PostgreSQL int4 until those columns migrate
+# to BIGINT.
+MAX_TTL_SECONDS = 2_147_483_647
 
 
 class RetentionPolicy(BaseModel):
@@ -29,8 +33,8 @@ class RetentionPolicy(BaseModel):
     tenant_id: str
     # TTLs are whole positive seconds; zero/negative would put the cutoff at
     # "now" or in the future and erase everything, so they fail validation.
-    audit_ttl_seconds: int | None = Field(default=None, ge=1)
-    run_ttl_seconds: int | None = Field(default=None, ge=1)
+    audit_ttl_seconds: int | None = Field(default=None, ge=1, le=MAX_TTL_SECONDS)
+    run_ttl_seconds: int | None = Field(default=None, ge=1, le=MAX_TTL_SECONDS)
     enabled: bool = True
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

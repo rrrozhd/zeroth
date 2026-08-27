@@ -34,6 +34,10 @@ from zeroth.contracts.graph.tokens import (
     IterationFrameState,
     IterationMember,
     IterationMemberState,
+    JoinInstance,
+    JoinLifecycleState,
+    JoinObligation,
+    JoinObligationOutcome,
     LoopInstance,
     SchedulingState,
     TokenEnvelope,
@@ -459,6 +463,81 @@ def _update_iteration_ownership(
     return tuple(updated_loops)
 
 
+def _settle_outstanding_join_obligation(
+    snapshot: TokenEngineSnapshot,
+    *,
+    token_id: str,
+    outcome: JoinObligationOutcome,
+    revision: int,
+) -> tuple[JoinInstance, ...]:
+    """Resolve an existing join slot in the same revision as terminal dispatch state."""
+    updated_joins: list[JoinInstance] = []
+    matched_count = 0
+    for join in snapshot.joins:
+        updated_obligations: list[JoinObligation] = []
+        matched_join = False
+        for obligation in join.obligations:
+            if obligation.source_token_id != token_id:
+                updated_obligations.append(obligation)
+                continue
+            if obligation.outcome is not None:
+                raise TokenSchedulerTransitionError(
+                    "dispatch token join obligation is already settled"
+                )
+            matched_count += 1
+            matched_join = True
+            updated_obligations.append(
+                JoinObligation.model_validate(
+                    {
+                        **_model_data(obligation),
+                        "outcome": outcome,
+                        "settled_revision": revision,
+                    }
+                )
+            )
+        if not matched_join:
+            updated_joins.append(join)
+            continue
+        if join.lifecycle_state is not JoinLifecycleState.OPEN:
+            raise TokenSchedulerTransitionError(
+                "only an OPEN join can have an outstanding dispatch obligation"
+            )
+        all_settled = all(item.outcome is not None for item in updated_obligations)
+        any_delivered = any(
+            item.outcome is JoinObligationOutcome.DELIVERED for item in updated_obligations
+        )
+        lifecycle = (
+            JoinLifecycleState.READY
+            if all_settled and any_delivered
+            else JoinLifecycleState.CLOSED
+            if all_settled
+            else JoinLifecycleState.OPEN
+        )
+        updated_joins.append(
+            JoinInstance.model_validate(
+                {
+                    **_model_data(join),
+                    "obligations": tuple(updated_obligations),
+                    "lifecycle_state": lifecycle,
+                    "consumed_parent_token_ids": (
+                        tuple(item.source_token_id for item in updated_obligations)
+                        if lifecycle is JoinLifecycleState.CLOSED
+                        else ()
+                    ),
+                    "updated_revision": revision,
+                    "closed_revision": (
+                        revision if lifecycle is JoinLifecycleState.CLOSED else None
+                    ),
+                }
+            )
+        )
+    if matched_count > 1:
+        raise TokenSchedulerTransitionError(
+            "dispatch token cannot own multiple outstanding join obligations"
+        )
+    return tuple(updated_joins)
+
+
 def _settle_dispatch(
     snapshot: TokenEngineSnapshot,
     *,
@@ -497,10 +576,21 @@ def _settle_dispatch(
             else IterationMemberState.INTERNAL_COMPLETION
         ),
     )
+    join_outcome = {
+        ForkObligationOutcome.FAILED: JoinObligationOutcome.FAILED,
+        ForkObligationOutcome.SUPPRESSED: JoinObligationOutcome.SUPPRESSED,
+    }[fork_outcome]
+    joins = _settle_outstanding_join_obligation(
+        snapshot,
+        token_id=dispatch.token.token_id,
+        outcome=join_outcome,
+        revision=revision,
+    )
     return _next_snapshot(
         snapshot,
         tokens=_replace_token(snapshot.tokens, settled),
         forks=forks,
+        joins=joins,
         loops=loops,
         in_flight_dispatches=tuple(
             item for item in snapshot.in_flight_dispatches if item.dispatch_id != dispatch_id

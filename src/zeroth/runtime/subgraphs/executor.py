@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from zeroth.contracts.governed import RunStatus
+from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.graph.models import Graph, SubgraphNode
 from zeroth.runtime.parallel.models import BranchContext, GlobalStepTracker
 from zeroth.runtime.runs import Run
@@ -157,17 +158,19 @@ class SubgraphExecutor:
         child_visited = visited_refs + [graph_ref]
         entry = orchestrator._entry_step(merged)
         child_metadata: dict[str, Any] = {
+            **orchestrator._initial_metadata(merged, input_payload),
             "subgraph_depth": new_depth,
             "parent_run_id": parent_run.run_id,
             "parent_node_id": node_id,
             "visited_subgraph_refs": child_visited,
-            "node_payloads": {entry: dict(input_payload)},
-            "graph_id": merged.graph_id,
-            "graph_name": merged.name,
-            "edge_visit_counts": {},
-            "path": [],
-            "audits": {},
         }
+        # Campaign-scoped budget and evidence correlation must survive the
+        # parent/child boundary. Copy only the typed campaign controls rather
+        # than inheriting the parent's arbitrary metadata namespace.
+        if parent_run.metadata.get("campaign_id") is not None:
+            child_metadata["campaign_id"] = str(parent_run.metadata["campaign_id"])
+        if parent_run.metadata.get("campaign_strict") is True:
+            child_metadata["campaign_strict"] = True
 
         # --- Create child Run (T-39-07 mitigation: inherit tenant/workspace) ---
         child_run = Run(
@@ -177,10 +180,15 @@ class SubgraphExecutor:
             tenant_id=parent_run.tenant_id,
             workspace_id=parent_run.workspace_id,
             parent_run_id=parent_run.run_id,
-            pending_node_ids=[entry],
+            pending_node_ids=([] if token_engine_enabled(merged.execution_settings) else [entry]),
             metadata=child_metadata,
         )
         child_run = await orchestrator.run_repository.create(child_run)
+        if branch_context is not None:
+            # Parent fan-out cancellation is coordinated after sibling tasks
+            # are drained. Publish the durable child identity immediately so
+            # that coordinator can terminalize every child it actually started.
+            branch_context.metadata["subgraph_child_run_id"] = child_run.run_id
         child_run.status = RunStatus.RUNNING
         child_run.touch()
         child_run = await orchestrator.run_repository.put(child_run)
@@ -213,6 +221,12 @@ class SubgraphExecutor:
             total_estimated_cost_usd=rollup.estimated_cost_usd,
             cost_measurement=rollup.cost_measurement,
         )
+
+        # ``_drive`` persists the terminal child before this rollup exists.
+        # Persist and checkpoint the enriched child so refresh/restart reads the
+        # same cost and lineage evidence returned to the parent fan-in.
+        result = await orchestrator.run_repository.put(result)
+        await orchestrator.run_repository.write_checkpoint(result)
 
         return result
 
@@ -252,12 +266,29 @@ class SubgraphExecutor:
         namespaced = namespace_subgraph(subgraph, graph_ref, depth, branch_index=branch_index)
         merged = merge_governance(parent_graph, namespaced)
 
+        # A parent-deployment worker owns this continuation.  The child remains
+        # WAITING_APPROVAL until that worker reaches the exact persisted child;
+        # then the child's own approval service applies the already-durable
+        # decision under the child graph provenance before driving it.  This is
+        # deliberately before ``_drive``: re-entering a human node without the
+        # result would mint a duplicate approval.
+        pending = child_run.metadata.get("pending_approval")
+        approval_id = pending.get("approval_id") if isinstance(pending, dict) else None
+        approval_service = getattr(orchestrator, "approval_service", None)
+        if child_run.status is RunStatus.WAITING_APPROVAL and approval_id and approval_service:
+            approval = await approval_service.get(approval_id)
+            if approval is None or approval.resolution is None:
+                return child_run
+            return await approval_service.continue_run(
+                approval_id,
+                graph=merged,
+                orchestrator=orchestrator,
+            )
+
         try:
             result = await orchestrator._drive(merged, child_run, step_tracker=step_tracker)
         except Exception as exc:
-            error = SubgraphExecutionError(
-                f"subgraph resume for '{graph_ref}' failed: {exc}"
-            )
+            error = SubgraphExecutionError(f"subgraph resume for '{graph_ref}' failed: {exc}")
             if child_run.execution_history:
                 rollup = rollup_cost_history(child_run.execution_history)
                 error.audit_record = {  # type: ignore[attr-defined]
@@ -277,4 +308,6 @@ class SubgraphExecutor:
             total_estimated_cost_usd=rollup.estimated_cost_usd,
             cost_measurement=rollup.cost_measurement,
         )
+        result = await orchestrator.run_repository.put(result)
+        await orchestrator.run_repository.write_checkpoint(result)
         return result

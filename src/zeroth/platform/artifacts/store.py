@@ -54,6 +54,10 @@ class ArtifactStore(Protocol):
         """Retrieve artifact data by key."""
         ...
 
+    async def reference(self, key: str) -> ArtifactReference:  # pragma: no cover - protocol
+        """Return safe persisted metadata for an artifact key."""
+        ...
+
     async def delete(
         self, key: str, *, idempotency_key: str
     ) -> bool:  # pragma: no cover - protocol
@@ -468,6 +472,26 @@ return response
             msg = f"Artifact not found: {key}"
             raise ArtifactNotFoundError(msg)
         return data
+
+    async def reference(self, key: str) -> ArtifactReference:
+        """Return the persisted reference metadata without returning payload bytes."""
+        raw = await self._client.get(self._meta_key(key))
+        if raw is None and self._legacy_key_is_unambiguous(key):
+            raw = await self._client.get(self._legacy_meta_key(key))
+        if raw is None:
+            raise ArtifactNotFoundError(f"Artifact not found: {key}")
+        try:
+            meta = json.loads(raw)
+            return ArtifactReference(
+                store="redis",
+                key=key,
+                content_type=meta["content_type"],
+                size=meta["size"],
+                created_at=meta["created_at"],
+                ttl_seconds=meta.get("ttl_seconds"),
+            )
+        except (KeyError, TypeError, ValueError):
+            raise ArtifactStorageError("Invalid artifact metadata") from None
 
     async def delete(self, key: str, *, idempotency_key: str) -> bool:
         """Delete an artifact and its metadata.
@@ -1021,6 +1045,28 @@ class FilesystemArtifactStore:
             raise ArtifactNotFoundError(msg)
 
         return await asyncio.to_thread(self._read_file, key)
+
+    async def reference(self, key: str) -> ArtifactReference:
+        """Return safe sidecar metadata while applying the same lazy expiry rule."""
+        self._validate_key(key)
+        try:
+            meta = await asyncio.to_thread(self._read_meta, key)
+        except ArtifactNotFoundError:
+            raise ArtifactNotFoundError(f"Artifact not found: {key}") from None
+        if self._is_expired(meta):
+            await asyncio.to_thread(self._delete_files, key)
+            raise ArtifactNotFoundError(f"Artifact expired: {key}")
+        try:
+            return ArtifactReference(
+                store="filesystem",
+                key=key,
+                content_type=meta["content_type"],
+                size=meta["size"],
+                created_at=meta["created_at"],
+                ttl_seconds=meta.get("ttl_seconds"),
+            )
+        except (KeyError, TypeError, ValueError):
+            raise ArtifactStorageError("Invalid artifact metadata") from None
 
     async def delete(self, key: str, *, idempotency_key: str) -> bool:
         """Delete an artifact and its sidecar.

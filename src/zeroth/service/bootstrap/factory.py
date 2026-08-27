@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from fastapi import FastAPI
 
-from zeroth.contracts.graph import GraphRepository
+from zeroth.contracts.graph import Graph, GraphRepository, SubgraphNode
 from zeroth.contracts.graph.serialization import hydrate_deployed_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult
@@ -98,6 +99,40 @@ from zeroth.service.langgraph_gateway.routes import WebSocketGatewayHandler
 from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
 
 
+class _UnavailableEconEventEraser:
+    """Fail a configured economics cleanup instead of marking it skipped."""
+
+    async def delete_events_for_run(
+        self,
+        tenant_id: str,
+        join_keys: object,
+        *,
+        idempotency_key: str,
+    ) -> int:
+        del tenant_id, join_keys, idempotency_key
+        raise RuntimeError("economics erasure unavailable")
+
+
+def _build_retention_econ_eraser(settings: object) -> object | None:
+    """Bind retention cleanup to the configured bundled economics database.
+
+    A disabled control plane keeps the compatibility behavior: no econ cleanup
+    is expected, so the manifest records that surface as skipped. Once economics
+    is enabled, however, an absent adapter is not equivalent to an empty store.
+    The unavailable stand-in makes the destructive operation durably fail and
+    remain retryable instead of reporting a false successful erasure.
+    """
+    regulus = getattr(settings, "regulus", None)
+    if not bool(getattr(regulus, "enabled", False)):
+        return None
+    try:
+        from zeroth.econ.plane.database import SessionLocal as EconSessionLocal
+        from zeroth.econ.plane.erasure import SqlAlchemyEconEventEraser
+    except ImportError:
+        return _UnavailableEconEventEraser()
+    return SqlAlchemyEconEventEraser(session_factory=EconSessionLocal)
+
+
 def _configured_policy_registry(
     definitions: tuple[dict[str, Any], ...],
 ) -> PolicyRegistry:
@@ -150,7 +185,23 @@ async def bootstrap_scoped_service(
         contract_scope_context(deployment.tenant_id, deployment.workspace_id),
     )
     _graph_validator = GraphValidator(contract_registry=_contract_registry)
-    graph_repository = GraphRepository(database, validator=_graph_validator)
+    from zeroth.service.templates import TemplateReferenceIndex  # noqa: PLC0415
+
+    template_reference_index = TemplateReferenceIndex(
+        database,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+    )
+    deployment_repository = SQLiteDeploymentRepository(
+        database,
+        template_reference_index=template_reference_index,
+    )
+    graph_repository = GraphRepository(
+        database,
+        validator=_graph_validator,
+        template_reference_index=template_reference_index,
+    )
+    await template_reference_index.rebuild()
     deployment_service = DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=deployment_repository,
@@ -272,11 +323,24 @@ async def bootstrap_scoped_service(
         )
         regulus_self_auth = make_self_auth_headers_provider(_self_api_key)
 
+        econ_plane_app = None
+        try:
+            from zeroth.econ.plane.main import app as econ_plane_app
+        except ImportError:
+            econ_plane_app = None
+
+        regulus_base_url = (
+            "http://regulus.internal/v1"
+            if econ_plane_app is not None
+            else settings.regulus.base_url
+        )
+
         regulus_client = RegulusClient(
-            base_url=settings.regulus.base_url,
+            base_url=regulus_base_url,
             timeout=settings.regulus.request_timeout,
             enabled=True,
             headers_provider=regulus_self_auth,
+            _asgi_app=econ_plane_app,
         )
         # BudgetEnforcer wired here once econ.budget module lands (Plan 13-02).
         try:
@@ -288,12 +352,6 @@ async def bootstrap_scoped_service(
             # never trips. When econ_plane is importable, dispatch straight to the
             # mounted ASGI app (guarded exactly like the /regulus mount in app.py);
             # otherwise fall back to the external-HTTP base_url path unchanged.
-            econ_plane_app = None
-            try:
-                from zeroth.econ.plane.main import app as econ_plane_app
-            except ImportError:
-                econ_plane_app = None
-
             budget_enforcer = BudgetEnforcer(
                 regulus_base_url=settings.regulus.base_url if econ_plane_app is None else None,
                 cache_ttl=settings.regulus.budget_cache_ttl,
@@ -315,9 +373,27 @@ async def bootstrap_scoped_service(
     except ImportError:
         cost_estimator = None
 
+    probe_instrumentation = None
+    if regulus_client is not None:
+        # Explicitly costed provider/connector probes share the bundled econ
+        # store with the mounted Regulus app, so admission is durable before the
+        # external call and the same event identity reaches Audit and Regulus.
+        from zeroth.econ.plane.database import SessionLocal as EconSessionLocal
+        from zeroth.service.probe_instrumentation import PersistentProbeInstrumentation
+
+        probe_instrumentation = PersistentProbeInstrumentation(
+            session_factory=EconSessionLocal,
+            regulus_client=regulus_client,
+            audit_repository=audit_repository,
+            deployment_ref=deployment.deployment_ref,
+            graph_version_ref=f"{graph.graph_id}@{graph.version}",
+            workspace_id=deployment.workspace_id,
+        )
+
     # Phase 18: Wire cost instrumentation into orchestrator.
     orchestrator.regulus_client = regulus_client
     orchestrator.cost_estimator = cost_estimator
+    orchestrator.cost_instrumentation = probe_instrumentation
     orchestrator.deployment_ref = deployment.deployment_ref
 
     # Phase 16/18: ARQ wakeup pool.
@@ -349,7 +425,13 @@ async def bootstrap_scoped_service(
         pg_conninfo = settings.database.postgres_dsn.get_secret_value()
 
     register_memory_connectors(
-        memory_registry, settings, redis_client=redis_client, pg_conninfo=pg_conninfo
+        memory_registry,
+        settings,
+        redis_client=redis_client,
+        pg_conninfo=pg_conninfo,
+        secret_provider=secret_provider,
+        tenant_id=deployment.tenant_id,
+        allow_env_fallback=settings.secrets.allow_env_fallback,
     )
 
     # Runtime-managed connectors: re-register persisted console-authored
@@ -362,6 +444,8 @@ async def bootstrap_scoped_service(
         memory_registry,
         memory_connector_config_repository,
         tenant_id=deployment.tenant_id,
+        secret_provider=secret_provider,
+        allow_env_fallback=settings.secrets.allow_env_fallback,
     )
 
     # Phase 20: Create resolver from populated registry for AgentRunner injection.
@@ -369,6 +453,18 @@ async def bootstrap_scoped_service(
         registry=memory_registry,
         thread_repository=thread_repository,
     )
+    if probe_instrumentation is not None and cost_estimator is not None:
+        from zeroth.service.probe_instrumentation import PersistentEmbeddingInstrumentation
+
+        run_cap = settings.regulus.per_run_cap_usd
+        if run_cap is not None:
+            memory_resolver.set_embedding_call_hooks(
+                PersistentEmbeddingInstrumentation(
+                    instrumentation=probe_instrumentation,
+                    cost_estimator=cost_estimator,
+                    run_cap_usd=Decimal(str(run_cap)),
+                )
+            )
 
     # Phase 20: Wire memory resolver and budget enforcer into orchestrator.
     orchestrator.memory_resolver = memory_resolver
@@ -461,6 +557,7 @@ async def bootstrap_scoped_service(
     # secret provider existed). These are the same references held by the
     # orchestrator / approval service, so post-hoc assignment propagates.
     deployment_service.signer = signer
+    deployment_service.deployment_mode = settings.deployment_mode
     audit_repository._signer = signer  # noqa: SLF001 - same-package wiring seam
 
     # Phase 35: Resilient HTTP client construction — auth secrets resolve
@@ -477,12 +574,22 @@ async def bootstrap_scoped_service(
     orchestrator.http_client = http_client_instance
 
     # Phase 36: Template registry and renderer.
-    from zeroth.contracts.templates import (
-        TemplateRegistry,
-        TemplateRenderer,  # noqa: PLC0415
+    from zeroth.contracts.templates import TemplateRenderer  # noqa: PLC0415
+    from zeroth.service.templates import (  # noqa: PLC0415
+        DatabaseTemplateRegistry,
+        TemplateDependencyChecker,
     )
 
-    template_registry = TemplateRegistry()
+    template_registry = DatabaseTemplateRegistry(
+        database,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+    )
+    template_dependency_checker = TemplateDependencyChecker(
+        graph_repository,
+        deployment_service,
+        template_reference_index,
+    )
     template_renderer = TemplateRenderer()
     orchestrator.template_registry = template_registry
     orchestrator.template_renderer = template_renderer
@@ -504,13 +611,20 @@ async def bootstrap_scoped_service(
 
     if settings.webhook.enabled:
         try:
+            from zeroth.service.service_audit import ServiceAuditRecorder
             from zeroth.service.webhooks.repository import WebhookRepository
             from zeroth.service.webhooks.service import WebhookService
 
             webhook_repository = WebhookRepository(database, deployment_scope)
+            webhook_audit_recorder = ServiceAuditRecorder(
+                repository=audit_repository,
+                deployment=deployment,
+                require_signed=signer is not None and not isinstance(signer, NullSigner),
+            )
             webhook_service_obj = WebhookService(
                 repository=webhook_repository,
                 default_max_retries=settings.webhook.default_max_retries,
+                audit_recorder=webhook_audit_recorder,
             )
             # Wire webhook_service into orchestrator and approval_service
             orchestrator.webhook_service = webhook_service_obj
@@ -527,6 +641,7 @@ async def bootstrap_scoped_service(
             delivery_worker_obj = WebhookDeliveryWorker(
                 repository=webhook_repository,
                 http_client=webhook_http_client,
+                audit_recorder=webhook_audit_recorder,
                 poll_interval=settings.webhook.delivery_poll_interval,
                 max_concurrency=settings.webhook.max_delivery_concurrency,
                 retry_base_delay=settings.webhook.retry_base_delay,
@@ -550,8 +665,8 @@ async def bootstrap_scoped_service(
     # WS-E: retention / right-to-erasure wiring. Repositories + the erasure
     # service are ALWAYS constructed so the API works regardless of the worker;
     # the background purge worker is only built when retention.enabled is True.
-    # The econ-event eraser is intentionally left unwired here (None) — see
-    # docs/retention-and-erasure.md for the run->join_key deferral.
+    # When the bundled economics plane is active, erase its tenant-scoped events
+    # with the authoritative run/join keys harvested from the audit records.
     from zeroth.governance.retention import (
         EnabledPolicyMaintenanceReader,
         LegalHoldRepository,
@@ -588,6 +703,7 @@ async def bootstrap_scoped_service(
     )
     legal_hold_repository = LegalHoldRepository(database, retention_scope)
     retention_log_repository = RetentionAuditLogRepository(database, retention_scope)
+    retention_econ_eraser = _build_retention_econ_eraser(settings)
     retention_erasure_service = RetentionErasureService(
         audit_repository=audit_repository,
         run_repository=run_repository,
@@ -595,7 +711,7 @@ async def bootstrap_scoped_service(
         legal_hold_repository=legal_hold_repository,
         log_repository=retention_log_repository,
         artifact_store=artifact_store,
-        econ_eraser=None,
+        econ_eraser=retention_econ_eraser,
     )
     retention_worker_obj: object | None = None
     if settings.retention.enabled:
@@ -634,7 +750,7 @@ async def bootstrap_scoped_service(
                 legal_hold_repository=LegalHoldRepository(database, null_scope),
                 log_repository=RetentionAuditLogRepository(database, null_scope),
                 artifact_store=tenant_artifacts,
-                econ_eraser=None,
+                econ_eraser=retention_econ_eraser,
             )
 
         retention_worker_obj = RetentionPurgeWorker.for_shared_database(
@@ -840,6 +956,7 @@ async def bootstrap_scoped_service(
             queue_gauge=queue_gauge,
             regulus_client=regulus_client,
             budget_enforcer=budget_enforcer,
+            probe_instrumentation=probe_instrumentation,
             memory_registry=memory_registry,
             memory_connector_config_repository=memory_connector_config_repository,
             memory_resolver=memory_resolver,
@@ -854,6 +971,7 @@ async def bootstrap_scoped_service(
             artifact_store=artifact_store,
             http_client=http_client_instance,
             template_registry=template_registry,
+            template_dependency_checker=template_dependency_checker,
             subgraph_executor=subgraph_executor,
             secret_provider=secret_provider,
             signer=signer,
@@ -973,6 +1091,7 @@ async def build_runners_for_deployment(
     secret_provider: SecretProvider | None = None,
     allow_env_fallback: bool = True,
     llm_key_map: dict[str, str] | None = None,
+    llm_base_url_map: dict[str, str] | None = None,
 ) -> dict[str, AgentRunner] | None:
     """Build runners for the graph behind a deployment ref.
 
@@ -998,12 +1117,99 @@ async def build_runners_for_deployment(
         database,
         contract_scope_context(deployment.tenant_id, deployment.workspace_id),
     )
-    return await build_agent_runners(
-        graph,
-        registry,
-        provider=provider,
-        secret_provider=secret_provider,
+    from zeroth.runtime.agents import RepositoryThreadStateStore
+
+    thread_state_store = RepositoryThreadStateStore(
+        database,
         tenant_id=deployment.tenant_id,
-        allow_env_fallback=allow_env_fallback,
-        llm_key_map=llm_key_map,
+        workspace_id=deployment.workspace_id,
     )
+    deployment_repository = SQLiteDeploymentRepository(database)
+    runners: dict[str, AgentRunner] = {}
+    runner_origins: dict[str, tuple[str, int, str]] = {}
+
+    async def visit(
+        current_graph: Graph,
+        *,
+        current_ref: str | None,
+        current_deployment_version: int,
+        depth: int,
+        visited_refs: tuple[str, ...],
+    ) -> None:
+        local_runners = await build_agent_runners(
+            current_graph,
+            registry,
+            provider=provider,
+            secret_provider=secret_provider,
+            tenant_id=deployment.tenant_id,
+            allow_env_fallback=allow_env_fallback,
+            llm_key_map=llm_key_map,
+            llm_base_url_map=llm_base_url_map,
+            thread_state_store=thread_state_store,
+        )
+        for authored_id, runner in local_runners.items():
+            key = (
+                authored_id
+                if current_ref is None
+                else f"subgraph:{current_ref}:{depth}:{authored_id}"
+            )
+            origin = (
+                current_ref or deployment.deployment_ref,
+                current_deployment_version,
+                authored_id,
+            )
+            previous = runner_origins.get(key)
+            if previous is not None and previous != origin:
+                raise DeploymentBootstrapError(
+                    f"agent runner key collision for {key!r}: {previous!r} and {origin!r}"
+                )
+            runner_origins[key] = origin
+            runners.setdefault(key, runner)
+
+        for node in current_graph.nodes:
+            if not isinstance(node, SubgraphNode):
+                continue
+            child_ref = node.subgraph.graph_ref
+            child_depth = depth + 1
+            if child_depth > node.subgraph.max_depth:
+                raise DeploymentBootstrapError(
+                    f"subgraph depth {child_depth} exceeds max_depth "
+                    f"{node.subgraph.max_depth} for graph_ref {child_ref!r}"
+                )
+            if child_ref in visited_refs:
+                raise DeploymentBootstrapError(
+                    f"circular subgraph reference detected while building runners: {child_ref}"
+                )
+            child_deployment = await deployment_repository.get(
+                child_ref,
+                node.subgraph.version,
+                tenant_id=deployment.tenant_id,
+                workspace_id=deployment.workspace_id,
+            )
+            if child_deployment is None:
+                version_part = f" version {node.subgraph.version}" if node.subgraph.version else ""
+                raise DeploymentBootstrapError(
+                    f"subgraph deployment {child_ref!r}{version_part} not found in served scope"
+                )
+            try:
+                child_graph = hydrate_deployed_graph(child_deployment)
+            except Exception as exc:
+                raise DeploymentBootstrapError(
+                    f"failed to deserialize subgraph deployment {child_ref!r}"
+                ) from exc
+            await visit(
+                child_graph,
+                current_ref=child_ref,
+                current_deployment_version=child_deployment.version,
+                depth=child_depth,
+                visited_refs=(*visited_refs, child_ref),
+            )
+
+    await visit(
+        graph,
+        current_ref=None,
+        current_deployment_version=deployment.version,
+        depth=0,
+        visited_refs=(),
+    )
+    return runners

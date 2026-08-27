@@ -100,6 +100,31 @@ def _run_stub() -> MagicMock:
 
 
 @pytest.mark.asyncio
+async def test_retrieval_propagates_strict_campaign_identity_to_embedding_resolver() -> None:
+    connector = _RecordingConnector([])
+
+    class Resolver:
+        runtime_context = None
+
+        async def resolve(self, memory_refs, **kwargs):  # noqa: ANN001
+            del memory_refs
+            self.runtime_context = kwargs["runtime_context"]
+            return [MagicMock(connector=connector)]
+
+    resolver = Resolver()
+    run = _run_stub()
+    run.metadata = {"campaign_id": "campaign-a"}
+    await _orchestrator(resolver)._dispatch_retrieval_node(
+        _node(query_key="question", top_k=3, as_name="context"),
+        run,
+        {"question": "what is zeroth?"},
+    )
+
+    assert resolver.runtime_context["campaign_id"] == "campaign-a"
+    assert resolver.runtime_context["campaign_strict"] is True
+
+
+@pytest.mark.asyncio
 async def test_retrieval_dispatch_wires_query_topk_output_and_audit() -> None:
     connector = _RecordingConnector(_entries())
     orch = _orchestrator(_resolver(connector))

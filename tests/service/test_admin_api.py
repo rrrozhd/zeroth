@@ -21,7 +21,7 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotWriteDisabledError,
 )
-from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.runs import Run, RunFailureState, RunStatus
 from zeroth.service.bootstrap import bootstrap_app
 from zeroth.service.bootstrap.factory import bootstrap_scoped_app
 
@@ -68,6 +68,30 @@ async def test_list_admin_runs_returns_runs(sqlite_db) -> None:
     assert "runs" in body
     assert "total" in body
     assert body["total"] >= 1
+
+
+async def test_list_admin_runs_is_tenant_wide_across_deployments(sqlite_db) -> None:
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-admin-tenant-history", DEPLOYMENT + "-tenant-history"
+    )
+    other = Run(
+        graph_version_ref="other-graph@1",
+        deployment_ref="other-deployment",
+        tenant_id=service.deployment.tenant_id,
+        status=RunStatus.COMPLETED,
+        final_output={"ok": True},
+    )
+    await service.run_repository.create(other)
+
+    with TestClient(app) as client:
+        response = client.get("/admin/runs", headers=admin_headers())
+        detail = client.get(f"/runs/{other.run_id}", headers=admin_headers())
+
+    assert response.status_code == 200
+    deployment_refs = {run["deployment_ref"] for run in response.json()["runs"]}
+    assert "other-deployment" in deployment_refs
+    assert detail.status_code == 200
+    assert detail.json()["deployment_ref"] == "other-deployment"
 
 
 async def test_list_admin_runs_rejects_out_of_bounds_limit(sqlite_db) -> None:
@@ -122,6 +146,162 @@ async def test_cancel_run_transitions_to_failed(sqlite_db) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "failed"
+
+
+async def test_cancel_run_stops_the_active_worker_drive(sqlite_db, monkeypatch) -> None:
+    service, app = await _make_service_and_app(
+        sqlite_db,
+        "graph-cancel-active-drive",
+        DEPLOYMENT + "-cancel-active-drive",
+    )
+    interrupted: list[str] = []
+
+    async def interrupt_active_run(run_id: str) -> None:
+        interrupted.append(run_id)
+
+    monkeypatch.setattr(
+        service.worker,
+        "interrupt_active_run",
+        interrupt_active_run,
+        raising=False,
+    )
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/runs",
+            json={"input_payload": {"value": 1}},
+            headers=operator_headers(),
+        )
+        run_id = created.json()["run_id"]
+        await service.run_repository.transition(run_id, RunStatus.RUNNING)
+
+        response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
+
+    assert response.status_code == 200
+    assert interrupted == [run_id]
+    audits = await service.audit_repository.list_by_run(run_id)
+    control = [record for record in audits if record.node_id == "run.control.cancelled"]
+    assert len(control) == 1
+    assert control[0].actor is not None
+    assert control[0].actor.subject == "admin-1"
+    assert control[0].status == "completed"
+
+
+async def test_cancel_run_cascades_to_active_descendants(sqlite_db, monkeypatch) -> None:
+    service, app = await _make_service_and_app(
+        sqlite_db,
+        "graph-cancel-descendants",
+        DEPLOYMENT + "-cancel-descendants",
+    )
+    parent = Run(
+        graph_version_ref=service.deployment.graph_version_ref,
+        deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        status=RunStatus.RUNNING,
+    )
+    completed_child = Run(
+        graph_version_ref="child-completed@1",
+        deployment_ref="child-completed",
+        tenant_id=service.deployment.tenant_id,
+        parent_run_id=parent.run_id,
+        status=RunStatus.COMPLETED,
+        final_output={"preserved": True},
+    )
+    active_child = Run(
+        graph_version_ref="child-active@1",
+        deployment_ref="child-active",
+        tenant_id=service.deployment.tenant_id,
+        parent_run_id=parent.run_id,
+        status=RunStatus.RUNNING,
+    )
+    active_grandchild = Run(
+        graph_version_ref="grandchild-active@1",
+        deployment_ref="grandchild-active",
+        tenant_id=service.deployment.tenant_id,
+        parent_run_id=active_child.run_id,
+        status=RunStatus.RUNNING,
+    )
+    for run in (parent, completed_child, active_child, active_grandchild):
+        await service.run_repository.create(run)
+
+    interrupted: list[str] = []
+
+    async def interrupt_active_run(run_id: str) -> None:
+        interrupted.append(run_id)
+
+    monkeypatch.setattr(
+        service.worker,
+        "interrupt_active_run",
+        interrupt_active_run,
+        raising=False,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/admin/runs/{parent.run_id}/cancel",
+            headers=admin_headers(),
+        )
+
+    assert response.status_code == 200
+    persisted_parent = await service.run_repository.get(parent.run_id)
+    persisted_completed = await service.run_repository.get(completed_child.run_id)
+    persisted_child = await service.run_repository.get(active_child.run_id)
+    persisted_grandchild = await service.run_repository.get(active_grandchild.run_id)
+    assert persisted_parent is not None
+    assert persisted_completed is not None
+    assert persisted_child is not None
+    assert persisted_grandchild is not None
+    assert persisted_parent.failure_state is not None
+    assert persisted_parent.failure_state.reason == "operator_cancelled"
+    assert persisted_completed.status is RunStatus.COMPLETED
+    assert persisted_completed.final_output == {"preserved": True}
+    assert persisted_child.status is RunStatus.FAILED
+    assert persisted_child.failure_state is not None
+    assert persisted_child.failure_state.reason == "operator_cancelled"
+    assert persisted_grandchild.status is RunStatus.FAILED
+    assert persisted_grandchild.failure_state is not None
+    assert persisted_grandchild.failure_state.reason == "operator_cancelled"
+    assert interrupted == [parent.run_id, active_child.run_id, active_grandchild.run_id]
+
+
+async def test_repeated_cancel_reconciles_orphaned_active_descendant(sqlite_db) -> None:
+    service, app = await _make_service_and_app(
+        sqlite_db,
+        "graph-cancel-reconcile-descendant",
+        DEPLOYMENT + "-cancel-reconcile-descendant",
+    )
+    parent = Run(
+        graph_version_ref=service.deployment.graph_version_ref,
+        deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        status=RunStatus.FAILED,
+        failure_state=RunFailureState(
+            reason="operator_cancelled",
+            message="cancelled by admin",
+        ),
+    )
+    child = Run(
+        graph_version_ref="orphaned-child@1",
+        deployment_ref="orphaned-child",
+        tenant_id=service.deployment.tenant_id,
+        parent_run_id=parent.run_id,
+        status=RunStatus.RUNNING,
+    )
+    await service.run_repository.create(parent)
+    await service.run_repository.create(child)
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/admin/runs/{parent.run_id}/cancel",
+            headers=admin_headers(),
+        )
+
+    persisted = await service.run_repository.get(child.run_id)
+    assert response.status_code == 200
+    assert persisted is not None
+    assert persisted.status is RunStatus.FAILED
+    assert persisted.failure_state is not None
+    assert persisted.failure_state.reason == "operator_cancelled"
 
 
 async def test_cancel_run_fences_existing_token_snapshot(sqlite_db) -> None:
@@ -353,6 +533,41 @@ async def test_interrupt_run_returns_waiting_interrupt_status(sqlite_db) -> None
 
     assert response.status_code == 200
     assert response.json()["status"] == "waiting_interrupt"
+
+
+async def test_interrupt_run_stops_the_active_worker_drive(sqlite_db, monkeypatch) -> None:
+    service, app = await _make_service_and_app(
+        sqlite_db,
+        "graph-admin-interrupt-drive",
+        DEPLOYMENT + "-interrupt-drive",
+    )
+
+    interrupted: list[str] = []
+
+    async def interrupt_active_run(run_id: str) -> None:
+        interrupted.append(run_id)
+
+    monkeypatch.setattr(
+        service.worker,
+        "interrupt_active_run",
+        interrupt_active_run,
+        raising=False,
+    )
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/runs",
+            json={"input_payload": {"value": 1}},
+            headers=operator_headers(),
+        )
+        run_id = created.json()["run_id"]
+        await service.run_repository.transition(run_id, RunStatus.RUNNING)
+
+        response = client.post(f"/admin/runs/{run_id}/interrupt", headers=admin_headers())
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "waiting_interrupt"
+    assert interrupted == [run_id]
 
 
 async def test_interrupt_run_pauses_existing_token_snapshot(sqlite_db) -> None:

@@ -13,9 +13,8 @@ from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.runtime.runs import RunFailureState
 from zeroth.service.api.authorization import (
     Permission,
-    require_deployment_scope,
-    require_permission,
 )
+from zeroth.service.api.deployment_context import require_scoped_deployment
 from zeroth.service.api.run_api import RunStatusResponse
 from zeroth.service.deployments import DeploymentEngineMode, DeploymentStatus
 
@@ -87,8 +86,9 @@ def register_contract_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         deployment_ref: str,
     ) -> PublicContractSchemaResponse:
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        await require_permission(request, Permission.DEPLOYMENT_READ)
+        bootstrap, deployment, _ = await require_scoped_deployment(
+            request, deployment_ref, Permission.DEPLOYMENT_READ
+        )
         return _serialize_contract(
             await _resolve_contract_version(
                 bootstrap,
@@ -106,8 +106,9 @@ def register_contract_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         deployment_ref: str,
     ) -> PublicContractSchemaResponse:
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        await require_permission(request, Permission.DEPLOYMENT_READ)
+        bootstrap, deployment, _ = await require_scoped_deployment(
+            request, deployment_ref, Permission.DEPLOYMENT_READ
+        )
         return _serialize_contract(
             await _resolve_contract_version(
                 bootstrap,
@@ -125,8 +126,9 @@ def register_contract_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         deployment_ref: str,
     ) -> DeploymentResultErrorStateSchemaResponse:
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        await require_permission(request, Permission.DEPLOYMENT_READ)
+        bootstrap, deployment, _ = await require_scoped_deployment(
+            request, deployment_ref, Permission.DEPLOYMENT_READ
+        )
         # Reuse the same pinned output contract endpoint logic so schema views stay consistent.
         result_contract = _serialize_contract(
             await _resolve_contract_version(
@@ -153,8 +155,9 @@ def register_contract_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         deployment_ref: str,
     ) -> DeploymentVersionMetadataResponse:
-        _, deployment = await _deployment_context(request, deployment_ref)
-        await require_permission(request, Permission.DEPLOYMENT_READ)
+        _, deployment, _ = await require_scoped_deployment(
+            request, deployment_ref, Permission.DEPLOYMENT_READ
+        )
         return serialize_deployment_metadata(deployment)
 
 
@@ -163,18 +166,6 @@ def _bootstrap(request: Request) -> ContractApiBootstrapLike:
     if bootstrap is None:
         raise RuntimeError("service bootstrap is not configured")
     return bootstrap
-
-
-async def _deployment_context(
-    request: Request,
-    deployment_ref: str,
-) -> tuple[ContractApiBootstrapLike, object]:
-    bootstrap = _bootstrap(request)
-    deployment = bootstrap.deployment
-    await require_deployment_scope(request, deployment)
-    if getattr(deployment, "deployment_ref", None) != deployment_ref:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")
-    return bootstrap, deployment
 
 
 async def _resolve_contract_version(
@@ -194,10 +185,11 @@ async def _resolve_contract_version(
             status_code=status.HTTP_409_CONFLICT,
             detail=(f"deployment snapshot is missing pinned {contract_kind} contract version"),
         )
+    parsed_ref = ContractReference.parse(contract_ref)
     try:
         # Contract lookups are version-pinned so redeploys never drift with registry changes.
         return await bootstrap.contract_registry.resolve(
-            ContractReference(name=contract_ref, version=version)
+            ContractReference(name=parsed_ref.name, version=version)
         )
     except ContractNotFoundError as exc:
         raise HTTPException(

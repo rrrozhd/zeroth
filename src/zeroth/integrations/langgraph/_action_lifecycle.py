@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import secrets
 import sqlite3
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -47,6 +48,29 @@ class ActionExecutionRecord:
     result: Any = None
     result_available: bool = False
     attempts: int = 1
+    claim_open: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ActionExecutionClaim:
+    """Opaque authority held only by the delivery allowed to execute."""
+
+    record: ActionExecutionRecord
+    claim_token: str | None
+    may_execute: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ReconciliationRecord:
+    """Operator-attributed evidence for resolving an ambiguous action."""
+
+    action_key: str
+    operator_ref: str
+    reason_code: str
+    prior_state: ActionExecutionState
+    new_state: ActionExecutionState
+    receipt_fingerprint: str | None
+    reconciled_at: float
 
 
 def _identity(action: ToolAction, context: ToolGovernanceContext) -> dict[str, Any]:
@@ -103,8 +127,37 @@ class SQLiteActionExecutionRepository:
                 result_available INTEGER NOT NULL DEFAULT 0,
                 error_type TEXT,
                 attempts INTEGER NOT NULL DEFAULT 1,
+                claim_token_digest TEXT,
+                claim_open INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
+                )"""
+            )
+            columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(langgraph_action_executions)"
+                ).fetchall()
+            }
+            if "claim_token_digest" not in columns:
+                connection.execute(
+                    "ALTER TABLE langgraph_action_executions ADD COLUMN claim_token_digest TEXT"
+                )
+            if "claim_open" not in columns:
+                connection.execute(
+                    "ALTER TABLE langgraph_action_executions "
+                    "ADD COLUMN claim_open INTEGER NOT NULL DEFAULT 0"
+                )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS langgraph_action_reconciliations (
+                reconciliation_id TEXT PRIMARY KEY,
+                action_key TEXT NOT NULL,
+                operator_ref TEXT NOT NULL,
+                reason_code TEXT NOT NULL,
+                prior_state TEXT NOT NULL,
+                new_state TEXT NOT NULL,
+                receipt_fingerprint TEXT,
+                reconciled_at REAL NOT NULL
                 )"""
             )
 
@@ -137,19 +190,26 @@ class SQLiteActionExecutionRepository:
                 result=result,
                 result_available=result_available,
                 attempts=int(row["attempts"]),
+                claim_open=bool(row["claim_open"]),
                 **identity,
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ToolGovernanceError("persisted action execution record is invalid") from error
 
+    @staticmethod
+    def _claim_digest(claim_token: str) -> str:
+        return hashlib.sha256(claim_token.encode()).hexdigest()
+
     def begin_once(
         self, action: ToolAction, context: ToolGovernanceContext
-    ) -> tuple[ActionExecutionRecord, bool]:
+    ) -> ActionExecutionClaim:
         """Claim one action; only a new or explicitly failed attempt may execute."""
         identity = _identity(action, context)
         encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
         key = _action_key(identity)
         now = self._now()
+        claim_token = secrets.token_urlsafe(32)
+        claim_digest = self._claim_digest(claim_token)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -158,28 +218,44 @@ class SQLiteActionExecutionRepository:
             if row is None:
                 connection.execute(
                     "INSERT INTO langgraph_action_executions "
-                    "VALUES (?, ?, ?, NULL, 0, NULL, 1, ?, ?)",
-                    (key, encoded, ActionExecutionState.IN_FLIGHT.value, now, now),
+                    "(action_key, identity_json, state, result_json, result_available, "
+                    "error_type, attempts, claim_token_digest, claim_open, created_at, "
+                    "updated_at) VALUES (?, ?, ?, NULL, 0, NULL, 1, ?, 1, ?, ?)",
+                    (
+                        key,
+                        encoded,
+                        ActionExecutionState.IN_FLIGHT.value,
+                        claim_digest,
+                        now,
+                        now,
+                    ),
                 )
                 row = connection.execute(
                     "SELECT * FROM langgraph_action_executions WHERE action_key = ?", (key,)
                 ).fetchone()
                 assert row is not None
-                return self._record(row), True
+                return ActionExecutionClaim(self._record(row), claim_token, True)
             current = self._record(row)
             if row["identity_json"] != encoded:
                 raise ToolGovernanceError("action execution identity collision")
             if current.state is ActionExecutionState.FAILED:
                 connection.execute(
                     "UPDATE langgraph_action_executions SET state = ?, error_type = NULL, "
-                    "attempts = attempts + 1, updated_at = ? WHERE action_key = ?",
-                    (ActionExecutionState.IN_FLIGHT.value, now, key),
+                    "attempts = attempts + 1, claim_token_digest = ?, claim_open = 1, "
+                    "updated_at = ? WHERE action_key = ? AND state = ?",
+                    (
+                        ActionExecutionState.IN_FLIGHT.value,
+                        claim_digest,
+                        now,
+                        key,
+                        ActionExecutionState.FAILED.value,
+                    ),
                 )
                 row = connection.execute(
                     "SELECT * FROM langgraph_action_executions WHERE action_key = ?", (key,)
                 ).fetchone()
                 assert row is not None
-                return self._record(row), True
+                return ActionExecutionClaim(self._record(row), claim_token, True)
             if current.state is ActionExecutionState.IN_FLIGHT:
                 connection.execute(
                     "UPDATE langgraph_action_executions SET state = ?, updated_at = ? "
@@ -196,9 +272,9 @@ class SQLiteActionExecutionRepository:
                 ).fetchone()
                 assert row is not None
                 current = self._record(row)
-            return current, False
+            return ActionExecutionClaim(current, None, False)
 
-    def complete(self, action_key: str, result: Any) -> ActionExecutionRecord:
+    def complete(self, claim: ActionExecutionClaim, result: Any) -> ActionExecutionRecord:
         """Persist a replayable result before the first worker reports success."""
         try:
             result_json = json.dumps(
@@ -210,13 +286,14 @@ class SQLiteActionExecutionRepository:
             connection.execute("BEGIN IMMEDIATE")
             changed = connection.execute(
                 "UPDATE langgraph_action_executions SET state = ?, result_json = ?, "
-                "result_available = 1, updated_at = ? WHERE action_key = ? "
-                "AND state IN (?, ?)",
+                "result_available = 1, claim_open = 0, updated_at = ? WHERE action_key = ? "
+                "AND claim_open = 1 AND claim_token_digest = ? AND state IN (?, ?)",
                 (
                     ActionExecutionState.COMPLETED.value,
                     result_json,
                     self._now(),
-                    action_key,
+                    claim.record.action_key,
+                    self._claim_digest(claim.claim_token or ""),
                     ActionExecutionState.IN_FLIGHT.value,
                     ActionExecutionState.AMBIGUOUS.value,
                 ),
@@ -224,26 +301,157 @@ class SQLiteActionExecutionRepository:
             if changed != 1:
                 raise ToolGovernanceError("action execution claim cannot be completed")
             row = connection.execute(
-                "SELECT * FROM langgraph_action_executions WHERE action_key = ?", (action_key,)
+                "SELECT * FROM langgraph_action_executions WHERE action_key = ?",
+                (claim.record.action_key,),
             ).fetchone()
             assert row is not None
             return self._record(row)
 
-    def fail(self, action_key: str, error: BaseException) -> None:
+    def fail_pre_effect(
+        self, claim: ActionExecutionClaim, error: BaseException
+    ) -> ActionExecutionRecord:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE langgraph_action_executions SET state = ?, error_type = ?, "
-                "updated_at = ? WHERE action_key = ? AND state IN (?, ?)",
+                "claim_open = 0, updated_at = ? WHERE action_key = ? AND state IN (?, ?) "
+                "AND claim_open = 1 AND claim_token_digest = ?",
                 (
                     ActionExecutionState.FAILED.value,
                     type(error).__name__,
                     self._now(),
-                    action_key,
+                    claim.record.action_key,
                     ActionExecutionState.IN_FLIGHT.value,
                     ActionExecutionState.AMBIGUOUS.value,
+                    self._claim_digest(claim.claim_token or ""),
+                ),
+            ).rowcount
+            if changed != 1:
+                raise ToolGovernanceError("action execution claim cannot fail pre-effect")
+            return self._load(connection, claim.record.action_key)
+
+    def mark_ambiguous(
+        self,
+        claim: ActionExecutionClaim,
+        error: BaseException,
+        *,
+        close_claim: bool,
+    ) -> ActionExecutionRecord:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            changed = connection.execute(
+                "UPDATE langgraph_action_executions SET state = ?, error_type = ?, "
+                "claim_open = ?, updated_at = ? WHERE action_key = ? "
+                "AND state IN (?, ?) AND claim_open = 1 AND claim_token_digest = ?",
+                (
+                    ActionExecutionState.AMBIGUOUS.value,
+                    type(error).__name__,
+                    0 if close_claim else 1,
+                    self._now(),
+                    claim.record.action_key,
+                    ActionExecutionState.IN_FLIGHT.value,
+                    ActionExecutionState.AMBIGUOUS.value,
+                    self._claim_digest(claim.claim_token or ""),
+                ),
+            ).rowcount
+            if changed != 1:
+                raise ToolGovernanceError("action execution claim cannot become ambiguous")
+            return self._load(connection, claim.record.action_key)
+
+    def _load(self, connection: sqlite3.Connection, action_key: str) -> ActionExecutionRecord:
+        row = connection.execute(
+            "SELECT * FROM langgraph_action_executions WHERE action_key = ?", (action_key,)
+        ).fetchone()
+        if row is None:
+            raise ToolGovernanceError("action execution record does not exist")
+        return self._record(row)
+
+    @staticmethod
+    def _operator_ref(value: str) -> str:
+        if type(value) is not str or not value.strip():
+            raise ToolGovernanceError("reconciliation needs an operator reference")
+        return value.strip()
+
+    def reconcile_completed(
+        self, action_key: str, result: Any, operator_ref: str
+    ) -> ReconciliationRecord:
+        operator = self._operator_ref(operator_ref)
+        receipt = result_fingerprint(result)
+        result_json = json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return self._reconcile(
+            action_key,
+            operator,
+            ActionExecutionState.COMPLETED,
+            "reconciled_downstream_receipt",
+            receipt,
+            result_json,
+        )
+
+    def reconcile_no_effect(
+        self, action_key: str, operator_ref: str
+    ) -> ReconciliationRecord:
+        return self._reconcile(
+            action_key,
+            self._operator_ref(operator_ref),
+            ActionExecutionState.FAILED,
+            "reconciled_verified_no_effect",
+            None,
+            None,
+        )
+
+    def _reconcile(
+        self,
+        action_key: str,
+        operator_ref: str,
+        new_state: ActionExecutionState,
+        reason_code: str,
+        receipt: str | None,
+        result_json: str | None,
+    ) -> ReconciliationRecord:
+        now = self._now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = self._load(connection, action_key)
+            if current.state is not ActionExecutionState.AMBIGUOUS:
+                raise ToolGovernanceError("only an ambiguous action may be reconciled")
+            changed = connection.execute(
+                "UPDATE langgraph_action_executions SET state = ?, result_json = ?, "
+                "result_available = ?, claim_open = 0, updated_at = ? "
+                "WHERE action_key = ? AND state = ?",
+                (
+                    new_state.value,
+                    result_json,
+                    1 if new_state is ActionExecutionState.COMPLETED else 0,
+                    now,
+                    action_key,
+                    ActionExecutionState.AMBIGUOUS.value,
+                ),
+            ).rowcount
+            if changed != 1:
+                raise ToolGovernanceError("action reconciliation conflicted")
+            reconciliation_id = f"rec_{secrets.token_hex(16)}"
+            connection.execute(
+                "INSERT INTO langgraph_action_reconciliations VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    reconciliation_id,
+                    action_key,
+                    operator_ref,
+                    reason_code,
+                    current.state.value,
+                    new_state.value,
+                    receipt,
+                    now,
                 ),
             )
+        return ReconciliationRecord(
+            action_key=action_key,
+            operator_ref=operator_ref,
+            reason_code=reason_code,
+            prior_state=current.state,
+            new_state=new_state,
+            receipt_fingerprint=receipt,
+            reconciled_at=now,
+        )
 
     def replay_or_raise(self, record: ActionExecutionRecord) -> Any:
         if record.state is ActionExecutionState.COMPLETED and record.result_available:
@@ -261,10 +469,38 @@ class SQLiteActionExecutionRepository:
             ).fetchall()
         return tuple(self._record(row) for row in rows)
 
+    def reconciliations(self, action_key: str | None = None) -> tuple[ReconciliationRecord, ...]:
+        with self._connect() as connection:
+            if action_key is None:
+                rows = connection.execute(
+                    "SELECT * FROM langgraph_action_reconciliations "
+                    "ORDER BY reconciled_at, reconciliation_id"
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM langgraph_action_reconciliations WHERE action_key = ? "
+                    "ORDER BY reconciled_at, reconciliation_id",
+                    (action_key,),
+                ).fetchall()
+        return tuple(
+            ReconciliationRecord(
+                action_key=row["action_key"],
+                operator_ref=row["operator_ref"],
+                reason_code=row["reason_code"],
+                prior_state=ActionExecutionState(row["prior_state"]),
+                new_state=ActionExecutionState(row["new_state"]),
+                receipt_fingerprint=row["receipt_fingerprint"],
+                reconciled_at=float(row["reconciled_at"]),
+            )
+            for row in rows
+        )
+
 
 __all__ = [
+    "ActionExecutionClaim",
     "ActionExecutionRecord",
     "ActionExecutionState",
+    "ReconciliationRecord",
     "SQLiteActionExecutionRepository",
     "result_fingerprint",
 ]

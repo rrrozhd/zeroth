@@ -103,6 +103,10 @@ def _execution_identity_fields(row: ExecutionEvent) -> dict:
     """
     return {
         "execution_id": row.execution_id,
+        "campaign_id": row.campaign_id,
+        "operation_id": row.operation_id,
+        "provider_request_id": row.provider_request_id,
+        "cleanup_status": row.cleanup_status,
         "capability_id": row.capability_id,
         "implementation_id": row.implementation_id,
         "join_key": row.join_key,
@@ -127,6 +131,10 @@ def _execution_payload_fields(
     """
     return {
         "execution_id": payload.execution_id,
+        "campaign_id": payload.campaign_id,
+        "operation_id": payload.operation_id,
+        "provider_request_id": payload.provider_request_id,
+        "cleanup_status": payload.cleanup_status,
         "capability_id": payload.capability_id,
         "implementation_id": payload.implementation_id,
         "join_key": join_key,
@@ -356,6 +364,12 @@ def ingest_execution(
 
     row = ExecutionEvent(
         tenant_id=tenant_id,
+        campaign_id=payload.campaign_id,
+        operation_id=payload.operation_id,
+        deployment_ref=payload.deployment_ref,
+        evidence_kind=payload.evidence_kind,
+        provider_request_id=payload.provider_request_id,
+        cleanup_status=payload.cleanup_status,
         execution_id=payload.execution_id,
         join_key=join_key,
         timestamp=payload.timestamp,

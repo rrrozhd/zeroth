@@ -49,6 +49,27 @@ async def test_service_health_accepts_api_key_authentication(sqlite_db) -> None:
     assert response.json()["deployment_ref"] == service.deployment.deployment_ref
 
 
+async def test_service_denial_audit_run_identity_is_deployment_scoped(sqlite_db) -> None:
+    service, deployment = await deploy_service(
+        sqlite_db, approval_resume_graph(graph_id="graph-auth-denial-scope")
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        response = client.get("/v1/deployments")
+
+    records = await service.audit_repository.list_by_node("service.auth")
+    assert response.status_code == 401
+    assert records[-1].run_id == (
+        f"service:{deployment.deployment_ref}:GET:/v1/deployments"
+    )
+
+
 async def test_approval_resolution_uses_authenticated_principal(sqlite_db) -> None:
     service, _ = await deploy_service(
         sqlite_db,

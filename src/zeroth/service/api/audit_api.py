@@ -12,12 +12,15 @@ from zeroth.governance.audit import (
     AuditContinuityVerifier,
     AuditQuery,
     AuditRedactionConfig,
+    AuditRepository,
     AuditTimelineAssembler,
     NodeAuditRecord,
     PayloadSanitizer,
     build_summary,
     collect_policy_events,
 )
+from zeroth.governance.audit.readiness import signed_audit_required, signer_is_available
+from zeroth.runtime.runs import Run
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,
@@ -28,6 +31,8 @@ from zeroth.service.api.contracts_api import (
     DeploymentVersionMetadataResponse,
     serialize_deployment_metadata,
 )
+from zeroth.service.api.delivery_types import AuditReadinessResponse
+from zeroth.service.api.deployment_context import require_scoped_deployment
 from zeroth.service.api.run_api import RunStatusResponse, _serialize_run
 from zeroth.service.deployments.provenance import (
     build_attestation_payload,
@@ -37,6 +42,7 @@ from zeroth.service.deployments.provenance import (
 _REDACTOR = PayloadSanitizer(
     AuditRedactionConfig(redact_keys={"authorization", "api_key", "password", "secret", "token"})
 )
+_MAX_COMPOSED_EVIDENCE_RUNS = 1000
 
 
 class AuditApiBootstrapLike(Protocol):
@@ -44,7 +50,7 @@ class AuditApiBootstrapLike(Protocol):
 
     deployment: object
     deployment_service: object
-    audit_repository: object
+    audit_repository: AuditRepository
     approval_service: object
     run_repository: object
     # WS-D: process-wide provenance signer (may be None -> unsigned-legacy).
@@ -57,6 +63,15 @@ class AuditRecordListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     deployment_ref: str
+    records: list[NodeAuditRecord] = Field(default_factory=list)
+
+
+class TenantAuditRecordListResponse(BaseModel):
+    """Tenant-scoped audit records across all deployments visible to the caller."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str
     records: list[NodeAuditRecord] = Field(default_factory=list)
 
 
@@ -112,6 +127,11 @@ class EvidenceSummaryResponse(BaseModel):
     approval_count: int = 0
     tool_call_count: int = 0
     memory_interaction_count: int = 0
+    priced_call_count: int = 0
+    cost_event_count: int = 0
+    total_cost_usd: float = 0.0
+    cost_identity_state: str = "not_applicable_no_priced_call"
+    reconciliation_state: str = "reconciled_zero_activity"
 
 
 class RunEvidenceResponse(BaseModel):
@@ -186,6 +206,57 @@ class AttestationVerificationResponse(BaseModel):
 def register_audit_routes(app: FastAPI | APIRouter) -> None:
     """Register public audit query and timeline routes."""
 
+    @app.get("/audit-readiness", response_model=AuditReadinessResponse)
+    async def audit_readiness(request: Request) -> AuditReadinessResponse:
+        await require_permission(request, Permission.AUDIT_READ)
+        bootstrap = request.app.state.bootstrap
+        graph = bootstrap.graph
+        deployment_mode = getattr(bootstrap.deployment_service, "deployment_mode", "local")
+        consequential = signed_audit_required(graph, "local")
+        required = signed_audit_required(graph, deployment_mode)
+        available = signer_is_available(getattr(bootstrap, "signer", None))
+        ready = available or not required
+        if available:
+            state = "signed"
+            message = "Audit records and deployment attestations are signed."
+        elif required:
+            state = "blocked_unsigned"
+            message = "Signing is required for this deployment; configure provenance key material."
+        else:
+            state = "local_unsigned"
+            message = (
+                "LOCAL ONLY — audit digests are unsigned and do not establish keyed provenance."
+            )
+        return AuditReadinessResponse(
+            ready=ready,
+            state=state,
+            deployment_mode=deployment_mode,
+            signing_required=required,
+            signer_available=available,
+            consequential_actions=consequential,
+            message=message,
+        )
+
+    @app.get(
+        "/admin/audits",
+        response_model=TenantAuditRecordListResponse,
+    )
+    async def list_tenant_audits(request: Request) -> TenantAuditRecordListResponse:
+        """List audit records across the caller's tenant-visible deployments."""
+        bootstrap = _bootstrap(request)
+        principal = await require_permission(request, Permission.AUDIT_READ)
+        records = await bootstrap.audit_repository.list(
+            AuditQuery(
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                workspace_scoped=principal.workspace_id is not None,
+            )
+        )
+        return TenantAuditRecordListResponse(
+            scope=f"tenant:{principal.tenant_id}",
+            records=[await _visible_record(request, record) for record in records],
+        )
+
     @app.get(
         "/deployments/{deployment_ref}/audits",
         response_model=AuditRecordListResponse,
@@ -199,8 +270,9 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         graph_version_ref: str | None = None,
     ) -> AuditRecordListResponse:
         """List a deployment's audit records; requires ``Permission.AUDIT_READ``."""
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        principal = await require_permission(request, Permission.AUDIT_READ)
+        bootstrap, deployment, principal = await require_scoped_deployment(
+            request, deployment_ref, Permission.AUDIT_READ
+        )
         records = await bootstrap.audit_repository.list(
             AuditQuery(
                 run_id=run_id,
@@ -233,8 +305,6 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         await require_deployment_scope(request, deployment)
         run = await bootstrap.run_repository.get(run_id)
         if run is not None:
-            if run.deployment_ref != deployment.deployment_ref:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
             await require_resource_scope(
                 request,
                 tenant_id=run.tenant_id,
@@ -242,12 +312,13 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
                 not_found_detail="run not found",
             )
 
+        target_deployment_ref = run.deployment_ref if run is not None else deployment.deployment_ref
+        target_workspace_id = run.workspace_id if run is not None else deployment.workspace_id
         records = await bootstrap.audit_repository.list_by_run(
             run_id,
             tenant_id=principal.tenant_id,
-            workspace_id=deployment.workspace_id,
+            workspace_id=target_workspace_id,
             workspace_scoped=True,
-            deployment_ref=deployment.deployment_ref,
         )
         if run is None and not records:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
@@ -257,7 +328,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         ]
         timeline = AuditTimelineAssembler().assemble(visible)
         return AuditTimelineResponse(
-            deployment_ref=deployment.deployment_ref,
+            deployment_ref=target_deployment_ref,
             run_id=run_id,
             entries=list(timeline.entries),
         )
@@ -300,8 +371,6 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         run = await bootstrap.run_repository.get(run_id)
         if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-        if run.deployment_ref != deployment.deployment_ref:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         await require_resource_scope(
             request,
             tenant_id=run.tenant_id,
@@ -310,14 +379,14 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         )
 
         signer = getattr(bootstrap, "signer", None)
+        verifier = _verification_provider(bootstrap)
         report = await AuditContinuityVerifier(
-            bootstrap.audit_repository, signer=signer
+            bootstrap.audit_repository, signer=verifier
         ).verify_run(
             run_id,
             tenant_id=principal.tenant_id,
-            workspace_id=deployment.workspace_id,
+            workspace_id=run.workspace_id,
             workspace_scoped=True,
-            deployment_ref=deployment.deployment_ref,
         )
         response = _verification_response(report, signer)
         # Optional client-pinned head: fail verification if the persisted chain
@@ -326,9 +395,8 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
             records = await bootstrap.audit_repository.list_by_run(
                 run_id,
                 tenant_id=principal.tenant_id,
-                workspace_id=deployment.workspace_id,
+                workspace_id=run.workspace_id,
                 workspace_scoped=True,
-                deployment_ref=deployment.deployment_ref,
             )
             head_digest = records[-1].record_digest if records else None
             if head_digest != expected_head_digest:
@@ -350,11 +418,13 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment_ref: str,
     ) -> AuditVerificationResponse:
         """Verify digest continuity + signatures across every run of a deployment."""
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        principal = await require_permission(request, Permission.AUDIT_READ)
+        bootstrap, deployment, principal = await require_scoped_deployment(
+            request, deployment_ref, Permission.AUDIT_READ
+        )
         signer = getattr(bootstrap, "signer", None)
+        verifier = _verification_provider(bootstrap)
         report = await AuditContinuityVerifier(
-            bootstrap.audit_repository, signer=signer
+            bootstrap.audit_repository, signer=verifier
         ).verify_deployment(
             deployment.deployment_ref,
             tenant_id=principal.tenant_id,
@@ -372,8 +442,9 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment_ref: str,
     ) -> AuditTimelineResponse:
         """Return a deployment's ordered audit timeline; requires ``Permission.AUDIT_READ``."""
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        principal = await require_permission(request, Permission.AUDIT_READ)
+        bootstrap, deployment, principal = await require_scoped_deployment(
+            request, deployment_ref, Permission.AUDIT_READ
+        )
         records = [
             await _visible_record(request, record)
             for record in await bootstrap.audit_repository.list_by_deployment(
@@ -405,7 +476,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         principal = await require_permission(request, Permission.AUDIT_READ)
         await require_deployment_scope(request, deployment)
         run = await bootstrap.run_repository.get(run_id)
-        if run is None or run.deployment_ref != deployment.deployment_ref:
+        if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         await require_resource_scope(
             request,
@@ -413,32 +484,42 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
             workspace_id=run.workspace_id,
             not_found_detail="run not found",
         )
-        audits = [
-            await _visible_record(request, record, not_found_detail="run not found")
-            for record in await bootstrap.audit_repository.list_by_run(
-                run_id,
-                tenant_id=principal.tenant_id,
-                workspace_id=deployment.workspace_id,
-                workspace_scoped=True,
-                deployment_ref=deployment.deployment_ref,
-            )
-        ]
-        approvals = await _visible_approvals(
+        evidence_runs = await _composed_evidence_runs(request, bootstrap, run)
+        audits = await _composed_audits(
             request,
-            await bootstrap.approval_service.list(
-                run_id=run_id,
-                tenant_id=principal.tenant_id,
-                workspace_id=deployment.workspace_id,
-                deployment_ref=deployment.deployment_ref,
-                graph_version_ref=deployment.graph_version_ref,
-            ),
-            not_found_detail="run not found",
+            bootstrap,
+            evidence_runs,
+            tenant_id=principal.tenant_id,
         )
+        approvals = await _composed_approvals(
+            request,
+            bootstrap,
+            evidence_runs,
+            tenant_id=principal.tenant_id,
+        )
+        summary = build_summary(audits, approvals)
+        if len(evidence_runs) > 1:
+            cost_summary = build_summary(
+                [
+                    record
+                    for record in audits
+                    if not _is_parent_branch_cost_rollup(record, root_run_id=run.run_id)
+                ],
+                approvals,
+            )
+            for field in (
+                "priced_call_count",
+                "cost_event_count",
+                "total_cost_usd",
+                "cost_identity_state",
+                "reconciliation_state",
+            ):
+                summary[field] = cost_summary[field]
         return RunEvidenceResponse(
             run=_serialize_run(run),
             audits=audits,
             approvals=approvals,
-            summary=EvidenceSummaryResponse.model_validate(build_summary(audits, approvals)),
+            summary=EvidenceSummaryResponse.model_validate(summary),
             policy_events=collect_policy_events(audits),
         )
 
@@ -451,8 +532,9 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment_ref: str,
     ) -> DeploymentEvidenceResponse:
         """Return the evidence bundle for a deployment; requires ``Permission.AUDIT_READ``."""
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        principal = await require_permission(request, Permission.AUDIT_READ)
+        bootstrap, deployment, principal = await require_scoped_deployment(
+            request, deployment_ref, Permission.AUDIT_READ
+        )
         audits = [
             await _visible_record(request, record)
             for record in await bootstrap.audit_repository.list_by_deployment(
@@ -464,7 +546,7 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         ]
         approvals = await _visible_approvals(
             request,
-            await bootstrap.approval_service.list(
+            await bootstrap.approval_service.list_visible_to_deployment(
                 deployment_ref=deployment.deployment_ref,
                 graph_version_ref=deployment.graph_version_ref,
                 tenant_id=principal.tenant_id,
@@ -492,15 +574,17 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment_ref: str,
     ) -> DeploymentAttestationResponse:
         """Return the persisted deployment attestation; requires ``Permission.DEPLOYMENT_READ``."""
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        await require_permission(request, Permission.DEPLOYMENT_READ)
-        current = await _load_bound_deployment(bootstrap)
+        bootstrap, deployment, _ = await require_scoped_deployment(
+            request, deployment_ref, Permission.DEPLOYMENT_READ
+        )
         # Return the PERSISTED signature (do not re-sign an unsigned payload):
         # the attestation must reflect what was signed at deploy time.
-        payload = build_attestation_payload(current)
-        payload["attestation_signature"] = getattr(current, "attestation_signature", None)
-        payload["attestation_signing_key_id"] = getattr(current, "attestation_signing_key_id", None)
-        payload["attestation_algorithm"] = getattr(current, "attestation_algorithm", None)
+        payload = build_attestation_payload(deployment)
+        payload["attestation_signature"] = getattr(deployment, "attestation_signature", None)
+        payload["attestation_signing_key_id"] = getattr(
+            deployment, "attestation_signing_key_id", None
+        )
+        payload["attestation_algorithm"] = getattr(deployment, "attestation_algorithm", None)
         return DeploymentAttestationResponse.model_validate(payload)
 
     @app.post(
@@ -513,14 +597,14 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         attestation: DeploymentAttestationResponse,
     ) -> AttestationVerificationResponse:
         """Verify a client-supplied attestation against the bound deployment."""
-        bootstrap, _ = await _deployment_context(request, deployment_ref)
-        await require_permission(request, Permission.DEPLOYMENT_READ)
-        current = await _load_bound_deployment(bootstrap)
-        signer = getattr(bootstrap, "signer", None)
-        mismatches, signature_ok = verify_attestation_full(
-            current, attestation.model_dump(mode="json"), signer
+        bootstrap, deployment, _ = await require_scoped_deployment(
+            request, deployment_ref, Permission.DEPLOYMENT_READ
         )
-        return _attestation_verification_response(current, mismatches, signature_ok)
+        verifier = _verification_provider(bootstrap)
+        mismatches, signature_ok = verify_attestation_full(
+            deployment, attestation.model_dump(mode="json"), verifier
+        )
+        return _attestation_verification_response(deployment, mismatches, signature_ok)
 
     @app.get(
         "/deployments/{deployment_ref}/attestation/verify",
@@ -531,14 +615,24 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment_ref: str,
     ) -> AttestationVerificationResponse:
         """Server self-verifies its persisted attestation (digest + signature)."""
-        bootstrap, deployment = await _deployment_context(request, deployment_ref)
-        await require_permission(request, Permission.DEPLOYMENT_READ)
-        current = await _load_bound_deployment(bootstrap)
-        signer = getattr(bootstrap, "signer", None)
-        mismatches, signature_ok = verify_attestation_full(
-            current, build_attestation_payload(current), signer
+        bootstrap, deployment, _ = await require_scoped_deployment(
+            request, deployment_ref, Permission.DEPLOYMENT_READ
         )
-        return _attestation_verification_response(current, mismatches, signature_ok)
+        verifier = _verification_provider(bootstrap)
+        mismatches, signature_ok = verify_attestation_full(
+            deployment, build_attestation_payload(deployment), verifier
+        )
+        return _attestation_verification_response(deployment, mismatches, signature_ok)
+
+
+def _verification_provider(bootstrap: object) -> object | None:
+    """Return the keyring used to verify historical provenance signatures.
+
+    Signing uses only the active key. Verification must retain rotated keys so
+    an otherwise valid historical chain does not become broken after rotation.
+    Older bootstrap surfaces without a dedicated verifier remain compatible.
+    """
+    return getattr(bootstrap, "verifier", None) or getattr(bootstrap, "signer", None)
 
 
 def _signer_key_id(signer: object | None) -> str | None:
@@ -599,17 +693,132 @@ def _bootstrap(request: Request) -> AuditApiBootstrapLike:
     return bootstrap
 
 
-async def _deployment_context(
+async def _composed_evidence_runs(
     request: Request,
-    deployment_ref: str,
-) -> tuple[AuditApiBootstrapLike, object]:
-    """Resolve and scope-check the bound deployment for a path deployment_ref."""
-    bootstrap = _bootstrap(request)
-    deployment = bootstrap.deployment
-    await require_deployment_scope(request, deployment)
-    if getattr(deployment, "deployment_ref", None) != deployment_ref:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")
-    return bootstrap, deployment
+    bootstrap: AuditApiBootstrapLike,
+    root: Run,
+) -> list[Run]:
+    """Return one bounded parent-first run lineage without crossing root scope.
+
+    Every run retains its own audit chain.  This helper only determines which
+    independently signed chains belong in the composed evidence view; it never
+    copies, re-signs, or rewrites an audit record.
+    """
+    root_run_id = root.run_id
+    root_tenant_id = root.tenant_id
+    root_workspace_id = root.workspace_id
+    ordered = [root]
+    pending = [root]
+    seen = {root_run_id}
+    while pending:
+        parent = pending.pop(0)
+        children = sorted(
+            await bootstrap.run_repository.list_child_runs(parent.run_id),
+            key=lambda child: child.run_id,
+        )
+        for child in children:
+            if (
+                child.parent_run_id != parent.run_id
+                or child.tenant_id != root_tenant_id
+                or child.workspace_id != root_workspace_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="run not found",
+                )
+            await require_resource_scope(
+                request,
+                tenant_id=child.tenant_id,
+                workspace_id=child.workspace_id,
+                not_found_detail="run not found",
+            )
+            if child.run_id in seen:
+                continue
+            if len(seen) >= _MAX_COMPOSED_EVIDENCE_RUNS:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="composed run evidence exceeds the supported lineage bound",
+                )
+            seen.add(child.run_id)
+            ordered.append(child)
+            pending.append(child)
+    return ordered
+
+
+async def _composed_audits(
+    request: Request,
+    bootstrap: AuditApiBootstrapLike,
+    runs: list[Run],
+    *,
+    tenant_id: str,
+) -> list[NodeAuditRecord]:
+    """Flatten independent run chains once each, preserving signed rows verbatim."""
+    visible: list[NodeAuditRecord] = []
+    seen: set[str] = set()
+    for run in runs:
+        records = await bootstrap.audit_repository.list_by_run(
+            run.run_id,
+            tenant_id=tenant_id,
+            workspace_id=run.workspace_id,
+            workspace_scoped=True,
+        )
+        for record in records:
+            if record.audit_id in seen:
+                continue
+            seen.add(record.audit_id)
+            visible.append(
+                await _visible_record(request, record, not_found_detail="run not found")
+            )
+    return visible
+
+
+async def _composed_approvals(
+    request: Request,
+    bootstrap: AuditApiBootstrapLike,
+    runs: list[Run],
+    *,
+    tenant_id: str,
+) -> list[ApprovalRecord]:
+    """Include child-owned approvals once, under each child's immutable identity."""
+    visible: list[ApprovalRecord] = []
+    seen: set[str] = set()
+    for run in runs:
+        approvals = await _visible_approvals(
+            request,
+            await bootstrap.approval_service.list_visible_to_deployment(
+                run_id=run.run_id,
+                tenant_id=tenant_id,
+                workspace_id=run.workspace_id,
+                deployment_ref=run.deployment_ref,
+                graph_version_ref=run.graph_version_ref,
+            ),
+            not_found_detail="run not found",
+        )
+        for approval in approvals:
+            if approval.approval_id in seen:
+                continue
+            seen.add(approval.approval_id)
+            visible.append(approval)
+    return visible
+
+
+def _is_parent_branch_cost_rollup(record: NodeAuditRecord, *, root_run_id: str) -> bool:
+    """Identify a composed parent's timeline-only copy of child cost.
+
+    The child audit chain owns provider identity. A parent branch row intentionally
+    repeats the amount for traversal display, but has no token usage or cost-event
+    identity and therefore is not an additional priced call.
+    """
+    return (
+        record.run_id == root_run_id
+        and record.cost_event_id is None
+        and record.token_usage is None
+        and record.execution_metadata.get("branch_id") is not None
+        and (
+            float(record.cost_usd or 0.0) > 0.0
+            or float(record.estimated_cost_usd or 0.0) > 0.0
+        )
+    )
 
 
 async def _visible_record(
@@ -656,16 +865,3 @@ async def _visible_approvals(
         )
         visible.append(approval)
     return visible
-
-
-async def _load_bound_deployment(bootstrap: AuditApiBootstrapLike) -> object:
-    """Load the bound deployment snapshot from the deployment service (404 if missing)."""
-    deployment = await bootstrap.deployment_service.get(
-        bootstrap.deployment.deployment_ref,
-        bootstrap.deployment.version,
-        tenant_id=bootstrap.deployment.tenant_id,
-        workspace_id=bootstrap.deployment.workspace_id,
-    )
-    if deployment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")
-    return deployment

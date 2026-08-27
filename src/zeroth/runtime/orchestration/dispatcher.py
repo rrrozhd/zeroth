@@ -17,6 +17,7 @@ same instance serves the sequential drive loop and every fan-out branch.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import logging
@@ -25,18 +26,25 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from zeroth.contracts.conditions import ConditionEvaluator
 from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import (
     AgentNode,
+    Condition,
     EntrypointNode,
     ExecutableUnitNode,
     Graph,
+    HttpRequestNode,
+    IfNode,
+    LoopNode,
     Node,
     OperationIdentity,
     RetrievalNode,
     SubgraphNode,
     operation_identity,
 )
+from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
+from zeroth.integrations.http.models import EndpointConfig, HttpCallRecord
 from zeroth.platform.dispatch.operations import (
     OperationClaim,
     OperationState,
@@ -51,17 +59,114 @@ from zeroth.runtime.orchestration.errors import (
 )
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
+from zeroth.runtime.parallel.models import BranchContext
 from zeroth.runtime.runs import Run
 from zeroth.runtime.runs.costs import rollup_run_cost
-from zeroth.runtime.subgraphs.resolver import base_node_id
+from zeroth.runtime.subgraphs.resolver import canonical_runner_id
 
 logger = logging.getLogger(__name__)
 
 # Sentinel for "attribute not present" in optional runner wiring.
 _MISSING: Any = object()
 
+# These connector implementations execute entirely inside the Zeroth process.
+# A completed call therefore proves both zero provider calls and measured zero
+# cost. External/vector connectors remain unmeasured here and must obtain their
+# identities and settlement from the embedding instrumentation boundary.
+_LOCAL_NO_PROVIDER_MEMORY_CONNECTOR_TYPES = frozenset({"ephemeral", "key_value", "thread"})
+
 # Regex for {namespace.field} placeholders supported in binding key / key_prefix.
 _KEY_PLACEHOLDER_RE = re.compile(r"\{(input|state|run)\.([^}]+)\}")
+
+
+def _embedding_cost_audit_fields(records: tuple[Mapping[str, Any], ...]) -> dict[str, Any]:
+    """Aggregate consumed embedding settlements without inventing missing cost."""
+    if not records:
+        return {}
+    measured = 0.0
+    estimated = 0.0
+    saw_measured = False
+    saw_estimated = False
+    for record in records:
+        if record.get("cleanup_status") != "complete":
+            return {}
+        measurement = record.get("cost_measurement")
+        try:
+            if measurement == "measured" and record.get("cost_usd") is not None:
+                measured += float(record["cost_usd"])
+                saw_measured = True
+            elif measurement == "estimated" and record.get("estimated_cost_usd") is not None:
+                estimated += float(record["estimated_cost_usd"])
+                saw_estimated = True
+            else:
+                return {}
+        except (TypeError, ValueError):
+            return {}
+    fields: dict[str, Any] = {
+        "provider_call_count": len(records),
+        "cost_usd": measured if saw_measured else None,
+        "estimated_cost_usd": estimated if saw_estimated else None,
+        "cost_measurement": "estimated" if saw_estimated else "measured",
+    }
+    if len(records) == 1:
+        fields.update(
+            {
+                key: records[0].get(key)
+                for key in (
+                    "operation_id",
+                    "cost_event_id",
+                    "provider_request_id",
+                    "cleanup_status",
+                )
+                if records[0].get(key) is not None
+            }
+        )
+    return fields
+
+
+def _flatten_template_variables(
+    value: Any,
+    *,
+    prefix: str,
+    output: dict[str, object],
+    ancestors: frozenset[int] = frozenset(),
+) -> None:
+    """Collect scalar render values under their namespace-qualified paths.
+
+    Template audit redaction matches rendered values by the names that supplied
+    them. Keeping the full path makes a nested key such as
+    ``input.credentials.api_key`` discoverable instead of stopping after the
+    first namespace level. Containers are traversed without rendering arbitrary
+    mapping keys, and cycles contribute no audit candidate.
+    """
+    if isinstance(value, Mapping):
+        if id(value) in ancestors:
+            return
+        nested_ancestors = ancestors | {id(value)}
+        for key, item in value.items():
+            if type(key) is not str:
+                continue
+            child = f"{prefix}.{key}" if prefix else key
+            _flatten_template_variables(
+                item,
+                prefix=child,
+                output=output,
+                ancestors=nested_ancestors,
+            )
+        return
+    if isinstance(value, list | tuple):
+        if id(value) in ancestors:
+            return
+        nested_ancestors = ancestors | {id(value)}
+        for index, item in enumerate(value):
+            _flatten_template_variables(
+                item,
+                prefix=f"{prefix}[{index}]",
+                output=output,
+                ancestors=nested_ancestors,
+            )
+        return
+    output[prefix] = value
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +186,7 @@ async def dispatch_subgraph_node(
     parent_run: Run,
     node: SubgraphNode,
     input_payload: dict[str, Any],
+    branch_context: BranchContext | None,
     step_tracker: Any,
 ) -> SubgraphDispatchResult:
     """Route a subgraph through its runtime executor with durable pause replay.
@@ -101,6 +207,7 @@ async def dispatch_subgraph_node(
             parent_graph=parent_graph,
             parent_run=parent_run,
             paused_child_run_id=pending["child_run_id"],
+            branch_index=(branch_context.branch_index if branch_context is not None else None),
             step_tracker=step_tracker,
         )
     else:
@@ -111,6 +218,7 @@ async def dispatch_subgraph_node(
             node=node,
             node_id=node.node_id,
             input_payload=input_payload,
+            branch_context=branch_context,
             step_tracker=step_tracker,
         )
     if child.status is RunStatus.WAITING_APPROVAL:
@@ -221,6 +329,23 @@ def _operation_audit_fields(
     }
 
 
+def _mark_suppressed_replay(audit: dict[str, Any]) -> None:
+    """Record the exact incremental cost of a replay that did no work.
+
+    The original operation keeps its own cost record.  A completed-operation
+    replay only reads the durable receipt and does not call the provider or
+    external action again, so its incremental cost is a measured zero.  Reusing
+    the original cost here would double-count it; leaving the value absent makes
+    strict budget enforcement incorrectly treat the recovered run as unknown.
+    """
+    audit.update(
+        operation_replay_suppressed=True,
+        cost_usd=0.0,
+        estimated_cost_usd=0.0,
+        cost_measurement="measured",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class NodeDispatcher:
     """Resolves node types and runs them with their governed wiring applied."""
@@ -235,6 +360,8 @@ class NodeDispatcher:
     budget_enforcer: Any = None
     regulus_client: Any = None
     cost_estimator: Any = None
+    cost_instrumentation: Any = None
+    per_run_cap_usd: float | None = None
     deployment_ref: str | None = None
     template_registry: Any = None
     template_renderer: Any = None
@@ -244,11 +371,27 @@ class NodeDispatcher:
     # Optional callback asking a target what a prior operation did. Absent means
     # the integration cannot be queried -- the residual at-least-once case.
     operation_outcome_lookup: Callable[[OperationIdentity], Awaitable[str | None]] | None = None
+    # Provider-free managed HTTP transport. Optional for backward-compatible
+    # runtimes, but an authored HttpRequestNode fails closed when it is absent.
+    http_client: Any = None
 
     def _enforcement_context_for(self, run: Run, node_id: str) -> dict[str, Any]:
         if self.policy_gate is None:
             return {}
         return self.policy_gate.enforcement_context_for(run, node_id)
+
+    @staticmethod
+    def _campaign_runtime_context(run: Run) -> dict[str, Any]:
+        metadata = run.metadata if isinstance(run.metadata, Mapping) else {}
+        campaign_id = metadata.get("campaign_id")
+        if campaign_id is None:
+            return {}
+        return {
+            "campaign_id": str(campaign_id),
+            # A tagged campaign is strict unless it explicitly opts out. The live
+            # evaluation never opts out, so a missing accounting hook fails closed.
+            "campaign_strict": bool(metadata.get("campaign_strict", True)),
+        }
 
     def _operation_identity_for(
         self,
@@ -352,6 +495,7 @@ class NodeDispatcher:
         audit = _operation_audit_fields(identity, claim)
         if not claim.first_execution:
             if claim.state is OperationState.COMPLETED:
+                _mark_suppressed_replay(audit)
                 audit["replayed_output"] = json.loads(claim.receipt or "{}")
                 return None, audit
             return await self._resolve_ambiguous(identity, claim, invoke, audit)
@@ -430,6 +574,20 @@ class NodeDispatcher:
                 "effect twice"
             )
 
+        if not await store.begin_outcome_lookup(identity.operation_key):
+            settled = await store.get(identity.operation_key)
+            if settled is not None and settled["state"] == OperationState.COMPLETED:
+                receipt = settled.get("receipt")
+                audit["operation_state"] = OperationState.COMPLETED.value.lower()
+                _mark_suppressed_replay(audit)
+                audit["replayed_output"] = json.loads(receipt or "{}")
+                return None, audit
+            audit["operation_reconciliation_exhausted"] = True
+            raise SideEffectReconciliationExhaustedError(
+                f"operation {identity.operation_key} remains ambiguous and requires "
+                "an authorized operator resolution; it will not be re-executed"
+            )
+
         receipt: str | None = None
         error: str | None = None
         if self.operation_outcome_lookup is not None:
@@ -443,9 +601,8 @@ class NodeDispatcher:
             # than implied away.
             error = "integration exposes no outcome lookup"
 
-        state = await store.record_reconciliation(
+        state = await store.finish_outcome_lookup(
             identity.operation_key,
-            resolved=receipt is not None,
             receipt=receipt,
             error=error,
         )
@@ -459,21 +616,15 @@ class NodeDispatcher:
             if receipt is None:
                 stored = await store.get(identity.operation_key)
                 receipt = None if stored is None else stored.get("receipt")
-            audit["operation_replay_suppressed"] = True
+            _mark_suppressed_replay(audit)
             audit["replayed_output"] = json.loads(receipt or "{}")
             return None, audit
 
-        # Unresolved and still within budget: re-execution is permitted, and the
-        # record already says whether a duplicate is genuinely possible. It goes
-        # through the same checkpoint as a first execution, so a successful
-        # retry settles the operation instead of staying AMBIGUOUS forever.
-        result = await self._invoke_checkpointed(identity, invoke)
-        # The audit was stamped with the reconciliation verdict — AMBIGUOUS when
-        # nothing could be asked. The checkpoint just settled the operation, so
-        # leaving that stamp would durably record "still unknown" about a known
-        # success.
-        audit["operation_state"] = OperationState.COMPLETED.value.lower()
-        return result, audit
+        audit["operation_reconciliation_exhausted"] = True
+        raise SideEffectReconciliationExhaustedError(
+            f"operation {identity.operation_key} remains ambiguous and requires "
+            "an authorized operator resolution; it will not be re-executed"
+        )
 
     def _effective_capabilities_for(self, run: Run, node_id: str) -> Any:
         if self.policy_gate is None:
@@ -536,12 +687,224 @@ class NodeDispatcher:
             return dict(input_payload), {
                 "execution_mode": "entrypoint",
                 "passthrough": True,
+                "cost_usd": 0.0,
+                "estimated_cost_usd": 0.0,
+                "cost_measurement": "measured",
             }
+        if isinstance(node, LoopNode):
+            return self._dispatch_loop(node, run, input_payload)
+        if isinstance(node, IfNode):
+            return self._dispatch_if(node, run, input_payload)
         if isinstance(node, ExecutableUnitNode):
             return await self._dispatch_executable_unit(node, run, input_payload, branch_id)
         if isinstance(node, RetrievalNode):
             return await self.dispatch_retrieval(node, run, input_payload)
+        if isinstance(node, HttpRequestNode):
+            return await self._dispatch_http_request(node, run, input_payload)
         raise NodeDispatcherError(f"unsupported node type: {type(node)!r}")
+
+    @staticmethod
+    def _http_audit_record(
+        record: HttpCallRecord,
+        *,
+        error: BaseException | None = None,
+    ) -> dict[str, Any]:
+        """Return content-free HTTP facts that survive metadata-only capture."""
+        reason_code = normalize_reason_code(type(error).__name__) if error is not None else None
+        nested = record.model_dump(mode="json")
+        # Transport exception text is content and can include peer-controlled
+        # material. The typed outcome code is sufficient for durable evidence.
+        nested["error"] = reason_code
+        audit: dict[str, Any] = {
+            "execution_mode": "resilient_http_get",
+            "node_kind": "http_request",
+            "http": nested,
+            "target_url_sha256": hashlib.sha256(record.url.encode("utf-8")).hexdigest(),
+            "retry_count": record.retry_count,
+            "duration_ms": record.latency_ms,
+            "cost_usd": 0.0,
+            "estimated_cost_usd": 0.0,
+            "cost_measurement": "measured",
+            "provider_call_count": 0,
+        }
+        if record.status_code is not None:
+            audit["upstream_status_code"] = record.status_code
+        if reason_code is not None:
+            audit["reason_code"] = reason_code
+        return audit
+
+    async def _dispatch_http_request(
+        self,
+        node: HttpRequestNode,
+        run: Run,
+        input_payload: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Execute one bounded GET and expose no response headers in evidence."""
+        data = node.http_request
+        if not data.url:
+            raise NodeDispatcherError("HTTP request URL is required")
+        if self.http_client is None:
+            raise NodeDispatcherError(
+                f"HTTP request node '{node.node_id}' requires the resilient HTTP client"
+            )
+        config = EndpointConfig(
+            max_retries=data.max_retries,
+            retryable_status_codes=set(data.retryable_status_codes),
+            timeout=data.timeout_seconds,
+        )
+        try:
+            observed = await self.http_client.request_with_record(
+                "GET",
+                data.url,
+                endpoint_config=config,
+                effective_capabilities=self._effective_capabilities_for(run, node.node_id),
+            )
+        except Exception as error:
+            record = getattr(error, "http_call_record", None)
+            if isinstance(record, HttpCallRecord):
+                error.audit_record = self._http_audit_record(  # type: ignore[attr-defined]
+                    record,
+                    error=error,
+                )
+            raise
+
+        response = observed.response
+        record = observed.call_record
+        if len(response.content) > data.max_response_bytes:
+            error = NodeDispatcherError(f"HTTP response exceeded {data.max_response_bytes} bytes")
+            error.audit_record = self._http_audit_record(record, error=error)  # type: ignore[attr-defined]
+            raise error
+
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if not response.content:
+            body: Any = None
+        elif content_type == "application/json" or content_type.endswith("+json"):
+            try:
+                body = response.json()
+            except ValueError as exc:
+                error = NodeDispatcherError("HTTP response declared malformed JSON")
+                error.audit_record = self._http_audit_record(  # type: ignore[attr-defined]
+                    record,
+                    error=error,
+                )
+                raise error from exc
+        else:
+            body = response.text
+
+        output = {
+            **dict(input_payload),
+            "http_response": {
+                "status_code": response.status_code,
+                "content_type": content_type or None,
+                "body": body,
+            },
+        }
+        return output, self._http_audit_record(record)
+
+    def _dispatch_loop(
+        self,
+        node: LoopNode,
+        run: Run,
+        input_payload: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Select repeat/done/limit without invoking an external runner."""
+        if not node.loop.until.strip():
+            raise NodeDispatcherError("Loop condition is required")
+        completed_visits = run.node_visit_counts.get(node.node_id, 0)
+        condition_met = False
+        if completed_visits > 0:
+            condition_met = (
+                ConditionEvaluator()
+                .evaluate(
+                    Condition(expression=node.loop.until),
+                    {
+                        "payload": dict(input_payload),
+                        "state": run.model_dump(mode="json"),
+                        "node_visit_counts": dict(run.node_visit_counts),
+                    },
+                    condition_id=f"{node.node_id}:until",
+                    source_node_id=node.node_id,
+                )
+                .matched
+            )
+
+        if completed_visits == 0:
+            route = "repeat"
+            retries_used = 0
+            termination_reason = None
+        elif condition_met:
+            route = "done"
+            retries_used = min(completed_visits, node.loop.max_retries)
+            termination_reason = "condition_met"
+        elif completed_visits <= node.loop.max_retries:
+            route = "repeat"
+            retries_used = completed_visits
+            termination_reason = None
+        else:
+            route = "limit"
+            retries_used = node.loop.max_retries
+            termination_reason = "max_retries_exhausted"
+
+        output = dict(input_payload)
+        loop_states = dict(output.get("zeroth_loop", {}))
+        loop_states[node.node_id] = {
+            "route": route,
+            "attempt": 1 + retries_used,
+            "retries_used": retries_used,
+            "max_retries": node.loop.max_retries,
+            "termination_reason": termination_reason,
+        }
+        output["zeroth_loop"] = loop_states
+        return output, {
+            "execution_mode": "loop_control",
+            "route": route,
+            "attempt": 1 + retries_used,
+            "retries_used": retries_used,
+            "max_retries": node.loop.max_retries,
+            "termination_reason": termination_reason,
+            "cost_usd": 0.0,
+            "estimated_cost_usd": 0.0,
+            "cost_measurement": "measured",
+        }
+
+    def _dispatch_if(
+        self,
+        node: IfNode,
+        run: Run,
+        input_payload: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Evaluate one expression and expose an explicit true/false route."""
+        matched = (
+            ConditionEvaluator()
+            .evaluate(
+                Condition(expression=node.condition.expression),
+                {
+                    "payload": dict(input_payload),
+                    "state": run.model_dump(mode="json"),
+                    "node_visit_counts": dict(run.node_visit_counts),
+                },
+                condition_id=f"{node.node_id}:expression",
+                source_node_id=node.node_id,
+            )
+            .matched
+        )
+        route = "true" if matched else "false"
+        output = dict(input_payload)
+        decision_states = dict(output.get("zeroth_if", {}))
+        decision_states[node.node_id] = {"route": route, "matched": matched}
+        output["zeroth_if"] = decision_states
+        return output, {
+            "execution_mode": "if_control",
+            "condition_id": f"{node.node_id}:expression",
+            "expression_sha256": hashlib.sha256(
+                node.condition.expression.encode("utf-8")
+            ).hexdigest(),
+            "route": route,
+            "matched": matched,
+            "cost_usd": 0.0,
+            "estimated_cost_usd": 0.0,
+            "cost_measurement": "measured",
+        }
 
     async def _dispatch_agent(
         self,
@@ -551,10 +914,11 @@ class NodeDispatcher:
         graph: Graph | None,
         branch_id: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        # Child-workflow node ids arrive namespaced (branch:N:subgraph:...);
-        # runners are registered under the authored id, so fall back to it.
+        # Parallel child-workflow ids carry an ephemeral branch prefix. Keep the
+        # subgraph-qualified portion: bootstrap registers child templates under
+        # that canonical key so authored ids cannot collide across deployments.
         prototype = self.agent_runners.get(node.node_id) or self.agent_runners.get(
-            base_node_id(node.node_id)
+            canonical_runner_id(node.node_id)
         )
         if prototype is None:
             raise NodeDispatcherError(f"no agent runner registered for {node.node_id}")
@@ -581,7 +945,12 @@ class NodeDispatcher:
             template_ref = node.agent.template_ref
             registry: TemplateRegistry = self.template_registry
             renderer: TemplateRenderer = self.template_renderer
-            template = registry.get(template_ref.name, template_ref.version)
+            template_candidate = registry.get(template_ref.name, template_ref.version)
+            template = (
+                await template_candidate
+                if inspect.isawaitable(template_candidate)
+                else template_candidate
+            )
             # Resolve template memory bindings before building render_vars.
             _memory_ns, _tmb_records = await self.resolve_template_memory(
                 node, run, thread_id, input_payload
@@ -602,12 +971,15 @@ class NodeDispatcher:
                 redact_rendered_prompt,
             )
 
-            # Flatten nested render_vars for redaction matching.
+            # Flatten every nested leaf for redaction matching. The namespace
+            # remains in the path so secret-bearing parents (for example
+            # ``input.credentials``) also taint their descendants.
             render_vars_flat: dict[str, object] = {}
-            for _ns, _vals in render_vars.items():
-                if isinstance(_vals, dict):
-                    for k, v in _vals.items():
-                        render_vars_flat[k] = v
+            _flatten_template_variables(
+                render_vars,
+                prefix="",
+                output=render_vars_flat,
+            )
             secret_vars = identify_secret_variables(
                 list(render_vars_flat.keys()),
             )
@@ -655,6 +1027,24 @@ class NodeDispatcher:
                         run_id=run.run_id,
                         tenant_id=tenant_id,
                         deployment_ref=self.deployment_ref or "unknown",
+                        # Persistent reservation is an admission-control boundary,
+                        # not a passive analytics decorator. Preserve legacy
+                        # unbounded runs when no campaign or local cap requested
+                        # strict admission; tagged campaigns still fail closed if
+                        # their required cap is missing.
+                        cost_instrumentation=(
+                            self.cost_instrumentation
+                            if self.per_run_cap_usd is not None
+                            or run.metadata.get("campaign_id") is not None
+                            else None
+                        ),
+                        campaign_id=(
+                            str(run.metadata["campaign_id"])
+                            if run.metadata.get("campaign_id") is not None
+                            else None
+                        ),
+                        per_run_cap_usd=self.per_run_cap_usd,
+                        branch_id=branch_id,
                     )
                 except ImportError:
                     pass
@@ -758,6 +1148,7 @@ class NodeDispatcher:
                     # WS-B: memory resolution is fail-closed on tenant; the
                     # runner forwards this dict unchanged to _load/_store.
                     "tenant_id": run.tenant_id,
+                    **self._campaign_runtime_context(run),
                 },
                 enforcement_context=runner_context,
             )
@@ -798,9 +1189,19 @@ class NodeDispatcher:
         if rendered_prompt_for_audit is not None:
             audit_record.setdefault("execution_metadata", {})
             audit_record["execution_metadata"]["rendered_prompt"] = rendered_prompt_for_audit
+            # The raw rendered prompt remains subject to the deployment's
+            # content-capture posture. Its digest is safe structural evidence
+            # and survives the default metadata-only boundary.
+            audit_record["rendered_prompt_sha256"] = hashlib.sha256(
+                rendered_prompt_for_audit.encode("utf-8")
+            ).hexdigest()
         if template_ref_for_audit is not None:
             audit_record.setdefault("execution_metadata", {})
             audit_record["execution_metadata"]["template_ref"] = template_ref_for_audit
+            audit_record["template_name_sha256"] = hashlib.sha256(
+                str(template_ref_for_audit["name"]).encode("utf-8")
+            ).hexdigest()
+            audit_record["template_version"] = int(template_ref_for_audit["version"])
         # Phase 37: Record context window state in audit.
         if _context_window_audit is not None:
             audit_record.setdefault("execution_metadata", {})
@@ -845,6 +1246,7 @@ class NodeDispatcher:
                 node.executable_unit.manifest_ref,
                 input_payload,
                 enforcement_context=enforcement_context,
+                timeout_seconds=node.executable_unit.timeout_seconds,
                 operation_identity=identity,
             )
 
@@ -860,6 +1262,16 @@ class NodeDispatcher:
             # answer, so the effect is not applied a second time.
             return operation_audit.pop("replayed_output", {}), operation_audit
         audit_record = dict(result.audit_record)
+        if inline:
+            # Inline Studio code runs in Zeroth's sandbox and has no provider or
+            # billable connector boundary.  Mark that known absence explicitly:
+            # strict budget admission must distinguish measured zero from an
+            # unknown external-unit cost.
+            audit_record.update(
+                cost_usd=0.0,
+                estimated_cost_usd=0.0,
+                cost_measurement="measured",
+            )
         audit_record.update(operation_audit)
         if enforcement_context:
             # The nested context is kept for the content-capture posture; the
@@ -907,6 +1319,7 @@ class NodeDispatcher:
                     "run_id": run.run_id,
                     "node_id": node.node_id,
                     "tenant_id": run.tenant_id,  # WS-B: fail-closed tenant scoping
+                    **self._campaign_runtime_context(run),
                 },
                 node_id=node.node_id,
                 # WS-C: retrieval reads memory -> gated on MEMORY_READ.
@@ -916,14 +1329,27 @@ class NodeDispatcher:
             raise NodeDispatcherError(
                 f"retrieval node '{node.node_id}': unknown memory connector '{data.connector_ref}'"
             ) from exc
-        connector = resolved[0].connector
+        binding = resolved[0]
+        connector = binding.connector
         entries = await connector.search({"text": query_text, "limit": data.top_k}, scope)
+        embedding_costs: tuple[Mapping[str, Any], ...] = ()
+        campaign_context = self._campaign_runtime_context(run)
+        consumer = getattr(self.memory_resolver, "consume_embedding_call_costs", None)
+        if campaign_context and callable(consumer):
+            embedding_costs = await consumer(
+                tenant_id=run.tenant_id,
+                run_id=run.run_id,
+                node_id=node.node_id,
+                campaign_id=campaign_context["campaign_id"],
+                operation="search",
+            )
         chunks = [
             {"id": entry.key, "content": entry.value, "metadata": dict(entry.metadata)}
             for entry in entries
         ]
         output_data = {**dict(input_payload), data.as_name: chunks}
         audit_record = {
+            "retrieval_result_count": len(chunks),
             "retrieval": {
                 "connector_ref": data.connector_ref,
                 "query": query_text,
@@ -933,8 +1359,21 @@ class NodeDispatcher:
                 "sources": [
                     {"id": entry.key, "metadata": dict(entry.metadata)} for entry in entries
                 ],
-            }
+            },
         }
+        audit_record.update(_embedding_cost_audit_fields(embedding_costs))
+        if (
+            binding.manifest.connector_type in _LOCAL_NO_PROVIDER_MEMORY_CONNECTOR_TYPES
+            or binding.manifest.config.get("provider_call_mode") == "none"
+        ):
+            # Set this only after search returns. An exception or cancellation
+            # must not be relabelled as a completed measured-zero operation.
+            audit_record.update(
+                cost_usd=0.0,
+                estimated_cost_usd=0.0,
+                cost_measurement="measured",
+                provider_call_count=0,
+            )
         return output_data, audit_record
 
     async def resolve_thread(self, node: AgentNode, run: Run) -> str | None:
@@ -997,6 +1436,7 @@ class NodeDispatcher:
             "node_id": node.node_id,
             "run_id": run.run_id,
             "tenant_id": run.tenant_id,  # WS-B: fail-closed tenant scoping
+            **self._campaign_runtime_context(run),
         }
         try:
             resolved = await self.memory_resolver.resolve(

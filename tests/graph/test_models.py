@@ -23,6 +23,10 @@ from zeroth.contracts.graph.models import (
     GraphStatus,
     HumanApprovalNode,
     HumanApprovalNodeData,
+    IfNode,
+    IfNodeData,
+    LoopNode,
+    LoopNodeData,
 )
 from zeroth.contracts.graph.warnings import LegacyEngineDeprecationWarning
 from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
@@ -237,11 +241,43 @@ def test_graph_compiles_to_governai_flow_spec() -> None:
     assert spec.entry_step == "agent-step"
     assert spec.policies == [{"ref": "policy://safety"}]
     assert spec.steps[0].agent["kind"] == "agent_ref"
-    assert spec.steps[0].transition.kind == "then"
+    assert spec.steps[0].transition.kind == "branch"
+    assert spec.steps[0].transition.mapping == {
+        "payload.user.id is not None": "tool-step"
+    }
     assert spec.steps[1].tool["kind"] == "executable_unit_ref"
     assert spec.steps[1].transition.kind == "then"
     assert spec.steps[2].agent["kind"] == "human_approval_ref"
     assert spec.steps[2].transition.kind == "end"
+
+
+def test_single_conditional_edge_compiles_as_a_branch() -> None:
+    decision = IfNode(
+        node_id="quality-gate",
+        graph_version_ref="graph-1@1",
+        condition=IfNodeData(expression="payload.ready == True"),
+    )
+    graph = Graph(
+        graph_id="graph-1",
+        name="One connected outcome",
+        entry_step="quality-gate",
+        nodes=[decision, build_graph().nodes[1]],
+        edges=[
+            Edge(
+                edge_id="true-route",
+                source_node_id="quality-gate",
+                target_node_id="tool-step",
+                condition=Condition(expression="payload.zeroth_if['quality-gate'].route == 'true'"),
+            )
+        ],
+    )
+
+    transition = graph.to_governed_flow_spec().steps[0].transition
+
+    assert transition.kind == "branch"
+    assert transition.mapping == {
+        "payload.zeroth_if['quality-gate'].route == 'true'": "tool-step"
+    }
 
 
 def test_graph_lifecycle_transitions() -> None:
@@ -261,3 +297,48 @@ def test_graph_rejects_invalid_entry_step() -> None:
         graph.model_validate(graph.model_dump())
     except ValueError as exc:
         assert "entry step references unknown node" in str(exc)
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        (ExecutionSettings(max_visits_per_node=4, max_visits_per_edge=4), "max_visits_per_node"),
+        (ExecutionSettings(max_visits_per_node=5, max_visits_per_edge=3), "max_visits_per_edge"),
+    ],
+)
+def test_graph_rejects_safety_limits_that_preempt_loop_outcomes(
+    settings: ExecutionSettings,
+    expected: str,
+) -> None:
+    loop = LoopNode(
+        node_id="retry",
+        graph_version_ref="loop@1",
+        loop=LoopNodeData(until="payload.ready == True", max_retries=3),
+    )
+
+    with pytest.raises(ValueError, match=expected):
+        Graph(
+            graph_id="loop",
+            name="Bounded loop",
+            entry_step="retry",
+            nodes=[loop],
+            execution_settings=settings,
+        )
+
+
+def test_graph_accepts_safety_limits_that_allow_loop_to_emit_limit() -> None:
+    graph = Graph(
+        graph_id="loop",
+        name="Bounded loop",
+        entry_step="retry",
+        nodes=[
+            LoopNode(
+                node_id="retry",
+                graph_version_ref="loop@1",
+                loop=LoopNodeData(until="payload.ready == True", max_retries=3),
+            )
+        ],
+        execution_settings=ExecutionSettings(max_visits_per_node=5, max_visits_per_edge=4),
+    )
+
+    assert graph.execution_settings.max_visits_per_node == 5

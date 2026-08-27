@@ -23,6 +23,7 @@ def test_dependency_matrix_matches_the_approved_domain_policy() -> None:
 
     assert {
         "platform": frozenset(),
+        "check": frozenset({"contracts", "integrations", "platform"}),
         "contracts": frozenset({"platform"}),
         "governance": frozenset({"contracts", "platform"}),
         "runtime": frozenset({"contracts", "governance", "platform"}),
@@ -31,6 +32,7 @@ def test_dependency_matrix_matches_the_approved_domain_policy() -> None:
         "service": frozenset(
             {
                 "contracts",
+                "check",
                 "econ",
                 "eval",
                 "governance",
@@ -41,6 +43,15 @@ def test_dependency_matrix_matches_the_approved_domain_policy() -> None:
         ),
         "eval": frozenset({"contracts", "runtime", "platform"}),
     } == architecture.ALLOWED_DEPENDENCIES
+
+
+def test_every_check_file_classifies_to_the_check_domain() -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    paths = sorted((SOURCE_ROOT / "zeroth" / "check").rglob("*.py"))
+    assert paths
+    for path in paths:
+        module, _ = architecture._module_name(path, SOURCE_ROOT)
+        assert architecture._canonical_domain(module) == "check"
 
 
 def test_scanner_reports_an_injected_forbidden_absolute_import(tmp_path: Path) -> None:
@@ -246,8 +257,6 @@ def test_real_repository_obeys_backend_dependency_direction() -> None:
         f"{item.path.relative_to(REPO_ROOT)}:{item.line}: {item.importer} imports {item.imported}"
         for item in scan.violations
     )
-
-
 
 
 def test_every_langgraph_gateway_file_on_disk_classifies_to_a_domain() -> None:

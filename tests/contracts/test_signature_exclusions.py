@@ -44,19 +44,53 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "cost_measurement_complete",
         "estimated_cost_usd",
     ),
+    "zeroth.econ.analytics.client:RegulusClient": ("_asgi_app",),
+    "zeroth.econ.instrumentation.client:InstrumentationClient": ("_asgi_app",),
     "zeroth.econ.instrumentation.schemas:ExecutionEvent": (
+        "campaign_id",
+        "cleanup_status",
         "cost_measurement",
+        "deployment_ref",
+        "evidence_kind",
+        "operation_id",
+        "provider_request_id",
         "usage_measurement",
     ),
+    "zeroth.econ.analytics.adapter:InstrumentedProviderAdapter": (
+        "branch_id",
+        "campaign_id",
+        "cost_instrumentation",
+        "per_run_cap_usd",
+    ),
+    "zeroth.econ.instrumentation.transport:TelemetryTransport": ("_asgi_app",),
     "zeroth.econ.plane.enforcement.schemas:BudgetStatusOut": (
+        "active_exposure_usd",
+        "actual_spend_usd",
+        "ambiguous_exposure_usd",
+        "budget_consumed_usd",
         "cost_measurement",
+        "estimated_spend_usd",
         "measurement_complete",
+        "paid_spend_usd",
+        "synthetic_control_usd",
+        "unmeasured_spend_usd",
+    ),
+    "zeroth.econ.plane.enforcement.schemas:CostReservationOut": (
+        "deployment_ref",
+        "evidence_kind",
     ),
     "zeroth.econ.plane.instrumentation.schemas:ExecutionEventCreate": (
+        "campaign_id",
+        "cleanup_status",
         "cost_measurement",
+        "deployment_ref",
+        "evidence_kind",
+        "operation_id",
+        "provider_request_id",
         "usage_measurement",
     ),
     "zeroth.governance.audit.models:NodeAuditRecord": (
+        "campaign_id",
         "cost_measurement",
         "estimated_cost_usd",
     ),
@@ -93,6 +127,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     "zeroth.governance.retention.models:ErasureResult": ("operations_deleted",),
     "zeroth.platform.config.settings:ZerothSettings": (
         "approval_notifications",
+        "deployment_mode",
         "langgraph_gateway",
     ),
     "zeroth.runtime.agents.provider:ProviderResponse": (
@@ -121,16 +156,65 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "zeroth.runtime.orchestration.orchestrator:RuntimeOrchestrator": (
         "_token_snapshot_store",
+        "cost_instrumentation",
         "operation_store",
+    ),
+    "zeroth.service.api.connector_api:ConnectorTestResponse": (
+        "audit_event_id",
+        "campaign_id",
+        "cleanup_status",
+        "cost_event_id",
+        "cost_measurement",
+        "estimated_cost_usd",
+        "operation_id",
+        "provider_request_id",
     ),
     "zeroth.service.api.authentication:ServiceAuthConfig": (
         "custom_roles",
         "revoked_credential_ids",
     ),
-    "zeroth.service.api.health:HealthResponse": ("audit_delivery", "langgraph_gateway"),
+    "zeroth.service.api.health:HealthResponse": (
+        "audit_delivery",
+        "campaign_id",
+        "langgraph_gateway",
+    ),
+    "zeroth.service.api.run_api:RunInvocationRequest": (
+        "campaign_id",
+        "campaign_strict",
+    ),
+    "zeroth.service.api.cost_api:DeploymentCostResponse": (
+        "active_exposure_usd",
+        "ambiguous_exposure_usd",
+        "estimated_spend_usd",
+        "paid_spend_usd",
+        "unmeasured_spend_usd",
+    ),
+    "zeroth.service.api.cost_api:TenantCostResponse": (
+        "active_exposure_usd",
+        "actual_spend_usd",
+        "ambiguous_exposure_usd",
+        "budget_consumed_usd",
+        "estimated_spend_usd",
+        "paid_spend_usd",
+        "synthetic_control_usd",
+        "unmeasured_spend_usd",
+    ),
+    "zeroth.service.api.run_api:RunInvocationResponse": ("campaign_id", "traversal"),
+    "zeroth.service.api.run_api:RunStatusResponse": ("campaign_id", "traversal"),
+    "zeroth.service.api.studio_schemas:UpdateWorkflowRequest": ("execution_settings",),
+    "zeroth.service.api.studio_schemas:WorkflowDetailResponse": ("execution_settings",),
+    "zeroth.service.api.studio_schemas:StudioEdgeResponse": (
+        "condition",
+        "enabled",
+        "mapping",
+    ),
     "zeroth.service.bootstrap.container:ServiceBootstrap": (
         "audit_delivery_queue",
         "decision_repository",
+        "evaluation_campaign",
+        "evaluation_fault_state",
+        "evaluation_campaign_id",
+        "evaluation_receipt_restart_barriers",
         "enforcement_heartbeat_repository",
         "enforcement_stale_after_seconds",
         "inventory_registration_repository",
@@ -141,17 +225,23 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "langgraph_gateway_transport",
         "langgraph_gateway_websocket_handler",
         "policy_guard",
+        "probe_instrumentation",
         "role_registry",
         "run_attestation_repository",
+        "template_dependency_checker",
         "tool_decision_service",
         "verifier",
     ),
+    "zeroth.service.deployments.service:DeploymentService": ("deployment_mode",),
     "zeroth.service.langgraph_gateway.context:ReservedContextClaims": ("run_id",),
+    "zeroth.service.webhooks.delivery:WebhookDeliveryWorker": ("audit_recorder",),
+    "zeroth.service.webhooks.service:WebhookService": ("audit_recorder",),
 }
 
 #: Constructor fields whose runtime validation was narrowed while the protected
 #: legacy signature keeps reporting its original annotation.
 SIGNATURE_ANNOTATION_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "zeroth.contracts.graph.models:Graph": ("nodes",),
     "zeroth.platform.artifacts.models:ArtifactStoreSettings": ("backend",),
 }
 
@@ -183,6 +273,15 @@ def hidden_fields(target: Any) -> set[str]:
     return declared_fields(target) - set(inspect.signature(target).parameters)
 
 
+def test_service_bootstrap_records_internal_template_dependency_checker() -> None:
+    """The internally wired template guard must stay out of the public signature."""
+    reference = "zeroth.service.bootstrap.container:ServiceBootstrap"
+
+    assert "template_dependency_checker" in declared_fields(_resolve(reference))
+    assert "template_dependency_checker" in hidden_fields(_resolve(reference))
+    assert "template_dependency_checker" in HIDDEN_CONSTRUCTOR_FIELDS[reference]
+
+
 @pytest.mark.parametrize("reference", sorted(HIDDEN_CONSTRUCTOR_FIELDS))
 def test_the_recorded_exclusions_match_what_the_class_actually_hides(reference: str) -> None:
     """Both directions, so the record cannot drift from the code either way.
@@ -199,8 +298,10 @@ def test_the_recorded_annotation_overrides_match_real_fields(reference: str) -> 
     target = _resolve(reference)
     assert set(SIGNATURE_ANNOTATION_OVERRIDES[reference]) <= declared_fields(target)
     for field in SIGNATURE_ANNOTATION_OVERRIDES[reference]:
-        assert inspect.signature(target).parameters[field].annotation is str
-        assert target.model_fields[field].annotation is not str
+        assert (
+            inspect.signature(target).parameters[field].annotation
+            != target.model_fields[field].annotation
+        )
 
 
 def _module_reference(path: Path) -> str:
@@ -224,10 +325,18 @@ def _module_reference(path: Path) -> str:
 #: target, reviewable as such, rather than a rule that quietly exempts a whole
 #: category.
 NON_CLASS_SIGNATURE_SITES = {
+    "zeroth.integrations.memory.factory:<module>:register_memory_connectors": (
+        "a public function whose additive secret-provider scoping keywords are hidden "
+        "from the immutable legacy callable signature"
+    ),
     "zeroth.integrations.langgraph._tool_wrappers:_govern_callable:governed": (
         "a per-call wrapper *function* returned by _sync_callable_wrapper / "
         "_async_callable_wrapper and published by _govern_callable -- the ordinary "
         "functools.wraps idiom, with no class constructor behind it"
+    ),
+    "zeroth.service.app:<module>:create_app": (
+        "the application factory function; its additive evaluation route registrar "
+        "keyword is hidden from the immutable legacy callable signature"
     ),
 }
 

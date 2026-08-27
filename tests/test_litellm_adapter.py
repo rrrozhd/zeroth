@@ -53,9 +53,7 @@ async def test_ainvoke_extracts_token_usage(adapter):
         mock_client = AsyncMock()
         mock_client.ainvoke.return_value = mock_msg
         mock_get.return_value = mock_client
-        request = ProviderRequest(
-            model_name="anthropic/claude-sonnet-4-5-20250514", messages=[]
-        )
+        request = ProviderRequest(model_name="anthropic/claude-sonnet-4-5-20250514", messages=[])
         response = await adapter.ainvoke(request)
     assert response.token_usage is not None
     assert response.token_usage.input_tokens == 100
@@ -117,6 +115,19 @@ async def test_ainvoke_metadata_includes_provider(adapter):
         response = await adapter.ainvoke(request)
     assert response.metadata["provider"] == "litellm"
     assert response.metadata["model"] == "openai/gpt-4o"
+
+
+async def test_ainvoke_preserves_upstream_request_id_when_available(adapter):
+    mock_msg = _make_ai_message()
+    mock_msg.response_metadata = {"id": "chatcmpl-provider-request-1"}
+    with patch.object(adapter, "_get_client_async", new_callable=AsyncMock) as mock_get:
+        mock_client = AsyncMock()
+        mock_client.ainvoke.return_value = mock_msg
+        mock_get.return_value = mock_client
+        request = ProviderRequest(model_name="openai/gpt-4o", messages=[])
+        response = await adapter.ainvoke(request)
+
+    assert response.metadata["provider_request_id"] == "chatcmpl-provider-request-1"
 
 
 async def test_ainvoke_fallback_response_metadata(adapter):

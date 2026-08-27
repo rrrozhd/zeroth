@@ -30,6 +30,7 @@ class Permission(StrEnum):
     WORKFLOW_READ = "workflow:read"
     WORKFLOW_ADMIN = "workflow:admin"
     CONNECTOR_ADMIN = "connector:admin"
+    OPERATION_RESOLVE = "operation:resolve"
     # WS-E: retention policy, legal-hold, and right-to-erasure administration.
     # Deliberately admin-tier (ADMIN holds all permissions); erasure is
     # irreversible and destroys the plaintext behind the audit trail.
@@ -45,6 +46,10 @@ class Permission(StrEnum):
     # Global economic-control-plane mutations are deliberately excluded from
     # tenant/deployment administrators.
     ECON_ADMIN = "econ:admin"
+    # Deterministic campaign fault injection can deliberately degrade the
+    # evaluation service. Keep it outside every tenant-scoped role, including
+    # ordinary administrators; only the platform administrator may arm it.
+    EVALUATION_ADMIN = "evaluation:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
@@ -65,6 +70,7 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # graphs depend on -- memory connector CRUD is part of that
         # authoring surface. Reviewers stay read-only.
         Permission.CONNECTOR_ADMIN,
+        Permission.OPERATION_RESOLVE,
         # A deployment reporting its own enforcement evidence sits at the same
         # tier as starting a run (RUN_CREATE): it is the running system talking
         # about itself, not an operator changing what is governed.
@@ -82,7 +88,10 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # Cost/spend (METRICS_READ) stays admin-only.
         Permission.AUDIT_READ,
     },
-    ServiceRole.ADMIN: set(Permission) - {Permission.ECON_ADMIN},
+    ServiceRole.ADMIN: set(Permission) - {
+        Permission.ECON_ADMIN,
+        Permission.EVALUATION_ADMIN,
+    },
     ServiceRole.PLATFORM_ADMIN: set(Permission),
 }
 

@@ -99,45 +99,38 @@ export default function Overview() {
   ];
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+    <div className="overview-page" style={{ maxWidth: 980, margin: "0 auto", padding: "28px 28px 48px" }}>
       <header style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Overview</h1>
+        <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em" }}>Overview</h1>
         <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
           Operate and author your Zeroth multi-agent apps.
         </p>
       </header>
 
-      {/* Health tiles */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 12,
-          marginBottom: 14,
-        }}
-      >
-        <HealthTile
-          label="API service"
-          {...apiTile}
-          loading={health.loading && !health.data && !health.error}
-        />
-        <HealthTile label="Sandbox backend" tone="neutral" value="docker" sub="hardened" />
-        <HealthTile label="Econ plane" {...econTile} />
-        <HealthTile label="Storage" tone="neutral" value="postgres" sub="+ redis" />
-      </div>
-
-      {/* Deployments (left) + getting-started (right) */}
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
-        <div style={{ flex: 1.6, minWidth: 0 }}>
-          <DeploymentsCard dep={dep} rollingBack={rollingBack} onRollback={doRollback} />
+      {/* One operational strip: related status belongs in one surface. */}
+      <Card pad={0} style={{ overflow: "hidden", marginBottom: 10 }}>
+        <div className="overview-health-grid">
+          <HealthTile
+            label="API service"
+            {...apiTile}
+            loading={health.loading && !health.data && !health.error}
+          />
+          <HealthTile label="Sandbox backend" tone="success" value="docker" sub="hardened" />
+          <HealthTile label="Econ plane" {...econTile} />
+          <HealthTile label="Storage" tone="success" value="postgres" sub="+ redis" />
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      </Card>
+
+      {/* Primary operations stay together; onboarding remains secondary. */}
+      <div className="overview-content-grid">
+        <div className="overview-primary-column">
+          <DeploymentsCard dep={dep} rollingBack={rollingBack} onRollback={doRollback} />
+          <RecentRunsCard runs={runs} onOpen={() => router.push("/runs")} />
+        </div>
+        <div style={{ minWidth: 0 }}>
           <ChecklistCard items={checklist} />
         </div>
       </div>
-
-      {/* Recent runs */}
-      <RecentRunsCard runs={runs} onOpen={() => router.push("/runs")} />
     </div>
   );
 }
@@ -156,7 +149,10 @@ function HealthTile({
   loading?: boolean;
 }) {
   return (
-    <Card pad={14} label={label}>
+    <div style={{ minWidth: 0, padding: "13px 15px", background: "var(--bg-card)" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 500, color: "var(--text-muted)", marginBottom: 7 }}>
+        {label}
+      </div>
       {loading ? (
         <>
           <Skeleton width={90} height={16} />
@@ -166,16 +162,15 @@ function HealthTile({
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <StatusDot tone={tone} />
-            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+            <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
               {value}
             </span>
           </div>
           <div
             style={{
-              marginTop: 5,
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              color: "var(--text-faint)",
+              marginTop: 4,
+              fontSize: 11.5,
+              color: "var(--text-muted)",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -185,7 +180,7 @@ function HealthTile({
           </div>
         </>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -199,7 +194,7 @@ function DeploymentsCard({
   onRollback: (d: DeploymentSummary) => void;
 }) {
   return (
-    <Card label="Deployments" pad={16}>
+    <Card label="Deployments" pad={16} style={{ minWidth: 0 }}>
       {dep.loading && !dep.data ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <Skeleton height={38} />
@@ -221,17 +216,8 @@ function DeploymentsCard({
             const key = `${d.deployment_ref}@${d.version}`;
             const busy = rollingBack === key;
             return (
-              <div
-                key={key}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "10px 0",
-                  borderTop: "1px solid var(--hair)",
-                }}
-              >
-                <div style={{ minWidth: 0, flex: 1 }}>
+              <div key={key} className="overview-deployment-row">
+                <div className="overview-deployment-summary">
                   <div
                     style={{
                       fontFamily: "var(--font-mono)",
@@ -258,13 +244,20 @@ function DeploymentsCard({
                     {d.graph_version_ref}
                   </div>
                 </div>
-                <Pill tone="accent">v{d.version}</Pill>
-                <Pill tone={d.serving ? "success" : "neutral"}>
-                  {d.serving ? "serving" : "registered"}
-                </Pill>
-                <Button variant="neutral" disabled={busy} onClick={() => onRollback(d)}>
-                  {busy ? "…" : "Rollback"}
-                </Button>
+                <div className="overview-deployment-actions">
+                  <Pill tone="accent">v{d.version}</Pill>
+                  <Pill tone={d.serving ? "success" : "neutral"}>
+                    {d.serving ? "serving" : "registered"}
+                  </Pill>
+                  <Button
+                    variant="neutral"
+                    disabled={busy}
+                    onClick={() => onRollback(d)}
+                    data-evidence-id={`overview.deployment.${d.deployment_ref}.version-${d.version}.rollback`}
+                  >
+                    {busy ? "…" : "Rollback"}
+                  </Button>
+                </div>
               </div>
             );
           })}
@@ -287,9 +280,14 @@ function DeploymentsCard({
 function ChecklistCard({ items }: { items: { label: string; done: boolean }[] }) {
   return (
     <Card label="Getting started" pad={16}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div role="list" aria-label="Setup progress" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {items.map((it) => (
-          <div key={it.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            key={it.label}
+            role="listitem"
+            aria-label={`${it.label}: ${it.done ? "completed" : "not completed"}`}
+            style={{ display: "flex", alignItems: "center", gap: 10 }}
+          >
             <span
               aria-hidden
               style={{

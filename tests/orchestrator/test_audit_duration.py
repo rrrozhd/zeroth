@@ -89,3 +89,10 @@ async def test_node_audit_records_a_real_duration(sqlite_db) -> None:
     record = audits[0]
     duration = (record.completed_at - record.started_at).total_seconds()
     assert duration >= 0.01, f"expected a real duration, got {duration}s"
+
+    (history,) = run.execution_history
+    assert history.completed_at is not None
+    history_duration = (history.completed_at - history.started_at).total_seconds()
+    assert history_duration >= 0.01, (
+        f"expected the durable run timeline to retain the audit duration, got {history_duration}s"
+    )

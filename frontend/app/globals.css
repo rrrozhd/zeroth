@@ -1,49 +1,53 @@
 @import "tailwindcss";
 
-/* Self-hosted IBM Plex (offline-safe for static export). Weights used by the design. */
-@import "@fontsource/ibm-plex-sans/400.css";
-@import "@fontsource/ibm-plex-sans/500.css";
-@import "@fontsource/ibm-plex-sans/600.css";
-@import "@fontsource/ibm-plex-sans/700.css";
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
-@import "@fontsource/ibm-plex-mono/600.css";
-
-/* ---- Design tokens (handoff, dark-only) ---------------------------------- */
+/* ---- Zeroth Console v2 — accessible operational palette ---------------- */
 :root {
-  color-scheme: dark;
-  /* backgrounds */
-  --bg-page: #0b0d11;
-  --bg-chrome: #0d1015;
-  --bg-card: #11141a;
-  --bg-raised: #141822;
-  --bg-raised-2: #171b23;
-  --bg-code: #0d1015;
-  /* text */
-  --text-primary: #e7eaf0;
-  --text-secondary: #c6ccd8;
-  --text-muted: #8f97a6;
-  --text-faint: #5c6472;
-  --text-disabled: #3a4150;
-  --text-code: #a9b2c2;
-  /* accent + semantic */
-  --accent: #5eead4;
-  --success: #86efac;
-  --warning: #fcd34d;
-  --danger: #f87171;
-  --info: #93c5fd;
-  --agent: #c4b5fd;
-  --neutral: #a3adc2;
-  /* node-type colors (canvas, timelines, guide) */
-  --nt-entrypoint: #5eead4;
-  --nt-agent: #c4b5fd;
-  --nt-exec: #93c5fd;
-  --nt-approval: #fcd34d;
-  --nt-retrieval: #86efac;
-  --nt-subgraph: #a3adc2;
-  /* borders */
-  --hair: rgba(255, 255, 255, 0.07);
-  --hair-strong: rgba(255, 255, 255, 0.1);
+  color-scheme: light;
+  --bg-page: #f2f2f5;
+  --bg-chrome: #f8f8fb;
+  --bg-card: #ffffff;
+  --bg-raised: #ececf4;
+  --bg-raised-2: #e8e8f1;
+  --bg-code: #f6f6f8;
+  --text-primary: #16151f;
+  --text-secondary: #5a5968;
+  --text-muted: #5f5e6c;
+  --text-faint: #656473;
+  --text-disabled: #747382;
+  --text-code: #403f49;
+  --chrome-text: #16151f;
+  --chrome-muted: #8c8b9b;
+  --accent: #4f4b93;
+  --accent-ink: #ffffff;
+  --success: #267548;
+  --warning: #80511d;
+  --danger: #a12f3a;
+  --info: #3e638c;
+  --agent: #4f4b93;
+  --neutral: #5f5e6c;
+  --nt-entrypoint: #5a5968;
+  --nt-agent: #4f4b93;
+  --nt-exec: #55749b;
+  --nt-approval: #80511d;
+  --nt-loop: #4f4b93;
+  --nt-retrieval: #267548;
+  --nt-subgraph: #5f5e6c;
+  --hair: #e6e6ee;
+  --hair-strong: #dcdbe7;
+  --shadow-card: 0 1px 4px rgba(22, 21, 31, 0.05);
+  --shadow-float: 0 4px 12px rgba(22, 21, 31, 0.08);
+  --glass-bg: rgba(248, 248, 251, 0.98);
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --radius-control: 0.5rem;
+  --radius-surface: 0.75rem;
+  --control-height: 2rem;
+  --copy-measure: 68ch;
+  --page-gutter: clamp(1rem, 2.4vw, 1.75rem);
 }
 
 @theme inline {
@@ -65,8 +69,9 @@
   --color-agent: var(--agent);
   --color-neutral: var(--neutral);
   --color-hair: var(--hair);
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
   /* LEGACY COMPAT — old token utilities retained SOLELY for the Studio-canvas
      kit (studio/edit + StudioNodeView + NodeInspector + ConnectorInline +
@@ -75,10 +80,11 @@
      its inner form controls, functional and on-theme via these aliases. Full
      ui.tsx retirement (~4k LOC) is deferred future work — see PLAN-INDEX. */
   --color-app: var(--bg-page);
+  --color-background: var(--bg-card);
   --color-surface: var(--bg-card);
   --color-foreground: var(--text-primary);
   --color-border: var(--hair-strong);
-  --color-accent-fg: #0b0d11;
+  --color-accent-fg: var(--accent-ink);
 }
 
 /* ---- Base ---------------------------------------------------------------- */
@@ -98,7 +104,7 @@ body {
 }
 
 ::selection {
-  background: rgba(94, 234, 212, 0.25);
+  background: rgba(79, 75, 147, 0.18);
 }
 
 *:focus-visible {
@@ -109,7 +115,7 @@ body {
 
 /* scrollbars: #242a35 thumb on transparent */
 * {
-  scrollbar-color: #242a35 transparent;
+  scrollbar-color: #c9c8d6 transparent;
   scrollbar-width: thin;
 }
 ::-webkit-scrollbar {
@@ -117,7 +123,7 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #242a35;
+  background: #c9c8d6;
   border-radius: 6px;
 }
 ::-webkit-scrollbar-track {
@@ -137,7 +143,7 @@ body {
 @keyframes zfade {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -148,10 +154,1090 @@ body {
   animation: zpulse 1.8s ease-in-out infinite;
 }
 .z-fade {
-  animation: zfade 0.25s ease-out;
+  animation: zfade 0.2s ease-out;
 }
 
-/* ---- React Flow retuned to the dark tokens (canvas skinned in P2) --------- */
+/* The global navigation folds out of the workspace instead of shrinking into
+   an icon rail. Its control lives in the current route's top chrome, so shell
+   behavior never steals space from document headings. */
+.console-content {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.console-sidebar-frame {
+  position: relative;
+  /* The compact Studio canvas is z55; the expanded rail must overlay it. */
+  z-index: 58;
+  width: 216px;
+  height: 100%;
+  flex: 0 0 216px;
+  overflow: visible;
+}
+
+.console-sidebar-frame.is-collapsed {
+  width: 0;
+  flex-basis: 0;
+}
+
+.console-sidebar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 216px;
+  min-width: 216px;
+  transition: transform 160ms ease, visibility 160ms step-end;
+}
+
+.console-sidebar-frame.is-collapsed .console-sidebar {
+  visibility: hidden;
+  transform: translateX(-100%);
+}
+
+.console-sidebar-link {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: background 90ms ease, color 90ms ease;
+}
+
+.console-sidebar-link-label {
+  flex: 1;
+  font-size: 13.5px;
+  font-weight: 400;
+}
+
+.console-sidebar-link:hover:not(.is-active),
+.console-sidebar-link:focus-visible:not(.is-active) {
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--hair-strong);
+  color: var(--text-primary);
+}
+
+.console-sidebar-link.is-active {
+  background: var(--bg-raised-2);
+  color: var(--accent);
+}
+
+.console-sidebar-link.is-active .console-sidebar-link-label {
+  font-weight: 600;
+}
+
+.console-sidebar-toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.console-sidebar-toggle:hover {
+  border-color: #aaa8c8;
+  background: var(--bg-raised-2);
+  color: var(--accent);
+}
+
+.console-sidebar-toggle svg {
+  width: 8px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.5;
+}
+
+.shortcut-tooltip-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.shortcut-tooltip {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: 100;
+  display: flex;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 20px));
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border: 1px solid #34333d;
+  border-radius: 6px;
+  background: #24232b;
+  color: #f7f6f3;
+  box-shadow: 0 3px 8px rgba(22, 21, 31, 0.18);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -2px);
+  transition: opacity 90ms ease, transform 90ms ease, visibility 90ms step-end;
+  visibility: hidden;
+}
+
+.shortcut-tooltip kbd,
+.studio-menu-shortcut {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.shortcut-tooltip kbd {
+  padding: 2px 4px;
+  border: 1px solid #55535f;
+  border-radius: 4px;
+  background: #34323c;
+  color: #f7f6f3;
+}
+
+.shortcut-tooltip-anchor:hover .shortcut-tooltip,
+.shortcut-tooltip-anchor:focus-within .shortcut-tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition: opacity 90ms ease, transform 90ms ease;
+  visibility: visible;
+}
+
+.shortcut-tooltip-anchor--start .shortcut-tooltip {
+  right: auto;
+  left: 0;
+  transform: translateY(-2px);
+}
+
+.shortcut-tooltip-anchor--start:hover .shortcut-tooltip,
+.shortcut-tooltip-anchor--start:focus-within .shortcut-tooltip {
+  transform: translateY(0);
+}
+
+.shortcut-tooltip-anchor--end .shortcut-tooltip {
+  right: 0;
+  left: auto;
+  transform: translateY(-2px);
+}
+
+.shortcut-tooltip-anchor--end:hover .shortcut-tooltip,
+.shortcut-tooltip-anchor--end:focus-within .shortcut-tooltip {
+  transform: translateY(0);
+}
+
+.console-topbar {
+  display: flex;
+  height: 49px;
+  min-height: 49px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--hair);
+  background: var(--glass-bg);
+  padding: 0 clamp(0.75rem, 2.2vw, 1.5rem);
+}
+
+.console-topbar-context,
+.console-topbar-breadcrumb,
+.console-topbar-state {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.console-topbar-context {
+  flex: 1;
+  gap: var(--space-3);
+}
+
+.console-topbar-breadcrumb {
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+}
+
+.console-topbar-tenant {
+  color: var(--text-muted);
+}
+
+.console-topbar-workspace {
+  max-width: 12rem;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-topbar-separator {
+  color: var(--text-disabled);
+}
+
+.console-topbar-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-topbar-state {
+  flex-shrink: 0;
+  gap: var(--space-2);
+}
+
+.console-topbar-role {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.console-topbar-served {
+  color: var(--text-secondary);
+  font-size: 0.71875rem;
+  white-space: nowrap;
+}
+
+.console-topbar-served-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+/* Anchored to the canvas's left edge (the shell tracks the sidebar fold), not
+   to .console-content — the content column starts after the sidebar frame, so
+   an absolute left:10px there landed 226px in, on top of the workflow title. */
+.console-editor-sidebar-control {
+  position: fixed;
+  top: 13px;
+  left: 10px;
+  z-index: 60;
+  transition: left 160ms ease;
+}
+
+/* In Studio the expanded rail owns the toggle: keep it inside the rail's
+   header instead of floating over the workflow title. */
+.console-shell.is-editor-shell:not(.is-sidebar-collapsed) .console-editor-sidebar-control {
+  left: 178px;
+}
+
+.console-shell.is-editor-shell:not(.is-sidebar-collapsed) .console-sidebar-version {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .console-topbar-served,
+  .console-topbar-role {
+    display: none;
+  }
+}
+
+@media (max-width: 360px) {
+  .console-topbar-tenant,
+  .console-topbar-workspace,
+  .console-topbar-separator {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .console-sidebar,
+  .console-editor-sidebar-control,
+  .studio-editor-shell,
+  .shortcut-tooltip {
+    transition: none;
+  }
+}
+
+/* Data bands keep related operational facts aligned without multiplying cards. */
+.overview-page {
+  container: overview-page / inline-size;
+}
+
+.overview-health-grid {
+  display: grid;
+  gap: 1px;
+  background: var(--hair);
+}
+
+.overview-health-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.overview-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.overview-primary-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 10px;
+}
+
+.overview-deployment-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hair);
+}
+
+.overview-deployment-summary {
+  min-width: 0;
+  flex: 1;
+}
+
+.overview-deployment-actions {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+@container overview-page (max-width: 54rem) {
+  .overview-content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@container overview-page (max-width: 38rem) {
+  .overview-deployment-row {
+    flex-wrap: wrap;
+  }
+
+  .overview-deployment-summary {
+    flex-basis: 100%;
+  }
+
+  .overview-deployment-actions {
+    width: 100%;
+  }
+
+  .overview-deployment-actions > :last-child {
+    margin-left: auto;
+  }
+}
+
+.regulus-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--hair);
+}
+
+.regulus-kpi-item {
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--bg-card);
+}
+
+.regulus-kpi-label {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 820px) {
+  .overview-health-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .regulus-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .regulus-kpi-item {
+    display: flex;
+    min-height: 48px;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 14px;
+  }
+
+  .regulus-kpi-label {
+    margin-bottom: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .overview-health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* left comes inline from the shell element (paint-order safety for React
+   Flow's parent-size requirement); this only animates the sidebar fold. */
+.studio-editor-shell {
+  transition: left 160ms ease;
+  /* Studio's compact operational copy must stay readable on both the canvas
+     and white floating surfaces without changing the rest of Console v2. */
+  --text-muted: #666572;
+  --text-faint: #6e6d7a;
+}
+
+/* The expanded rail already sits outside the canvas, so its title starts at
+   the normal React Flow panel inset. Only a collapsed rail leaves its fixed
+   toggle on the canvas; reserve that control's 10px + 28px footprint there. */
+.studio-editor-left-panel {
+  left: 0 !important;
+}
+
+.console-shell.is-sidebar-collapsed .studio-editor-left-panel {
+  left: 38px !important;
+}
+
+.studio-editor-chrome {
+  background: var(--glass-bg);
+  border-bottom: 1px solid var(--hair);
+}
+
+.studio-editor-titlebar {
+  padding-inline: var(--space-1);
+}
+
+.studio-editor-back {
+  width: 1.625rem;
+  height: 1.625rem;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 0.4375rem;
+  color: var(--text-muted);
+}
+
+.studio-editor-back:hover {
+  background: var(--bg-raised-2);
+  color: var(--text-primary);
+}
+
+.studio-editor-back svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.5;
+}
+
+.studio-workflow-name {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.studio-workflow-version,
+.studio-save-state,
+.studio-copy-state {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.studio-workflow-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  pointer-events: auto;
+}
+
+.studio-canvas-command-panel {
+  left: 146px !important;
+  bottom: 12px !important;
+  margin: 0 !important;
+}
+
+.studio-canvas-commandbar {
+  display: flex;
+  align-items: center;
+  overflow: visible;
+  border: 1px solid var(--hair-strong);
+  border-radius: 0.5rem;
+  background: var(--bg-card);
+  box-shadow: 0 2px 8px rgb(22 21 31 / 0.08);
+  pointer-events: auto;
+}
+
+.studio-canvas-command {
+  position: relative;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 0;
+  border-right: 1px solid var(--hair);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.studio-canvas-command:last-child {
+  border-right: 0;
+}
+
+.studio-canvas-command:hover:not(:disabled),
+.studio-canvas-command:focus-visible,
+.studio-canvas-command[aria-expanded="true"] {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.studio-canvas-command:focus-visible {
+  z-index: 2;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.studio-canvas-command:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.studio-canvas-command svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.4;
+}
+
+.studio-canvas-command[data-tooltip]::after {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 50%;
+  z-index: 90;
+  width: max-content;
+  max-width: 12rem;
+  transform: translate(-50%, 0.2rem);
+  border: 1px solid var(--hair-strong);
+  border-radius: 0.375rem;
+  background: var(--text-primary);
+  padding: 0.3rem 0.45rem;
+  color: var(--bg-card);
+  content: attr(data-tooltip);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease, transform 100ms ease;
+}
+
+.studio-canvas-command[data-tooltip]:hover::after,
+.studio-canvas-command[data-tooltip]:focus-visible::after {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+
+.studio-node-menu {
+  position: relative;
+}
+
+.studio-add-node-trigger {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  padding: 0.375rem 0.5rem;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.studio-add-node-trigger:hover,
+.studio-add-node-trigger[aria-expanded="true"] {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.studio-add-node-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.studio-add-node-trigger svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-width: 1.5;
+}
+
+.studio-node-menu-popover {
+  position: fixed;
+  top: 54px;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  display: flex;
+  width: min(20rem, 88vw);
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow-y: auto;
+  border-left: 1px solid var(--hair-strong);
+  background: var(--bg-card);
+  padding: 0.75rem;
+  box-shadow: -4px 0 12px rgba(22, 21, 31, 0.06);
+  animation: studio-palette-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.studio-node-option {
+  display: flex;
+  min-height: 3.125rem;
+  width: 100%;
+  align-items: center;
+  gap: 0.625rem;
+  border: 0;
+  border-radius: 0.4375rem;
+  background: transparent;
+  padding: 0.4375rem 0.5rem;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.studio-node-option:hover,
+.studio-node-option:focus-visible {
+  background: var(--bg-raised);
+  outline: none;
+}
+
+.studio-node-option:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.studio-node-option-glyph,
+.studio-placement-glyph,
+.studio-node-glyph {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid var(--hair);
+  border-radius: 0.4375rem;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+}
+
+.studio-node-option-copy,
+.studio-placement-copy,
+.studio-node-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.studio-node-option-copy strong,
+.studio-placement-copy strong {
+  color: var(--text-primary);
+  font-size: 0.78125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.studio-node-option-copy span,
+.studio-placement-copy span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-placement-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 70;
+  display: flex;
+  width: 13rem;
+  min-height: 4.5rem;
+  align-items: center;
+  gap: 0.625rem;
+  border: 1px dashed var(--accent);
+  border-radius: 0.625rem;
+  background: var(--bg-card);
+  padding: 0.625rem;
+  box-shadow: var(--shadow-float);
+  pointer-events: none;
+  transform: translate3d(50vw, 50vh, 0);
+}
+
+.studio-editor-shell.is-placing-node .react-flow__pane {
+  cursor: crosshair;
+}
+
+.studio-node-card {
+  width: 13rem;
+  min-height: 4.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  border-width: 1px;
+  border-radius: 0.625rem;
+  background: var(--bg-card);
+  padding: 0.625rem 0.75rem;
+  cursor: grab;
+}
+
+.studio-node-card:active {
+  cursor: grabbing;
+}
+
+.studio-node-card.is-loop,
+.studio-node-card.is-if {
+  width: 16rem;
+  min-height: 5.25rem;
+  padding-right: 4.75rem;
+  border-color: color-mix(in srgb, var(--nt-loop) 55%, var(--hair-strong));
+  background: color-mix(in srgb, var(--nt-loop) 5%, var(--bg-card));
+}
+
+.studio-node-card.is-loop .studio-node-title,
+.studio-node-card.is-if .studio-node-title {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.studio-control-port-labels {
+  position: absolute;
+  top: 12.5%;
+  right: 0.75rem;
+  bottom: 12.5%;
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  align-items: center;
+  color: var(--nt-loop);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  line-height: 1;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.studio-node-card.is-if .studio-control-port-labels {
+  top: 16.666%;
+  bottom: 16.666%;
+  grid-template-rows: repeat(2, 1fr);
+}
+
+.studio-node-title,
+.studio-node-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-node-title {
+  color: var(--text-primary);
+  font-size: 0.78125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.studio-node-subtitle {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+/* Connections carry execution meaning without duplicating If/Loop node copy.
+   Loop returns take the outer lane; continue and exit routes use line treatment. */
+.studio-edge-path {
+  transition: stroke 120ms ease, stroke-width 120ms ease, opacity 120ms ease;
+}
+
+.react-flow__edge:hover .studio-edge-path,
+.react-flow__edge.selected .studio-edge-path {
+  stroke-width: 2.5px;
+}
+
+@keyframes studio-palette-enter {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.studio-empty-canvas {
+  /* Float in the canvas's upper third, clear of the top-right notice stack
+     (a load-error toast at 3rem clipped the card's corner). */
+  margin-top: 24vh;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-card);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.studio-run-panel {
+  width: min(42rem, 92vw);
+  overflow: hidden;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-surface);
+  background: var(--bg-card);
+}
+
+.studio-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  background: rgb(22 21 31 / 0.38);
+  padding: 1rem;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.studio-dialog-surface {
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-surface);
+  background: var(--bg-card);
+  box-shadow: 0 18px 54px rgb(22 21 31 / 0.18);
+}
+
+.studio-run-dialog {
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-run-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.875rem;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+.studio-run-summary strong {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.studio-actions-menu {
+  position: relative;
+}
+
+.studio-more-actions {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-card);
+  padding: 0 0.625rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.studio-more-actions:hover,
+.studio-more-actions[aria-expanded="true"] {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.studio-more-actions:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.studio-more-actions svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: currentColor;
+}
+
+.studio-actions-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  width: 190px;
+  flex-direction: column;
+  padding: 5px;
+  border: 1px solid var(--hair-strong);
+  border-radius: 9px;
+  background: var(--bg-card);
+  box-shadow: 0 4px 12px rgba(22, 21, 31, 0.1);
+}
+
+.studio-menu-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 7px 9px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.studio-menu-shortcut {
+  color: var(--text-faint);
+}
+
+.studio-menu-action:hover:not(:disabled) {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.studio-menu-action:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.studio-actions-save-state {
+  margin: 2px 7px 5px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+@media (max-width: 1300px) {
+  .studio-editor-left-stack {
+    max-width: min(480px, calc(100vw - var(--console-sidebar-width, 216px) - 276px)) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .studio-editor-shell {
+    left: 0 !important;
+    z-index: 55;
+    background: var(--bg-page);
+  }
+
+  .studio-editor-left-panel,
+  .studio-editor-right-panel {
+    top: 8px !important;
+    margin: 0 !important;
+  }
+
+  .studio-editor-right-panel {
+    right: 8px !important;
+  }
+
+  .studio-editor-left-stack {
+    max-width: min(560px, calc(100vw - 250px)) !important;
+  }
+
+  .studio-workflow-name {
+    max-width: 150px !important;
+  }
+
+}
+
+@media (max-width: 650px) {
+  .studio-workflow-status {
+    display: none !important;
+  }
+
+  .studio-workflow-name {
+    max-width: 112px !important;
+  }
+
+  .studio-run-dock {
+    right: 12px !important;
+    bottom: 12px !important;
+    left: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+  }
+
+  .studio-canvas-command,
+  .studio-more-actions,
+  .studio-menu-action,
+  .studio-run-dock button {
+    min-height: 44px !important;
+  }
+
+  .studio-canvas-command {
+    width: 44px;
+    height: 44px;
+  }
+
+  .studio-canvas-command-panel {
+    left: 12px !important;
+    bottom: 60px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .studio-editor-left-stack {
+    width: 2.5rem !important;
+  }
+
+  .studio-workflow-name,
+  .studio-workflow-status {
+    display: none !important;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-node-menu-popover {
+    animation: none;
+  }
+}
+
+/* ---- React Flow: drafting-table treatment -------------------------------- */
 .react-flow {
   --xy-background-color: var(--bg-page);
   --xy-node-border-default: var(--hair-strong);
@@ -165,4 +1251,25 @@ body {
 .react-flow__controls-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+/* Bottom-left corner at every width — the old 264px offset dodged a left
+   palette column that no longer exists and left the strip afloat mid-canvas
+   (colliding with the centered Run dock as the window narrowed). */
+.react-flow__controls {
+  left: 12px !important;
+  bottom: 12px !important;
+  overflow: hidden;
+  border: 1px solid rgba(79, 75, 147, 0.22);
+  border-radius: 10px;
+  background: var(--glass-bg);
+  box-shadow: var(--shadow-float);
+}
+.react-flow__controls-button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-right: 1px solid var(--hair);
+}
+.react-flow__controls-button:last-child {
+  border-right: 0;
 }

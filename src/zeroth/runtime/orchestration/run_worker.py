@@ -91,20 +91,25 @@ class RunWorker:
     workspace_id: str | None = None
     max_concurrency: int = 8
     poll_interval: float = 0.5
+    orphan_sweep_interval: float = 5.0
     worker_id: str = field(default_factory=_new_worker_id)
     dead_letter_manager: DeadLetterManager | None = None
     metrics_collector: MetricsCollector | None = None
     shutdown_timeout: float = 30.0
 
     def __post_init__(self) -> None:
+        if self.orphan_sweep_interval <= 0:
+            raise ValueError("orphan_sweep_interval must be positive")
         self._semaphore = asyncio.Semaphore(self.max_concurrency)
         self._active_tasks: set[asyncio.Task] = set()
         # The in-flight drive task per run, so the renewal loop can stop the
         # work when ownership is lost rather than only logging it.
         self._active_drives: dict[str, asyncio.Task] = {}
+        self._operator_interrupts: set[str] = set()
         self._lost_leases: set[str] = set()
         self._lease_generations: dict[str, int | None] = {}
         self._stopping = False
+        self._next_orphan_sweep_at: float | None = None
         self._token_lifecycle = (
             TokenLifecycleAdapter(self.run_repository)
             if isinstance(self.run_repository, TokenSnapshotStore)
@@ -130,10 +135,30 @@ class RunWorker:
             self.deployment_ref,
             self.max_concurrency,
         )
+        await self._reconcile_child_approvals()
+        await self._schedule_orphan_recovery(schedule_empty=True)
+        self._next_orphan_sweep_at = asyncio.get_running_loop().time() + self.orphan_sweep_interval
+
+    async def interrupt_active_run(self, run_id: str) -> None:
+        """Stop this worker's active drive without changing its persisted status.
+
+        The admin API persists ``WAITING_INTERRUPT`` before calling this hook.
+        Marking the cancellation as operator-owned lets the worker distinguish it
+        from shutdown or lease loss, so the ordinary exception handler cannot
+        overwrite that durable pause with ``worker_exception``.
+        """
+        drive = self._active_drives.get(run_id)
+        if drive is None or drive.done():
+            return
+        self._operator_interrupts.add(run_id)
+        drive.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await drive
+
+    async def _schedule_orphan_recovery(self, *, schedule_empty: bool = False) -> None:
+        """Claim every currently expired lease and schedule bounded recovery."""
         orphans = await self.lease_manager.claim_orphaned(
-            self.deployment_ref,
-            self.worker_id,
-            **self._lease_scope(),
+            self.deployment_ref, self.worker_id, **self._lease_scope()
         )
         # Recovery obeys the same concurrency bound as the poll loop. Creating a
         # task per orphan meant a crash with a large backlog dispatched the whole
@@ -151,11 +176,37 @@ class RunWorker:
         # prefixes as a run id, so a "recover-orphans-w1" task made
         # graceful_shutdown drive clear_fence and release_lease against a
         # fabricated run called "orphans-w1".
-        task = asyncio.create_task(
-            self._recover_orphans(orphans),
-            name=f"orphan-recovery-loop-{self.worker_id}",
+        if orphans or schedule_empty:
+            task = asyncio.create_task(
+                self._recover_orphans(orphans),
+                name=f"orphan-recovery-loop-{self.worker_id}-{uuid4().hex[:8]}",
+            )
+            self._track(task)
+
+    async def _sweep_orphans_if_due(self) -> None:
+        """Revisit RUNNING leases that can expire after this process starts."""
+        now = asyncio.get_running_loop().time()
+        if self._next_orphan_sweep_at is not None and now < self._next_orphan_sweep_at:
+            return
+        self._next_orphan_sweep_at = now + self.orphan_sweep_interval
+        await self._reconcile_child_approvals()
+        await self._schedule_orphan_recovery()
+
+    async def _reconcile_child_approvals(self) -> None:
+        """Requeue child approvals resolved before their parent notification.
+
+        This runs at startup and on the existing orphan-sweep cadence.  The
+        approval service owns authorization, signing and compare-and-set
+        semantics; the worker supplies only its deployment identity.
+        """
+        approval_service = getattr(self.orchestrator, "approval_service", None)
+        reconcile = getattr(approval_service, "reconcile_ancestor_continuations", None)
+        if reconcile is None:
+            return
+        await reconcile(
+            deployment_ref=self.deployment_ref,
+            graph_version_ref=f"{self.graph.graph_id}:v{self.graph.version}",
         )
-        self._track(task)
 
     async def _recover_orphans(self, orphans: Sequence[str]) -> None:
         """Re-execute *orphans*, never more than ``max_concurrency`` in flight.
@@ -201,6 +252,7 @@ class RunWorker:
         while not self._stopping:
             slot_reserved = False
             try:
+                await self._sweep_orphans_if_due()
                 await self._semaphore.acquire()
                 slot_reserved = True
                 if self._stopping:
@@ -375,6 +427,7 @@ class RunWorker:
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 await renewal_task
         self._active_drives.pop(run_id, None)
+        self._operator_interrupts.discard(run_id)
         self._lost_leases.discard(run_id)
         self._lease_generations.pop(run_id, None)
         # F-02: an abnormal exit leaves the run with no decided disposition, so
@@ -424,6 +477,8 @@ class RunWorker:
                 self.metrics_collector.increment("zeroth_runs_completed_total")
                 self.metrics_collector.observe("zeroth_run_duration_seconds", elapsed)
         except asyncio.CancelledError:
+            if run_id in self._operator_interrupts:
+                return True
             if run_id not in self._lost_leases:
                 raise
             self._record_lease_loss(run_id)
@@ -562,6 +617,11 @@ class RunWorker:
                     thread_id=run.thread_id,
                     tenant_id=run.tenant_id,
                     workspace_id=run.workspace_id,
+                    campaign_id=(
+                        str(run.metadata["campaign_id"])
+                        if run.metadata.get("campaign_id") is not None
+                        else None
+                    ),
                     node_id="__worker__",
                     graph_version_ref=run.graph_version_ref,
                     deployment_ref=run.deployment_ref,

@@ -13,6 +13,7 @@ bootstrap registration and the runtime connector-management API
 from __future__ import annotations
 
 import contextlib
+import inspect
 import logging
 from typing import Any
 
@@ -183,6 +184,9 @@ def build_connector(
     params: dict[str, Any],
     *,
     redis_client: Any | None = None,
+    secret_provider: Any | None = None,
+    tenant_id: str | None = None,
+    allow_env_fallback: bool = True,
 ) -> tuple[ConnectorManifest, Any]:
     """Build a memory connector instance from a backend type and params dict.
 
@@ -204,6 +208,11 @@ def build_connector(
         redis_client: Pre-built async Redis client (env-based bootstrap path
             shares one client). When provided for redis backends, ``url`` is
             not required.
+        secret_provider: Optional tenant-aware provider for resolving logical
+            credential references.
+        tenant_id: Tenant scope used for secret-provider resolution.
+        allow_env_fallback: Whether logical references may fall back to the
+            process environment when no secret-provider value is available.
 
     Returns:
         ``(manifest, connector)`` ready for ``registry.register``.
@@ -217,9 +226,19 @@ def build_connector(
         raise ValueError("params must be a JSON object")
 
     if backend_type == "pgvector":
-        return _build_pgvector(params)
+        return _build_pgvector(
+            params,
+            secret_provider=secret_provider,
+            tenant_id=tenant_id,
+            allow_env_fallback=allow_env_fallback,
+        )
     if backend_type == "chroma":
-        return _build_chroma(params)
+        return _build_chroma(
+            params,
+            secret_provider=secret_provider,
+            tenant_id=tenant_id,
+            allow_env_fallback=allow_env_fallback,
+        )
     if backend_type == "elasticsearch":
         return _build_elasticsearch(params)
     if backend_type in ("redis_kv", "redis_thread"):
@@ -229,7 +248,13 @@ def build_connector(
     )
 
 
-def _build_pgvector(params: dict[str, Any]) -> tuple[ConnectorManifest, Any]:
+def _build_pgvector(
+    params: dict[str, Any],
+    *,
+    secret_provider: Any | None = None,
+    tenant_id: str | None = None,
+    allow_env_fallback: bool = True,
+) -> tuple[ConnectorManifest, Any]:
     if PgvectorMemoryConnector is None:
         raise ValueError(
             "pgvector connector dependencies not installed; install zeroth-core[memory-pg]"
@@ -245,11 +270,22 @@ def _build_pgvector(params: dict[str, Any]) -> tuple[ConnectorManifest, Any]:
     # PgvectorMemoryConnector accepts a DSN string and wraps it in an async
     # connection factory internally (connection is lazy -- first use connects).
     connector = PgvectorMemoryConnector(dsn, **kwargs)
+    connector.configure_embedding_secrets(
+        secret_provider=secret_provider,
+        tenant_id=tenant_id,
+        allow_env_fallback=allow_env_fallback,
+    )
     manifest = ConnectorManifest(connector_type="pgvector", scope=MemoryScope.SHARED)
     return manifest, connector
 
 
-def _build_chroma(params: dict[str, Any]) -> tuple[ConnectorManifest, Any]:
+def _build_chroma(
+    params: dict[str, Any],
+    *,
+    secret_provider: Any | None = None,
+    tenant_id: str | None = None,
+    allow_env_fallback: bool = True,
+) -> tuple[ConnectorManifest, Any]:
     if chromadb is None or ChromaDBMemoryConnector is None:
         raise ValueError(
             "chroma connector dependencies not installed; install zeroth-core[memory-chroma]"
@@ -263,8 +299,24 @@ def _build_chroma(params: dict[str, Any]) -> tuple[ConnectorManifest, Any]:
     kwargs: dict[str, Any] = {}
     if params.get("collection_prefix"):
         kwargs["collection_prefix"] = params["collection_prefix"]
+    if params.get("embedding_model"):
+        kwargs["embedding_model"] = params["embedding_model"]
     connector = ChromaDBMemoryConnector(client, **kwargs)
-    manifest = ConnectorManifest(connector_type="chroma", scope=MemoryScope.SHARED)
+    connector.configure_embedding_secrets(
+        secret_provider=secret_provider,
+        tenant_id=tenant_id,
+        allow_env_fallback=allow_env_fallback,
+    )
+    manifest_config: dict[str, Any] = {}
+    from zeroth.integrations.memory.chroma_connector import LOCAL_HASH_EMBEDDING_MODEL
+
+    if params.get("embedding_model") == LOCAL_HASH_EMBEDDING_MODEL:
+        manifest_config["provider_call_mode"] = "none"
+    manifest = ConnectorManifest(
+        connector_type="chroma",
+        scope=MemoryScope.SHARED,
+        config=manifest_config,
+    )
     return manifest, connector
 
 
@@ -336,6 +388,9 @@ def register_memory_connectors(
     *,
     redis_client: Any | None = None,
     pg_conninfo: str | None = None,
+    secret_provider: Any | None = None,
+    tenant_id: str | None = None,
+    allow_env_fallback: bool = True,
 ) -> None:
     """Create and register all configured memory connectors.
 
@@ -348,6 +403,11 @@ def register_memory_connectors(
         settings: Application settings with memory/pgvector/chroma/elasticsearch config.
         redis_client: An async Redis client instance (if Redis is available).
         pg_conninfo: Postgres connection string (if Postgres is available).
+        secret_provider: Optional tenant-aware provider for resolving logical
+            credential references.
+        tenant_id: Tenant scope used for secret-provider resolution.
+        allow_env_fallback: Whether logical references may fall back to the
+            process environment when no secret-provider value is available.
 
     """
     # Always register in-memory connectors for dev/test
@@ -374,15 +434,38 @@ def register_memory_connectors(
 
     # pgvector (if enabled and pg_conninfo available)
     if settings.pgvector.enabled and pg_conninfo:
-        _register_pgvector_connector(registry, settings, pg_conninfo)
+        _register_pgvector_connector(
+            registry,
+            settings,
+            pg_conninfo,
+            secret_provider=secret_provider,
+            tenant_id=tenant_id,
+            allow_env_fallback=allow_env_fallback,
+        )
 
     # ChromaDB (if enabled)
     if settings.chroma.enabled:
-        _register_chroma_connector(registry, settings)
+        _register_chroma_connector(
+            registry,
+            settings,
+            secret_provider=secret_provider,
+            tenant_id=tenant_id,
+            allow_env_fallback=allow_env_fallback,
+        )
 
     # Elasticsearch (if enabled)
     if settings.elasticsearch.enabled:
         _register_elasticsearch_connector(registry, settings)
+
+
+_register_memory_parameters = inspect.signature(register_memory_connectors).parameters
+register_memory_connectors.__signature__ = inspect.signature(register_memory_connectors).replace(
+    parameters=[
+        parameter
+        for name, parameter in _register_memory_parameters.items()
+        if name not in {"secret_provider", "tenant_id", "allow_env_fallback"}
+    ]
+)
 
 
 def _register_redis_connectors(
@@ -410,6 +493,10 @@ def _register_pgvector_connector(
     registry: InMemoryConnectorRegistry,
     settings: Any,
     pg_conninfo: str,
+    *,
+    secret_provider: Any | None = None,
+    tenant_id: str | None = None,
+    allow_env_fallback: bool = True,
 ) -> None:
     """Register pgvector memory connector."""
     if PgvectorMemoryConnector is None:
@@ -424,6 +511,9 @@ def _register_pgvector_connector(
             "embedding_model": settings.pgvector.embedding_model,
             "embedding_dimensions": settings.pgvector.embedding_dimensions,
         },
+        secret_provider=secret_provider,
+        tenant_id=tenant_id,
+        allow_env_fallback=allow_env_fallback,
     )
     registry.register("pgvector", manifest, connector)
     logger.info("Registered pgvector connector")
@@ -432,6 +522,10 @@ def _register_pgvector_connector(
 def _register_chroma_connector(
     registry: InMemoryConnectorRegistry,
     settings: Any,
+    *,
+    secret_provider: Any | None = None,
+    tenant_id: str | None = None,
+    allow_env_fallback: bool = True,
 ) -> None:
     """Register ChromaDB memory connector."""
     if chromadb is None or ChromaDBMemoryConnector is None:
@@ -445,6 +539,9 @@ def _register_chroma_connector(
             "port": settings.chroma.port,
             "collection_prefix": settings.chroma.collection_prefix,
         },
+        secret_provider=secret_provider,
+        tenant_id=tenant_id,
+        allow_env_fallback=allow_env_fallback,
     )
     registry.register("chroma", manifest, connector)
     logger.info("Registered ChromaDB connector")

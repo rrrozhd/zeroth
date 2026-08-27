@@ -34,7 +34,7 @@ from zeroth.governance.policy import Capability, PolicyDecision, PolicyGuard
 from zeroth.governance.policy.errors import parse_effective_capabilities
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.runs import Run
-from zeroth.runtime.subgraphs.resolver import base_node_id
+from zeroth.runtime.subgraphs.resolver import canonical_runner_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,7 +269,7 @@ class RuntimePolicyGate:
             return False
         if isinstance(node, AgentNode):
             runner = self.agent_runners.get(node.node_id) or self.agent_runners.get(
-                base_node_id(node.node_id)
+                canonical_runner_id(node.node_id)
             )
             if runner is None:
                 return False

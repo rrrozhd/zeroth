@@ -1,0 +1,28 @@
+name: Zeroth Check
+description: Replay approved consequential-action tapes and publish one CI summary.
+inputs:
+  config:
+    description: Path to zeroth-check.yaml
+    required: false
+    default: zeroth-check.yaml
+  report-dir:
+    description: Destination for JSON, JUnit, Markdown, and terminal reports
+    required: false
+    default: .zeroth/check/reports
+  fail-on:
+    description: Comma-separated verdicts that fail the action
+    required: false
+    default: block,invalid
+runs:
+  using: composite
+  steps:
+    - name: Install Zeroth Check
+      shell: bash
+      run: python -m pip install "${{ github.action_path }}[langgraph]"
+    - name: Run Check and append summary once
+      shell: bash
+      run: >-
+        python "${{ github.action_path }}/scripts/zeroth_check_action.py"
+        --config "${{ inputs.config }}"
+        --report-dir "${{ inputs.report-dir }}"
+        --fail-on "${{ inputs.fail-on }}"

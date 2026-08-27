@@ -92,6 +92,14 @@ def test_public_destinations_are_permitted(url: str) -> None:
     validate_outbound_url(url, context=CONTEXT)
 
 
+def test_destination_userinfo_is_refused_before_resolution() -> None:
+    with pytest.raises(OutboundDestinationError, match="credentials"):
+        validate_outbound_url(
+            "https://user:password@example.com/private",
+            context=CONTEXT,
+        )
+
+
 def test_unresolvable_host_fails_closed() -> None:
     with pytest.raises(OutboundDestinationError, match="could not be resolved"):
         validate_outbound_url("https://this-host-does-not-exist.invalid/hook", context=CONTEXT)

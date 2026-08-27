@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.enforcement.models import (
     AuditLog,
+    CostReservation,
     EnforcementAction,
     PolicyAction,
     TenantBudget,
@@ -266,33 +268,102 @@ def decide_action(
     return row
 
 
-def get_budget_status(db: ScopedSession, tenant_id: str) -> dict:
-    """Month-to-date spend (execution_events cost columns) vs the tenant's cap."""
+def get_budget_status(
+    db: ScopedSession, tenant_id: str, deployment_ref: str | None = None
+) -> dict:
+    """Return non-overlapping realized spend, open exposure, and control evidence."""
     db = _require_exact_scoped_session(db)
     from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 
     now = datetime.now(UTC)
     window_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    spend = db.execute(
-        select(
-            func.coalesce(
-                func.sum(
-                    func.coalesce(ExecutionEvent.token_cost_usd, 0)
-                    + func.coalesce(ExecutionEvent.tool_cost_usd, 0)
-                    + func.coalesce(ExecutionEvent.compute_cost_usd, 0)
-                ),
-                0,
-            )
-        ).where(
-            ExecutionEvent.tenant_id == tenant_id,
-            ExecutionEvent.timestamp >= window_start.replace(tzinfo=None),
+    start = window_start.replace(tzinfo=None)
+    billable = ("production", "legacy_unknown")
+    event_cost = (
+        func.coalesce(ExecutionEvent.token_cost_usd, 0)
+        + func.coalesce(ExecutionEvent.tool_cost_usd, 0)
+        + func.coalesce(ExecutionEvent.compute_cost_usd, 0)
+    )
+    event_scope = (
+        [ExecutionEvent.deployment_ref == deployment_ref]
+        if deployment_ref is not None
+        else []
+    )
+    reservation_scope = (
+        [CostReservation.deployment_ref == deployment_ref]
+        if deployment_ref is not None
+        else []
+    )
+
+    def event_sum(measurement: str) -> Decimal:
+        return Decimal(
+            db.execute(
+                select(func.coalesce(func.sum(event_cost), 0)).where(
+                    ExecutionEvent.tenant_id == tenant_id,
+                    ExecutionEvent.timestamp >= start,
+                    ExecutionEvent.operation_id.is_(None),
+                    ExecutionEvent.evidence_kind.in_(billable),
+                    ExecutionEvent.cost_measurement == measurement,
+                    *event_scope,
+                )
+            ).scalar_one()
+            or 0
         )
-    ).scalar_one()
+
+    def reservation_sum(*, status: str, measurement: str | None = None) -> Decimal:
+        value = CostReservation.actual_cost_usd if status == "committed" else CostReservation.held_cost_usd
+        conditions = [
+            CostReservation.status == status,
+            CostReservation.evidence_kind.in_(billable),
+            *reservation_scope,
+        ]
+        if status == "committed":
+            conditions.append(CostReservation.updated_at >= start)
+        if measurement is not None:
+            conditions.append(CostReservation.cost_measurement == measurement)
+        return Decimal(
+            db.execute(select(func.coalesce(func.sum(value), 0)).where(*conditions)).scalar_one()
+            or 0
+        )
+
+    paid = event_sum("measured") + reservation_sum(
+        status="committed", measurement="measured"
+    )
+    estimated = event_sum("estimated") + reservation_sum(
+        status="committed", measurement="estimated"
+    )
+    unmeasured = event_sum("unmeasured") + reservation_sum(
+        status="committed", measurement="unmeasured"
+    )
+    active = reservation_sum(status="reserved")
+    ambiguous = reservation_sum(status="ambiguous")
+    synthetic = Decimal(
+        db.execute(
+            select(func.coalesce(func.sum(CostReservation.held_cost_usd), 0)).where(
+                CostReservation.evidence_kind == "synthetic_control",
+                CostReservation.status.in_(_HELD_STATUSES),
+                *reservation_scope,
+            )
+        ).scalar_one()
+        or 0
+    )
     measurements = set(
+        db.execute(
+            select(CostReservation.cost_measurement).where(
+                CostReservation.status.in_(_HELD_STATUSES),
+                CostReservation.evidence_kind.in_(billable),
+                *reservation_scope,
+            )
+        ).scalars()
+    )
+    measurements |= set(
         db.execute(
             select(ExecutionEvent.cost_measurement).where(
                 ExecutionEvent.tenant_id == tenant_id,
-                ExecutionEvent.timestamp >= window_start.replace(tzinfo=None),
+                ExecutionEvent.timestamp >= start,
+                ExecutionEvent.operation_id.is_(None),
+                ExecutionEvent.evidence_kind.in_(billable),
+                *event_scope,
             )
         ).scalars()
     )
@@ -307,9 +378,19 @@ def get_budget_status(db: ScopedSession, tenant_id: str) -> dict:
     row = db.execute(
         select(TenantBudget).where(TenantBudget.tenant_id == tenant_id)
     ).scalar_one_or_none()
+    actual_spend = paid + estimated + unmeasured
+    budget_consumed = actual_spend + active + ambiguous
     return {
         "tenant_id": tenant_id,
-        "total_cost_usd": float(spend or 0),
+        "total_cost_usd": float(budget_consumed),
+        "actual_spend_usd": float(actual_spend),
+        "paid_spend_usd": float(paid),
+        "estimated_spend_usd": float(estimated),
+        "unmeasured_spend_usd": float(unmeasured),
+        "active_exposure_usd": float(active),
+        "ambiguous_exposure_usd": float(ambiguous),
+        "budget_consumed_usd": float(budget_consumed),
+        "synthetic_control_usd": float(synthetic),
         "budget_cap_usd": row.budget_cap_usd if row is not None else None,
         "measurement_complete": measurement_complete,
         "cost_measurement": cost_measurement,
@@ -335,3 +416,297 @@ def upsert_tenant_budget(
     db.commit()
     db.refresh(row)
     return row
+
+
+class CostReservationDenied(RuntimeError):
+    """Admission was refused before externally billable work began."""
+
+
+_HELD_STATUSES = ("reserved", "ambiguous", "committed")
+
+
+def _money(value: Decimal | float | str) -> Decimal:
+    amount = Decimal(str(value))
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("cost amount must be finite and non-negative")
+    return amount.quantize(Decimal("0.00000001"))
+
+
+def _reservation(db: ScopedSession, operation_id: str) -> CostReservation | None:
+    return db.execute(
+        select(CostReservation).where(CostReservation.operation_id == operation_id)
+    ).scalar_one_or_none()
+
+
+def reserve_cost(
+    db: ScopedSession,
+    *,
+    operation_id: str,
+    max_cost_usd: Decimal | float | str,
+    campaign_id: str | None = None,
+    run_id: str | None = None,
+    deployment_ref: str | None = None,
+    evidence_kind: str = "production",
+    run_cap_usd: Decimal | float | str | None = None,
+    require_new: bool = False,
+) -> CostReservation:
+    """Atomically reserve worst-case cost against tenant and optional run ceilings.
+
+    Updating the tenant-budget row is the coordination fence: PostgreSQL takes a
+    row lock and SQLite takes its write lock before either spend is read.  Every
+    concurrent admission for one tenant therefore observes the preceding commit.
+    """
+    db = _require_exact_scoped_session(db)
+    tenant_id = _bound_tenant(db)
+    if not operation_id:
+        raise ValueError("operation_id is required")
+    if evidence_kind not in {"production", "synthetic_control", "legacy_unknown"}:
+        raise ValueError("unsupported cost evidence kind")
+    requested = _money(max_cost_usd)
+    run_cap = _money(run_cap_usd) if run_cap_usd is not None else None
+    if run_cap is not None and run_id is None:
+        raise ValueError("run_id is required when run_cap_usd is set")
+
+    try:
+        # A no-op UPDATE is deliberately first. It serializes admission without
+        # mutating ownership or requiring dialect-specific advisory locks.
+        db.execute(
+            update(TenantBudget)
+            .where(TenantBudget.tenant_id == tenant_id)
+            .values(updated_at=TenantBudget.updated_at)
+        )
+        budget = db.execute(
+            select(TenantBudget).where(TenantBudget.tenant_id == tenant_id)
+        ).scalar_one_or_none()
+        if budget is None:
+            raise CostReservationDenied("tenant budget is not configured; failing closed")
+
+        existing = _reservation(db, operation_id)
+        if existing is not None:
+            identity = (
+                existing.campaign_id,
+                existing.run_id,
+                existing.deployment_ref,
+                existing.evidence_kind,
+                _money(existing.max_cost_usd),
+            )
+            if identity != (campaign_id, run_id, deployment_ref, evidence_kind, requested):
+                raise CostReservationDenied(
+                    "operation_id already exists with different reservation parameters"
+                )
+            if require_new:
+                raise CostReservationDenied(
+                    "operation_id was already admitted; provider work will not be replayed"
+                )
+            db.commit()
+            db.refresh(existing)
+            return existing
+
+        held = Decimal(
+            db.execute(
+                select(func.coalesce(func.sum(CostReservation.held_cost_usd), 0)).where(
+                    CostReservation.status.in_(_HELD_STATUSES)
+                )
+            ).scalar_one()
+            or 0
+        )
+        from zeroth.econ.plane.instrumentation.models import ExecutionEvent
+
+        ordinary_spend = Decimal(
+            db.execute(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.coalesce(ExecutionEvent.token_cost_usd, 0)
+                            + func.coalesce(ExecutionEvent.tool_cost_usd, 0)
+                            + func.coalesce(ExecutionEvent.compute_cost_usd, 0)
+                        ),
+                        0,
+                    )
+                ).where(ExecutionEvent.operation_id.is_(None))
+            ).scalar_one()
+            or 0
+        )
+        if ordinary_spend + held + requested > _money(budget.budget_cap_usd):
+            raise CostReservationDenied("tenant ceiling would be exceeded")
+
+        if run_cap is not None:
+            run_held = Decimal(
+                db.execute(
+                    select(func.coalesce(func.sum(CostReservation.held_cost_usd), 0)).where(
+                        CostReservation.run_id == run_id,
+                        CostReservation.status.in_(_HELD_STATUSES),
+                    )
+                ).scalar_one()
+                or 0
+            )
+            if run_held + requested > run_cap:
+                raise CostReservationDenied("run ceiling would be exceeded")
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        row = CostReservation(
+            tenant_id=tenant_id,
+            operation_id=operation_id,
+            campaign_id=campaign_id,
+            run_id=run_id,
+            deployment_ref=deployment_ref,
+            evidence_kind=evidence_kind,
+            status="reserved",
+            max_cost_usd=requested,
+            held_cost_usd=requested,
+            actual_cost_usd=None,
+            released_cost_usd=Decimal("0"),
+            cost_measurement="unmeasured",
+            cleanup_status="not_started",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _transition_reservation(
+    db: ScopedSession,
+    *,
+    operation_id: str,
+    status: str,
+    actual_cost_usd: Decimal | float | str | None = None,
+    cost_measurement: str = "unmeasured",
+    cost_event_id: str | None = None,
+    provider_request_id: str | None = None,
+    cleanup_status: str | None = None,
+    allowed_statuses: frozenset[str] = frozenset({"reserved"}),
+) -> CostReservation:
+    db = _require_exact_scoped_session(db)
+    row = _reservation(db, operation_id)
+    if row is None:
+        raise CostReservationDenied("reservation not found; failing closed")
+    if row.status not in allowed_statuses:
+        raise CostReservationDenied(
+            f"invalid reservation transition from {row.status!r} to {status!r}"
+        )
+    actual = _money(actual_cost_usd) if actual_cost_usd is not None else None
+    maximum = _money(row.max_cost_usd)
+    if actual is not None and actual > maximum:
+        raise CostReservationDenied("actual cost exceeds reserved maximum")
+    row.status = status
+    row.actual_cost_usd = actual
+    row.held_cost_usd = maximum if status == "ambiguous" else actual or Decimal("0")
+    row.released_cost_usd = maximum - row.held_cost_usd
+    row.cost_measurement = cost_measurement
+    row.cost_event_id = cost_event_id or row.cost_event_id
+    row.provider_request_id = provider_request_id or row.provider_request_id
+    row.cleanup_status = cleanup_status or row.cleanup_status
+    row.updated_at = datetime.now(UTC).replace(tzinfo=None)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def commit_cost(
+    db: ScopedSession,
+    *,
+    operation_id: str,
+    actual_cost_usd: Decimal | float | str,
+    cost_measurement: str,
+    cost_event_id: str,
+    provider_request_id: str | None = None,
+    cleanup_status: str | None = None,
+) -> CostReservation:
+    return _transition_reservation(
+        db,
+        operation_id=operation_id,
+        status="committed",
+        actual_cost_usd=actual_cost_usd,
+        cost_measurement=cost_measurement,
+        cost_event_id=cost_event_id,
+        provider_request_id=provider_request_id,
+        cleanup_status=cleanup_status,
+    )
+
+
+def mark_cost_ambiguous(
+    db: ScopedSession,
+    *,
+    operation_id: str,
+    cost_event_id: str | None = None,
+    provider_request_id: str | None = None,
+    cleanup_status: str = "pending_reconciliation",
+) -> CostReservation:
+    return _transition_reservation(
+        db,
+        operation_id=operation_id,
+        status="ambiguous",
+        cost_event_id=cost_event_id,
+        provider_request_id=provider_request_id,
+        cleanup_status=cleanup_status,
+    )
+
+
+def release_cost(
+    db: ScopedSession, *, operation_id: str, cleanup_status: str = "complete"
+) -> CostReservation:
+    return _transition_reservation(
+        db,
+        operation_id=operation_id,
+        status="released",
+        actual_cost_usd=Decimal("0"),
+        cost_measurement="measured",
+        cleanup_status=cleanup_status,
+    )
+
+
+def reconcile_cost(
+    db: ScopedSession,
+    *,
+    operation_id: str,
+    actual_cost_usd: Decimal | float | str,
+    cost_measurement: str,
+    provider_request_id: str | None = None,
+    cleanup_status: str = "complete",
+) -> CostReservation:
+    """Resolve an ambiguous hold to measured/estimated actual provider cost."""
+    row = _reservation(_require_exact_scoped_session(db), operation_id)
+    if row is None or row.status != "ambiguous":
+        raise CostReservationDenied("only an ambiguous reservation can be reconciled")
+    return _transition_reservation(
+        db,
+        operation_id=operation_id,
+        status="committed",
+        actual_cost_usd=actual_cost_usd,
+        cost_measurement=cost_measurement,
+        cost_event_id=row.cost_event_id or f"reconciled:{operation_id}",
+        provider_request_id=provider_request_id,
+        cleanup_status=cleanup_status,
+        allowed_statuses=frozenset({"ambiguous"}),
+    )
+
+
+def reconcile_provider_not_called(
+    db: ScopedSession,
+    *,
+    operation_id: str,
+    reason: str,
+) -> CostReservation:
+    """Release an ambiguous maximum when an operator proves no billable request occurred."""
+    if not reason.strip():
+        raise CostReservationDenied("provider-not-called reconciliation requires a reason")
+    row = _reservation(_require_exact_scoped_session(db), operation_id)
+    if row is None or row.status != "ambiguous":
+        raise CostReservationDenied("only an ambiguous reservation can be reconciled")
+    return _transition_reservation(
+        db,
+        operation_id=operation_id,
+        status="released",
+        actual_cost_usd=Decimal("0"),
+        cost_measurement="measured",
+        cost_event_id=row.cost_event_id,
+        provider_request_id=None,
+        cleanup_status="provider_not_called",
+        allowed_statuses=frozenset({"ambiguous"}),
+    )

@@ -14,8 +14,15 @@
 import { useEffect, useState } from "react";
 import {
   Button,
-  Card,
   CodeBlock,
+  ConsoleEmpty,
+  ConsoleInput,
+  ConsoleNotice,
+  ConsolePage,
+  ConsolePageHeader,
+  ConsoleSection,
+  ConsoleSurface,
+  ConsoleTableFrame,
   MonoLabel,
   Pill,
   Skeleton,
@@ -31,8 +38,10 @@ import {
   type EnforcementActionOut,
   type PolicyActionOut,
 } from "@/app/lib/regulusApi";
-import { errMsg } from "@/app/lib/api";
+import { errMsg, getIdentity } from "@/app/lib/api";
 import { isConfigured } from "@/app/lib/config";
+import { regulusAccess, type RegulusAccess } from "@/app/regulus/regulus-access";
+import styles from "../subpages.module.css";
 
 const MONO = "var(--font-mono)";
 
@@ -60,67 +69,122 @@ const POLICY_TONE: Record<string, string> = {
 };
 
 export default function EnforcementPage() {
-  const actions = useLoad<EnforcementActionOut[]>(rgEnforcementActions);
-  const policies = useLoad<PolicyActionOut[]>(rgPolicyActions);
   const [connected, setConnected] = useState(false);
   useEffect(() => setConnected(isConfigured()), []);
 
+  return (
+    <ConsolePage>
+      <ConsolePageHeader
+        title="Enforcement"
+        description="Review pending decisions and the automated policy-action history."
+      />
+      {connected ? <EnforcementAccessBoundary /> : <EnforcementDisconnected />}
+    </ConsolePage>
+  );
+}
+
+function EnforcementDisconnected() {
+  return (
+    <>
+      <ConsoleSection title="Enforcement actions"><ConnectNote /></ConsoleSection>
+      <ConsoleSection title="Policy actions"><ConnectNote /></ConsoleSection>
+    </>
+  );
+}
+
+function EnforcementAccessBoundary() {
+  const identity = useLoad(getIdentity);
+  if (identity.loading && !identity.data) return <Skeleton height={74} radius={8} />;
+
+  const access = regulusAccess(identity.data, identity.error);
+  if (!access.canRead) {
+    return (
+      <>
+        <ScopeNotice access={access} />
+        <div data-evidence-id="regulus.enforcement.access.restricted">
+          <ConsoleNotice title="Enforcement access restricted">
+            This role does not include metrics:read. Enforcement and capability records are
+            hidden for this credential and no protected read was issued.
+          </ConsoleNotice>
+        </div>
+      </>
+    );
+  }
+  return <EnforcementData access={access} />;
+}
+
+function ScopeNotice({ access }: { access: RegulusAccess }) {
+  return (
+    <div
+      data-evidence-id="regulus.enforcement.scope"
+      data-decision-access={access.canMutate ? "enabled" : "read-only"}
+    >
+      <ConsoleNotice title="Scope and authorization">
+        Scope: {access.scope ?? "unavailable"} · Role: {access.roles} · Decision access:{" "}
+        {access.canMutate ? "enabled" : "read-only"}
+      </ConsoleNotice>
+    </div>
+  );
+}
+
+function EnforcementData({ access }: { access: RegulusAccess }) {
+  const actions = useLoad<EnforcementActionOut[]>(rgEnforcementActions);
+  const policies = useLoad<PolicyActionOut[]>(rgPolicyActions);
   const actionRows = actions.data ?? [];
   const policyRows = policies.data ?? [];
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
-      <header style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Enforcement</h1>
-        <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
-          Review enforcement actions awaiting a decision, and the automated policy-action history.
-        </p>
-      </header>
+    <>
+      <ScopeNotice access={access} />
 
       {/* ── Enforcement actions ─────────────────────────────────────────── */}
-      <SectionHeading count={connected ? actionRows.length : undefined}>
-        Enforcement actions
-      </SectionHeading>
-
-      {!connected ? (
-        <ConnectNote />
-      ) : actions.loading && !actions.data ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Skeleton height={148} radius={8} />
-          <Skeleton height={148} radius={8} />
-        </div>
-      ) : actions.error ? (
-        <ErrorNote message={actions.error} onRetry={actions.reload} />
-      ) : actionRows.length === 0 ? (
-        <EmptyNote>No enforcement actions.</EmptyNote>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {actionRows.map((a) => (
-            <EnforcementActionCard key={a.id} action={a} onDecided={actions.reload} />
-          ))}
-        </div>
-      )}
+      <ConsoleSection
+        title="Enforcement actions"
+        meta={actionRows.length}
+      >
+        {actions.loading && !actions.data ? (
+          <div className={styles.loadingStack}>
+            <Skeleton height={148} radius={8} />
+            <Skeleton height={148} radius={8} />
+          </div>
+        ) : actions.error ? (
+          <ErrorNote message={actions.error} onRetry={actions.reload} />
+        ) : actionRows.length === 0 ? (
+          <EmptyNote>No enforcement actions.</EmptyNote>
+        ) : (
+          <div className={styles.panelStack}>
+            {actionRows.map((a) => (
+              <EnforcementActionCard
+                key={a.id}
+                action={a}
+                canMutate={access.canMutate}
+                onDecided={actions.reload}
+              />
+            ))}
+          </div>
+        )}
+      </ConsoleSection>
 
       {/* ── Policy actions ──────────────────────────────────────────────── */}
-      <SectionHeading count={connected ? policyRows.length : undefined} style={{ marginTop: 34 }}>
-        Policy actions
-      </SectionHeading>
-      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--text-muted)" }}>
-        Automated policy actions proposed by Regulus and their lifecycle.
-      </p>
+      <ConsoleSection
+        title="Policy actions"
+        meta={policyRows.length}
+      >
+        <p className={styles.sectionNote}>
+          Automated policy actions proposed by Regulus and their lifecycle.
+        </p>
 
-      {!connected ? (
-        <ConnectNote />
-      ) : policies.loading && !policies.data ? (
-        <Skeleton height={180} radius={8} />
-      ) : policies.error ? (
-        <ErrorNote message={policies.error} onRetry={policies.reload} />
-      ) : policyRows.length === 0 ? (
-        <EmptyNote>No policy actions.</EmptyNote>
-      ) : (
-        <PolicyActionsTable rows={policyRows} />
-      )}
-    </div>
+        {policies.loading && !policies.data ? (
+          <Skeleton height={180} radius={8} />
+        ) : policies.error ? (
+          <ErrorNote message={policies.error} onRetry={policies.reload} />
+        ) : policyRows.length === 0 ? (
+          <EmptyNote>No policy actions.</EmptyNote>
+        ) : (
+          <PolicyActionsTable rows={policyRows} />
+        )}
+      </ConsoleSection>
+    </>
   );
 }
 
@@ -130,9 +194,11 @@ type Decision = "approve" | "reject";
 
 function EnforcementActionCard({
   action,
+  canMutate,
   onDecided,
 }: {
   action: EnforcementActionOut;
+  canMutate: boolean;
   onDecided: () => void;
 }) {
   const toast = useToast();
@@ -143,6 +209,9 @@ function EnforcementActionCard({
   const status = action.status ?? "pending";
   const tone = ENF_TONE[status] ?? "neutral";
   const decided = status !== "pending";
+  const syntheticDemo =
+    (action.reason?.startsWith("[SYNTHETIC DEMO]") ?? false) ||
+    action.before_config?.demo_fixture === true;
 
   const before = action.before_config ?? {};
   const after = action.after_config ?? {};
@@ -177,99 +246,83 @@ function EnforcementActionCard({
   }
 
   return (
-    <Card
-      pad={16}
-      style={{
-        border: decided ? "1px solid var(--hair)" : "1px solid rgba(252,211,77,0.35)",
-      }}
-    >
+    <div data-evidence-id={`regulus.enforcement.action.${action.id}`}>
+      <ConsoleSurface
+        className={styles.actionRecord}
+        evidenceScope={`enforcement-${action.id}`}
+      >
       {/* Header: dot · id · type · status pill */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className={styles.recordHeader}>
         <StatusDot tone={tone} pulse={!decided} />
-        <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+        <span className={styles.recordIdentity}>
           #{action.id}
         </span>
-        <span style={{ fontFamily: MONO, fontSize: 12.5, color: "var(--text-secondary)" }}>
+        <span className={styles.recordType}>
           {action.action_type}
         </span>
+        {syntheticDemo ? <Pill tone="info">synthetic demo</Pill> : null}
         <span
-          style={{
-            fontFamily: MONO,
-            fontSize: 11.5,
-            color: "var(--text-faint)",
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
+          className={styles.recordCapability}
           title={action.capability_id}
         >
           · {action.capability_id}
         </span>
-        <span style={{ marginLeft: "auto", flexShrink: 0 }}>
+        <span className={styles.recordStatus}>
           <Pill tone={tone}>{status}</Pill>
         </span>
       </div>
 
       {/* Proposal reason */}
       {action.reason && (
-        <p style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+        <p className={styles.recordReason}>
           {action.reason}
         </p>
       )}
-      <div style={{ marginTop: 6, fontFamily: MONO, fontSize: 11, color: "var(--text-faint)" }}>
+      <div className={styles.recordMeta}>
         proposed {fmtDateTime(action.created_at)}
       </div>
 
       {/* Body: config detail | decision rail */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 248px", gap: 16, marginTop: 12 }}>
-        <div style={{ minWidth: 0 }}>
+      <div className={styles.actionBody}>
+        <div className={styles.actionMain}>
           {hasConfig ? (
-            <CodeBlock label="Proposed change (before → after)" code={configJson} />
+            <CodeBlock
+              label="Proposed change (before → after)"
+              ariaLabel={`Proposed change for enforcement action ${action.id}`}
+              code={configJson}
+            />
           ) : (
-            <div
-              style={{
-                fontSize: 12,
-                color: "var(--text-faint)",
-                border: "1px dashed var(--hair)",
-                borderRadius: 8,
-                padding: "12px 14px",
-              }}
-            >
-              No configuration payload.
-            </div>
+            <ConsoleEmpty>No configuration payload.</ConsoleEmpty>
           )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className={styles.decisionRail}>
           {decided ? (
             <DecisionRecord action={action} label={status} tone={tone} />
+          ) : !canMutate ? (
+            <div
+              data-evidence-id="regulus.enforcement.mutation.restricted"
+              className={styles.decisionHelp}
+            >
+              Read-only. This role does not include econ:admin; only platform administrators or
+              configured roles granted that permission may approve or reject.
+            </div>
           ) : (
             <>
-              <input
+              <ConsoleInput
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Reason (optional)"
                 disabled={busy !== null}
                 aria-label="Decision reason"
-                style={{
-                  fontFamily: MONO,
-                  fontSize: 12,
-                  color: "var(--text-primary)",
-                  background: "var(--bg-raised)",
-                  border: "1px solid var(--hair-strong)",
-                  borderRadius: 6,
-                  padding: "7px 9px",
-                  width: "100%",
-                  outline: "none",
-                }}
+                data-evidence-id={`regulus.enforcement.action.${action.id}.reason`}
               />
               <Button
                 type="button"
                 variant="primary"
                 onClick={() => decide("approve")}
                 disabled={busy !== null}
-                style={{ width: "100%" }}
+                data-evidence-id={`regulus.enforcement.action.${action.id}.approve`}
               >
                 {busy === "approve" ? "Approving…" : "Approve"}
               </Button>
@@ -278,21 +331,24 @@ function EnforcementActionCard({
                 variant="danger"
                 onClick={() => decide("reject")}
                 disabled={busy !== null}
-                style={{ width: "100%" }}
+                data-evidence-id={`regulus.enforcement.action.${action.id}.reject`}
               >
                 {busy === "reject" ? "Rejecting…" : "Reject"}
               </Button>
-              <p style={{ fontSize: 11, color: "var(--text-faint)", lineHeight: 1.5, marginTop: 2 }}>
-                Admin-gated. Applies to the Regulus control plane.
+              <p className={styles.decisionHelp}>
+                {syntheticDemo
+                  ? "Demo-only investigation flag; no payment, email, traffic, or third-party action."
+                  : "Admin-gated. Applies to the Regulus control plane."}
               </p>
               {error && (
-                <p style={{ fontSize: 11.5, color: "var(--danger)", lineHeight: 1.5 }}>{error}</p>
+                <p className={styles.inlineError}>{error}</p>
               )}
             </>
           )}
         </div>
       </div>
-    </Card>
+      </ConsoleSurface>
+    </div>
   );
 }
 
@@ -307,9 +363,9 @@ function DecisionRecord({
   tone: string;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div className={styles.decisionRecord}>
       <MonoLabel>Decision</MonoLabel>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div>
         <Pill tone={tone}>{label}</Pill>
       </div>
       <div style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--text-muted)" }}>
@@ -329,68 +385,41 @@ function DecisionRecord({
 
 // ── Policy actions table ─────────────────────────────────────────────────
 
-const POLICY_COLS = "56px 1.4fr 1.1fr 96px 1fr 1.1fr";
-
 function PolicyActionsTable({ rows }: { rows: PolicyActionOut[] }) {
   return (
-    <Card pad={0} style={{ overflow: "hidden" }}>
-      <div style={{ overflowX: "auto" }}>
-        <div style={{ minWidth: 760 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: POLICY_COLS,
-              gap: 12,
-              padding: "10px 16px",
-              borderBottom: "1px solid var(--hair)",
-            }}
-          >
-            <ColHead>id</ColHead>
-            <ColHead>capability</ColHead>
-            <ColHead>action type</ColHead>
-            <ColHead>status</ColHead>
-            <ColHead>proposed by</ColHead>
-            <ColHead>proposed at</ColHead>
-          </div>
+    <ConsoleTableFrame ariaLabel="Enforcement actions">
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th>Id</th>
+            <th>Capability</th>
+            <th>Action type</th>
+            <th>Status</th>
+            <th>Proposed by</th>
+            <th>Proposed at</th>
+          </tr>
+        </thead>
+        <tbody>
           {rows.map((p) => (
             <PolicyRow key={p.id} policy={p} />
           ))}
-        </div>
-      </div>
-    </Card>
+        </tbody>
+      </table>
+    </ConsoleTableFrame>
   );
 }
 
 function PolicyRow({ policy: p }: { policy: PolicyActionOut }) {
   const tone = POLICY_TONE[p.status] ?? "neutral";
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: POLICY_COLS,
-        gap: 12,
-        alignItems: "center",
-        padding: "11px 16px",
-        borderBottom: "1px solid var(--hair)",
-      }}
-    >
-      <Cell mono strong>
-        #{p.id}
-      </Cell>
-      <Cell mono title={p.capability_id}>
-        {p.capability_id}
-      </Cell>
+    <tr>
+      <Cell mono strong>#{p.id}</Cell>
+      <Cell mono title={p.capability_id}>{p.capability_id}</Cell>
       <Cell mono>{p.action_type}</Cell>
-      <div style={{ minWidth: 0 }}>
-        <Pill tone={tone}>{p.status}</Pill>
-      </div>
-      <Cell mono title={p.proposed_by}>
-        {p.proposed_by || "—"}
-      </Cell>
-      <Cell mono faint>
-        {fmtDateTime(p.proposed_at)}
-      </Cell>
-    </div>
+      <td><Pill tone={tone}>{p.status}</Pill></td>
+      <Cell mono title={p.proposed_by}>{p.proposed_by || "—"}</Cell>
+      <Cell mono faint>{fmtDateTime(p.proposed_at)}</Cell>
+    </tr>
   );
 }
 
@@ -408,109 +437,41 @@ function Cell({
   title?: string;
 }) {
   return (
-    <span
+    <td
       title={title}
+      className={mono ? styles.tableCellMono : undefined}
       style={{
-        minWidth: 0,
-        fontFamily: mono ? MONO : "inherit",
-        fontSize: 12.5,
         fontWeight: strong ? 600 : 400,
         color: faint ? "var(--text-faint)" : strong ? "var(--text-primary)" : "var(--text-secondary)",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
       }}
     >
       {children}
-    </span>
+    </td>
   );
-}
-
-function ColHead({ children }: { children: React.ReactNode }) {
-  return <MonoLabel>{children}</MonoLabel>;
 }
 
 // ── Shared states ────────────────────────────────────────────────────────
 
-function SectionHeading({
-  children,
-  count,
-  style,
-}: {
-  children: React.ReactNode;
-  count?: number;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <h2
-      style={{
-        display: "flex",
-        alignItems: "baseline",
-        gap: 8,
-        fontSize: 14,
-        fontWeight: 600,
-        margin: "0 0 12px",
-        ...style,
-      }}
-    >
-      {children}
-      {count != null && (
-        <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 500, color: "var(--text-faint)" }}>
-          {count}
-        </span>
-      )}
-    </h2>
-  );
-}
-
 function ConnectNote() {
   return (
-    <Card pad={20}>
-      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-        Not connected. Open <span style={{ color: "var(--accent)" }}>Connect</span> (bottom-left) to
-        set the API base and key.
-      </div>
-    </Card>
+    <ConsoleNotice title="Not connected">
+      Open Connect in the sidebar to set the API base and key.
+    </ConsoleNotice>
   );
 }
 
 function EmptyNote({ children }: { children: React.ReactNode }) {
-  return (
-    <Card pad={20}>
-      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{children}</div>
-    </Card>
-  );
+  return <ConsoleEmpty>{children}</ConsoleEmpty>;
 }
 
 function ErrorNote({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "rgba(248,113,113,0.08)",
-        border: "1px solid rgba(248,113,113,0.3)",
-        borderRadius: 8,
-        padding: "12px 14px",
-      }}
+    <ConsoleNotice
+      tone="danger"
+      title="Enforcement data unavailable"
+      actions={<Button variant="neutral" onClick={onRetry}>Retry</Button>}
     >
-      <span
-        style={{
-          fontSize: 12.5,
-          color: "var(--danger)",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {message}
-      </span>
-      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Retry
-      </Button>
-    </div>
+      {message}
+    </ConsoleNotice>
   );
 }

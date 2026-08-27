@@ -91,6 +91,56 @@ async def _drive_runs(database: AsyncDatabase, operation: ResourceOperation) -> 
             await foreign.transition("unknown-run", RunStatus.RUNNING)
         assert (await owner.get("driver-run")).status is RunStatus.PENDING
         assert (await owner.transition("driver-run", RunStatus.RUNNING)).status is RunStatus.RUNNING
+
+        # Child-approval notification is also a scoped READ+UPDATE operation.
+        # A tenant using the same logical run id must not observe or schedule
+        # the owner's paused ancestor through the caller-owned transaction.
+        ancestor = await owner.get("driver-run")
+        assert ancestor is not None
+        ancestor.status = RunStatus.WAITING_APPROVAL
+        ancestor.metadata["pending_subgraph"] = {
+            "child_run_id": "driver-child",
+            "node_id": "child-node",
+        }
+        await owner.put(ancestor)
+        await owner.create(
+            Run(
+                run_id="driver-child",
+                thread_id="driver-child-thread",
+                graph_version_ref="driver-child-graph",
+                deployment_ref="driver-child-deployment",
+                tenant_id="driver-owner",
+                parent_run_id="driver-run",
+                status=RunStatus.WAITING_APPROVAL,
+            )
+        )
+        async with database.transaction(write_lock=True) as connection:
+            with pytest.raises(KeyError):
+                await foreign.schedule_child_approval_continuation_in_transaction(
+                    connection,
+                    run_id="driver-run",
+                    direct_child_run_id="driver-child",
+                    approval_id="driver-approval",
+                    approval_child_run_id="driver-child",
+                    approval_child_deployment_ref="driver-child-deployment",
+                    deployment_ref="owner-deployment",
+                    graph_version_ref="driver-graph",
+                )
+        async with database.transaction(write_lock=True) as connection:
+            scheduled, changed = (
+                await owner.schedule_child_approval_continuation_in_transaction(
+                    connection,
+                    run_id="driver-run",
+                    direct_child_run_id="driver-child",
+                    approval_id="driver-approval",
+                    approval_child_run_id="driver-child",
+                    approval_child_deployment_ref="driver-child-deployment",
+                    deployment_ref="owner-deployment",
+                    graph_version_ref="driver-graph",
+                )
+            )
+        assert changed
+        assert scheduled.status is RunStatus.PENDING
     else:
         await foreign.delete("driver-run")
         await foreign.delete("unknown-run")

@@ -142,8 +142,8 @@ async def test_the_declared_regulus_origin_is_served_by_a_real_control_plane(
         assert mounted.json() == {
             "status": "ok",
             "schema_revision": {
-                "applied": "20260812_07",
-                "head": "20260812_07",
+                "applied": "20260824_10",
+                "head": "20260824_10",
                 "state": "current",
             },
         }
@@ -172,8 +172,8 @@ async def test_candidates_rebind_and_restore_preimported_econ_storage(tmp_path: 
                 assert response.json() == {
                     "status": "ok",
                     "schema_revision": {
-                        "applied": "20260812_07",
-                        "head": "20260812_07",
+                        "applied": "20260824_10",
+                        "head": "20260824_10",
                         "state": "current",
                     },
                 }
@@ -228,9 +228,7 @@ async def test_product_migrations_scenario_rejects_service_parent_revision(
     async with AcceptanceTransport(config) as transport:
         result = await AcceptanceRunner(
             config, contract, transport, lifecycle=stale_schema_candidate
-        )._scenario(
-            "migrations", contract.scenarios["migrations"].steps
-        )
+        )._scenario("migrations", contract.scenarios["migrations"].steps)
 
     assert result.status is ScenarioStatus.FAILED
     assert "025" in result.detail

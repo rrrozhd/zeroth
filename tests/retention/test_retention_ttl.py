@@ -124,7 +124,7 @@ def test_policy_rejects_fractional_ttls() -> None:
         RetentionPolicy(tenant_id="t", audit_ttl_seconds=1.5)
 
 
-@pytest.mark.parametrize("bad_ttl", [0, -1, 1.5])
+@pytest.mark.parametrize("bad_ttl", [0, -1, 1.5, 2_147_483_648])
 def test_settings_reject_invalid_default_ttls(bad_ttl: float) -> None:
     from zeroth.platform.config.settings import RetentionSettings
 
@@ -132,6 +132,25 @@ def test_settings_reject_invalid_default_ttls(bad_ttl: float) -> None:
         RetentionSettings(default_audit_ttl_seconds=bad_ttl)
     with pytest.raises(ValidationError):
         RetentionSettings(default_run_ttl_seconds=bad_ttl)
+
+
+def test_policy_and_settings_accept_exact_portable_ttl_maximum() -> None:
+    from zeroth.platform.config.settings import RetentionSettings
+
+    policy = RetentionPolicy(
+        tenant_id="t",
+        audit_ttl_seconds=2_147_483_647,
+        run_ttl_seconds=2_147_483_647,
+    )
+    settings = RetentionSettings(
+        default_audit_ttl_seconds=2_147_483_647,
+        default_run_ttl_seconds=2_147_483_647,
+    )
+
+    assert policy.audit_ttl_seconds == 2_147_483_647
+    assert policy.run_ttl_seconds == 2_147_483_647
+    assert settings.default_audit_ttl_seconds == 2_147_483_647
+    assert settings.default_run_ttl_seconds == 2_147_483_647
 
 
 def test_settings_worker_poll_interval_stays_float() -> None:

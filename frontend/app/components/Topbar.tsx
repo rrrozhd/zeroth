@@ -1,6 +1,6 @@
 "use client";
 
-// The console's top bar. 52px, dark chrome, bottom hairline.
+// The console's top bar: a compact operational header with environment state.
 // Left: a `{tenant} / {title}` breadcrumb. Right: an environment pill + the
 // currently-serving deployment ref.
 //
@@ -11,9 +11,10 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { getEnv, getTenant } from "@/app/lib/config";
-import { listDeployments } from "@/app/lib/api";
+import { getIdentity, listDeployments } from "@/app/lib/api";
 import { TITLE } from "./nav";
 import { Pill } from "./primitives";
+import { SidebarToggleButton } from "./SidebarToggleButton";
 
 const ENV_TONE: Record<string, string> = {
   local: "muted",
@@ -21,19 +22,44 @@ const ENV_TONE: Record<string, string> = {
   production: "danger",
 };
 
-export function Topbar() {
+export function Topbar({
+  sidebarCollapsed,
+  onSidebarToggle,
+}: {
+  sidebarCollapsed: boolean;
+  onSidebarToggle: () => void;
+}) {
   const raw = usePathname() ?? "/";
   const pathname = raw !== "/" && raw.endsWith("/") ? raw.slice(0, -1) : raw;
   const title = TITLE[pathname] ?? "";
 
   // Read after mount so the prerender and first client render agree.
   const [tenant, setTenant] = useState("default");
+  const [workspace, setWorkspace] = useState("scope unavailable");
+  const [roles, setRoles] = useState<string[]>([]);
   const [env, setEnv] = useState("local");
   const [served, setServed] = useState("—");
 
   useEffect(() => {
     setTenant(getTenant());
     setEnv(getEnv());
+    let cancelled = false;
+    getIdentity()
+      .then((identity) => {
+        if (cancelled) return;
+        setTenant(identity.tenant_id);
+        setWorkspace(identity.workspace_id ?? "tenant-wide");
+        setRoles(identity.roles ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWorkspace("scope unavailable");
+          setRoles([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -53,38 +79,33 @@ export function Topbar() {
   }, []);
 
   return (
-    <header
-      style={{
-        height: 52,
-        minHeight: 52,
-        flexShrink: 0,
-        background: "var(--bg-chrome)",
-        borderBottom: "1px solid var(--hair)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0 20px",
-      }}
-    >
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
-        <span style={{ color: "var(--text-faint)" }}>{tenant}</span>
-        <span style={{ color: "var(--text-faint)", margin: "0 6px" }}>/</span>
-        <span style={{ color: "var(--text-primary)" }}>{title}</span>
+    <header className="console-topbar">
+      <div className="console-topbar-context">
+        <SidebarToggleButton
+          collapsed={sidebarCollapsed}
+          onToggle={onSidebarToggle}
+        />
+        <div
+          className="console-topbar-breadcrumb"
+          aria-label={`Scope: ${tenant} / ${workspace}; roles: ${roles.join(", ") || "unavailable"}`}
+        >
+          <span className="console-topbar-tenant">{tenant}</span>
+          <span className="console-topbar-separator">/</span>
+          <span className="console-topbar-workspace">{workspace}</span>
+          <span className="console-topbar-separator">/</span>
+          <span className="console-topbar-title">{title || "Operations"}</span>
+        </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="console-topbar-state">
+        {roles.length > 0 && (
+          <span className="console-topbar-role" title={`Active roles: ${roles.join(", ")}`}>
+            {roles.join(" · ")}
+          </span>
+        )}
         <Pill tone={ENV_TONE[env] ?? "muted"}>{env}</Pill>
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            background: "var(--bg-card)",
-            border: "1px solid var(--hair)",
-            borderRadius: 5,
-            padding: "3px 8px",
-            color: "var(--text-muted)",
-          }}
-        >
+        <span className="console-topbar-served">
+          <span className="console-topbar-served-dot" />
           served: {served}
         </span>
       </div>

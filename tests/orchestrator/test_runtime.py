@@ -399,10 +399,11 @@ async def test_runtime_orchestrator_pauses_on_human_approval(sqlite_db) -> None:
 
 
 async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_db) -> None:
+    audit_repository = content_capture(AuditRepository.for_default_compatibility(sqlite_db))
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository.for_default_compatibility(sqlite_db),
-        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
+        audit_repository=audit_repository,
     )
     graph = Graph(
         graph_id="graph-approval",
@@ -429,7 +430,7 @@ async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_d
     )
     orchestrator = RuntimeOrchestrator(
         approval_service=approval_service,
-        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
+        audit_repository=audit_repository,
         run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={
             "finish": _agent_runner(
@@ -459,6 +460,15 @@ async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_d
 
     assert resumed.status is RunStatus.COMPLETED
     assert resumed.final_output == {"value": 5}
+    approval_audits = [
+        record
+        for record in await audit_repository.list_by_run(resumed.run_id)
+        if record.node_id == "approval" and record.status == "completed"
+    ]
+    assert len(approval_audits) == 1
+    assert approval_audits[0].cost_usd == 0.0
+    assert approval_audits[0].estimated_cost_usd == 0.0
+    assert approval_audits[0].cost_measurement.value == "measured"
 
 
 async def test_runtime_orchestrator_blocks_policy_violation_and_records_audit(sqlite_db) -> None:

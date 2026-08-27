@@ -198,8 +198,14 @@ async def check_regulus(
 
     start = time.monotonic()
     try:
+        transport = None
+        if app is not None:
+            transport = getattr(getattr(app, "state", None), "regulus_transport", None)
         client = await governed_async_client(
-            purpose="health-probe-regulus", timeout=timeout, app=app
+            purpose="health-probe-regulus",
+            timeout=timeout,
+            transport=transport,
+            app=app,
         )
         await client.get(f"{base_url}/health")
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -248,6 +254,14 @@ def register_health_routes(app: FastAPI) -> None:
             if database
             else _unknown_schema_revision(),
         )
+        if (
+            regulus_client is not None
+            and getattr(request.app.state, "regulus_registration_ready", True) is False
+        ):
+            regulus_check = DependencyStatus(
+                status="unavailable",
+                detail="Regulus registry initialization is incomplete",
+            )
 
         checks = {
             "database": db_check,
@@ -413,6 +427,7 @@ class HealthResponse(BaseModel):
     deployment_ref: str
     deployment_version: int
     graph_version_ref: str
+    campaign_id: str | None = None
     langgraph_gateway: LangGraphGatewayHealth | None = None
     audit_delivery: AuditDeliveryHealth | None = None
 
@@ -422,6 +437,6 @@ HealthResponse.__signature__ = inspect.signature(HealthResponse).replace(
     parameters=[
         parameter
         for name, parameter in _health_parameters.items()
-        if name not in {"langgraph_gateway", "audit_delivery"}
+        if name not in {"campaign_id", "langgraph_gateway", "audit_delivery"}
     ]
 )

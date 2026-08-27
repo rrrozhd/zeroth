@@ -34,14 +34,20 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Button,
-  Card,
   CodeBlock,
+  ConsoleEmpty,
+  ConsoleNotice,
+  ConsolePage,
+  ConsolePageHeader,
+  ConsoleSection,
+  ConsoleSurface,
   MonoLabel,
   Pill,
   Skeleton,
   StatusDot,
 } from "@/app/components/primitives";
 import { useLoad } from "@/app/hooks/useLoad";
+import { EconomicsWorkspaceNav } from "@/app/components/EconomicsWorkspaceNav";
 import {
   rgCalibrationSummary,
   rgCalibrationTrend,
@@ -49,6 +55,7 @@ import {
   type TrendPoint,
 } from "@/app/lib/regulusApi";
 import { isConfigured } from "@/app/lib/config";
+import styles from "../subpages.module.css";
 
 // --------------------------------------------------------------------------
 // Formatting helpers — defensive about non-finite values so a tile never
@@ -104,31 +111,29 @@ export default function ReconciliationPage() {
   const connected = mounted && isConfigured();
 
   return (
-    <div
-      className="z-fade"
-      style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}
-    >
-      <header style={{ marginBottom: 18 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>
-          Reconciliation
-        </h1>
-        <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
-          How well cost/value estimates match measured ground truth.
-        </p>
-      </header>
+    <ConsolePage>
+      <ConsolePageHeader
+        title="Reconciliation"
+        description="How well cost and value estimates match measured ground truth."
+      />
 
-      <NoteCallout>
-        Reconciliation closes the loop: measured <strong>ground-truth</strong> costs
-        are imported, then every estimate is scored against them. Those errors are
-        what recalibrate future estimates — no ground truth imported means nothing
-        to reconcile, and the metrics below stay empty.
-      </NoteCallout>
+      <EconomicsWorkspaceNav active="reconciliation" />
 
-      <div style={{ height: 22 }} />
-      <CalibrationSummarySection connected={connected} mounted={mounted} />
-      <div style={{ height: 24 }} />
-      <CalibrationTrendSection connected={connected} mounted={mounted} />
-    </div>
+      <ConsoleNotice title="Data context">
+        Scope: platform-admin control plane · Window: imported ground-truth history · Source: Regulus
+        reconciliation · Freshness: current request. Restricted data returns an authorization explanation.
+      </ConsoleNotice>
+
+      <p className={styles.sectionNote}>
+        Reconciliation compares imported measured costs with prior estimates. Without
+        ground-truth imports, these metrics remain empty and calibration does not change.
+      </p>
+
+      <div className={styles.stack}>
+        <CalibrationSummarySection connected={connected} mounted={mounted} />
+        <CalibrationTrendSection connected={connected} mounted={mounted} />
+      </div>
+    </ConsolePage>
   );
 }
 
@@ -162,20 +167,20 @@ function CalibrationSummarySection({
   const overflow = rows.length - shown.length;
 
   return (
-    <section>
-      <SectionHead label="Calibration summary">
-        {connected && (
+    <ConsoleSection
+      title="Calibration summary"
+      evidenceScope="calibration-summary"
+      actions={connected ? (
           <Button
             onClick={summary.reload}
             disabled={summary.loading}
-            style={{ padding: "4px 9px" }}
           >
             {summary.loading ? "Loading…" : "Refresh"}
           </Button>
-        )}
-      </SectionHead>
+        ) : undefined}
+    >
 
-      <p style={sectionNoteStyle}>
+      <p className={styles.sectionNote}>
         Estimated-vs-ground-truth error, one row per calibrated capability — mean
         absolute error (MAE), root-mean-square error (RMSE), mean absolute percentage
         error (MAPE), how often the credible interval covered the truth, and the
@@ -185,32 +190,30 @@ function CalibrationSummarySection({
       {!mounted ? (
         <SummarySkeleton />
       ) : !connected ? (
-        <Card pad={16}>
-          <EmptyInline>Connect to the API (top bar) to load calibration.</EmptyInline>
-        </Card>
+        <ConsoleNotice title="Not connected">
+          Open Connect in the sidebar to load calibration.
+        </ConsoleNotice>
       ) : summary.loading && !summary.data ? (
         <SummarySkeleton />
       ) : summary.error ? (
         <InlineError message={summary.error} onRetry={summary.reload} />
       ) : rows.length === 0 ? (
-        <Card pad={16}>
-          <EmptyInline>
-            No calibration data yet — import ground truth to score estimates.
-          </EmptyInline>
-        </Card>
+        <ConsoleEmpty>
+          No calibration data yet — import ground truth to score estimates.
+        </ConsoleEmpty>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <MonoLabel style={{ color: "var(--text-faint)" }}>
+        <div className={styles.panelStack}>
+          <p className={styles.recordMeta}>
             {rows.length} {rows.length === 1 ? "capability" : "capabilities"} ·{" "}
             {fmtInt(totalSamples)} {totalSamples === 1 ? "sample" : "samples"} reconciled
-          </MonoLabel>
+          </p>
 
           {shown.map((r, i) => (
             <CapabilityCalibration key={`${r.capability_id}-${i}`} row={r} />
           ))}
 
           {overflow > 0 && (
-            <p style={{ margin: 0, fontSize: 11, color: "var(--text-faint)" }}>
+            <p className={styles.overflowNote}>
               +{overflow} more {overflow === 1 ? "capability" : "capabilities"} in the
               payload below.
             </p>
@@ -219,27 +222,21 @@ function CalibrationSummarySection({
           <CodeBlock label="Calibration summary (JSON)" code={rawText} />
         </div>
       )}
-    </section>
+    </ConsoleSection>
   );
 }
 
 function SummarySkeleton() {
   return (
-    <Card pad={16}>
+    <ConsoleSurface>
       <Skeleton width={220} height={12} />
       <div style={{ height: 14 }} />
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-          gap: 10,
-        }}
-      >
+      <div className={styles.metricGrid}>
         {Array.from({ length: 6 }).map((_, i) => (
           <Skeleton key={i} height={62} />
         ))}
       </div>
-    </Card>
+    </ConsoleSurface>
   );
 }
 
@@ -274,15 +271,8 @@ function CapabilityCalibration({ row: r }: { row: CalibrationSummary }) {
   ];
 
   return (
-    <Card pad={16} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 10,
-        }}
-      >
+    <ConsoleSurface className={styles.resultStack}>
+      <div className={styles.recordHeader}>
         <span
           title={r.capability_id}
           style={{
@@ -304,13 +294,7 @@ function CapabilityCalibration({ row: r }: { row: CalibrationSummary }) {
         </Pill>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-          gap: 10,
-        }}
-      >
+      <div className={styles.metricGrid}>
         {tiles.map((t) => (
           <StatTile
             key={t.key}
@@ -321,7 +305,7 @@ function CapabilityCalibration({ row: r }: { row: CalibrationSummary }) {
           />
         ))}
       </div>
-    </Card>
+    </ConsoleSurface>
   );
 }
 
@@ -345,79 +329,53 @@ function CalibrationTrendSection({
   const latest = points.length > 0 ? points[points.length - 1] : null;
 
   return (
-    <section>
-      <SectionHead label="Calibration trend">
-        {connected && (
+    <ConsoleSection
+      title="Calibration trend"
+      evidenceScope="calibration-trend"
+      actions={connected ? (
           <Button
             onClick={trend.reload}
             disabled={trend.loading}
-            style={{ padding: "4px 9px" }}
           >
             {trend.loading ? "Loading…" : "Refresh"}
           </Button>
-        )}
-      </SectionHead>
+        ) : undefined}
+    >
 
-      <p style={sectionNoteStyle}>
+      <p className={styles.sectionNote}>
         Calibration error across reporting periods — lower means estimates track
         measured ground truth more closely.
       </p>
 
       {!mounted ? (
-        <Card pad={16}>
+        <ConsoleSurface>
           <Skeleton width={140} height={36} />
-        </Card>
+        </ConsoleSurface>
       ) : !connected ? (
-        <Card pad={16}>
-          <EmptyInline>Connect to the API (top bar) to load the trend.</EmptyInline>
-        </Card>
+        <ConsoleNotice title="Not connected">
+          Open Connect in the sidebar to load the trend.
+        </ConsoleNotice>
       ) : trend.loading && !trend.data ? (
-        <Card pad={16}>
+        <ConsoleSurface>
           <Skeleton width={140} height={36} />
-        </Card>
+        </ConsoleSurface>
       ) : trend.error ? (
         <InlineError message={trend.error} onRetry={trend.reload} />
       ) : points.length === 0 ? (
-        <Card pad={16}>
-          <EmptyInline>No calibration history yet.</EmptyInline>
-        </Card>
+        <ConsoleEmpty>No calibration history yet.</ConsoleEmpty>
       ) : (
-        <Card pad={16}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 18,
-              flexWrap: "wrap",
-            }}
-          >
+        <ConsoleSurface>
+          <div className={styles.trendSummary}>
             <Sparkline points={points} />
-            <div style={{ minWidth: 0 }}>
+            <div className={styles.trendLatest}>
               <MonoLabel style={{ color: "var(--text-faint)" }}>Latest</MonoLabel>
-              <div
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 22,
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                  fontVariantNumeric: "tabular-nums",
-                  lineHeight: 1.2,
-                }}
-              >
+              <div className={styles.trendValue}>
                 {latest ? fmtNum(latest.y) : "—"}
               </div>
               {latest && (
                 <div
                   title={latest.x}
-                  style={{
-                    marginTop: 2,
-                    fontSize: 11,
-                    color: "var(--text-faint)",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    maxWidth: 220,
-                  }}
+                  className={styles.trendMeta}
                 >
                   {latest.x} · {points.length}{" "}
                   {points.length === 1 ? "period" : "periods"}
@@ -425,9 +383,9 @@ function CalibrationTrendSection({
               )}
             </div>
           </div>
-        </Card>
+        </ConsoleSurface>
       )}
-    </section>
+    </ConsoleSection>
   );
 }
 
@@ -491,13 +449,6 @@ function Sparkline({
 // Shared bits (mirror the Metrics / Connectors screen conventions).
 // --------------------------------------------------------------------------
 
-const sectionNoteStyle: React.CSSProperties = {
-  margin: "0 0 12px",
-  fontSize: 12,
-  color: "var(--text-faint)",
-  lineHeight: 1.55,
-};
-
 function StatTile({
   label,
   value,
@@ -510,59 +461,24 @@ function StatTile({
   tone?: string;
 }) {
   return (
-    <div
-      style={{
-        minWidth: 0,
-        background: "var(--bg-raised)",
-        border: "1px solid var(--hair)",
-        borderRadius: 6,
-        padding: "10px 12px",
-      }}
-    >
+    <div className={styles.metricTile}>
       <div
         title={value}
+        className={styles.metricValue}
         style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 18,
-          fontWeight: 600,
           color: tone ? (TONE_VAR[tone] ?? "var(--text-primary)") : "var(--text-primary)",
-          fontVariantNumeric: "tabular-nums",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
         }}
       >
         {value}
       </div>
       <div
         title={label}
-        style={{
-          marginTop: 4,
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          fontWeight: 500,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          color: "var(--text-faint)",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
+        className={styles.metricLabel}
       >
         {label}
       </div>
       {caption && (
-        <div
-          style={{
-            marginTop: 2,
-            fontSize: 10,
-            color: "var(--text-faint)",
-            opacity: 0.75,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
+        <div className={styles.metricCaption}>
           {caption}
         </div>
       )}
@@ -576,58 +492,8 @@ const TONE_VAR: Record<string, string> = {
   muted: "var(--text-faint)",
 };
 
-function NoteCallout({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        gap: 10,
-        background: "color-mix(in srgb, var(--accent) 7%, transparent)",
-        border: "1px solid color-mix(in srgb, var(--accent) 24%, transparent)",
-        borderRadius: 8,
-        padding: "11px 13px",
-      }}
-    >
-      <StatusDot tone="accent" />
-      <p
-        style={{
-          margin: 0,
-          fontSize: 12.5,
-          lineHeight: 1.55,
-          color: "var(--text-secondary)",
-        }}
-      >
-        {children}
-      </p>
-    </div>
-  );
-}
-
-function SectionHead({
-  label,
-  children,
-}: {
-  label: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 8,
-        marginBottom: 10,
-      }}
-    >
-      <MonoLabel>{label}</MonoLabel>
-      {children}
-    </div>
-  );
-}
-
 function EmptyInline({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>{children}</div>;
+  return <p className={styles.emptyInline}>{children}</p>;
 }
 
 function InlineError({
@@ -637,34 +503,16 @@ function InlineError({
   message: string;
   onRetry: () => void;
 }) {
+  const restricted = message.startsWith("403");
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "rgba(248,113,113,0.08)",
-        border: "1px solid rgba(248,113,113,0.3)",
-        borderRadius: 8,
-        padding: "10px 12px",
-      }}
+    <ConsoleNotice
+      tone={restricted ? undefined : "danger"}
+      title={restricted ? "Access restricted" : "Reconciliation data unavailable"}
+      actions={restricted ? undefined : <Button variant="neutral" onClick={onRetry}>Retry</Button>}
     >
-      <span
-        style={{
-          fontSize: 12.5,
-          color: "var(--danger)",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {message}
-      </span>
-      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Retry
-      </Button>
-    </div>
+      {restricted
+        ? "This API key cannot read platform reconciliation data. Connect with a metrics-read or platform-admin credential."
+        : message}
+    </ConsoleNotice>
   );
 }

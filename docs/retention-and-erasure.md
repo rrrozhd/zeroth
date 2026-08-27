@@ -99,7 +99,9 @@ runs. Releasing the hold re-enables erasure.
 `retention_policies` holds one row per tenant plus a system-default row
 (`tenant_id = 'default'`, seeded by migration 008 with keep-forever TTLs).
 TTLs are whole positive seconds — `0`, negative, and fractional values are
-rejected at validation. Policy resolution order for a tenant:
+rejected at validation. The maximum is `2,147,483,647` seconds
+(`24,855d 3h 14m 7s`), matching the PostgreSQL `INTEGER` columns in the
+portable service schema. Policy resolution order for a tenant:
 
 1. the tenant's explicit row — a stored `NULL` TTL means **keep forever**,
    even when a finite default is configured elsewhere;
@@ -145,17 +147,21 @@ potentially-PII payloads.
 - **In scope / implemented.** The `EconEventEraser` interface
   (`delete_events_for_run(join_keys)`) and a concrete
   `SqlAlchemyEconEventEraser` that deletes both event tables by `join_key`. The
-  erasure service calls it with the best-effort join keys it can derive from a run
-  (the `run_id` itself plus any `join_key` found in audit `execution_metadata`).
+  erasure service calls it with the authoritative join keys it can derive from a
+  run (the `run_id` itself plus the top-level `join_key` stored in audit
+  `execution_metadata`). When bundled Regulus is enabled, service bootstrap binds
+  this adapter to the configured econ-plane session factory and shares it with
+  API erasure and the background TTL worker. If that configured dependency is
+  unavailable, destructive cleanup is recorded as failed and remains retryable;
+  it never falls back to another database or reports the econ surface as
+  skipped. An explicitly disabled plane preserves base-install compatibility by
+  recording `econ_erase_skipped`.
 - **Deferred (named).** Econ events are keyed by `join_key`, a **business-request**
   identifier resolved from runtime context, and there is **no durable
   `run_id → join_key` index**. Complete, automatic run→join_key resolution is
-  therefore deferred, and the concrete eraser is **not wired into the default boot
-  path** (so a base `zeroth-core` install without the `regulus` extra never takes
-  a hard dependency on the econ plane). Until an operator wires
-  `SqlAlchemyEconEventEraser` (or a resolver-backed equivalent) into
-  `RetentionErasureService`, the erasure service records an `econ_erase_skipped`
-  entry in the retention audit log rather than silently dropping the concern.
+  therefore still deferred for legacy or external events that never carried one
+  of those authoritative keys. Nested payload keys are never trusted as an
+  erasure correlation source.
 
 ## API surface
 

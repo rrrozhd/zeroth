@@ -20,6 +20,10 @@ import psycopg
 from pgvector.psycopg import register_vector_async
 
 from zeroth.contracts.governed.models.common import JSONValue
+from zeroth.integrations.memory.embedding_calls import (
+    invoke_embedding_call,
+    resolve_embedding_provider_kwargs,
+)
 from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
 # Unquoted PostgreSQL identifiers: letter/underscore followed by word chars, max 63.
@@ -85,6 +89,21 @@ class PgvectorMemoryConnector:
         # the DDL. The lock plus the second check inside it collapses that to
         # one run; the check outside it keeps the steady state lock-free.
         self._schema_lock = asyncio.Lock()
+        self._embedding_secret_provider = None
+        self._embedding_tenant_id: str | None = None
+        self._embedding_allow_env_fallback = True
+
+    def configure_embedding_secrets(
+        self,
+        *,
+        secret_provider: Any | None,
+        tenant_id: str | None,
+        allow_env_fallback: bool,
+    ) -> None:
+        """Bind tenant-scoped credential resolution without changing the pinned constructor."""
+        self._embedding_secret_provider = secret_provider
+        self._embedding_tenant_id = tenant_id
+        self._embedding_allow_env_fallback = allow_env_fallback
 
     async def _get_conn(self) -> psycopg.AsyncConnection:
         """Obtain an async connection from the factory, register vector type."""
@@ -158,9 +177,20 @@ class PgvectorMemoryConnector:
 
     async def _embed(self, text: str) -> list[float]:
         """Generate embedding vector via litellm."""
-        response = await litellm.aembedding(
+        provider_kwargs = await resolve_embedding_provider_kwargs(
             model=self._embedding_model,
-            input=[text],
+            secret_provider=self._embedding_secret_provider,
+            tenant_id=self._embedding_tenant_id,
+            allow_env_fallback=self._embedding_allow_env_fallback,
+        )
+        response = await invoke_embedding_call(
+            model=self._embedding_model,
+            inputs=[text],
+            provider_call=lambda: litellm.aembedding(
+                model=self._embedding_model,
+                input=[text],
+                **provider_kwargs,
+            ),
         )
         return response.data[0]["embedding"]
 

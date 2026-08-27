@@ -7,6 +7,7 @@ resuming the paused agent run afterward.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -138,6 +139,8 @@ class ApprovalService:
             {
                 "approval_id": result.approval_id,
                 "run_id": result.run_id,
+                "thread_id": result.thread_id,
+                "graph_version_ref": result.graph_version_ref,
                 "node_id": result.node_id,
                 "sla_deadline": (result.sla_deadline.isoformat() if result.sla_deadline else None),
             },
@@ -227,6 +230,304 @@ class ApprovalService:
             workspace_id=workspace_id,
             graph_version_ref=graph_version_ref,
         )
+
+    async def get_visible_to_deployment(
+        self,
+        approval_id: str,
+        *,
+        deployment_ref: str,
+        graph_version_ref: str,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+    ) -> ApprovalRecord | None:
+        """Return an approval owned by this deployment or one of its child runs.
+
+        Child records keep their real child deployment/graph provenance.  The
+        deployment becomes an authorized view only when the scoped run chain
+        reaches an ancestor with this exact deployment and graph version.
+        """
+        record = await self.get(
+            approval_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        if record is None:
+            return None
+        ancestor = await self.visible_ancestor_run(
+            record,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+        )
+        return record if ancestor is not None else None
+
+    async def list_pending_visible_to_deployment(
+        self,
+        *,
+        deployment_ref: str,
+        graph_version_ref: str,
+        run_id: str | None = None,
+        thread_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+    ) -> list[ApprovalRecord]:
+        """List pending approvals whose scoped ancestry reaches a deployment."""
+        records = await self.list_pending(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        return await self._filter_visible_records(
+            records,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+            run_id=run_id,
+            thread_id=thread_id,
+        )
+
+    async def list_visible_to_deployment(
+        self,
+        *,
+        deployment_ref: str,
+        graph_version_ref: str,
+        run_id: str | None = None,
+        thread_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+    ) -> list[ApprovalRecord]:
+        """List all approval evidence visible through scoped run ancestry."""
+        records = await self.list(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        return await self._filter_visible_records(
+            records,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+            run_id=run_id,
+            thread_id=thread_id,
+        )
+
+    async def _filter_visible_records(
+        self,
+        records: list[ApprovalRecord],
+        *,
+        deployment_ref: str,
+        graph_version_ref: str,
+        run_id: str | None,
+        thread_id: str | None,
+    ) -> list[ApprovalRecord]:
+        """Apply ancestry authorization and parent/child identity filters."""
+        visible: list[ApprovalRecord] = []
+        for record in records:
+            ancestor = await self.visible_ancestor_run(
+                record,
+                deployment_ref=deployment_ref,
+                graph_version_ref=graph_version_ref,
+            )
+            if ancestor is None:
+                continue
+            # A deployment-scoped caller thinks in terms of the workflow run it
+            # submitted, while the approval correctly names the child run that
+            # owns the gate.  Accept either identity without broadening beyond
+            # the already-proven ancestry.
+            if run_id is not None and run_id not in {record.run_id, ancestor.run_id}:
+                continue
+            if thread_id is not None and thread_id not in {
+                record.thread_id,
+                ancestor.thread_id,
+            }:
+                continue
+            visible.append(record)
+        return visible
+
+    async def visible_ancestor_run(
+        self,
+        record: ApprovalRecord,
+        *,
+        deployment_ref: str,
+        graph_version_ref: str,
+    ) -> Run | None:
+        """Find the exact in-scope ancestor served by a deployment.
+
+        The walk is bounded and cycle-detecting.  Every row comes through the
+        deployment-bound ``RunRepository``, so a forged parent id cannot cross
+        tenant/workspace scope even when the global run id is guessed.
+        """
+        current = await self.run_repository.get(record.run_id)
+        seen: set[str] = set()
+        for _ in range(64):
+            if current is None or current.run_id in seen:
+                return None
+            seen.add(current.run_id)
+            if (
+                current.tenant_id != record.tenant_id
+                or current.workspace_id != record.workspace_id
+            ):
+                return None
+            if (
+                current.deployment_ref == deployment_ref
+                and current.graph_version_ref == graph_version_ref
+            ):
+                return current
+            if current.parent_run_id is None:
+                return None
+            current = await self.run_repository.get(current.parent_run_id)
+        return None
+
+    async def schedule_ancestor_continuation(
+        self,
+        approval_id: str,
+        *,
+        deployment_ref: str,
+        graph_version_ref: str,
+    ) -> Run:
+        """Atomically notify the deployment worker about a resolved child gate.
+
+        The child stays paused under its own provenance.  The root deployment's
+        run is re-queued with a signed linkage record in the same database
+        transaction; its subgraph executor later resumes only the exact child
+        named by the durable pause metadata.
+        """
+        record = await self._require(approval_id, **self._run_scope())
+        if record.status is not ApprovalStatus.RESOLVED or record.resolution is None:
+            raise ValueError("approval must be resolved before continuation")
+        if self.audit_repository is None:
+            raise RuntimeError("child continuation requires a signed audit repository")
+
+        path = await self._run_ancestry(record.run_id)
+        ancestor_index = next(
+            (
+                index
+                for index, run in enumerate(path)
+                if run.deployment_ref == deployment_ref
+                and run.graph_version_ref == graph_version_ref
+            ),
+            None,
+        )
+        if ancestor_index is None:
+            raise KeyError(approval_id)
+        ancestor = path[ancestor_index]
+        if ancestor_index == 0:
+            return await self.schedule_continuation(approval_id)
+        direct_child = path[ancestor_index - 1]
+        child = path[0]
+        audit = NodeAuditRecord(
+            audit_id=f"{ancestor.run_id}:child-approval-continuation:{approval_id}",
+            run_id=ancestor.run_id,
+            thread_id=ancestor.thread_id,
+            node_id=str(
+                (ancestor.metadata.get("pending_subgraph") or {}).get("node_id")
+                or (ancestor.metadata.get("pending_parallel_subgraph") or {}).get("node_id")
+                or "__child_approval_continuation__"
+            ),
+            node_version=1,
+            graph_version_ref=ancestor.graph_version_ref,
+            deployment_ref=ancestor.deployment_ref,
+            tenant_id=ancestor.tenant_id,
+            workspace_id=ancestor.workspace_id,
+            status="child_approval_continuation_scheduled",
+            completed_at=datetime.now(UTC),
+            cost_usd=0.0,
+            estimated_cost_usd=0.0,
+            cost_measurement="measured",
+            actor=record.resolution.actor,
+            execution_metadata={
+                "approval_id": approval_id,
+                "child_run_id": child.run_id,
+                "child_deployment_ref_sha256": hashlib.sha256(
+                    child.deployment_ref.encode("utf-8")
+                ).hexdigest(),
+                "direct_child_run_id": direct_child.run_id,
+                "continuation_parent_run_id": ancestor.run_id,
+            },
+            approval_actions=[
+                ApprovalActionRecord(
+                    approval_id=approval_id,
+                    action="child_continuation_scheduled",
+                    actor=record.resolution.actor,
+                    metadata={"child_run_id": child.run_id},
+                )
+            ],
+        )
+        async with self.run_repository.database.transaction(write_lock=True) as connection:
+            scheduled, changed = (
+                await self.run_repository.schedule_child_approval_continuation_in_transaction(
+                    connection,
+                    run_id=ancestor.run_id,
+                    direct_child_run_id=direct_child.run_id,
+                    approval_id=approval_id,
+                    approval_child_run_id=child.run_id,
+                    approval_child_deployment_ref=child.deployment_ref,
+                    deployment_ref=deployment_ref,
+                    graph_version_ref=graph_version_ref,
+                )
+            )
+            if changed:
+                written = await self.audit_repository.write_in_transaction(connection, audit)
+                if written.record_signature is None:
+                    raise RuntimeError("child continuation requires a signed audit record")
+        persisted = await self.run_repository.get(scheduled.run_id)
+        if persisted is None:  # pragma: no cover - transaction retained the row
+            raise KeyError(scheduled.run_id)
+        return persisted
+
+    async def reconcile_ancestor_continuations(
+        self,
+        *,
+        deployment_ref: str,
+        graph_version_ref: str,
+    ) -> list[Run]:
+        """Repair resolved-child notifications after a process interruption.
+
+        The resolved approval is itself the durable reconciliation source.  A
+        deployment worker scans only records whose scoped ancestry reaches its
+        exact active graph, and only requeues ancestors still waiting on that
+        child.  The transactional CAS and deterministic audit id in
+        ``schedule_ancestor_continuation`` make concurrent workers safe.
+        """
+        scheduled: list[Run] = []
+        for record in await self.list_visible_to_deployment(
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+            **self._run_scope(),
+        ):
+            if record.status is not ApprovalStatus.RESOLVED or record.resolution is None:
+                continue
+            ancestor = await self.visible_ancestor_run(
+                record,
+                deployment_ref=deployment_ref,
+                graph_version_ref=graph_version_ref,
+            )
+            if (
+                ancestor is None
+                or ancestor.run_id == record.run_id
+                or ancestor.status is not RunStatus.WAITING_APPROVAL
+            ):
+                continue
+            scheduled.append(
+                await self.schedule_ancestor_continuation(
+                    record.approval_id,
+                    deployment_ref=deployment_ref,
+                    graph_version_ref=graph_version_ref,
+                )
+            )
+        return scheduled
+
+    async def _run_ancestry(self, run_id: str) -> list[Run]:
+        """Return child-to-root scoped ancestry, rejecting cycles and over-depth."""
+        path: list[Run] = []
+        seen: set[str] = set()
+        current = await self.run_repository.get(run_id)
+        for _ in range(64):
+            if current is None:
+                raise KeyError(run_id)
+            if current.run_id in seen:
+                raise ValueError("run ancestry contains a cycle")
+            seen.add(current.run_id)
+            path.append(current)
+            if current.parent_run_id is None:
+                return path
+            current = await self.run_repository.get(current.parent_run_id)
+        raise ValueError("run ancestry exceeds the continuation depth limit")
 
     async def escalate(
         self,
@@ -321,6 +622,7 @@ class ApprovalService:
             # whose transaction rolled back would page a human about an approval
             # that does not exist.
             await self._notify(delegate_record)
+            await self._emit_escalation_webhook(escalated)
             return escalated
 
         elif action == "auto_reject":
@@ -329,8 +631,10 @@ class ApprovalService:
             system_actor = ActorIdentity(
                 subject="sla_enforcer",
                 auth_method=AuthMethod.API_KEY,
+                tenant_id=record.tenant_id,
+                workspace_id=record.workspace_id,
             )
-            return await self.resolve(
+            resolved, changed = await self._resolve_with_outcome(
                 approval_id,
                 decision=ApprovalDecision.REJECT,
                 actor=system_actor,
@@ -339,6 +643,9 @@ class ApprovalService:
                 deployment_ref=record.deployment_ref,
                 graph_version_ref=record.graph_version_ref,
             )
+            if changed:
+                await self._emit_escalation_webhook(resolved)
+            return resolved
 
         else:  # "alert" or unknown
             written = await self._claim_escalation(record)
@@ -351,7 +658,26 @@ class ApprovalService:
                     graph_version_ref=graph_version_ref,
                 )
             await self._notify(written, summary=f"[Escalated] {written.summary}")
+            await self._emit_escalation_webhook(written)
             return written
+
+    async def _emit_escalation_webhook(self, record: ApprovalRecord) -> None:
+        """Publish the SLA event only from the winning persisted transition."""
+        await self._emit_webhook(
+            "approval.escalated",
+            record,
+            {
+                "approval_id": record.approval_id,
+                "run_id": record.run_id,
+                "thread_id": record.thread_id,
+                "graph_version_ref": record.graph_version_ref,
+                "node_id": record.node_id,
+                "escalation_action": record.escalation_action or "alert",
+                "sla_deadline": (
+                    record.sla_deadline.isoformat() if record.sla_deadline else None
+                ),
+            },
+        )
 
     async def _claim_escalation(self, record: ApprovalRecord) -> ApprovalRecord | None:
         """Flip a still-pending approval to ESCALATED, or return None if it moved.
@@ -392,11 +718,39 @@ class ApprovalService:
         decision: ApprovalDecision,
         actor: ActorIdentity,
         edited_payload: dict[str, Any] | None = None,
+        reason: str | None = None,
         tenant_id: str | None = None,
         workspace_id: str | None | object = _UNSCOPED,
         deployment_ref: str | None = None,
         graph_version_ref: str | None = None,
     ) -> ApprovalRecord:
+        """Record a decision and return its durable approval record."""
+        resolved, _changed = await self._resolve_with_outcome(
+            approval_id,
+            decision=decision,
+            actor=actor,
+            edited_payload=edited_payload,
+            reason=reason,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+        )
+        return resolved
+
+    async def _resolve_with_outcome(
+        self,
+        approval_id: str,
+        *,
+        decision: ApprovalDecision,
+        actor: ActorIdentity,
+        edited_payload: dict[str, Any] | None = None,
+        reason: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        deployment_ref: str | None = None,
+        graph_version_ref: str | None = None,
+    ) -> tuple[ApprovalRecord, bool]:
         """Record a human's decision on a pending approval.
 
         Validates that the decision is allowed, marks the approval as resolved,
@@ -421,8 +775,9 @@ class ApprovalService:
                 current.decision is decision
                 and current.actor == actor
                 and current.edited_payload == edited_payload
+                and current.reason == reason
             ):
-                return record
+                return record, False
             raise ValueError("approval already resolved")
         if decision not in record.allowed_actions:
             raise ValueError(f"decision {decision.value} is not allowed")
@@ -434,6 +789,7 @@ class ApprovalService:
             decision=decision,
             actor=actor,
             edited_payload=edited_payload,
+            reason=reason,
         )
         record.updated_at = datetime.now(UTC)
         resolved = await self.repository.resolve_pending(record)
@@ -452,8 +808,9 @@ class ApprovalService:
                 and current_resolution.decision is decision
                 and current_resolution.actor == actor
                 and current_resolution.edited_payload == edited_payload
+                and current_resolution.reason == reason
             ):
-                return current
+                return current, False
             raise ValueError("approval already resolved")
         await self._record_api_audit(resolved)
         await self._emit_webhook(
@@ -462,11 +819,13 @@ class ApprovalService:
             {
                 "approval_id": resolved.approval_id,
                 "run_id": resolved.run_id,
+                "thread_id": resolved.thread_id,
+                "graph_version_ref": resolved.graph_version_ref,
                 "node_id": resolved.node_id,
                 "decision": (resolved.resolution.decision.value if resolved.resolution else None),
             },
         )
-        return resolved
+        return resolved, True
 
     async def schedule_continuation(self, approval_id: str) -> Run:
         """Prepare a resolved approval for durable worker pick-up.
@@ -639,6 +998,9 @@ class ApprovalService:
                 attempt=1,
                 status="approval_api",
                 completed_at=datetime.now(UTC),
+                cost_usd=0.0,
+                estimated_cost_usd=0.0,
+                cost_measurement="measured",
                 actor=record.resolution.actor,
                 execution_metadata={"resolution": record.resolution.model_dump(mode="json")},
                 approval_actions=[
@@ -679,6 +1041,9 @@ class ApprovalService:
                 attempt=1,
                 status=status,
                 completed_at=datetime.now(UTC),
+                cost_usd=0.0,
+                estimated_cost_usd=0.0,
+                cost_measurement="measured",
                 actor=record.resolution.actor,
                 input_snapshot=record.proposed_payload or {},
                 output_snapshot=output_payload,

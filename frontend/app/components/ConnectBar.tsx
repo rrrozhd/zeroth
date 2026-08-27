@@ -21,12 +21,10 @@ const ENVS = ["local", "staging", "production"] as const;
 
 const labelStyle: React.CSSProperties = {
   display: "block",
-  fontFamily: "var(--font-mono)",
-  fontSize: 10.5,
+  fontFamily: "var(--font-sans)",
+  fontSize: 11.5,
   fontWeight: 500,
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
-  color: "var(--text-faint)",
+  color: "var(--text-secondary)",
   marginBottom: 6,
 };
 
@@ -88,12 +86,10 @@ export function ConnectBar({ onClose }: { onClose: () => void }) {
       >
         <div
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 12,
+            fontFamily: "var(--font-sans)",
+            fontSize: 14,
             fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: "var(--text-secondary)",
+            color: "var(--text-primary)",
             marginBottom: 16,
           }}
         >

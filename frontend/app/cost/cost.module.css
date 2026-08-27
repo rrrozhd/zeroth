@@ -1,0 +1,260 @@
+.stack {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.controlBand {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--hair);
+}
+
+.controlCell {
+  min-width: 0;
+  background: var(--bg-card);
+  padding: var(--space-4);
+}
+
+.controlLabel {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.71875rem;
+  font-weight: 500;
+}
+
+.metricValue {
+  color: var(--text-primary);
+  font-size: 1.4375rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+.metricDanger {
+  color: var(--danger);
+}
+
+.metricLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.stateBlock {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: 0.71875rem;
+}
+
+.stateBlock strong {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.controlMeta,
+.sectionNote,
+.inlineEmpty {
+  color: var(--text-muted);
+  font-size: 0.71875rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.controlMeta {
+  margin-top: var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+.controlForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+.progressTrack {
+  height: 0.25rem;
+  margin-top: var(--space-3);
+  overflow: hidden;
+  border-radius: 0.125rem;
+  background: var(--bg-raised-2);
+}
+
+.progressFill {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 160ms ease;
+}
+
+.progressFillDanger {
+  background: var(--danger);
+}
+
+.pairGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-6);
+}
+
+.sectionNote {
+  max-width: var(--copy-measure);
+  margin: 0 0 var(--space-3);
+}
+
+.loadingStack,
+.deploymentList,
+.workflowList,
+.reconciliationStack {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.zeroCostSummary,
+.emptyTitle {
+  margin: 0;
+}
+
+.zeroCostSummary {
+  color: var(--text-muted);
+  font-size: 0.71875rem;
+  line-height: 1.5;
+}
+
+.emptyTitle {
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.reconciliation {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--hair);
+}
+
+.reconciliationLine {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.71875rem;
+}
+
+.reconciliationLine strong {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.reconciliation p {
+  max-width: var(--copy-measure);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.deploymentRow {
+  min-width: 0;
+}
+
+.deploymentLine,
+.workflowRow {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.deploymentName,
+.deploymentCost,
+.code {
+  font-family: var(--font-mono);
+}
+
+.deploymentName,
+.workflowName,
+.workflowMeta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deploymentName {
+  flex: 1;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+}
+
+.deploymentCost,
+.workflowCost {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.workflowRow {
+  align-items: center;
+  padding-block: 0.5625rem;
+}
+
+.workflowRow + .workflowRow {
+  border-top: 1px solid var(--hair);
+}
+
+.workflowName {
+  color: var(--text-primary);
+  font-size: 0.75rem;
+}
+
+.workflowMeta {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+.inlineEmpty {
+  margin: 0;
+}
+
+.link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+@media (max-width: 48rem) {
+  .controlBand,
+  .pairGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .controlCell {
+    padding-block: var(--space-3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progressFill {
+    transition: none;
+  }
+}

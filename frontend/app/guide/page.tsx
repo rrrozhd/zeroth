@@ -123,7 +123,7 @@ const DOCS_LINKS: { label: string; href: string; kind: string; tone: Tone }[] = 
 
 export default function GuidePage() {
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: "28px 28px 48px" }}>
       <header style={{ marginBottom: 18 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Guide</h1>
         <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>

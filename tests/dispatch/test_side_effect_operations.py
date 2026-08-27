@@ -402,6 +402,9 @@ class TestSideEffectSuppressionEndToEnd:
         assert first_output == {"charged": True, "applications": 1}
         assert second_output == first_output
         assert second_audit["operation_replay_suppressed"] is True
+        assert second_audit["cost_usd"] == 0.0
+        assert second_audit["estimated_cost_usd"] == 0.0
+        assert second_audit["cost_measurement"] == "measured"
 
     async def test_agent_tool_replay_uses_the_same_durable_guard(self, dual_database) -> None:
         """An attached executable tool is suppressed just like a graph-step unit.
@@ -655,38 +658,43 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
         assert runner.applications == before, "an exhausted operation must not re-execute"
         assert (await store.get(identity.operation_key))["state"] == OperationState.AMBIGUOUS
 
-    async def test_an_unresolvable_ambiguity_within_budget_may_re_execute(
+    async def test_an_unresolvable_ambiguity_is_looked_up_once_and_never_re_executes(
         self, dual_database
     ) -> None:
-        """At-least-once is still the contract when nothing can be asked.
+        """Unknown is a durable stop, not permission to apply the effect again."""
+        from zeroth.runtime.orchestration.dispatcher import (
+            SideEffectReconciliationExhaustedError,
+        )
 
-        With no lookup available and budget remaining, re-execution is allowed --
-        but only after the attempt is recorded, so the residual duplicate risk
-        is visible rather than silent.
-        """
         store = SideEffectOperationStore.for_default_compatibility(
             dual_database, max_reconciliation_attempts=5
         )
         runner = _CountingRunner()
         dispatcher = _dispatcher(store, runner)
         run = _run_with_dispatch()
+        lookups: list[str] = []
+
+        async def _lookup(identity_arg):
+            lookups.append(identity_arg.operation_key)
+            return None
+
+        object.__setattr__(dispatcher, "operation_outcome_lookup", _lookup)
 
         identity = dispatcher._operation_identity_for(run, "unit://charge-card")
         await _seed_ambiguous(store, identity)
         before = runner.applications
 
-        await _dispatch_once(dispatcher, run)
+        with pytest.raises(SideEffectReconciliationExhaustedError):
+            await _dispatch_once(dispatcher, run)
+        with pytest.raises(SideEffectReconciliationExhaustedError):
+            await _dispatch_once(dispatcher, run)
 
-        assert runner.applications == before + 1
+        assert lookups == [identity.operation_key], "outcome lookup is globally once per operation"
+        assert runner.applications == before, "an unknown effect must never auto-re-execute"
         record = await store.get(identity.operation_key)
-        assert record["reconciliation_attempts"] >= 1, "the attempt must be recorded"
-        # The retry must run through the same checkpoint a first execution uses.
-        # Without this the test passed against the bypass bug it exists for: the
-        # effect was re-applied and the operation stayed AMBIGUOUS forever.
-        assert record["state"] == OperationState.COMPLETED, (
-            "a successful retry must settle the operation, not leave it ambiguous"
-        )
-        assert record["receipt"] is not None
+        assert record["reconciliation_attempts"] == 1
+        assert record["state"] == OperationState.AMBIGUOUS
+        assert record["receipt"] is None
 
     async def test_a_competing_reconciler_settling_completed_suppresses_re_execution(
         self, dual_database
@@ -731,6 +739,24 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
         assert output == {"charged": True, "by": "competitor"}, (
             "suppression must replay the stored receipt, not invent an empty one"
         )
+
+    async def test_concurrent_workers_claim_exactly_one_outcome_lookup(self, dual_database) -> None:
+        """The lookup-once guarantee is durable across workers, not process-local."""
+        import asyncio
+
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
+        dispatcher = _dispatcher(store, _CountingRunner())
+        run = _run_with_dispatch()
+        identity = dispatcher._operation_identity_for(run, "unit://charge-card")
+        await _seed_ambiguous(store, identity)
+
+        claims = await asyncio.gather(
+            store.begin_outcome_lookup(identity.operation_key),
+            store.begin_outcome_lookup(identity.operation_key),
+        )
+
+        assert sorted(claims) == [False, True]
+        assert (await store.get(identity.operation_key))["reconciliation_attempts"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1345,15 +1371,12 @@ class TestTerminalOperationAudit:
         assert carried["operation_state"] == "ambiguous"
         assert carried["operation_residual_duplicate_risk"] is True
 
-    async def test_a_reconciled_re_execution_settles_the_audit_state(self, dual_database) -> None:
-        """A successful retry must be audited COMPLETED, not frozen at ambiguous.
+    async def test_unresolved_reconciliation_never_reexecutes(self, dual_database) -> None:
+        """An unknown external outcome requires operator resolution, never a retry."""
+        from zeroth.runtime.orchestration.dispatcher import (
+            SideEffectReconciliationExhaustedError,
+        )
 
-        The reconciliation branch stamped the audit with the state
-        record_reconciliation() returned — AMBIGUOUS when nothing could be
-        asked — and the re-execution that then succeeded never updated it. The
-        durable record said "still unknown" about an operation the store had
-        just settled.
-        """
         store = SideEffectOperationStore.for_default_compatibility(
             dual_database, max_reconciliation_attempts=5
         )
@@ -1363,9 +1386,8 @@ class TestTerminalOperationAudit:
         identity = dispatcher._operation_identity_for(run, "unit://charge-card")
         await _seed_ambiguous(store, identity)
 
-        _output, audit = await _dispatch_once(dispatcher, run)
+        with pytest.raises(SideEffectReconciliationExhaustedError, match="operator resolution"):
+            await _dispatch_once(dispatcher, run)
 
-        assert runner.applications == 1, "within budget and unresolvable: re-execution runs"
-        assert audit["operation_state"] == "completed", (
-            "a successful re-execution must settle the audited state"
-        )
+        assert runner.applications == 0
+        assert await store.state_of(identity.operation_key) is OperationState.AMBIGUOUS

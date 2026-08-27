@@ -2,7 +2,7 @@
 
 // The Connectors screen — a flat operator/authoring view over two surfaces this
 // deployment exposes: memory connectors (the resolvable connector_ref values) and
-// webhook delivery (subscriptions + the dead-letter queue).
+// a single handoff to the canonical webhook administration surface.
 //
 // Rebuilt fresh on the P0 primitives — it does NOT import the legacy ui.tsx or
 // ConnectorInline. The backend-catalogue helper (lib/connectorBackends) is reused
@@ -47,6 +47,7 @@ import {
   replayDeadLetter,
   testConnector,
   updateConnector,
+  type CreateSubscriptionRequest,
   type ConnectorSummary,
   type DeadLetter,
   type WebhookDeadLetterList,
@@ -64,6 +65,8 @@ import {
   type ParamField,
 } from "@/app/lib/connectorBackends";
 import { getTenant, isConfigured } from "@/app/lib/config";
+import { isForbiddenSurface, surfaceAccessMessage } from "@/app/lib/surfaceAccess";
+import { WebhookSummary } from "./webhook-summary";
 
 // --------------------------------------------------------------------------
 // Page shell
@@ -77,7 +80,7 @@ export default function ConnectorsPage() {
   const connected = mounted && isConfigured();
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: "28px 28px 48px" }}>
       <header style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Connectors</h1>
         <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
@@ -87,7 +90,7 @@ export default function ConnectorsPage() {
 
       <MemoryConnectors connected={connected} mounted={mounted} />
       <div style={{ height: 24 }} />
-      <Webhooks connected={connected} mounted={mounted} />
+      <WebhookSummary />
     </div>
   );
 }
@@ -259,6 +262,7 @@ function ConnectorRow({
 
   return (
     <div
+      data-evidence-scope={`connector-${c.ref}`}
       style={{
         display: "grid",
         gridTemplateColumns: COLS,
@@ -541,6 +545,7 @@ function Webhooks({ connected, mounted }: { connected: boolean; mounted: boolean
   const subs = useLoad<WebhookSubscriptionList>(listWebhookSubscriptions);
   const dlq = useLoad<WebhookDeadLetterList>(listDeadLetters);
   const [formOpen, setFormOpen] = useState(false);
+  const forbidden = isForbiddenSurface(subs.error);
 
   const subList = subs.data?.subscriptions ?? [];
   const deadLetters = dlq.data?.dead_letters ?? [];
@@ -568,7 +573,7 @@ function Webhooks({ connected, mounted }: { connected: boolean; mounted: boolean
   return (
     <section>
       <SectionHead label="Webhooks">
-        {connected && (
+        {connected && !forbidden && (
           <Button variant="primary" onClick={() => setFormOpen((v) => !v)} style={{ padding: "4px 9px" }}>
             + New subscription
           </Button>
@@ -581,6 +586,10 @@ function Webhooks({ connected, mounted }: { connected: boolean; mounted: boolean
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} height={28} />
             ))}
+          </div>
+        ) : forbidden && subs.error ? (
+          <div style={{ padding: 16 }}>
+            <EmptyInline>{surfaceAccessMessage(subs.error, "Webhooks")}</EmptyInline>
           </div>
         ) : subs.error ? (
           <div style={{ padding: 16 }}>
@@ -763,7 +772,7 @@ function SubscriptionForm({ onAdded, onCancel }: { onAdded: () => void; onCancel
     try {
       await createWebhookSubscription({
         deployment_ref: deploymentRef.trim(),
-        event_types: eventList,
+        event_types: eventList as CreateSubscriptionRequest["event_types"],
         target_url: targetUrl.trim(),
         tenant_id: getTenant(),
       });

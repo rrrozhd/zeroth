@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "campaign_id": "evaluation-studio-v1-twin",
+  "tenant_id": "evaluation-studio-v1-twin",
+  "provider": "openai",
+  "model": "openai/gpt-4o-mini",
+  "embedding_model": "openai/text-embedding-3-small",
+  "vector_backend": "chroma",
+  "campaign_budget_usd": "10.00",
+  "per_run_cap_usd": "0.25",
+  "provider_secret_ref": "llm.openai",
+  "artifact_root": "/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1/tenant-b",
+  "action_sink_root": "/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1/tenant-b/action-sink"
+}

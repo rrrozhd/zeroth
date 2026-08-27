@@ -15,6 +15,10 @@ from zeroth.contracts.graph.models import (
     GraphStatus,
     HumanApprovalNode,
     HumanApprovalNodeData,
+    IfNode,
+    IfNodeData,
+    LoopNode,
+    LoopNodeData,
 )
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.contracts.graph.validation_errors import (
@@ -273,6 +277,112 @@ async def test_validator_reports_contract_attachment_and_condition_errors() -> N
     assert ValidationCode.INVALID_POLICY_REF in validation_codes(report)
     assert ValidationCode.INVALID_CAPABILITY_REF in validation_codes(report)
     assert ValidationCode.INVALID_NODE_ATTACHMENT in validation_codes(report)
+    assert ValidationCode.INVALID_CONDITION in validation_codes(report)
+
+
+def _if_graph(*, expression: str, edge: Edge | None) -> Graph:
+    decision = IfNode(
+        node_id="quality-gate",
+        graph_version_ref="if-validation@1",
+        input_contract_ref="contract://decision.input",
+        output_contract_ref="contract://decision.output",
+        condition=IfNodeData(expression=expression),
+    )
+    target = build_valid_graph().nodes[0].model_copy(
+        update={"node_id": "accepted", "graph_version_ref": "if-validation@1"}
+    )
+    return Graph(
+        graph_id="if-validation",
+        name="If validation",
+        entry_step="quality-gate",
+        nodes=[decision, target],
+        edges=[] if edge is None else [edge],
+    )
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ["", "   ", "x" * (CONDITION_EXPRESSION_MAX_CHARS + 1), "__import__('os')"],
+)
+async def test_if_node_expression_is_rejected_at_publish_validation(expression: str) -> None:
+    edge = Edge(
+        edge_id="true-route",
+        source_node_id="quality-gate",
+        target_node_id="accepted",
+        metadata={"source_handle": "true"},
+        condition=Condition(
+            expression="payload.zeroth_if['quality-gate'].route == 'true'",
+            metadata={"if_route": "true"},
+        ),
+    )
+
+    report = await GraphValidator().validate(_if_graph(expression=expression, edge=edge))
+
+    assert ValidationCode.INVALID_CONDITION in validation_codes(report)
+
+
+@pytest.mark.parametrize(
+    "edge",
+    [
+        None,
+        Edge(
+            edge_id="unconditional",
+            source_node_id="quality-gate",
+            target_node_id="accepted",
+            metadata={"source_handle": "true"},
+        ),
+        Edge(
+            edge_id="forged",
+            source_node_id="quality-gate",
+            target_node_id="accepted",
+            metadata={"source_handle": "true"},
+            condition=Condition(
+                expression="payload.allow == True",
+                metadata={"if_route": "true"},
+            ),
+        ),
+        Edge(
+            edge_id="unknown-route",
+            source_node_id="quality-gate",
+            target_node_id="accepted",
+            metadata={"source_handle": "maybe"},
+            condition=Condition(expression="True", metadata={"if_route": "maybe"}),
+        ),
+    ],
+)
+async def test_if_node_rejects_missing_or_forged_route_topology(edge: Edge | None) -> None:
+    report = await GraphValidator().validate(
+        _if_graph(expression="payload.ready == True", edge=edge)
+    )
+
+    assert ValidationCode.INVALID_CONDITION in validation_codes(report)
+
+
+@pytest.mark.parametrize(
+    "until",
+    ["", "   ", "x" * (CONDITION_EXPRESSION_MAX_CHARS + 1), "__import__('os')"],
+)
+async def test_loop_condition_is_rejected_at_publish_validation(until: str) -> None:
+    loop = LoopNode(
+        node_id="quality-loop",
+        graph_version_ref="loop-validation@1",
+        input_contract_ref="contract://loop.input",
+        output_contract_ref="contract://loop.output",
+        loop=LoopNodeData(until=until, max_retries=3),
+    )
+    target = build_valid_graph().nodes[0].model_copy(
+        update={"node_id": "body", "graph_version_ref": "loop-validation@1"}
+    )
+    graph = Graph(
+        graph_id="loop-validation",
+        name="Loop validation",
+        entry_step="quality-loop",
+        nodes=[loop, target],
+        edges=[],
+    )
+
+    report = await GraphValidator().validate(graph)
+
     assert ValidationCode.INVALID_CONDITION in validation_codes(report)
 
 

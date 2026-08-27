@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.governance.audit.repository import AuditRepository
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
@@ -70,6 +72,9 @@ class ClaimedWebhookDelivery:
     method_names=frozenset(
         {
             "enqueue_delivery",
+            "enqueue_deliveries",
+            "get_delivery",
+            "list_deliveries",
             "claim_pending_delivery",
             "mark_delivered",
             "mark_failed",
@@ -118,22 +123,30 @@ class WebhookRepository:
     # ── Subscription CRUD ──────────────────────────────────────────────
 
     @persistence_operation(ResourceOperation.CREATE)
-    async def create_subscription(self, sub: WebhookSubscription) -> WebhookSubscription:
+    async def create_subscription(
+        self,
+        sub: WebhookSubscription,
+        *,
+        audit_record: NodeAuditRecord | None = None,
+        audit_repository: AuditRepository | None = None,
+    ) -> WebhookSubscription:
         """Persist a new webhook subscription and return it."""
         if sub.tenant_id != self._scope_context.tenant_id:
             raise ValueError("tenant_id does not match bound scope")
-        await self._subscriptions.insert(
-            {
-                "subscription_id": sub.subscription_id,
-                "deployment_ref": sub.deployment_ref,
-                "target_url": sub.target_url,
-                "secret": sub.secret,
-                "event_types": to_json_value(list(sub.event_types)),
-                "active": 1 if sub.active else 0,
-                "created_at": sub.created_at.isoformat(),
-                "updated_at": sub.updated_at.isoformat(),
-            }
-        )
+        async with self._subscriptions.transaction(write_lock=True) as subscriptions:
+            await subscriptions.insert(
+                {
+                    "subscription_id": sub.subscription_id,
+                    "deployment_ref": sub.deployment_ref,
+                    "target_url": sub.target_url,
+                    "secret": sub.secret,
+                    "event_types": to_json_value(list(sub.event_types)),
+                    "active": 1 if sub.active else 0,
+                    "created_at": sub.created_at.isoformat(),
+                    "updated_at": sub.updated_at.isoformat(),
+                }
+            )
+            await self._write_audit(subscriptions, audit_record, audit_repository)
         return sub
 
     @persistence_operation(ResourceOperation.READ)
@@ -172,12 +185,20 @@ class WebhookRepository:
         return result
 
     @persistence_operation(ResourceOperation.UPDATE)
-    async def deactivate_subscription(self, subscription_id: str) -> None:
+    async def deactivate_subscription(
+        self,
+        subscription_id: str,
+        *,
+        audit_record: NodeAuditRecord | None = None,
+        audit_repository: AuditRepository | None = None,
+    ) -> None:
         """Set a subscription to inactive."""
         now = utc_now().isoformat()
-        await self._subscriptions.update(
-            {"active": 0, "updated_at": now}, where={"subscription_id": subscription_id}
-        )
+        async with self._subscriptions.transaction(write_lock=True) as subscriptions:
+            await subscriptions.update(
+                {"active": 0, "updated_at": now}, where={"subscription_id": subscription_id}
+            )
+            await self._write_audit(subscriptions, audit_record, audit_repository)
 
     @persistence_operation(ResourceOperation.DELETE)
     async def delete_subscription(self, subscription_id: str) -> None:
@@ -207,6 +228,59 @@ class WebhookRepository:
             }
         )
         return delivery
+
+    @persistence_operation(ResourceOperation.CREATE)
+    async def enqueue_deliveries(
+        self,
+        deliveries: Sequence[WebhookDelivery],
+        *,
+        audit_records: Sequence[NodeAuditRecord] | None = None,
+        audit_repository: AuditRepository | None = None,
+    ) -> list[WebhookDelivery]:
+        """Persist one source event's fan-out and audits under one commit."""
+        if (audit_records is None) != (audit_repository is None):
+            raise ValueError("audit_records and audit_repository must be supplied together")
+        if audit_records is not None and len(audit_records) != len(deliveries):
+            raise ValueError("each delivery requires exactly one audit record")
+        self._validate_audit_database(audit_repository)
+        async with self._deliveries.transaction(write_lock=True) as bound:
+            for index, delivery in enumerate(deliveries):
+                await self._insert_delivery(bound, delivery)
+                if audit_repository is not None and audit_records is not None:
+                    await self._write_audit(bound, audit_records[index], audit_repository)
+        return list(deliveries)
+
+    @persistence_operation(ResourceOperation.READ)
+    async def get_delivery(self, delivery_id: str) -> WebhookDelivery | None:
+        """Return one delivery by ID for delivery verification and inspection."""
+        row = await self._deliveries.select_one(where={"delivery_id": delivery_id})
+        if row is None:
+            return None
+        return self._row_to_delivery(row)
+
+    @persistence_operation(ResourceOperation.ENUMERATE)
+    async def list_deliveries(
+        self,
+        subscription_id: str | None = None,
+        limit: int = 50,
+        subscription_ids: Sequence[str] | None = None,
+    ) -> list[WebhookDelivery]:
+        """Return safe delivery records after applying subscription scope in the query."""
+        where = {"subscription_id": subscription_id} if subscription_id is not None else None
+        if subscription_ids is not None and not subscription_ids:
+            return []
+        async with self._deliveries.transaction() as deliveries:
+            rows = await deliveries.select(
+                where=where,
+                where_in=(
+                    {"subscription_id": tuple(subscription_ids)}
+                    if subscription_ids is not None
+                    else None
+                ),
+                order_by_desc=("created_at",),
+                limit=limit,
+            )
+        return [self._row_to_delivery(row) for row in rows]
 
     @persistence_operation(
         ResourceOperation.ENUMERATE, ResourceOperation.READ, ResourceOperation.UPDATE
@@ -276,11 +350,18 @@ class WebhookRepository:
         return None
 
     @persistence_operation(ResourceOperation.UPDATE)
-    async def mark_delivered(self, delivery_id: str, generation: int) -> bool:
+    async def mark_delivered(
+        self,
+        delivery_id: str,
+        generation: int,
+        *,
+        audit_record: NodeAuditRecord | None = None,
+        audit_repository: AuditRepository | None = None,
+    ) -> bool:
         """Complete only the currently leased generation."""
         now = utc_now().isoformat()
         async with self._deliveries.transaction(write_lock=True) as deliveries:
-            return await deliveries.update_if_matches(
+            transitioned = await deliveries.update_if_matches(
                 {"status": DeliveryStatus.DELIVERED.value, "updated_at": now},
                 where={
                     "delivery_id": delivery_id,
@@ -289,6 +370,9 @@ class WebhookRepository:
                 },
                 returning="delivery_id",
             )
+            if transitioned:
+                await self._write_audit(deliveries, audit_record, audit_repository)
+            return transitioned
 
     @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def mark_failed(
@@ -299,6 +383,8 @@ class WebhookRepository:
         error: str,
         status_code: int | None,
         retry_delay: float,
+        audit_record: NodeAuditRecord | None = None,
+        audit_repository: AuditRepository | None = None,
     ) -> bool:
         """Mark a delivery as failed and schedule the next retry.
 
@@ -311,7 +397,7 @@ class WebhookRepository:
         now = utc_now()
         next_at = now + timedelta(seconds=retry_delay)
         async with self._deliveries.transaction(write_lock=True) as deliveries:
-            return await deliveries.update_if_matches(
+            transitioned = await deliveries.update_if_matches(
                 {
                     "status": DeliveryStatus.FAILED.value,
                     "next_attempt_at": next_at.isoformat(),
@@ -326,6 +412,9 @@ class WebhookRepository:
                 },
                 returning="delivery_id",
             )
+            if transitioned:
+                await self._write_audit(deliveries, audit_record, audit_repository)
+            return transitioned
 
     @persistence_resource_operations(
         "service.webhook_deliveries", ResourceOperation.READ, ResourceOperation.UPDATE
@@ -334,11 +423,20 @@ class WebhookRepository:
     @persistence_operation(
         ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
     )
-    async def dead_letter(self, delivery_id: str, generation: int) -> bool:
+    async def dead_letter(
+        self,
+        delivery_id: str,
+        generation: int,
+        *,
+        dead_letter_id: str | None = None,
+        audit_record: NodeAuditRecord | None = None,
+        audit_repository: AuditRepository | None = None,
+    ) -> str | None:
         """Move a delivery to the dead-letter table.
 
         Inserts into webhook_dead_letters from delivery data, then updates
-        the delivery status to DEAD_LETTER.
+        the delivery status to DEAD_LETTER. Returns the durable dead-letter ID
+        only when this generation wins the fenced transition.
         """
         now = utc_now()
         async with self._deliveries.transaction(write_lock=True) as deliveries:
@@ -351,7 +449,7 @@ class WebhookRepository:
                 }
             )
             if row is None:
-                return False
+                return None
             transitioned = await deliveries.update_if_matches(
                 {
                     "status": DeliveryStatus.DEAD_LETTER.value,
@@ -365,8 +463,8 @@ class WebhookRepository:
                 returning="delivery_id",
             )
             if not transitioned:
-                return False
-            dead_letter_id = _new_id()
+                return None
+            dead_letter_id = dead_letter_id or _new_id()
             await dead_letters.insert(
                 {
                     "dead_letter_id": dead_letter_id,
@@ -382,7 +480,8 @@ class WebhookRepository:
                     "dead_lettered_at": now.isoformat(),
                 }
             )
-            return True
+            await self._write_audit(deliveries, audit_record, audit_repository)
+            return dead_letter_id
 
     # ── Dead-letter queries ────────────────────────────────────────────
 
@@ -425,6 +524,45 @@ class WebhookRepository:
         return self._row_to_dead_letter(row)
 
     # ── Helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    async def _insert_delivery(deliveries, delivery: WebhookDelivery) -> None:
+        await deliveries.insert(
+            {
+                "delivery_id": delivery.delivery_id,
+                "subscription_id": delivery.subscription_id,
+                "event_type": delivery.event_type.value,
+                "event_id": delivery.event_id,
+                "payload_json": delivery.payload_json,
+                "status": delivery.status.value,
+                "attempt_count": delivery.attempt_count,
+                "max_attempts": delivery.max_attempts,
+                "next_attempt_at": delivery.next_attempt_at.isoformat(),
+                "last_error": delivery.last_error,
+                "last_status_code": delivery.last_status_code,
+                "created_at": delivery.created_at.isoformat(),
+                "updated_at": delivery.updated_at.isoformat(),
+            }
+        )
+
+    def _validate_audit_database(self, repository: AuditRepository | None) -> None:
+        if repository is not None and repository._database is not self._database:
+            raise ValueError("webhook state and audit must share one database")
+
+    async def _write_audit(
+        self,
+        connection,
+        record: NodeAuditRecord | None,
+        repository: AuditRepository | None,
+    ) -> None:
+        if (record is None) != (repository is None):
+            raise ValueError("audit_record and audit_repository must be supplied together")
+        self._validate_audit_database(repository)
+        if record is None or repository is None:
+            return
+        written = await repository.write_in_transaction(connection, record)
+        if written.record_signature is None:
+            raise RuntimeError("webhook delivery audit was not signed")
 
     @staticmethod
     def _row_to_subscription(row: dict) -> WebhookSubscription:

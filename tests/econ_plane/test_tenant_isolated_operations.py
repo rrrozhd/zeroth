@@ -326,6 +326,29 @@ def test_outcome_links_only_to_execution_in_bound_scope(econ_engine) -> None:
         raw_b.close()
 
 
+def test_execution_ingest_persists_campaign_reconciliation_identity(econ_engine) -> None:
+    _seed_capabilities(econ_engine)
+    raw, tenant_a = _scope(econ_engine, "tenant-a")
+    try:
+        payload = _execution("campaign-cost-1", "cap-a", "impl-a").model_copy(
+            update={
+                "campaign_id": "evaluation-studio-v1",
+                "operation_id": "operation-1",
+                "provider_request_id": "provider-request-1",
+                "cleanup_status": "committed",
+            }
+        )
+
+        _, row = ingest_execution(tenant_a, payload)
+
+        assert row.campaign_id == "evaluation-studio-v1"
+        assert row.operation_id == "operation-1"
+        assert row.provider_request_id == "provider-request-1"
+        assert row.cleanup_status == "committed"
+    finally:
+        raw.close()
+
+
 def test_linked_outcome_derives_implementation_and_is_evaluated(econ_engine, monkeypatch) -> None:
     _seed_capabilities(econ_engine)
     monkeypatch.setattr(

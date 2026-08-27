@@ -1,7 +1,7 @@
 "use client";
 
 // The Studio list screen — author and manage workflow graphs, wired to the live
-// Studio API. Restyled onto the P0 dark/teal design system (tokens + primitives);
+// Studio API. Presented as an operational drafting ledger;
 // the data flow is unchanged: graphs come from `listWorkflows`, a row opens the
 // canvas at `/studio/edit?id=…`, "Start from scratch" creates a draft via
 // `createWorkflow`, and each template instantiates an editable draft via
@@ -11,8 +11,21 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { NodeGlyph } from "@/app/components/nodeMeta";
-import { Button, Card, MonoLabel, NODE_TYPE_COLOR, Pill, Skeleton } from "@/app/components/primitives";
+import {
+  Button,
+  ConsoleDataList,
+  ConsoleDataRow,
+  ConsoleEmpty,
+  ConsoleField,
+  ConsoleInput,
+  ConsoleMeta,
+  ConsoleNotice,
+  ConsolePage,
+  ConsolePageHeader,
+  ConsoleSection,
+  ConsoleSurface,
+  Skeleton,
+} from "@/app/components/primitives";
 import { useToast } from "@/app/components/Toast";
 import { useLoad } from "@/app/hooks/useLoad";
 import {
@@ -27,24 +40,7 @@ import {
   WORKFLOW_TEMPLATES,
   type WorkflowTemplate,
 } from "@/app/lib/templates";
-
-const MONO = "var(--font-mono)";
-
-// Backend node_type discriminator -> the P0 NODE_TYPE_COLOR shorthand key, so a
-// template's step squares carry each node type's own accent color.
-const NODE_TYPE_KEY: Record<string, string> = {
-  entrypoint: "entrypoint",
-  agent: "agent",
-  retrieval: "retrieval",
-  human_approval: "approval",
-  executable_unit: "exec",
-  code: "exec",
-  subgraph: "subgraph",
-};
-
-function nodeColor(type: string): string {
-  return NODE_TYPE_COLOR[NODE_TYPE_KEY[type] ?? "subgraph"] ?? "var(--nt-subgraph)";
-}
+import styles from "./studio.module.css";
 
 // Graph lifecycle -> its state color (handoff §2): deployed teal, published
 // green, draft muted; anything unmapped degrades to muted.
@@ -59,6 +55,7 @@ function lifecycleColor(status: string): string {
 }
 
 export default function StudioPage() {
+  const router = useRouter();
   const toast = useToast();
   const { data, error, loading, reload } = useLoad<WorkflowSummary[]>(listWorkflows);
   const [name, setName] = useState("");
@@ -73,10 +70,10 @@ export default function StudioPage() {
     setBusy(true);
     setFormError(null);
     try {
-      await createWorkflow(label);
+      const created = await createWorkflow(label);
       setName("");
       toast(`Created draft "${label}"`);
-      reload();
+      router.push(`/studio/edit?id=${encodeURIComponent(created.id)}`);
     } catch (e) {
       setFormError(errMsg(e));
     } finally {
@@ -100,210 +97,139 @@ export default function StudioPage() {
   }
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
-      <header
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-end",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 22,
-        }}
-      >
-        <div>
-          <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Studio</h1>
-          <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
-            Author and manage workflow graphs.
-          </p>
-        </div>
-        <Button variant="neutral" onClick={() => reload()} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
-        </Button>
-      </header>
+    <ConsolePage>
+      <ConsolePageHeader
+        title="Studio"
+        description="Compose, inspect, and issue governed workflow graphs. Published records are immutable."
+        actions={
+          <>
+            <Button variant="neutral" onClick={() => reload()} disabled={loading}>
+              {loading ? "Loading…" : "Refresh"}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => document.getElementById("new-workflow-name")?.focus()}
+            >
+              New record
+            </Button>
+          </>
+        }
+      />
 
       {/* Graph list — the primary content of the Studio page. */}
-      <section style={{ marginBottom: 26 }}>
-        <MonoLabel style={{ display: "block", marginBottom: 10 }}>Your graphs</MonoLabel>
-
+      <ConsoleSection
+        title="Workflows"
+        meta={data ? `${data.length} record${data.length === 1 ? "" : "s"}` : undefined}
+      >
         {error && <ApiErrorNote error={error} />}
         {loading && !data && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className={styles.loadingStack}>
             <Skeleton height={44} />
             <Skeleton height={44} />
             <Skeleton height={44} />
           </div>
         )}
         {data && data.length === 0 && (
-          <EmptyNote>No workflows yet — pick a template below, or create a blank one.</EmptyNote>
+          <ConsoleEmpty>No workflows yet. Pick a template below or create a blank workflow.</ConsoleEmpty>
         )}
 
         {data && data.length > 0 && (
-          <div
-            style={{
-              border: "1px solid var(--hair)",
-              borderRadius: 8,
-              overflow: "hidden",
-              background: "var(--bg-card)",
-            }}
-          >
-            {data.map((w, i) => (
+          <ConsoleDataList ariaLabel="Workflows">
+            {data.map((w) => (
               <GraphRow
                 key={w.id}
                 w={w}
-                last={i === data.length - 1}
                 deleting={deletingId === w.id}
                 rowError={rowError?.id === w.id ? rowError.msg : null}
                 onDelete={() => remove(w.id, w.name)}
               />
             ))}
-          </div>
+          </ConsoleDataList>
         )}
-      </section>
+      </ConsoleSection>
 
       {/* Start something new. */}
       <TemplateGallery />
 
-      <section style={{ marginTop: 22 }}>
-        <Card label="Start from scratch">
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
-            <label style={{ flex: 1, minWidth: 0 }}>
-              <MonoLabel style={{ display: "block", marginBottom: 6 }}>New graph name</MonoLabel>
-              <input
+      <ConsoleSection title="Create blank workflow" meta="Starts with an empty canvas">
+        <ConsoleSurface>
+          <div className={styles.blankForm}>
+            <ConsoleField
+              label="Workflow name"
+              hint="You can rename it later in the editor."
+              className={styles.blankField}
+            >
+              <ConsoleInput
                 value={name}
+                id="new-workflow-name"
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && create()}
-                placeholder="My workflow"
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  fontFamily: MONO,
-                  fontSize: 12.5,
-                  color: "var(--text-primary)",
-                  background: "var(--bg-code)",
-                  border: "1px solid var(--hair-strong)",
-                  borderRadius: 6,
-                  padding: "8px 10px",
-                  outline: "none",
-                }}
+                placeholder="Incident review workflow"
               />
-            </label>
+            </ConsoleField>
             <Button variant="primary" onClick={create} disabled={busy || !name.trim()}>
               {busy ? "Creating…" : "Create"}
             </Button>
           </div>
           {formError && (
-            <div style={{ marginTop: 12 }}>
-              <ErrorBox message={formError} />
+            <div className={styles.formError}>
+              <ConsoleNotice tone="danger" title="Could not create workflow">
+                {formError}
+              </ConsoleNotice>
             </div>
           )}
-        </Card>
-      </section>
-    </div>
+        </ConsoleSurface>
+      </ConsoleSection>
+    </ConsolePage>
   );
 }
 
-// A single graph row: mono name + id (opens the canvas), colored uppercase
-// lifecycle state, version, and Edit / Delete controls. Hover paints the teal
-// tint + accent left edge from handoff §2.
+// A single graph row: name + id (opens the canvas), factual lifecycle state,
+// version, and Edit / Delete controls.
 function GraphRow({
   w,
-  last,
   deleting,
   rowError,
   onDelete,
 }: {
   w: WorkflowSummary;
-  last: boolean;
   deleting: boolean;
   rowError: string | null;
   onDelete: () => void;
 }) {
-  const [hover, setHover] = useState(false);
   const href = `/studio/edit?id=${encodeURIComponent(w.id)}`;
   const stateColor = lifecycleColor(w.status);
   const canDelete = w.status !== "published";
 
   return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        borderBottom: last ? "none" : "1px solid var(--hair)",
-        borderLeft: `2px solid ${hover ? "var(--accent)" : "transparent"}`,
-        background: hover ? "rgba(94,234,212,0.06)" : "transparent",
-        transition: "background 120ms ease, border-color 120ms ease",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px" }}>
-        <Link
-          href={href}
-          style={{ minWidth: 0, flex: 1, textDecoration: "none", color: "inherit" }}
-        >
-          <div
-            style={{
-              fontFamily: MONO,
-              fontSize: 13,
-              color: hover ? "var(--accent)" : "var(--text-primary)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              transition: "color 120ms ease",
-            }}
-          >
-            {w.name}
-          </div>
-          <div
-            style={{
-              marginTop: 2,
-              fontFamily: MONO,
-              fontSize: 11,
-              color: "var(--text-faint)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {w.id}
-          </div>
+    <ConsoleDataRow>
+      <div className={styles.recordBody} data-evidence-scope={`workflow-${w.id}`}>
+        <Link href={href} className={styles.recordLink}>
+          <div className={styles.recordName}>{w.name}</div>
+          <div className={styles.recordId}>{w.id}</div>
         </Link>
 
-        <span
-          style={{
-            fontFamily: MONO,
-            fontSize: 10.5,
-            fontWeight: 500,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            color: stateColor,
-            flexShrink: 0,
-          }}
-        >
+        <span className={styles.recordState} style={{ color: stateColor }}>
           {w.status}
         </span>
-        <Pill tone="neutral" style={{ flexShrink: 0 }}>
-          v{w.version}
-        </Pill>
-        <Link href={href} style={{ flexShrink: 0, textDecoration: "none" }}>
-          <Button variant="neutral">Edit</Button>
+        <ConsoleMeta>v{w.version}</ConsoleMeta>
+        <Link href={href} className={styles.recordAction}>
+          Edit
         </Link>
         {canDelete && (
-          <Button
-            variant="danger"
-            onClick={onDelete}
-            disabled={deleting}
-            style={{ flexShrink: 0 }}
-          >
+          <Button variant="danger" onClick={onDelete} disabled={deleting}>
             {deleting ? "Deleting…" : "Delete"}
           </Button>
         )}
       </div>
       {rowError && (
-        <div style={{ padding: "0 14px 11px" }}>
-          <ErrorBox message={rowError} />
+        <div className={styles.rowError}>
+          <ConsoleNotice tone="danger" title="Could not delete workflow">
+            {rowError}
+          </ConsoleNotice>
         </div>
       )}
-    </div>
+    </ConsoleDataRow>
   );
 }
 
@@ -327,16 +253,17 @@ function TemplateGallery() {
   }
 
   return (
-    <section>
-      <MonoLabel style={{ display: "block", marginBottom: 10 }}>Start from a template</MonoLabel>
+    <ConsoleSection title="Start from a template" meta={`${WORKFLOW_TEMPLATES.length} templates`}>
       {error && (
-        <div style={{ marginBottom: 12 }}>
-          <ErrorBox message={error} />
+        <div className={styles.formError}>
+          <ConsoleNotice tone="danger" title="Could not create from template">
+            {error}
+          </ConsoleNotice>
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <ConsoleDataList ariaLabel="Workflow templates">
         {WORKFLOW_TEMPLATES.map((t) => (
-          <TemplateCard
+          <TemplateRow
             key={t.id}
             template={t}
             busy={busyId !== null}
@@ -344,14 +271,13 @@ function TemplateGallery() {
             onUse={() => use(t)}
           />
         ))}
-      </div>
-    </section>
+      </ConsoleDataList>
+    </ConsoleSection>
   );
 }
 
-// A tappable template card: node-type accent squares for each step, name,
-// description, and a "Use template" affordance. The whole card is the button.
-function TemplateCard({
+// A flat template row: name, plain-language description, and one affordance.
+function TemplateRow({
   template: t,
   busy,
   busyThis,
@@ -362,110 +288,16 @@ function TemplateCard({
   busyThis: boolean;
   onUse: () => void;
 }) {
-  const [hover, setHover] = useState(false);
-  const active = hover && !busy;
-
   return (
-    <button
-      type="button"
-      onClick={onUse}
-      disabled={busy}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        textAlign: "left",
-        width: "100%",
-        background: active ? "rgba(94,234,212,0.04)" : "var(--bg-card)",
-        border: `1px solid ${active ? "rgba(94,234,212,0.4)" : "var(--hair)"}`,
-        borderRadius: 8,
-        padding: 16,
-        cursor: busy ? "default" : "pointer",
-        opacity: busy && !busyThis ? 0.55 : 1,
-        transition: "background 120ms ease, border-color 120ms ease, opacity 120ms ease",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }} aria-label={t.tagline}>
-        {t.nodes.map((n, i) => (
-          <span key={n.id} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {i > 0 && (
-              <span aria-hidden style={{ fontSize: 11, color: "var(--text-faint)" }}>
-                →
-              </span>
-            )}
-            <span
-              title={String((n.data as { label?: string }).label ?? n.type)}
-              style={{
-                display: "grid",
-                placeItems: "center",
-                width: 26,
-                height: 26,
-                borderRadius: 6,
-                flexShrink: 0,
-                color: nodeColor(n.type),
-                background: `color-mix(in srgb, ${nodeColor(n.type)} 14%, transparent)`,
-              }}
-            >
-              <NodeGlyph type={n.type} className="h-3.5 w-3.5" />
-            </span>
-          </span>
-        ))}
-      </div>
-      <div style={{ marginTop: 12, fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-        {t.name}
-      </div>
-      <p style={{ marginTop: 4, flex: 1, fontSize: 12, lineHeight: 1.6, color: "var(--text-muted)" }}>
-        {t.description}
-      </p>
-      <div
-        style={{
-          marginTop: 12,
-          fontFamily: MONO,
-          fontSize: 11.5,
-          fontWeight: 500,
-          color: "var(--accent)",
-        }}
-      >
-        {busyThis ? "Creating…" : "Use template →"}
-      </div>
-    </button>
-  );
-}
-
-// A dashed, muted empty-state note.
-function EmptyNote({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      style={{
-        border: "1px dashed var(--hair-strong)",
-        borderRadius: 8,
-        padding: "22px 16px",
-        textAlign: "center",
-        fontSize: 13,
-        color: "var(--text-muted)",
-      }}
-    >
-      {children}
-    </p>
-  );
-}
-
-// A red-tinted inline error box (form + row failures).
-function ErrorBox({ message }: { message: string }) {
-  return (
-    <div
-      style={{
-        background: "rgba(248,113,113,0.08)",
-        border: "1px solid rgba(248,113,113,0.3)",
-        borderRadius: 6,
-        padding: "10px 12px",
-        fontSize: 12.5,
-        color: "var(--danger)",
-      }}
-    >
-      {message}
-    </div>
+    <ConsoleDataRow>
+      <button type="button" onClick={onUse} disabled={busy} className={styles.templateRow}>
+        <span className={styles.templateName}>{t.name}</span>
+        <span className={styles.templateDescription}>{t.description}</span>
+        <span className={styles.templateAction}>
+          {busyThis ? "Creating…" : "Use template"}
+        </span>
+      </button>
+    </ConsoleDataRow>
   );
 }
 
@@ -474,22 +306,35 @@ function ErrorBox({ message }: { message: string }) {
 function ApiErrorNote({ error }: { error: string }) {
   if (error.startsWith("403")) {
     return (
-      <EmptyNote>
-        Your API key doesn&apos;t have permission for this view — it requires an elevated role
-        (e.g. admin/auditor).
-      </EmptyNote>
+      <ConsoleNotice tone="danger" title="Permission required">
+        This API key cannot view Studio. Connect with a workflow administrator credential.
+      </ConsoleNotice>
     );
   }
   if (error.startsWith("401")) {
-    return <EmptyNote>Not authenticated. Check your API key via Connect.</EmptyNote>;
+    return (
+      <ConsoleNotice tone="danger" title="Not authenticated">
+        Check the API key under Connect and retry.
+      </ConsoleNotice>
+    );
   }
   if (error.startsWith("0 ") || error.toLowerCase().includes("network error")) {
     return (
-      <EmptyNote>Can&apos;t reach the API. Check the base URL and that the service is running.</EmptyNote>
+      <ConsoleNotice tone="danger" title="Studio API unreachable">
+        Check the base URL and confirm the service is running.
+      </ConsoleNotice>
     );
   }
   if (error.startsWith("503")) {
-    return <EmptyNote>This feature isn&apos;t configured for the deployment.</EmptyNote>;
+    return (
+      <ConsoleNotice tone="danger" title="Studio unavailable">
+        Configure Studio for this deployment and retry.
+      </ConsoleNotice>
+    );
   }
-  return <ErrorBox message={error} />;
+  return (
+    <ConsoleNotice tone="danger" title="Could not load Studio">
+      {error}
+    </ConsoleNotice>
+  );
 }

@@ -11,6 +11,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
+from zeroth.governance.approvals.models import ApprovalDecision, ApprovalStatus
 from zeroth.governance.approvals.service import ApprovalService
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,16 @@ class ApprovalSLAChecker:
                             deployment_ref=record.deployment_ref,
                             graph_version_ref=record.graph_version_ref,
                         )
-                        await self._emit_escalation_event(escalated)
+                        resolution = escalated.resolution
+                        if (
+                            escalated.status is ApprovalStatus.RESOLVED
+                            and resolution is not None
+                            and resolution.decision is ApprovalDecision.REJECT
+                            and resolution.actor.subject == "sla_enforcer"
+                        ):
+                            await self.approval_service.schedule_continuation(
+                                escalated.approval_id
+                            )
                     except Exception:
                         logger.exception("failed to escalate approval %s", record.approval_id)
             except asyncio.CancelledError:
@@ -52,28 +62,3 @@ class ApprovalSLAChecker:
             except Exception:
                 logger.exception("SLA checker poll error")
             await asyncio.sleep(self.poll_interval)
-
-    async def _emit_escalation_event(self, record) -> None:
-        """Emit an approval.escalated webhook event if a webhook service is available."""
-        if self.webhook_service is None:
-            return
-        try:
-            await self.webhook_service.emit_event(
-                event_type="approval.escalated",
-                deployment_ref=record.deployment_ref,
-                tenant_id=record.tenant_id,
-                data={
-                    "approval_id": record.approval_id,
-                    "run_id": record.run_id,
-                    "node_id": record.node_id,
-                    "escalation_action": record.escalation_action or "alert",
-                    "sla_deadline": (
-                        record.sla_deadline.isoformat() if record.sla_deadline else None
-                    ),
-                },
-            )
-        except Exception:
-            logger.exception(
-                "failed to emit escalation webhook for approval %s",
-                record.approval_id,
-            )

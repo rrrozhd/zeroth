@@ -424,6 +424,99 @@ class SideEffectOperationStore:
                 returning="operation_key",
             )
 
+    @persistence_operation(ResourceOperation.UPDATE)
+    async def begin_outcome_lookup(self, operation_key: str) -> bool:
+        """Claim the operation's single automatic outcome lookup.
+
+        The reconciliation counter is the durable once-token.  Claiming it
+        before calling the external integration prevents two workers from both
+        asking and then independently acting on an unknown result.
+        """
+        now = _utc_now()
+        async with self.table.transaction(write_lock=True) as operations:
+            return await operations.update_if_matches(
+                {"updated_at": now},
+                where={
+                    "operation_key": operation_key,
+                    "state": OperationState.AMBIGUOUS.value,
+                    "reconciliation_attempts": 0,
+                },
+                increment=("reconciliation_attempts",),
+                returning="operation_key",
+            )
+
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
+    async def finish_outcome_lookup(
+        self,
+        operation_key: str,
+        *,
+        receipt: str | None,
+        error: str | None,
+    ) -> OperationState:
+        """Persist the result of the already-counted automatic lookup."""
+        now = _utc_now()
+        async with self.table.transaction(write_lock=True) as operations:
+            if receipt is not None:
+                settled = await operations.update_if_matches(
+                    {
+                        "state": OperationState.COMPLETED.value,
+                        "receipt": self._encrypt(receipt),
+                        "error": None,
+                        "updated_at": now,
+                    },
+                    where={
+                        "operation_key": operation_key,
+                        "state": OperationState.AMBIGUOUS.value,
+                    },
+                    returning="operation_key",
+                )
+                if settled:
+                    self._count("zeroth_side_effect_reconciliation_succeeded_total")
+                    return OperationState.COMPLETED
+            else:
+                await operations.update_if_matches(
+                    {"error": error, "updated_at": now},
+                    where={
+                        "operation_key": operation_key,
+                        "state": OperationState.AMBIGUOUS.value,
+                    },
+                    returning="operation_key",
+                )
+        if receipt is None:
+            self._count("zeroth_side_effect_reconciliation_failed_total")
+        return await self.state_of(operation_key)
+
+    @persistence_operation(ResourceOperation.UPDATE)
+    async def resolve_ambiguous(
+        self,
+        operation_key: str,
+        *,
+        state: OperationState,
+        reason: str,
+        receipt: str | None = None,
+    ) -> bool:
+        """Apply an explicit operator verdict to an ambiguous operation only."""
+        if state not in {OperationState.COMPLETED, OperationState.FAILED}:
+            raise ValueError("operator resolution must be COMPLETED or FAILED")
+        now = _utc_now()
+        values: dict[str, Any] = {
+            "state": state.value,
+            "error": None if state is OperationState.COMPLETED else reason,
+            "ambiguity_reason": reason,
+            "updated_at": now,
+        }
+        if state is OperationState.COMPLETED:
+            values["receipt"] = self._encrypt(receipt)
+        async with self.table.transaction(write_lock=True) as operations:
+            return await operations.update_if_matches(
+                values,
+                where={
+                    "operation_key": operation_key,
+                    "state": OperationState.AMBIGUOUS.value,
+                },
+                returning="operation_key",
+            )
+
     @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def record_reconciliation(
         self,

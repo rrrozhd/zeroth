@@ -12,6 +12,12 @@ from zeroth.econ.measurement import MeasurementState
 
 class ExecutionEventCreate(BaseModel):
     tenant_id: str | None = None
+    campaign_id: str | None = None
+    operation_id: str | None = None
+    deployment_ref: str | None = None
+    evidence_kind: Literal["production", "synthetic_control", "legacy_unknown"] = "production"
+    provider_request_id: str | None = None
+    cleanup_status: str | None = None
     execution_id: str
     join_key: str | None = None
     timestamp: datetime
@@ -54,7 +60,17 @@ ExecutionEventCreate.__signature__ = _execution_event_create_signature.replace(
         if name in {"token_cost_usd", "tool_cost_usd", "compute_cost_usd"}
         else parameter
         for name, parameter in _execution_event_create_signature.parameters.items()
-        if name not in {"cost_measurement", "usage_measurement"}
+        if name
+        not in {
+            "campaign_id",
+            "operation_id",
+            "deployment_ref",
+            "evidence_kind",
+            "provider_request_id",
+            "cleanup_status",
+            "cost_measurement",
+            "usage_measurement",
+        }
     ]
 )
 

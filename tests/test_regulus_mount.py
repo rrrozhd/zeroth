@@ -108,6 +108,8 @@ def test_open_token_issuer_is_unreachable_over_http() -> None:
     """
     app = create_app(_GatedBootstrap())
     assert "/regulus" in {getattr(r, "path", "") for r in app.routes}
+    assert app.state.regulus_base_url == "http://regulus.internal/v1"
+    assert app.state.regulus_transport is not None
 
     body = {"sub": "x", "email": "x@x.io", "roles": ["Admin"]}
     with TestClient(app) as client:
@@ -140,6 +142,9 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
     assert headers["X-API-Key"] == _ZEROTH_KEY
     assert headers["Authorization"].startswith("Bearer ")
 
+    from zeroth.econ.plane.config import settings as ecp_settings
+
+    authenticated_tenant = ecp_settings.service_principal_tenant_id
     exec_id = "exec_selfauth_persist"
     with TestClient(app) as client:
         # Seed capability/implementation (same self-auth headers).
@@ -172,7 +177,7 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
                 "compute_cost_usd": "0.0",
                 "latency_ms": 42,
                 "compute_time_ms": 10,
-                "metadata": {"tenant_id": "tenant_default"},
+                    "metadata": {"tenant_id": authenticated_tenant},
             },
         )
         assert ingest.status_code == 200, ingest.text
@@ -185,6 +190,176 @@ def test_self_auth_provider_persists_execution_through_gate_and_mount() -> None:
     with SessionLocal() as db:
         row = db.query(ExecutionEvent).filter_by(execution_id=exec_id).one_or_none()
     assert row is not None
+
+
+def test_default_in_process_client_registers_and_persists_agent_economics() -> None:
+    """The shipped adapter identities resolve in Regulus before delivery."""
+    from uuid import uuid4
+
+    from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
+    from zeroth.econ.analytics.client import RegulusClient
+    from zeroth.econ.analytics.identity import capability_identity, implementation_identity
+    from zeroth.econ.analytics.registration import register_graph_economics
+    from zeroth.econ.instrumentation import ExecutionEvent
+    from zeroth.econ.plane.common.bootstrap import bootstrap as econ_bootstrap
+    from zeroth.econ.plane.main import app as econ_plane_app
+    from zeroth.econ.plane.config import settings as ecp_settings
+
+    suffix = uuid4().hex[:10]
+    tenant_id = ecp_settings.service_principal_tenant_id
+    deployment_ref = f"econ-e2e-{suffix}"
+    node_id = f"agent-{suffix}"
+    model = "openai/gpt-4o-mini"
+    graph = Graph(
+        graph_id=f"graph-{suffix}",
+        name="Economics registration proof",
+        entry_step=node_id,
+        nodes=[
+            AgentNode(
+                node_id=node_id,
+                graph_version_ref=f"graph-{suffix}@1",
+                agent=AgentNodeData(instruction="test", model_provider=model),
+            )
+        ],
+    )
+    econ_bootstrap()
+    register_graph_economics(
+        graph,
+        deployment_ref=deployment_ref,
+        tenant_id=tenant_id,
+    )
+    capability_id = capability_identity(tenant_id, deployment_ref, node_id)
+    implementation_id = implementation_identity(capability_id, model)
+    execution_id = f"execution-{suffix}"
+    client = RegulusClient(
+        base_url="http://regulus.internal/v1",
+        headers_provider=make_self_auth_headers_provider(None),
+        _asgi_app=econ_plane_app,
+    )
+    client.track_execution(
+        ExecutionEvent(
+            execution_id=execution_id,
+            capability_id=capability_id,
+            implementation_id=implementation_id,
+            model_version=model,
+            tenant_id=tenant_id,
+            metadata={"tenant_id": tenant_id, "run_id": f"run-{suffix}"},
+        )
+    )
+    client._client.transport.flush_once()
+    client.stop()
+
+    from zeroth.econ.plane.database import SessionLocal
+    from zeroth.econ.plane.instrumentation.models import ExecutionEvent as StoredExecutionEvent
+
+    with SessionLocal() as db:
+        row = db.query(StoredExecutionEvent).filter_by(execution_id=execution_id).one_or_none()
+    assert row is not None
+    assert row.capability_id == capability_id
+    assert row.implementation_id == implementation_id
+
+
+@pytest.mark.asyncio
+async def test_probe_commit_registers_identity_and_confirms_mounted_regulus_delivery(
+    monkeypatch,
+) -> None:
+    """A successful probe commit is durable in the mounted plane before return."""
+    from decimal import Decimal
+    from uuid import uuid4
+
+    from zeroth.econ.analytics.client import RegulusClient
+    from zeroth.econ.plane.common.bootstrap import bootstrap as econ_bootstrap
+    from zeroth.econ.plane.config import settings as ecp_settings
+    from zeroth.econ.plane.database import SessionLocal
+    from zeroth.econ.plane.enforcement.service import upsert_tenant_budget
+    from zeroth.econ.plane.instrumentation.models import ExecutionEvent as StoredExecutionEvent
+    from zeroth.econ.plane.main import app as econ_plane_app
+    from zeroth.econ.plane.scoped_session import ScopedSession
+    from zeroth.platform.storage.scoping import TenantWideScopeContext
+    from zeroth.service.probe_instrumentation import PersistentProbeInstrumentation
+
+    suffix = uuid4().hex[:10]
+    tenant_id = f"probe-tenant-{suffix}"
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", tenant_id)
+    operation_id = f"probe-mounted-{suffix}"
+    capability_id = f"control.probe.embedding.{suffix}"
+    implementation_id = "openai/text-embedding-3-small"
+    deployment_ref = f"deployment-{suffix}"
+    econ_bootstrap()
+    scope = (
+        TenantWideScopeContext.for_default_compatibility()
+        if tenant_id == "default"
+        else TenantWideScopeContext(tenant_id=tenant_id)
+    )
+    with SessionLocal() as raw:
+        upsert_tenant_budget(
+            ScopedSession(raw, scope),
+            tenant_id,
+            10.0,
+        )
+
+    class Audit:
+        async def write(self, record):
+            return record
+
+    client = RegulusClient(
+        base_url="http://regulus.internal/v1",
+        headers_provider=make_self_auth_headers_provider(None),
+        _asgi_app=econ_plane_app,
+    )
+    # Make this deterministic: delivery must come from commit_probe itself, not
+    # from the client's background flush racing the assertion.
+    client._client.transport.stop()
+    instrumentation = PersistentProbeInstrumentation(
+        session_factory=SessionLocal,
+        regulus_client=client,
+        audit_repository=Audit(),
+        deployment_ref=deployment_ref,
+        graph_version_ref=f"graph-{suffix}@1",
+        workspace_id=None,
+    )
+    await instrumentation.reserve_probe(
+        tenant_id=tenant_id,
+        campaign_id="campaign-probe-mounted",
+        operation_id=operation_id,
+        run_id=f"run-{suffix}",
+        max_cost_usd="0.00000592",
+        run_cap_usd="0.25",
+        capability_id=capability_id,
+        implementation_id=implementation_id,
+    )
+    evidence = await instrumentation.commit_probe(
+        tenant_id=tenant_id,
+        campaign_id="campaign-probe-mounted",
+        operation_id=operation_id,
+        run_id=f"run-{suffix}",
+        capability_id=capability_id,
+        implementation_id=implementation_id,
+        actual_cost_usd="0.00000128",
+        cost_measurement="estimated",
+        provider_request_id=f"provider-{suffix}",
+        cleanup_status="complete",
+        latency_ms=12,
+        input_tokens=64,
+        output_tokens=0,
+    )
+
+    with SessionLocal() as db:
+        row = db.query(StoredExecutionEvent).filter_by(
+            tenant_id=tenant_id,
+            execution_id=evidence.cost_event_id,
+        ).one_or_none()
+    from zeroth.econ.analytics.identity import capability_identity, implementation_identity
+
+    expected_capability_id = capability_identity(tenant_id, deployment_ref, capability_id)
+    expected_implementation_id = implementation_identity(
+        expected_capability_id, implementation_id
+    )
+    assert row is not None
+    assert row.capability_id == expected_capability_id
+    assert row.implementation_id == expected_implementation_id
+    assert row.token_cost_usd == Decimal("0.00000128")
+    assert client._client.transport.queue_size() == 0
 
 
 def test_minted_service_token_is_admin_and_decodable() -> None:

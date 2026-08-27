@@ -13,18 +13,28 @@ both tenant and explicit join keys, never by nested payload keys.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 
 
 class SqlAlchemyEconEventEraser:
     """Concrete ``EconEventEraser`` over the econ_plane SQLAlchemy models.
 
-    Imports ``zeroth.econ.plane`` lazily so a plain ``zeroth-core`` install
-    without the ``regulus`` extra never pays for it. Not wired into the default
-    boot path (see bootstrap) — instantiate and pass it to
-    ``RetentionErasureService`` when the econ plane is present.
+    Imports ``zeroth.econ.plane`` lazily for standalone/legacy construction so
+    a plain ``zeroth-core`` install without the ``regulus`` extra never pays for
+    it. Live service bootstrap supplies the configured econ session factory
+    explicitly and injects the adapter into ``RetentionErasureService``.
     """
+
+    def __init__(self, session_factory: Callable[[], object] | None = None) -> None:
+        """Bind cleanup to one configured econ database session factory.
+
+        ``None`` preserves the standalone/legacy construction path, which
+        resolves the econ plane's configured ``SessionLocal`` lazily. Service
+        bootstrap injects that factory explicitly so a destructive cleanup can
+        never drift to a different module-global database after construction.
+        """
+        self._session_factory = session_factory
 
     async def delete_events_for_run(
         self,
@@ -58,7 +68,11 @@ class SqlAlchemyEconEventEraser:
         from sqlalchemy import delete
         from sqlalchemy.exc import IntegrityError
 
-        from zeroth.econ.plane.database import SessionLocal
+        session_factory = self._session_factory
+        if session_factory is None:
+            from zeroth.econ.plane.database import SessionLocal
+
+            session_factory = SessionLocal
         from zeroth.econ.plane.instrumentation.models import (
             EconErasureReceipt,
             ExecutionEvent,
@@ -66,7 +80,7 @@ class SqlAlchemyEconEventEraser:
         )
 
         deleted = 0
-        session = SessionLocal()
+        session = session_factory()
         try:
             replay = self._replay(session, EconErasureReceipt, tenant_id, idempotency_key)
             if replay is not None:

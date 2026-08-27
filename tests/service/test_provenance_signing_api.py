@@ -156,6 +156,49 @@ async def test_run_audit_verification_reports_signed(sqlite_db) -> None:
     assert body["record_count"] == 2
 
 
+async def test_audit_verification_uses_retained_keys_after_rotation(sqlite_db) -> None:
+    service, deployment, app = await _signed_setup(sqlite_db)
+    run = await _signed_run(service)
+
+    service.signer = EnvHmacSigner(key_id="k2", keys={"k2": b"next-secret"})
+    service.verifier = EnvHmacSigner(
+        key_id="k2",
+        keys={"k1": b"provenance-endpoint-key", "k2": b"next-secret"},
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/runs/{run.run_id}/audit-verification", headers=admin_headers())
+        attestation = client.get(
+            f"/deployments/{deployment.deployment_ref}/attestation/verify",
+            headers=admin_headers(),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["verified"] is True
+    assert body["signature_verified"] is True
+    assert body["signing_key_id"] == "k2"
+    assert attestation.status_code == 200
+    assert attestation.json()["signature_verified"] is True
+
+
+async def test_audit_readiness_distinguishes_signed_from_local_unsigned(sqlite_db) -> None:
+    service, _, signed_app = await _signed_setup(sqlite_db, deployment_ref="signed-ready")
+    with TestClient(signed_app) as client:
+        signed = client.get("/audit-readiness", headers=admin_headers())
+    assert signed.status_code == 200
+    assert signed.json()["state"] == "signed"
+    assert signed.json()["ready"] is True
+
+    service.signer = None
+    with TestClient(signed_app) as client:
+        unsigned = client.get("/audit-readiness", headers=admin_headers())
+    assert unsigned.status_code == 200
+    assert unsigned.json()["state"] == "local_unsigned"
+    assert unsigned.json()["ready"] is True
+    assert "LOCAL ONLY" in unsigned.json()["message"]
+
+
 async def test_post_verify_chain_with_matching_head(sqlite_db) -> None:
     service, _, app = await _signed_setup(sqlite_db)
     run = await _signed_run(service)

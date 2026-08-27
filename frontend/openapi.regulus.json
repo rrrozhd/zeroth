@@ -16,6 +16,21 @@
       },
       "BudgetStatusOut": {
         "properties": {
+          "active_exposure_usd": {
+            "default": 0.0,
+            "title": "Active Exposure Usd",
+            "type": "number"
+          },
+          "actual_spend_usd": {
+            "default": 0.0,
+            "title": "Actual Spend Usd",
+            "type": "number"
+          },
+          "ambiguous_exposure_usd": {
+            "default": 0.0,
+            "title": "Ambiguous Exposure Usd",
+            "type": "number"
+          },
           "budget_cap_usd": {
             "anyOf": [
               {
@@ -27,6 +42,11 @@
             ],
             "title": "Budget Cap Usd"
           },
+          "budget_consumed_usd": {
+            "default": 0.0,
+            "title": "Budget Consumed Usd",
+            "type": "number"
+          },
           "cost_measurement": {
             "default": "measured",
             "enum": [
@@ -37,10 +57,25 @@
             "title": "Cost Measurement",
             "type": "string"
           },
+          "estimated_spend_usd": {
+            "default": 0.0,
+            "title": "Estimated Spend Usd",
+            "type": "number"
+          },
           "measurement_complete": {
             "default": true,
             "title": "Measurement Complete",
             "type": "boolean"
+          },
+          "paid_spend_usd": {
+            "default": 0.0,
+            "title": "Paid Spend Usd",
+            "type": "number"
+          },
+          "synthetic_control_usd": {
+            "default": 0.0,
+            "title": "Synthetic Control Usd",
+            "type": "number"
           },
           "tenant_id": {
             "title": "Tenant Id",
@@ -48,6 +83,11 @@
           },
           "total_cost_usd": {
             "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "unmeasured_spend_usd": {
+            "default": 0.0,
+            "title": "Unmeasured Spend Usd",
             "type": "number"
           },
           "window": {
@@ -894,6 +934,187 @@
         "title": "CostProfileOut",
         "type": "object"
       },
+      "CostReservationOut": {
+        "properties": {
+          "actual_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Cost Usd"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "cleanup_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleanup Status"
+          },
+          "cost_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Event Id"
+          },
+          "cost_measurement": {
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment Ref"
+          },
+          "evidence_kind": {
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "held_cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Held Cost Usd",
+            "type": "string"
+          },
+          "max_cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Max Cost Usd",
+            "type": "string"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Request Id"
+          },
+          "released_cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Released Cost Usd",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "campaign_id",
+          "run_id",
+          "deployment_ref",
+          "evidence_kind",
+          "status",
+          "max_cost_usd",
+          "held_cost_usd",
+          "actual_cost_usd",
+          "released_cost_usd",
+          "cost_measurement",
+          "cost_event_id",
+          "provider_request_id",
+          "cleanup_status"
+        ],
+        "title": "CostReservationOut",
+        "type": "object"
+      },
+      "CostReservationReconcile": {
+        "properties": {
+          "actual_cost_usd": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Actual Cost Usd"
+          },
+          "cleanup_status": {
+            "default": "complete",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Cleanup Status",
+            "type": "string"
+          },
+          "cost_measurement": {
+            "enum": [
+              "measured",
+              "estimated"
+            ],
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Request Id"
+          }
+        },
+        "required": [
+          "actual_cost_usd",
+          "cost_measurement"
+        ],
+        "title": "CostReservationReconcile",
+        "type": "object"
+      },
       "DataQualityMix": {
         "properties": {
           "inferred": {
@@ -1221,9 +1442,31 @@
       },
       "ExecutionEventCreate": {
         "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
           "capability_id": {
             "title": "Capability Id",
             "type": "string"
+          },
+          "cleanup_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleanup Status"
           },
           "compute_cost_usd": {
             "anyOf": [
@@ -1254,6 +1497,27 @@
                 "type": "null"
               }
             ]
+          },
+          "deployment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment Ref"
+          },
+          "evidence_kind": {
+            "default": "production",
+            "enum": [
+              "production",
+              "synthetic_control",
+              "legacy_unknown"
+            ],
+            "title": "Evidence Kind",
+            "type": "string"
           },
           "execution_id": {
             "title": "Execution Id",
@@ -1287,6 +1551,28 @@
           "model_version": {
             "title": "Model Version",
             "type": "string"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Request Id"
           },
           "tenant_id": {
             "anyOf": [
@@ -2857,6 +3143,65 @@
         ]
       }
     },
+    "/v1/budget/reservations/{operation_id}/reconcile": {
+      "post": {
+        "description": "Resolve a retained ambiguous maximum using provider-authoritative cost.",
+        "operationId": "reconcile_reservation_v1_budget_reservations__operation_id__reconcile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostReservationReconcile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostReservationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reconcile Reservation",
+        "tags": [
+          "enforcement",
+          "policy"
+        ]
+      }
+    },
     "/v1/budget/status": {
       "get": {
         "operationId": "budget_status_v1_budget_status_get",
@@ -2868,6 +3213,22 @@
             "schema": {
               "title": "Tenant Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deployment_ref",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deployment Ref"
             }
           }
         ],

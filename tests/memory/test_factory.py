@@ -354,6 +354,30 @@ class TestChromaRegistration:
             call_kwargs = chroma_cls.call_args[1]
             assert call_kwargs["collection_prefix"] == "my_prefix"
 
+    def test_dynamic_chroma_passes_local_embedding_model_and_marks_provider_free(self) -> None:
+        from zeroth.integrations.memory.chroma_connector import LOCAL_HASH_EMBEDDING_MODEL
+        from zeroth.integrations.memory.factory import build_connector
+
+        with (
+            patch("zeroth.integrations.memory.factory.chromadb") as mock_chromadb,
+            patch("zeroth.integrations.memory.factory.ChromaDBMemoryConnector") as chroma_cls,
+        ):
+            mock_chromadb.HttpClient.return_value = MagicMock()
+            chroma_cls.return_value = MagicMock(connector_type="chroma")
+
+            manifest, _ = build_connector(
+                "chroma",
+                {
+                    "host": "127.0.0.1",
+                    "port": 8121,
+                    "collection_prefix": "tenant_fixture",
+                    "embedding_model": LOCAL_HASH_EMBEDDING_MODEL,
+                },
+            )
+
+        assert chroma_cls.call_args.kwargs["embedding_model"] == LOCAL_HASH_EMBEDDING_MODEL
+        assert manifest.config == {"provider_call_mode": "none"}
+
 
 # ---------------------------------------------------------------------------
 # Tests: Elasticsearch

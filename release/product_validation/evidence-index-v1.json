@@ -1,0 +1,883 @@
+{
+  "schema_version": 1,
+  "catalog_id": "zeroth-published-product-v1",
+  "control_inventory": {
+    "source_root": "product-surface-inventory-deep-accepted-20260826-1",
+    "supplemental_source_roots": [
+      "native-safari-docker-recovery-inventory-20260825-1",
+      "native-safari-product-surface-recovery-20260825-1"
+    ],
+    "status": "pass",
+    "route_count": 21,
+    "unnamed_control_count": 0,
+    "uncataloged_control_count": 0,
+    "passed_checkpoints": [
+      "persistent_docker_recovery",
+      "all_routes_hot_after_recovery",
+      "all_visible_controls_cataloged",
+      "select_checkbox_and_radio_state_inventory",
+      "native_safari_fresh_tab_render"
+    ]
+  },
+  "entries": [
+    {
+      "capability_id": "shell-navigation",
+      "route": "/",
+      "source_root": "product-surface-inventory-deep-accepted-20260826-1",
+      "supplemental_source_roots": [
+        "native-safari-product-surface-recovery-20260825-1",
+        "native-safari-docker-recovery-inventory-20260825-1",
+        "full-surface-visual-20260824-5",
+        "playwright-webhooks-live-20260825-8",
+        "dashboard-reflow-accepted-20260826-1",
+        "provider-independent-surface-closure-accepted-20260826-1",
+        "provider-independent-ui-runs-live-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "all_published_routes_and_visible_controls_cataloged",
+        "sidebar_navigation_and_single_active_route",
+        "keyboard_focus_responsive_zoom_and_reduced_motion_matrix",
+        "failure_recovery_and_fresh_native_safari_navigation",
+        "persistent_connection_state_across_navigation"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "ui.operational-surfaces",
+        "ui.focus-visible-order",
+        "ui.reduced-motion",
+        "ui.sidebar-active-route-navigation"
+      ]
+    },
+    {
+      "capability_id": "connection-and-identity",
+      "route": "/",
+      "source_root": "identity-isolation-live-checkpoint-20260825-1",
+      "supplemental_source_roots": [
+        "native-safari-docker-recovery-inventory-20260825-1",
+        "native-safari-product-surface-recovery-20260825-1",
+        "product-surface-inventory-checkpoint-20260825-6",
+        "product-surface-inventory-deep-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "health_and_identity_scope_agreement",
+        "authoritative_tenant_and_role_display",
+        "invalid_cross_service_identity_fails_closed",
+        "persistent_connection_restored_after_runtime_recovery",
+        "native_safari_fresh_tab_restoration"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "identity.authoritative-scope",
+        "controls.overview",
+        "controls.guide"
+      ]
+    },
+    {
+      "capability_id": "tenant-and-role-isolation",
+      "route": "/retention",
+      "source_root": "identity-isolation-live-checkpoint-20260825-1",
+      "supplemental_source_roots": [
+        "native-safari-operator-denial-checkpoint-20260825-1",
+        "playwright-webhook-role-matrix-20260825-3",
+        "native-safari-webhook-role-matrix-20260825-2"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "primary_and_twin_tenant_scope_matrix",
+        "operator_reviewer_admin_and_platform_admin_matrix",
+        "cross_tenant_detail_only_denial",
+        "native_safari_role_denial",
+        "scope_restoration_after_refresh"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "identity.authoritative-scope",
+        "identity.tenant-isolation",
+        "identity.role-denial",
+        "identity.role.operator",
+        "identity.role.reviewer",
+        "identity.role.admin",
+        "identity.role.platform_admin",
+        "product.identity.native-safari-role-denial"
+      ]
+    },
+    {
+      "capability_id": "studio-authoring",
+      "route": "/studio/edit",
+      "source_root": "studio-live-authoring-checkpoint-20260824-1",
+      "supplemental_source_roots": [
+        "studio-authoring-deterministic-20260824-1",
+        "live-workflow-config-ui-20260824-9",
+        "product-surface-inventory-checkpoint-20260825-6",
+        "product-surface-inventory-deep-accepted-20260826-1",
+        "studio-if-shortcut-ui-checkpoint-20260826-1",
+        "provider-independent-ui-runs-live-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "empty_canvas_node_and_edge_authoring",
+        "node_inspector_and_contract_validation",
+        "preflight_error_focus",
+        "keyboard_save_undo_redo_and_refresh",
+        "published_graph_read_only_persistence",
+        "first_class_if_shortcut_and_refresh"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "ui.empty-canvas-authoring",
+        "ui.node-placement",
+        "ui.node-menu",
+        "ui.node-inspector",
+        "ui.contract-configuration",
+        "ui.keyboard-shortcuts",
+        "ui.undo-redo-refresh",
+        "ui.preflight-error-focus",
+        "ui.canvas-gestures",
+        "product.studio.add-node-shortcut",
+        "product.studio.if-node-config-persistence",
+        "product.studio.if-inspector-dialog"
+      ]
+    },
+    {
+      "capability_id": "agent-tool-use",
+      "route": "/studio/edit",
+      "source_root": "live-workflow-config-ui-20260824-9",
+      "supplemental_source_roots": [
+        "provider-independent-20260824T000000Z",
+        "workflow3-current-happy-checkpoint-20260824-1",
+        "workflow3-current-negative-checkpoint-20260824-1",
+        "governance-economics-evidence-repair-accepted-20260826-1",
+        "provider-independent-ui-runs-live-accepted-20260826-1"
+      ],
+      "status": "blocked",
+      "passed_checkpoints": [
+        "studio_tool_binding_configuration",
+        "governed_action_result_and_receipt",
+        "rejection_and_zero_side_effects",
+        "signed_audit_and_refresh_persistence"
+      ],
+      "remaining_checkpoints": [
+        "live_model_driven_tool_selection_and_execution",
+        "provider_model_usage_and_cost_identity"
+      ],
+      "evidence_criteria": [
+        "ui.node-inspector",
+        "workflow3.exactly-one-marker-each",
+        "workflow3.negative-rejection-zero-marker",
+        "audit.approval-action-linkage",
+        "audit.receipts-linked"
+      ]
+    },
+    {
+      "capability_id": "connectors-and-retrieval",
+      "route": "/connectors",
+      "source_root": "workflow1-chroma-unavailable-checkpoint-20260824-2",
+      "supplemental_source_roots": [
+        "chroma-corpus-checkpoint-20260824-2",
+        "live-workflow-config-ui-20260824-9",
+        "native-safari-product-surface-recovery-20260825-1",
+        "provider-independent-ui-runs-live-accepted-20260826-1"
+      ],
+      "status": "blocked",
+      "passed_checkpoints": [
+        "connector_configuration_and_persistence",
+        "pinned_loopback_chroma_corpus",
+        "chroma_unavailable_fail_closed_before_model",
+        "signed_zero_cost_failure_evidence",
+        "native_safari_connector_inventory"
+      ],
+      "remaining_checkpoints": [
+        "live_semantic_retrieval_result",
+        "instrumented_embedding_and_model_cost_reconciliation"
+      ],
+      "evidence_criteria": [
+        "ui.connector-configuration",
+        "control.chroma-corpus-seeded",
+        "workflow1.negative-chroma-unavailable"
+      ]
+    },
+    {
+      "capability_id": "context-windows-and-threads",
+      "route": "/studio/edit",
+      "source_root": "context-window-checkpoint/playwright-pass-5-signed-reconciled-verified",
+      "supplemental_source_roots": [
+        "native-safari-context-threads-20260825-1",
+        "runs-thread-continuation-ui-20260824-2",
+        "playwright-runs-deployments-final-20260825-2",
+        "provider-independent-surface-closure-accepted-20260826-1",
+        "provider-independent-ui-runs-live-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "provider_free_thread_continuation",
+        "thread_identity_refresh_restoration",
+        "studio_context_window_configuration_surface",
+        "thread_configuration_save_refresh_reopen",
+        "context_configuration_save_refresh_reopen",
+        "published_context_controls_read_only",
+        "context_numeric_validation_preserves_last_valid_value",
+        "node_inspector_focus_trap_native_safari",
+        "deterministic_context_runtime_and_audit_integration",
+        "runtime_compaction_product_surface_evidence",
+        "compacted_thread_state_save_refresh_reopen"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "runs.thread-continuation-refresh",
+        "CONTEXT-UI-NATIVE-SAFARI-001",
+        "CONTEXT-PERSISTENCE-NATIVE-SAFARI-002",
+        "CONTEXT-VALIDATION-NATIVE-SAFARI-003",
+        "STUDIO-MODAL-FOCUS-TRAP-004",
+        "CONTEXT-RUNTIME-DETERMINISTIC-005",
+        "CONTEXT-RUNTIME-COMPACTION-006",
+        "CONTEXT-PERSISTENCE-COMPACTION-007"
+      ]
+    },
+    {
+      "capability_id": "approvals",
+      "route": "/approvals",
+      "source_root": "workflow3-current-happy-checkpoint-20260824-1",
+      "supplemental_source_roots": [
+        "workflow3-current-negative-checkpoint-20260824-1",
+        "workflow3-v5-lifecycle-checkpoint-20260824-1",
+        "provider-independent-20260824T000000Z",
+        "webhook-approval-live-20260825-1",
+        "governance-economics-evidence-repair-accepted-20260826-1",
+        "provider-independent-ui-runs-live-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "configured_approval_policy_and_sla",
+        "approve_reject_and_expiry_results",
+        "refresh_before_resolution",
+        "exactly_once_action_and_receipt_linkage",
+        "signed_audit_and_persistence"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "ui.approval-configuration",
+        "workflow3.exactly-one-marker-each",
+        "workflow3.negative-rejection-zero-marker",
+        "workflow3.negative-refresh-before-approval",
+        "workflow3.negative-sla-expiry",
+        "audit.approval-action-linkage",
+        "audit.receipts-linked"
+      ]
+    },
+    {
+      "capability_id": "audit",
+      "route": "/audit",
+      "source_root": "audit-broken-chain-checkpoint-20260825-2",
+      "supplemental_source_roots": [
+        "native-safari-loop-refresh-checkpoint-20260825-1",
+        "runs-operations-ui-20260824-2",
+        "runtime-deployments-runs-final-20260825-2",
+        "identity-isolation-live-checkpoint-20260825-1",
+        "provider-independent-surface-closure-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "run_thread_deployment_graph_node_correlation",
+        "every_node_timeline_entry",
+        "signed_chain_verification",
+        "role_and_tenant_isolation",
+        "refresh_persistence",
+        "current_product_surface_broken_chain_rejection",
+        "digest_matched_fixture_restoration"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "audit.run-thread-deployment-graph-node-correlation",
+        "audit.every-node-timeline-entry",
+        "audit.signed-chain-verifies",
+        "identity.role-denial",
+        "audit.current-product-surface-broken-chain-rejection"
+      ]
+    },
+    {
+      "capability_id": "governance-and-enforcement",
+      "route": "/regulus/enforcement",
+      "source_root": "governance-enforcement-live-services-20260825-2",
+      "supplemental_source_roots": [
+        "regulus-enforcement-ui-20260824-2",
+        "identity-isolation-live-checkpoint-20260825-1",
+        "product-surface-inventory-checkpoint-20260825-6",
+        "governance-economics-evidence-repair-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "configured_capability_and_enforcement_action",
+        "approved_action_and_linked_policy_result",
+        "persisted_reason_and_zero_provider_spend",
+        "operator_reviewer_admin_platform_admin_enforcement_denial_matrix",
+        "cross_tenant_enforcement_isolation"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "economics-and-rightsizing.enforcement-approval",
+        "identity.role.admin.live",
+        "identity.role.operator.live",
+        "identity.role.platform_admin.live",
+        "identity.role.reviewer.live",
+        "regulus.capabilities.authorization.live",
+        "regulus.enforcement.authorization.live"
+      ]
+    },
+    {
+      "capability_id": "metrics-and-manifests",
+      "route": "/metrics",
+      "source_root": "loops-code-ui-checkpoint-20260825-3",
+      "supplemental_source_roots": [
+        "loops-code-runtime-checkpoint-20260825-3",
+        "native-safari-loops-code-checkpoint-20260825-1",
+        "product-surface-inventory-checkpoint-20260825-6"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "registered_manifest_configuration_and_inspection",
+        "registered_manifest_execution",
+        "missing_manifest_preflight_refusal",
+        "content_identity_and_restart_stability",
+        "native_safari_and_refresh_persistence"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "PLAYWRIGHT-MANIFESTS-EXECUTION",
+        "PLAYWRIGHT-CODE-MANIFEST-MISSING",
+        "PLAYWRIGHT-CODE-CONTENT-IDENTITY-LIVE",
+        "LOOP-CODE-RUNTIME-001",
+        "LOOP-CODE-IMMUTABLE-003"
+      ]
+    },
+    {
+      "capability_id": "retention-and-erasure",
+      "route": "/retention",
+      "source_root": "native-safari-retention-validation-checkpoint-20260825-1",
+      "supplemental_source_roots": [
+        "retention-compliance-live-checkpoint-20260825-1",
+        "identity-isolation-live-checkpoint-20260825-1",
+        "native-safari-operator-denial-checkpoint-20260825-1",
+        "retention-visual-matrix-checkpoint-20260825-1",
+        "retention-dedicated-checkpoint-20260825-1",
+        "playwright-retention-erasure-live-20260825-4",
+        "native-safari-retention-erasure-20260825-1",
+        "native-safari-retention-econ-erasure-20260825-1",
+        "playwright-retention-ttl-boundary-live-20260825-4",
+        "native-safari-retention-ttl-boundary-20260825-1",
+        "retention-held-refusal-current-accepted-20260826-1",
+        "retention-erasure-evidence-repair-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "native_safari_paint",
+        "invalid_ttl_validation",
+        "refresh_restoration",
+        "policy_boundary_and_disabled_persistence",
+        "legal_hold_create_refresh_release",
+        "legal_hold_role_denial",
+        "retention_destructive_controls_hidden_on_denial",
+        "tenant_isolation",
+        "retention_cross_tenant_error_only_matrix",
+        "native_safari_role_denial",
+        "responsive_and_zoom_matrix",
+        "webkit_axe_and_keyboard_matrix",
+        "held_erasure_refusal",
+        "nonheld_run_erasure",
+        "tenant_erasure",
+        "audit_chain_after_erasure",
+        "economics_reconciliation_after_erasure",
+        "configured_economics_adapter_erasure",
+        "erasure_history_refresh_restoration",
+        "ttl_blank_and_effective_maximum_persistence",
+        "current_build_held_erasure_refusal_revalidated"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "product.retention.native-safari-paint",
+        "product.retention.invalid-ttl-validation",
+        "product.retention.refresh-restoration",
+        "identity.retention-tenant-isolation",
+        "product.identity.native-safari-role-denial",
+        "product.retention.responsive-and-zoom",
+        "product.retention.webkit-axe-and-keyboard",
+        "retention-and-erasure.held-erasure-refusal",
+        "retention-and-erasure.nonheld-run-erasure",
+        "retention-and-erasure.tenant-erasure",
+        "retention-and-erasure.audit-chain-after-erasure",
+        "retention-and-erasure.economics-after-erasure",
+        "retention.erasure.configured-econ-adapter-reached",
+        "retention-and-erasure.boundary",
+        "retention-and-erasure.persistence",
+        "fields.retention-policy"
+      ]
+    },
+    {
+      "capability_id": "artifacts",
+      "route": "/artifacts",
+      "source_root": "playwright-artifacts-live-20260825-9",
+      "supplemental_source_roots": [
+        "native-safari-artifacts-20260825-1",
+        "templates-artifacts-product-exact-20260826-2"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "json_text_image_and_oversized_binary_output",
+        "preview_and_download_hash",
+        "required_empty_validation",
+        "tenant_isolation_opaque_not_found",
+        "ttl_expiry",
+        "erasure",
+        "signed_run_correlation",
+        "provider_free_zero_cost_reconciliation",
+        "native_safari_refresh_persistence"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "artifacts.workflow-output",
+        "artifacts.preview-download",
+        "artifacts.tenant-isolation",
+        "artifacts.expiry",
+        "artifacts.erasure"
+      ]
+    },
+    {
+      "capability_id": "loops",
+      "route": "/studio/edit",
+      "source_root": "loops-code-ui-checkpoint-20260825-3",
+      "supplemental_source_roots": [
+        "loops-code-runtime-checkpoint-20260825-3",
+        "native-safari-loops-code-checkpoint-20260825-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "both_loop_demos",
+        "three_ui_repetitions_each",
+        "repeat_done_and_limit_routes",
+        "max_retries_two_and_three_total_attempts",
+        "malformed_input_no_run",
+        "signed_zero_cost_evidence",
+        "refresh_persistence",
+        "native_safari_canvas_inspector_and_run_timeline"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "PLAYWRIGHT-LOOPS-BOTH-DEMOS",
+        "PLAYWRIGHT-LOOPS-DEDICATED-NODE",
+        "PLAYWRIGHT-LOOPS-LIMIT-ROUTE",
+        "PLAYWRIGHT-LOOPS-MAX-RETRIES",
+        "PLAYWRIGHT-LOOPS-REPEAT-DONE-LIMIT",
+        "PLAYWRIGHT-LOOPS-THREE-REPETITIONS"
+      ]
+    },
+    {
+      "capability_id": "inline-and-manifest-code",
+      "route": "/studio/edit",
+      "source_root": "loops-code-runtime-checkpoint-20260825-3",
+      "supplemental_source_roots": [
+        "loops-code-ui-checkpoint-20260825-3",
+        "native-safari-loops-code-checkpoint-20260825-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "inline_code_studio_execution_and_refresh",
+        "registered_manifest_execution",
+        "content_hash_stability_across_restart",
+        "published_code_immutable",
+        "missing_manifest_preflight_refusal",
+        "malformed_output_fail_closed",
+        "inline_and_manifest_timeout_fail_closed",
+        "strict_sandbox_deterministic_tests",
+        "signed_zero_cost_evidence"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "PLAYWRIGHT-CODE-INLINE-STUDIO-EXECUTION",
+        "PLAYWRIGHT-CODE-CONTENT-IDENTITY-LIVE",
+        "PLAYWRIGHT-CODE-EXECUTION-TIMEOUT",
+        "PLAYWRIGHT-CODE-MALFORMED-OUTPUT",
+        "PLAYWRIGHT-CODE-MANIFEST-MISSING",
+        "PLAYWRIGHT-CODE-READ-ONLY",
+        "PLAYWRIGHT-MANIFESTS-EXECUTION"
+      ]
+    },
+    {
+      "capability_id": "runs",
+      "route": "/runs",
+      "source_root": "native-safari-runs-deployments-privileged-20260825-3",
+      "supplemental_source_roots": [
+        "playwright-runs-deployments-final-20260825-2",
+        "runtime-deployments-runs-final-20260825-2",
+        "native-safari-runs-deployments-auth-denial-20260825-1",
+        "ambiguous-operation-resolution-ui-accepted-20260826-1",
+        "provider-independent-surface-closure-accepted-20260826-1",
+        "provider-independent-ui-runs-live-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "ui_generated_curl_exact_execution",
+        "run_submission_and_persistence",
+        "interrupt_waiting_interrupt_cancel_and_late_result_fence",
+        "status_filters_and_failure_detail",
+        "replay_with_audit_growth",
+        "signed_chain_and_raw_metadata_evidence",
+        "thread_continuation_and_refresh",
+        "provider_free_zero_cost_reconciliation",
+        "native_safari_auth_denial_fail_closed",
+        "privileged_native_safari_current_snapshot",
+        "native_safari_success_failure_and_signed_run_chain",
+        "authorized_ambiguous_operation_resolution_without_replay"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "runs.curl-exact-execution",
+        "runs.interrupt-cancel-late-result-fence",
+        "runs.filter-failure-replay",
+        "runs.signed-audit",
+        "runs.thread-continuation-refresh",
+        "runs.ambiguous-operation-control-conditional",
+        "runs.ambiguous-operation-authorized-resolution",
+        "runs.ambiguous-operation-signed-refresh-no-replay"
+      ]
+    },
+    {
+      "capability_id": "deployments-and-rollbacks",
+      "route": "/deployments",
+      "source_root": "native-safari-runs-deployments-privileged-20260825-3",
+      "supplemental_source_roots": [
+        "runtime-deployments-runs-final-20260825-2",
+        "playwright-runs-deployments-final-20260825-2",
+        "native-safari-runs-deployments-auth-denial-20260825-1",
+        "provider-independent-surface-closure-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "v1_to_v2_rollback_to_v3_rollforward",
+        "exact_serving_graph_version",
+        "deployment_history_persistence",
+        "signed_deployment_attestation",
+        "provider_free_zero_cost_reconciliation",
+        "native_safari_auth_denial_fail_closed",
+        "privileged_native_safari_current_snapshot",
+        "unsigned_v4_discrepancy_preserved",
+        "signed_v5_registration_and_verification",
+        "restart_serving_v5_graph_v6"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "deployments.rollback-rollforward-history",
+        "deployments.exact-health-version",
+        "deployments.signed-attestation"
+      ]
+    },
+    {
+      "capability_id": "batching-and-joins",
+      "route": "/studio/edit",
+      "source_root": "provider-free-batch-concurrency-20260826-3",
+      "supplemental_source_roots": [
+        "batch-negative-recovery-accepted-20260826-2",
+        "workflow2-child-pause-accepted-20260826-1",
+        "workflow2-retrieval-miss-accepted-20260826-1",
+        "subgraph-validation-checkpoint-20260825-1",
+        "composed-execution-backend-20260825-1",
+        "native-safari-rightsizing-templates-20260825-1",
+        "provider-independent-surface-closure-accepted-20260826-1"
+      ],
+      "status": "blocked",
+      "passed_checkpoints": [
+        "real_eight_item_parallel_execution",
+        "measured_peak_concurrency_four",
+        "ordered_collection",
+        "provider_free_zero_cost_rollup",
+        "three_live_studio_repetitions",
+        "temporarily_served_parent_deployment",
+        "restart_restored_parent_child_lineage",
+        "empty_over_24_and_malformed_input_rejected_without_side_effects",
+        "active_run_refresh_restored_exact_identity",
+        "operator_cancellation_terminalized_descendants_without_replay",
+        "signed_operator_cancellation_audit",
+        "child_failure_and_partial_collection",
+        "exact_eight_item_child_pause_and_partial_collection",
+        "live_retrieval_miss"
+      ],
+      "remaining_checkpoints": [
+        "provider_economics_reconciliation"
+      ],
+      "evidence_criteria": [
+        "batching.real-eight-items-concurrency-four",
+        "batching.live-studio-three-repetitions",
+        "workflow2.negative-empty-batch",
+        "workflow2.negative-over-24-batch",
+        "batching.malformed-item",
+        "batching.active-refresh-restoration",
+        "runs.cancel",
+        "subgraphs.child-failure-and-partial-collection",
+        "subgraphs.child-pause-and-partial-collection",
+        "subgraphs.child-approval-no-sibling-replay",
+        "audit.child-parent-signed-linkage",
+        "runs.refresh-restoration",
+        "workflow2.negative-child-pause-partial-collection",
+        "workflow2.negative-retrieval-miss",
+        "economics.provider-free-zero-activity",
+        "batching.provider-economics"
+      ]
+    },
+    {
+      "capability_id": "subgraphs",
+      "route": "/studio/edit",
+      "source_root": "d012-child-approval-live-20260826-4",
+      "supplemental_source_roots": [
+        "workflow2-child-pause-accepted-20260826-1",
+        "subgraph-validation-checkpoint-20260825-1",
+        "composed-execution-backend-20260825-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "eight_isolated_child_threads",
+        "persisted_parent_run_lineage",
+        "namespaced_child_node_identity",
+        "persisted_terminal_child_cost_rollup",
+        "live_studio_child_run_inspection",
+        "child_failure_and_partial_collection",
+        "restart_restoration_in_served_parent",
+        "child_pause_and_partial_collection",
+        "approve_and_reject_parent_continuation",
+        "delivered_sibling_not_replayed",
+        "signed_parent_child_approval_linkage"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "subgraphs.persisted-child-lineage",
+        "subgraphs.persisted-cost-rollup",
+        "subgraphs.live-studio-child-run-inspection",
+        "subgraphs.child-failure-and-partial-collection",
+        "subgraphs.restart-restoration-in-served-parent",
+        "subgraphs.child-pause-and-partial-collection",
+        "subgraphs.child-approval-no-sibling-replay",
+        "audit.child-parent-signed-linkage",
+        "runs.refresh-restoration"
+      ]
+    },
+    {
+      "capability_id": "templates",
+      "route": "/studio/edit",
+      "source_root": "templates-atomicity-live-ui-20260826-2",
+      "supplemental_source_roots": [
+        "templates-provider-independent-gate-20260825-1",
+        "native-safari-template-governance-20260825-1",
+        "template-role-matrix-playwright-20260825-2",
+        "native-safari-rightsizing-templates-20260825-1",
+        "templates-create-ui-20260824-3",
+        "templates-restart-ui-20260824-1",
+        "templates-artifacts-product-exact-20260826-2"
+      ],
+      "status": "blocked",
+      "passed_checkpoints": [
+        "durable_versioned_template_crud",
+        "nested_secret_render_audit_redaction",
+        "native_safari_tenant_scoped_picker",
+        "latest_version_selection",
+        "refresh_restored_template_reference",
+        "native_safari_field_validation",
+        "native_safari_version_creation_and_refresh_persistence",
+        "signed_metadata_only_template_create_audit",
+        "active_deployment_chain_intact_and_signatures_valid",
+        "scoped_dependency_conflict_precheck",
+        "chromium_and_webkit_four_role_matrix",
+        "operator_and_reviewer_read_only_explanation",
+        "admin_and_platform_admin_mutation_visibility",
+        "keyboard_axe_target_size_and_refresh_matrix",
+        "no_predictably_forbidden_regulus_shell_probe",
+        "twin_tenant_operator_reviewer_admin_matrix_without_primary_credentials",
+        "workspace_operator_reviewer_admin_matrix",
+        "workspace_field_validation_and_two_immutable_versions",
+        "workspace_refresh_and_backend_restart_persistence",
+        "workspace_version_delete_and_published_reference_denial",
+        "provider_independent_runtime_with_zero_provider_calls",
+        "transactional_dependency_reference_index",
+        "shared_transaction_for_template_mutation_and_signed_audit",
+        "atomic_referenced_delete_refusal"
+      ],
+      "remaining_checkpoints": [
+        "live_template_backed_provider_execution"
+      ],
+      "evidence_criteria": [
+        "templates.configured",
+        "templates.persistence",
+        "templates.secret-redaction",
+        "templates.live-rendered-execution",
+        "templates.field-validation",
+        "templates.versioning",
+        "templates.workspace-role-matrix",
+        "templates.twin-tenant-scope-isolation",
+        "templates.refresh-persistence",
+        "templates.backend-restart-persistence",
+        "templates.delete-version",
+        "templates.reference-delete-denial",
+        "templates.keyboard",
+        "templates.accessibility",
+        "templates.provider-independent-runtime"
+      ]
+    },
+    {
+      "capability_id": "economics-and-rightsizing",
+      "route": "/rightsizing",
+      "source_root": "rightsizing-deterministic-ui-20260825-8",
+      "supplemental_source_roots": [
+        "rightsizing-deterministic-ui-20260825-6",
+        "native-safari-rightsizing-templates-20260825-1",
+        "rightsizing-responsive-ui-20260824-4",
+        "rightsizing-control-inventory-20260824-1",
+        "economics-truth-ui-20260824-3",
+        "rightsizing-quality-verdict-safari-20260824-1",
+        "economics-provider-independent-ui-20260826-1",
+        "governance-economics-evidence-repair-accepted-20260826-1",
+        "native-safari-rightsizing-boundary-accepted-20260826-1"
+      ],
+      "status": "blocked",
+      "passed_checkpoints": [
+        "static_provider_free_recommendations",
+        "truthful_no_replayable_traffic_state",
+        "needs_tools_and_vision_capability_filters",
+        "judge_model_max_candidates_and_min_cases_fields",
+        "strict_numeric_bounds_unit_and_component_tests",
+        "native_safari_control_surface",
+        "provider_ledger_and_workflow_window_explanation",
+        "chromium_webkit_static_operator_recommendations",
+        "static_result_persistence_after_refresh",
+        "all_fields_and_six_numeric_validation_classes_cross_browser",
+        "all_six_local_validation_errors_clear_on_valid_owner_change_cross_browser",
+        "operator_refresh_explicit_metrics_read_denials",
+        "zero_incremental_paid_cost_reconciled_against_persistent_ledger",
+        "wcag22_aa_zero_violations",
+        "zero_unexpected_console_errors_with_expected_403s_reconciled",
+        "recursive_secret_scan_and_sha256_checksums",
+        "quality_verdict_and_persistence",
+        "tenant_deployment_run_measured_reconciliation",
+        "estimated_failed_run_tax_separation",
+        "native_safari_boundary_submit_feedback"
+      ],
+      "remaining_checkpoints": [
+        "measured_live_provider_experiment",
+        "candidate_and_judge_cost_reconciliation"
+      ],
+      "evidence_criteria": [
+        "rightsizing.field-contract",
+        "rightsizing.static-recommendation",
+        "rightsizing.measured-experiment",
+        "rightsizing.cost-reconciliation",
+        "economics.quality-verdict-nonrewriting",
+        "economics.tenant-deployment-run-measured-reconciliation",
+        "economics.estimated-failed-run-tax-separation"
+      ]
+    },
+    {
+      "capability_id": "webhooks",
+      "route": "/webhooks",
+      "source_root": "playwright-webhooks-live-20260825-8",
+      "supplemental_source_roots": [
+        "native-safari-webhooks-20260825-1",
+        "native-safari-webhook-worker-audits-20260825-1",
+        "webhook-restart-recovery-live-20260825-1",
+        "webhook-approval-live-20260825-1",
+        "playwright-webhook-role-matrix-20260825-3",
+        "native-safari-webhook-role-matrix-20260825-2",
+        "webhook-atomicity-d013-20260826-2",
+        "webhook-postgres-atomicity-d013-20260826-1",
+        "webhooks-exact-supersession-accepted-20260826-1",
+        "webhook-atomicity-product-ids-accepted-20260826-1",
+        "provider-independent-ui-runs-live-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "required_and_userinfo_validation",
+        "create_and_masked_secret",
+        "refresh_persistence",
+        "run_completed_delivery",
+        "event_filtering",
+        "retry_exhaustion",
+        "dead_letter_and_replay",
+        "replay_failure_display",
+        "deactivation_and_post_deactivation_no_delivery",
+        "tenant_scope_hiding",
+        "sink_unavailable",
+        "timeout_after_commit",
+        "signed_control_plane_audits",
+        "signed_worker_transition_audits",
+        "signed_chain_verification",
+        "native_safari_paint_and_navigation",
+        "approval_requested_resolved_and_escalated_live_emission",
+        "operator_reviewer_admin_and_platform_admin_ui_matrix",
+        "restart_while_delivery_is_leased",
+        "restart_with_dead_letter_and_replay_restoration",
+        "transactional_state_and_audit_sqlite",
+        "transactional_state_and_audit_postgres"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "webhooks.success",
+        "webhooks.filtering",
+        "webhooks.dead-letter-replay",
+        "webhooks.tenant-isolation",
+        "webhooks.deactivation",
+        "webhooks.secret-redaction",
+        "webhooks.target-url-userinfo-refused",
+        "webhooks.refresh-persistence",
+        "webhooks.deactivation-stops-delivery",
+        "webhooks.signed-audit",
+        "webhooks.replay-error-display",
+        "webhooks.timeout",
+        "webhooks.retry-exhaustion",
+        "webhooks.runtime-correlation",
+        "webhooks.sink-unavailable",
+        "webhooks.timeout-after-commit",
+        "webhooks.worker-transition-audits",
+        "webhooks.worker-audit-chain",
+        "webhooks.restart-subscription-persistence",
+        "webhooks.restart-dead-letter-replay",
+        "webhooks.restart-leased-delivery",
+        "webhooks.approval-requested-live",
+        "webhooks.approval-resolved-live",
+        "webhooks.approval-escalated-live",
+        "webhooks.approval-event-unique",
+        "webhooks.approval-signed-audit",
+        "webhooks.role-authorization",
+        "webhooks.transactional-state-and-audit-sqlite",
+        "webhooks.transactional-state-and-audit-postgres",
+        "ui.sidebar-active-route-navigation"
+      ]
+    },
+    {
+      "capability_id": "resilient-http",
+      "route": "/studio/edit",
+      "source_root": "resilient-http-dual-browser-accepted-20260826-1",
+      "supplemental_source_roots": [
+        "resilient-http-accepted-20260826-1",
+        "native-safari-resilient-http-accepted-20260826-1"
+      ],
+      "status": "pass",
+      "passed_checkpoints": [
+        "studio_field_validation_and_persistence",
+        "retry_then_success",
+        "timeout_and_retry_exhaustion",
+        "circuit_open",
+        "reset_and_recovery",
+        "sanitized_signed_audit",
+        "zero_provider_cost_and_calls",
+        "chromium_and_webkit_functional_journeys",
+        "native_safari_functional_journey"
+      ],
+      "remaining_checkpoints": [],
+      "evidence_criteria": [
+        "resilient-http.field-contract",
+        "resilient-http.retry-success",
+        "resilient-http.timeout-exhaustion",
+        "resilient-http.circuit-open",
+        "resilient-http.recovery",
+        "resilient-http.sanitized-signed-audit",
+        "resilient-http.zero-provider-economics"
+      ]
+    }
+  ]
+}

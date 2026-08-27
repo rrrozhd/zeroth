@@ -1,6 +1,6 @@
 "use client";
 
-// The Audit screen — the deployment's tamper-evident audit trail (handoff §5).
+// The Audit screen — the tenant's tamper-evident audit trail (handoff §5).
 //
 // A right-aligned chip runs the chain-verification state machine
 // (idle → verifying → intact / unsigned / failed); a successful verify greens
@@ -10,24 +10,36 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Button, Card, MonoLabel, Skeleton } from "@/app/components/primitives";
+import {
+  Button,
+  ConsoleEmpty,
+  ConsoleMeta,
+  ConsoleNotice,
+  ConsolePage,
+  ConsolePageHeader,
+  ConsoleSection,
+  ConsoleSurface,
+  ConsoleTableFrame,
+  Skeleton,
+} from "@/app/components/primitives";
 import { useAuditVerification } from "@/app/components/auditVerificationContext";
 import { useToast } from "@/app/components/Toast";
 import { useLoad } from "@/app/hooks/useLoad";
 import {
   deploymentRef,
   errMsg,
+  getAuditReadiness,
   listAudits,
   verifyDeploymentAuditChain,
-  type AuditRecordList,
+  type TenantAuditRecordList,
   type AuditVerification,
+  type AuditReadiness,
   type NodeAuditRecord,
 } from "@/app/lib/api";
 import { isConfigured } from "@/app/lib/config";
+import { isForbiddenSurface, surfaceAccessMessage } from "@/app/lib/surfaceAccess";
+import styles from "./audit.module.css";
 
-const MONO = "var(--font-mono)";
-const COLS = "48px 66px 110px 110px minmax(160px,1fr) 170px 40px";
-const DENIED_BG = "rgba(248,113,113,0.06)";
 
 /** HH:MM:SS (24h) or "—". */
 function fmtClock(iso?: string | null): string {
@@ -55,6 +67,19 @@ function shortDigest(d?: string | null): string {
 }
 
 type EventKind = "ok" | "warn" | "denied";
+type AuditView = "all" | "workflow" | "security";
+const REDACTED_ERROR = "***REDACTED***";
+
+/** Service authentication and authorization checks are persisted in the same
+ * audit chain as workflow-node execution. Keep that distinction presentational:
+ * verification and storage continue to operate over the complete chain. */
+function isSecurityRecord(record: NodeAuditRecord): boolean {
+  const nodeId = record.node_id.toLowerCase();
+  return nodeId === "service.auth"
+    || nodeId.startsWith("service.auth.")
+    || nodeId === "service.authorization"
+    || nodeId.startsWith("service.authorization.");
+}
 
 /** Classify a record for row color. Hard failures/denials (failed, rejected,
  *  or any error) read danger; redaction commitments, erasure, and approval
@@ -71,12 +96,11 @@ function classifyEvent(r: NodeAuditRecord): EventKind {
 
 /** A human event string built only from real fields. */
 function eventText(r: NodeAuditRecord): string {
-  if (r.error) return r.error;
+  if (r.error && r.error !== REDACTED_ERROR) return r.error;
   const parts: string[] = [r.status || "record"];
   if ((r.approval_actions?.length ?? 0) > 0) {
     parts.push(`· approval ${r.approval_actions!.map((a) => a.action).join(", ")}`);
   }
-  if (r.pii_commitments != null && Object.keys(r.pii_commitments).length > 0) parts.push("· redacted");
   if (r.erased) parts.push(`· erased${r.erasure_reason ? ` (${r.erasure_reason})` : ""}`);
   return parts.join(" ");
 }
@@ -90,7 +114,8 @@ const EVENT_COLOR: Record<EventKind, string> = {
 type VerifyPhase = "idle" | "verifying" | "intact" | "unsigned" | "failed";
 
 export default function AuditPage() {
-  const load = useLoad<AuditRecordList>(listAudits);
+  const load = useLoad<TenantAuditRecordList>(listAudits);
+  const readiness = useLoad<AuditReadiness>(getAuditReadiness);
   const toast = useToast();
   const { verifiedAt, markVerified } = useAuditVerification();
 
@@ -101,10 +126,23 @@ export default function AuditPage() {
 
   const [phase, setPhase] = useState<VerifyPhase>("idle");
   const [result, setResult] = useState<AuditVerification | null>(null);
+  const [view, setView] = useState<AuditView>("workflow");
 
-  const records = [...(load.data?.records ?? [])].sort(
-    (a, b) => (a.chain_sequence ?? Number.MAX_SAFE_INTEGER) - (b.chain_sequence ?? Number.MAX_SAFE_INTEGER),
-  );
+  // Tenant-wide results span many independent run/deployment chains, so their
+  // chain-local sequence numbers are not globally sortable. Present the newest
+  // activity first; retain sequence only as the per-chain forensic coordinate.
+  const records = [...(load.data?.records ?? [])].sort((a, b) => {
+    const timeA = Date.parse(a.started_at ?? "");
+    const timeB = Date.parse(b.started_at ?? "");
+    const byTime = (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA);
+    if (byTime !== 0) return byTime;
+    return (b.chain_sequence ?? -1) - (a.chain_sequence ?? -1);
+  });
+  const securityCount = records.filter(isSecurityRecord).length;
+  const workflowCount = records.length - securityCount;
+  const visibleRecords = records.filter((record) => (
+    view === "all" || (view === "security" ? isSecurityRecord(record) : !isSecurityRecord(record))
+  ));
   const sigGreen = phase === "intact";
 
   async function verify() {
@@ -137,86 +175,104 @@ export default function AuditPage() {
   }
 
   return (
-    <div className="z-fade" style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 28px" }}>
-      <header
-        style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 22 }}
-      >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Audit</h1>
-          <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
-            Tamper-evident, per-node audit records for this deployment.
-          </p>
-        </div>
-        {connected && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <ChainChip phase={phase} result={result} recordCount={records.length} verifiedAt={verifiedAt} />
-            <Button variant="primary" onClick={verify} disabled={phase === "verifying"}>
+    <ConsolePage>
+      <ConsolePageHeader
+        title="Audit"
+        description="Workflow execution and service security records across this tenant."
+        actions={connected ? (
+          <>
+            <ChainChip phase={phase} result={result} verifiedAt={verifiedAt} />
+            <Button
+              variant="primary"
+              onClick={verify}
+              disabled={phase === "verifying"}
+              data-evidence-id="audit.verify-chain"
+            >
               {phase === "verifying" ? "Verifying…" : "Verify chain"}
             </Button>
-          </div>
-        )}
-      </header>
+          </>
+        ) : undefined}
+      />
 
-      {!connected ? (
-        <ConnectNote />
-      ) : load.loading && !load.data ? (
-        <Card pad={16}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} height={18} />
-            ))}
-          </div>
-        </Card>
-      ) : load.error ? (
-        <ErrorNote message={load.error} onRetry={load.reload} />
-      ) : records.length === 0 ? (
-        <Card pad={20}>
-          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            No audit records yet. Every node execution appends one to the chain —{" "}
-            <Link href="/runs" style={{ color: "var(--accent)", textDecoration: "none" }}>
-              submit a run
-            </Link>{" "}
-            to populate the trail.
-          </div>
-        </Card>
-      ) : (
-        <>
-          <Card pad={0} style={{ overflow: "hidden" }}>
-            <div style={{ overflowX: "auto" }}>
-              <div style={{ minWidth: 720 }}>
+      <div className={styles.contentStack}>
+        {connected && readiness.data && (
+          <ConsoleNotice
+            tone={readiness.data.state === "signed" ? "success" : readiness.data.state === "blocked_unsigned" ? "danger" : "neutral"}
+            title={readiness.data.state === "signed"
+              ? "Signing configured"
+              : readiness.data.state === "blocked_unsigned"
+                ? "Deployment blocked — unsigned"
+                : "Local only — unsigned audit"}
+            actions={<ConsoleMeta>{readiness.data.deployment_mode}</ConsoleMeta>}
+          >
+            {readiness.data.message}
+          </ConsoleNotice>
+        )}
+
+        {!connected ? (
+          <ConnectNote />
+        ) : load.loading && !load.data ? (
+          <ConsoleSurface>
+            <div className={styles.loading}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} height={18} />
+              ))}
+            </div>
+          </ConsoleSurface>
+        ) : load.error ? (
+          <ErrorNote message={load.error} onRetry={load.reload} />
+        ) : records.length === 0 ? (
+          <ConsoleEmpty>
+            No audit records yet. Every node execution appends one to the chain.{" "}
+            <Link href="/runs" className={styles.link}>Submit a run</Link> to populate the trail.
+          </ConsoleEmpty>
+        ) : (
+          <ConsoleSection
+            title="Audit records"
+            meta={view === "all"
+              ? `${records.length.toLocaleString()} records`
+              : `${visibleRecords.length.toLocaleString()} of ${records.length.toLocaleString()} records`}
+          >
+            <ConsoleTableFrame ariaLabel="Audit records">
+              <div className={styles.auditToolbar}>
+                <p className={styles.viewHelp}>
+                  Workflow includes execution evidence. Security includes service authentication and authorization decisions. Payload values are withheld; correlation IDs, digests, signatures, status, and timing remain reviewable. Verify chain checks the actively served deployment; use each run’s Evidence panel for cross-deployment verification.
+                </p>
+                <div className={styles.viewGroup} role="group" aria-label="Audit record view">
+                  {([
+                    ["all", "All", records.length],
+                    ["workflow", "Workflow", workflowCount],
+                    ["security", "Security", securityCount],
+                  ] as const).map(([id, label, count]) => (
+                    <Button
+                      key={id}
+                      variant={view === id ? "primary" : "neutral"}
+                      aria-pressed={view === id}
+                      aria-label={`${label}, ${count.toLocaleString()} records`}
+                      onClick={() => setView(id)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              {visibleRecords.length === 0 ? (
+                <p className={styles.filteredEmpty}>No {view} records yet.</p>
+              ) : <div className={styles.table} role="table" aria-label={`${view} audit records`}>
                 {/* Header row */}
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: COLS,
-                    gap: 12,
-                    padding: "10px 16px",
-                    borderBottom: "1px solid var(--hair)",
-                  }}
-                >
-                  {["seq", "time", "run", "node", "event", "digest", "sig"].map((h) => (
-                    <MonoLabel key={h} style={{ fontSize: 10 }}>
-                      {h}
-                    </MonoLabel>
+                <div className={styles.tableHeader} role="row">
+                  {["chain #", "time", "run", "node", "event", "digest", "sig"].map((h) => (
+                    <span key={h} role="columnheader">{h}</span>
                   ))}
                 </div>
                 {/* Body */}
-                {records.map((r) => {
+                {visibleRecords.map((r) => {
                   const kind = classifyEvent(r);
                   return (
                     <div
                       key={r.audit_id}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: COLS,
-                        gap: 12,
-                        padding: "9px 16px",
-                        borderBottom: "1px solid var(--hair)",
-                        background: kind === "denied" ? DENIED_BG : "transparent",
-                        fontFamily: MONO,
-                        fontSize: 11.5,
-                        alignItems: "center",
-                      }}
+                      role="row"
+                      className={`${styles.tableRow} ${kind === "denied" ? styles.tableRowDenied : ""}`}
                     >
                       <Cell color="var(--text-faint)">{r.chain_sequence ?? "—"}</Cell>
                       <Cell color="var(--text-muted)">{fmtClock(r.started_at)}</Cell>
@@ -233,31 +289,26 @@ export default function AuditPage() {
                         {shortDigest(r.record_digest)}
                       </Cell>
                       <div
-                        style={{
-                          color: r.record_signature
-                            ? sigGreen
-                              ? "var(--success)"
-                              : "var(--text-faint)"
-                            : "var(--text-disabled)",
-                          textAlign: "center",
-                        }}
+                        role="cell"
+                        className={styles.signature}
+                        style={{ color: r.record_signature ? sigGreen ? "var(--success)" : "var(--text-faint)" : "var(--text-secondary)" }}
                         title={r.record_signature ? "signed" : "unsigned"}
                       >
-                        {r.record_signature ? "✓" : "—"}
+                        {r.record_signature ? "yes" : "no"}
                       </div>
                     </div>
                   );
                 })}
-              </div>
-            </div>
-          </Card>
-          <p style={{ marginTop: 12, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.6 }}>
-            Erasure is chain-safe: crypto-erasure removes payloads while the digest chain stays
-            continuous, so the audit trail remains verifiable after a right-to-erasure request.
-          </p>
-        </>
-      )}
-    </div>
+              </div>}
+            </ConsoleTableFrame>
+            <p className={styles.tableNote}>
+              Erasure is chain-safe: crypto-erasure removes payloads while the digest chain stays
+              continuous, so the audit trail remains verifiable after a right-to-erasure request.
+            </p>
+          </ConsoleSection>
+        )}
+      </div>
+    </ConsolePage>
   );
 }
 
@@ -272,13 +323,11 @@ function Cell({
 }) {
   return (
     <div
+      role="cell"
+      className={styles.cell}
       title={title}
       style={{
         color,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        minWidth: 0,
       }}
     >
       {children}
@@ -289,53 +338,44 @@ function Cell({
 function ChainChip({
   phase,
   result,
-  recordCount,
   verifiedAt,
 }: {
   phase: VerifyPhase;
   result: AuditVerification | null;
-  recordCount: number;
   verifiedAt: string | null;
 }) {
-  let color = "var(--text-faint)";
+  let tone = "neutral";
   let text: string;
   switch (phase) {
     case "verifying":
-      color = "var(--accent)";
-      text = `verifying ${recordCount.toLocaleString()} records…`;
+      tone = "accent";
+      text = "verifying active deployment…";
       break;
     case "intact":
-      color = "var(--success)";
+      tone = "success";
       text = "chain intact · signatures valid";
       break;
     case "unsigned":
-      color = "var(--neutral)";
       text = "chain intact · unsigned";
       break;
     case "failed":
-      color = "var(--danger)";
+      tone = "danger";
       text = result?.failed_audit_id
-        ? `chain broken at ${result.failed_audit_id.slice(0, 8)}`
-        : "chain verification failed";
+        ? `chain broken at ${result.failed_audit_id}${result.error ? ` · ${result.error}` : ""}`
+        : result?.error
+          ? `chain broken · ${result.error}`
+          : "chain verification failed";
       break;
     default:
-      text = verifiedAt ? `last verified ${fmtUtcHM(verifiedAt)}` : "not yet verified";
+      text = verifiedAt ? `last verified ${fmtUtcHM(verifiedAt)}` : "Chain not verified this session";
   }
   return (
     <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        color,
-        background: `color-mix(in srgb, ${color} 10%, transparent)`,
-        border: `1px solid color-mix(in srgb, ${color} 28%, transparent)`,
-        borderRadius: 6,
-        padding: "4px 9px",
-        fontFamily: MONO,
-        fontSize: 11,
-        whiteSpace: "nowrap",
-      }}
+      className={styles.chainState}
+      data-tone={tone}
+      data-evidence-id="audit.verify-chain.result"
+      role="status"
+      aria-live="polite"
     >
       {text}
     </span>
@@ -344,44 +384,21 @@ function ChainChip({
 
 function ConnectNote() {
   return (
-    <Card pad={20}>
-      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-        Not connected. Open <span style={{ color: "var(--accent)" }}>Connect</span> (bottom-left) to
-        set the API base and key.
-      </div>
-    </Card>
+    <ConsoleNotice title="Not connected">
+      Open Connect from the navigation to set the API base and key.
+    </ConsoleNotice>
   );
 }
 
 function ErrorNote({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const restricted = isForbiddenSurface(message);
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "rgba(248,113,113,0.08)",
-        border: "1px solid rgba(248,113,113,0.3)",
-        borderRadius: 8,
-        padding: "12px 14px",
-      }}
+    <ConsoleNotice
+      tone={restricted ? "neutral" : "danger"}
+      title={restricted ? "Access restricted" : "Audit unavailable"}
+      actions={restricted ? undefined : <Button variant="neutral" onClick={onRetry}>Retry</Button>}
     >
-      <span
-        style={{
-          fontSize: 12.5,
-          color: "var(--danger)",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {message}
-      </span>
-      <Button variant="danger" onClick={onRetry} style={{ flexShrink: 0 }}>
-        Retry
-      </Button>
-    </div>
+      {surfaceAccessMessage(message, "Audit records")}
+    </ConsoleNotice>
   );
 }

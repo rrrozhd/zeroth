@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "profile_id": "evaluation-studio-v1-accelerated-demo-v3",
+  "status": "proposed_unarmed",
+  "claim_label": "demo_ready_not_full_campaign_accepted",
+  "campaign_id": "evaluation-studio-v1",
+  "authorization_phrase": "AUTHORIZE_ACCELERATED_DEMO_ACCEPTANCE_V3",
+  "supersedes_for_future_execution_only": "evaluation-studio-v1-accelerated-demo-v2",
+  "budgets": {
+    "tenant_ceiling_usd": "10.00",
+    "per_run_ceiling_usd": "0.25",
+    "accelerated_incremental_ceiling_usd": "1.00",
+    "maximum_new_live_runs": 2,
+    "maximum_new_provider_calls": 12
+  },
+  "preconditions": [
+    "accelerated-v2-cost-rollup-remediation-20260826-1 is checksum-valid and proves the immutable W1 source run functionally and economically reconciled",
+    "batch-provider-live-closeout-20260826-1 is checksum-valid and proves Workflow 2 repetitions one and two with sixteen reconciled child calls",
+    "the stopped V1 and V2 evidence bundles remain immutable",
+    "the exact Workflow 2 parent deployment is serving before its gate",
+    "the one-case Rightsizing request targets the successful Workflow 2 analyze node",
+    "Redis database Regulus and both tenant readiness endpoints are all ok",
+    "historical synthetic nonterminal fixture identities are snapshotted and excluded",
+    "no new active or ambiguous provider reservation exists"
+  ],
+  "gates": [
+    {
+      "gate_id": "accelerated-v3.workflow2.third-repetition",
+      "maximum_new_live_runs": 1,
+      "maximum_provider_calls": 8,
+      "required_results": [
+        "eight isolated successful child runs",
+        "configured and observed concurrency four",
+        "ordered join indexes zero through seven",
+        "signed parent and child audit chains",
+        "one unique cost event per non-cache child call",
+        "three-repetition aggregate economics reconciled"
+      ],
+      "original_criteria_eligible": [
+        "workflow2.happy-3",
+        "workflow2.aggregate-economics"
+      ]
+    },
+    {
+      "gate_id": "accelerated-v3.rightsizing.one-case-plumbing",
+      "maximum_new_live_runs": 1,
+      "maximum_provider_calls": 4,
+      "maximum_candidates": 1,
+      "maximum_cases": 1,
+      "minimum_cases_for_confirmation": 5,
+      "required_results": [
+        "experiment submitted from the real Rightsizing interface",
+        "one eligible analyze-node input replayed",
+        "one incumbent and one candidate replay each judged when successful",
+        "exactly four attempted non-cache calls evidenced after successful completion",
+        "verdict remains flagged and is not accepted as model-quality equivalence",
+        "operation audit cost reservation and provider identities reconcile",
+        "completed result restores from durable run state after refresh"
+      ],
+      "original_criteria_eligible": []
+    },
+    {
+      "gate_id": "accelerated-v3.audit-economics.closeout",
+      "maximum_new_live_runs": 0,
+      "maximum_provider_calls": 0,
+      "required_results": [
+        "every V3 non-cache call has exactly one canonical lifecycle cost event",
+        "operation run audit and cost identities are unique",
+        "Audit local Economics and Regulus totals reconcile within tolerance",
+        "no composed-parent or runtime-rollup cost is double counted",
+        "historical synthetic fixture identities remain unchanged and excluded"
+      ],
+      "original_criteria_eligible": [
+        "audit.provider-model-usage-cost-identity",
+        "audit.operation-and-cost-identities"
+      ]
+    },
+    {
+      "gate_id": "accelerated-v3.ui.persistence-evidence",
+      "maximum_new_live_runs": 0,
+      "maximum_provider_calls": 0,
+      "required_results": [
+        "Runs shows authoritative attributed cost with sub-cent precision",
+        "Economics shows deployment and failure-tax attribution",
+        "Rightsizing shows live attributed spend and the one-case measured result",
+        "configured and refresh-restored screenshots exist",
+        "the persistent connection and tenant scope survive reload without key re-entry",
+        "read-only GET transport recovery emits no visible fetch error"
+      ],
+      "original_criteria_eligible": []
+    }
+  ],
+  "stop_conditions": [
+    "secret or authorization material retained in evidence",
+    "broken or unsigned required audit chain",
+    "ambiguous provider outcome or reservation",
+    "cross-tenant data exposure",
+    "unexplained economics discrepancy",
+    "tenant per-run or accelerated incremental ceiling exceeded",
+    "historical synthetic fixture identity changes during the gate",
+    "a mutation is automatically retried after a transport error"
+  ],
+  "deferred_original_criteria": [
+    "workflow1.happy-2",
+    "workflow1.happy-3",
+    "economics.one-event-per-noncache-call",
+    "economics.reconciled-totals",
+    "economics.shared-provider-window-upper-bound",
+    "stop.audit-complete-and-valid",
+    "stop.no-economic-double-count",
+    "check.after-workflow-gates"
+  ],
+  "invariants": {
+    "mutates_original_acceptance_catalog": false,
+    "permits_full_campaign_acceptance_claim": false,
+    "provider_calls_before_explicit_authorization": false,
+    "mutates_accelerated_v1_evidence": false,
+    "mutates_accelerated_v2_evidence": false,
+    "one_case_rightsizing_proves_model_quality": false
+  }
+}

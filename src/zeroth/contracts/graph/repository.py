@@ -7,7 +7,7 @@ diffing graph versions.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from zeroth.contracts.graph.diff import GraphDiff, diff_graphs
 from zeroth.contracts.graph.errors import GraphLifecycleError
@@ -36,6 +36,12 @@ if TYPE_CHECKING:
     from zeroth.runtime.graph_validation import GraphValidator
 
 
+class TemplateReferenceIndexWriter(Protocol):
+    """Transaction-aware template reference sink supplied by the service layer."""
+
+    async def sync_graph(self, transaction: object, graph: Graph) -> None: ...
+
+
 @persistence_surface("service.graph_versions", probe=named_isolation_probe("_drive_graph_versions"))
 class GraphRepository:
     """Persistence layer for versioned graph documents."""
@@ -44,9 +50,11 @@ class GraphRepository:
         self,
         database: AsyncDatabase,
         validator: GraphValidator | None = None,
+        template_reference_index: TemplateReferenceIndexWriter | None = None,
     ):
         self._database: AsyncDatabase = database
         self._validator: GraphValidator | None = validator
+        self._template_reference_index = template_reference_index
 
     def _graphs(self, tenant_id: str | None, workspace_id: str | None) -> ScopedTable:
         tenant = tenant_id or "default"
@@ -105,6 +113,8 @@ class GraphRepository:
                     msg = f"graph version {graph.graph_id}@{graph.version} is immutable"
                     raise GraphLifecycleError(msg)
                 await self._update_graph(graphs, graph)
+            if self._template_reference_index is not None:
+                await self._template_reference_index.sync_graph(graphs, graph)
         return await self.get(
             graph.graph_id,
             graph.version,

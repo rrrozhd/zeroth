@@ -475,18 +475,6 @@ class GraphDriver:
                         input_payload=dict(input_payload),
                     )
                     approval_id = approval.approval_id
-                    await self.emit_webhook(
-                        "approval.requested",
-                        run,
-                        {
-                            "approval_id": approval.approval_id,
-                            "run_id": run.run_id,
-                            "node_id": node.node_id,
-                            "sla_deadline": (
-                                approval.sla_deadline.isoformat() if approval.sla_deadline else None
-                            ),
-                        },
-                    )
                 run.status = RunStatus.WAITING_APPROVAL
                 # Put the same node back at the front so execution can resume from this gate.
                 run.metadata["pending_approval"] = {

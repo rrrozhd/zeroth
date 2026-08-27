@@ -10,12 +10,12 @@ Multi-agent systems quickly collapse into tangles of ad-hoc function calls, impl
 
 ## Where it fits
 
-The graph sits at the center of Zeroth. It is produced by your code (or by the Studio UI), persisted via `GraphRepository`, and handed to the [orchestrator](orchestrator.md) at run time. Nodes reference [agents](agents.md) and [execution units](execution-units.md); edges carry [conditions](conditions.md) that branch the run. Adjacent subsystems — contracts, policy, approvals, audit — attach to the graph through refs on nodes and edges, so the graph is also the bind site for governance.
+The graph sits at the center of Zeroth. It is produced by your code (or by the Studio UI), persisted via `GraphRepository`, and handed to the [orchestrator](orchestrator.md) at run time. Nodes reference [agents](agents.md) and [execution units](execution-units.md). Studio-authored control flow uses explicit If and Loop nodes; the lower-level graph API retains condition-bearing edges for legacy and programmatic graphs. Adjacent subsystems — contracts, policy, approvals, audit — attach to the graph through refs on nodes and edges, so the graph is also the bind site for governance.
 
 ## Key types
 
 - **`Graph`** — top-level workflow object with nodes, edges, `ExecutionSettings`, lifecycle status, and a `to_governed_flow_spec()` compiler.
-- **`Node`** — discriminated union of `AgentNode`, `ExecutableUnitNode`, and `HumanApprovalNode`; one per step.
+- **`Node`** — discriminated union of entrypoint, agent, executable/code, approval, retrieval, HTTP, subgraph, If, and Loop node models; one per step.
 - **`Edge`** — directed connection between two nodes, optionally carrying an `EdgeMapping` and a `Condition`.
 - **`GraphStatus`** — lifecycle enum (`DRAFT`, `PUBLISHED`, `ARCHIVED`) enforced by `transition_to()`.
 - **`GraphRepository`** — persistence layer that stores, versions, and retrieves graphs from a database.

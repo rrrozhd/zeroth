@@ -13,6 +13,7 @@ import inspect
 import math
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
+from urllib.parse import urlparse
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
@@ -230,14 +231,42 @@ class LiteLLMProviderAdapter:
         tenant_id: str | None = None,
         allow_env_fallback: bool = True,
         llm_key_map: dict[str, str] | None = None,
+        llm_base_url_map: dict[str, str] | None = None,
     ) -> None:
         self._default_timeout = default_timeout
         self._secret_provider = secret_provider
         self._tenant_id = tenant_id
         self._allow_env_fallback = allow_env_fallback
         self._llm_key_map = dict(llm_key_map or {})
+        self._llm_base_url_map = self._validate_base_url_map(llm_base_url_map or {})
         # Cache key is (model, tenant_id, key_fingerprint) — never the raw key.
         self._clients: dict[tuple[str, str | None, str], ChatLiteLLM] = {}
+
+    @staticmethod
+    def _validate_base_url_map(values: dict[str, str]) -> dict[str, str]:
+        """Validate trusted operator-configured provider endpoints.
+
+        Per-request URLs are intentionally unsupported: only process-level
+        configuration may redirect provider traffic, and URL userinfo or
+        non-HTTP transports are rejected before a client can be created.
+        """
+        validated: dict[str, str] = {}
+        for raw_provider, raw_url in values.items():
+            provider = raw_provider.strip().lower()
+            parsed = urlparse(raw_url)
+            if (
+                not provider
+                or provider != raw_provider
+                or parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.fragment
+                or parsed.query
+            ):
+                raise ValueError(f"invalid provider base URL for {raw_provider!r}")
+            validated[provider] = raw_url.rstrip("/")
+        return validated
 
     def _logical_name(self, model: str) -> str:
         """Map a model string to its logical secret name (e.g. ``llm.openai``)."""
@@ -293,6 +322,9 @@ class LiteLLMProviderAdapter:
         cache_key = (model, self._tenant_id, _key_fingerprint(api_key))
         if cache_key not in self._clients:
             kwargs: dict[str, Any] = {"model": model, "timeout": self._default_timeout}
+            provider_base_url = self._llm_base_url_map.get(_provider_prefix(model))
+            if provider_base_url is not None:
+                kwargs["api_base"] = provider_base_url
             if api_key is not None:
                 # Set the generic key (pins ``litellm.api_key``) AND the
                 # per-provider named field, which is the one that otherwise
@@ -357,7 +389,7 @@ class LiteLLMProviderAdapter:
                     raw=ai_message,
                     tool_calls=tool_calls,
                     token_usage=token_usage,
-                    metadata={"provider": "litellm", "model": request.model_name},
+                    metadata=self._response_metadata(ai_message, request.model_name),
                 )
             parsed: BaseModel = request.output_model.model_validate_json(ai_message.content)
             return ProviderResponse(
@@ -365,7 +397,7 @@ class LiteLLMProviderAdapter:
                 raw=ai_message,
                 tool_calls=tool_calls,
                 token_usage=token_usage,
-                metadata={"provider": "litellm", "model": request.model_name},
+                metadata=self._response_metadata(ai_message, request.model_name),
             )
 
         # Fallback: no structured output — plain invocation.
@@ -380,8 +412,31 @@ class LiteLLMProviderAdapter:
             raw=ai_message,
             tool_calls=tool_calls,
             token_usage=token_usage,
-            metadata={"provider": "litellm", "model": request.model_name},
+            metadata=self._response_metadata(ai_message, request.model_name),
         )
+
+    @staticmethod
+    def _response_metadata(ai_message: AIMessage, model_name: str) -> dict[str, Any]:
+        """Preserve a provider request identity when the adapter exposes one.
+
+        ``response_metadata`` is the LangChain/LiteLLM boundary that carries
+        upstream response fields.  A missing identity remains missing; Zeroth
+        must not mint a value and mislabel it as an external provider ID.
+        """
+        metadata: dict[str, Any] = {"provider": "litellm", "model": model_name}
+        response_metadata = getattr(ai_message, "response_metadata", None)
+        if isinstance(response_metadata, dict):
+            provider_request_id = next(
+                (
+                    response_metadata[key]
+                    for key in ("provider_request_id", "request_id", "id")
+                    if isinstance(response_metadata.get(key), str) and response_metadata[key]
+                ),
+                None,
+            )
+            if provider_request_id is not None:
+                metadata["provider_request_id"] = provider_request_id
+        return metadata
 
     def _to_langchain_messages(self, messages: list[Any]) -> list[Any]:
         """Convert PromptMessage or dict messages to LangChain message objects."""

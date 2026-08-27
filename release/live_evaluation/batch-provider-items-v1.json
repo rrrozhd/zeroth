@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "index": 0,
+      "query": "Classify the severity of a production API outage affecting every customer and give one concise reason."
+    },
+    {
+      "index": 1,
+      "query": "Determine whether an unused annual subscription requested after 14 days is inside a documented 30-day refund window."
+    },
+    {
+      "index": 2,
+      "query": "Recommend the safest next action when a migration checksum differs from the reviewed artifact immediately before deployment."
+    },
+    {
+      "index": 3,
+      "query": "Summarize the customer impact of a search-index delay that affects new documents but not existing documents."
+    },
+    {
+      "index": 4,
+      "query": "Identify the evidence an operator should collect before rolling back a model deployment after a quality regression."
+    },
+    {
+      "index": 5,
+      "query": "Decide whether a failed workflow with provider spend but no successful outcome should be counted as failure tax."
+    },
+    {
+      "index": 6,
+      "query": "Explain how a legal hold should affect deletion of run payloads while preserving the audit record required by policy."
+    },
+    {
+      "index": 7,
+      "query": "State the safe behavior when a side-effect provider times out after possibly committing and no authoritative outcome can be found."
+    }
+  ]
+}

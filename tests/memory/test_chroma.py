@@ -13,9 +13,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.integrations.memory.chroma_connector import ChromaDBMemoryConnector
+from zeroth.integrations.memory.chroma_connector import (
+    LOCAL_HASH_EMBEDDING_MODEL,
+    ChromaDBMemoryConnector,
+    local_hash_embedding,
+)
 from zeroth.integrations.memory.governed.connector import MemoryConnector
 from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
+from zeroth.platform.secrets import SecretResolutionError
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -112,6 +117,47 @@ class TestWrite:
         assert call_kwargs.kwargs["ids"] == ["doc1"]
         assert call_kwargs.kwargs["embeddings"] == [FAKE_EMBEDDING]
 
+    async def test_embedding_uses_tenant_scoped_secret_provider(
+        self, connector, _mock_collection, _mock_litellm
+    ):
+        calls = []
+
+        class Provider:
+            def resolve_secret(self, logical_name, *, tenant_id=None, deployment_ref=None):
+                calls.append((logical_name, tenant_id))
+                return "scoped-openai-key"
+
+        provider = Provider()
+        connector.configure_embedding_secrets(
+            secret_provider=provider,
+            tenant_id="tenant-a",
+            allow_env_fallback=False,
+        )
+
+        await connector.write("doc1", {"text": "hello"}, MemoryScope.SHARED)
+
+        assert calls == [("llm.openai", "tenant-a")]
+        assert _mock_litellm.aembedding.await_args.kwargs["api_key"] == "scoped-openai-key"
+
+    async def test_embedding_fails_closed_before_provider_when_scoped_key_is_missing(
+        self, connector, _mock_litellm
+    ):
+        class Provider:
+            def resolve_secret(self, logical_name, *, tenant_id=None, deployment_ref=None):
+                return None
+
+        provider = Provider()
+        connector.configure_embedding_secrets(
+            secret_provider=provider,
+            tenant_id="tenant-a",
+            allow_env_fallback=False,
+        )
+
+        with pytest.raises(SecretResolutionError, match="llm.openai"):
+            await connector._embed("hello")
+
+        _mock_litellm.aembedding.assert_not_awaited()
+
 
 # ---------------------------------------------------------------------------
 # read
@@ -152,6 +198,41 @@ class TestSearch:
         assert results[0].key == "doc1"
         assert results[1].key == "doc2"
         _mock_collection.query.assert_called_once()
+
+    async def test_local_hash_model_never_calls_provider_or_secret_resolution(
+        self, _mock_client, _mock_collection, _mock_litellm
+    ):
+        connector = ChromaDBMemoryConnector(
+            client=_mock_client,
+            collection_prefix="zeroth_test",
+            embedding_model=LOCAL_HASH_EMBEDDING_MODEL,
+        )
+
+        class RefusingProvider:
+            def resolve_secret(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                raise AssertionError("local embedding must not resolve provider credentials")
+
+        connector.configure_embedding_secrets(
+            secret_provider=RefusingProvider(),
+            tenant_id="tenant-a",
+            allow_env_fallback=False,
+        )
+
+        await connector.search({"text": "queue depth", "limit": 2}, MemoryScope.SHARED)
+
+        _mock_litellm.aembedding.assert_not_awaited()
+        query = _mock_collection.query.call_args.kwargs
+        assert query["query_embeddings"] == [local_hash_embedding("queue depth")]
+
+    def test_local_hash_embedding_is_deterministic_normalized_and_token_sensitive(self):
+        first = local_hash_embedding("approved queue depth four")
+        repeated = local_hash_embedding("approved queue depth four")
+        unrelated = local_hash_embedding("launch window nine thirty")
+
+        assert first == repeated
+        assert len(first) == 256
+        assert sum(value * value for value in first) == pytest.approx(1.0)
+        assert first != unrelated
 
 
 # ---------------------------------------------------------------------------

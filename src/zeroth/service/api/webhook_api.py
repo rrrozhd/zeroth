@@ -11,10 +11,12 @@ Provides:
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from zeroth.platform.primitives.boundary import (
     OutboundDestinationError,
@@ -25,6 +27,7 @@ from zeroth.service.api.authorization import (
     require_deployment_scope,
     require_permission,
 )
+from zeroth.service.service_audit import ServiceAuditRecorder
 from zeroth.service.webhooks.models import WebhookEventType, WebhookSubscription
 
 
@@ -33,10 +36,19 @@ class CreateSubscriptionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    deployment_ref: str
-    target_url: str
-    event_types: list[str]
-    tenant_id: str = "default"
+    deployment_ref: str = Field(min_length=1, max_length=512)
+    target_url: str = Field(min_length=1, max_length=2048)
+    event_types: list[WebhookEventType] = Field(min_length=1, max_length=5)
+    tenant_id: str = Field(default="default", min_length=1, max_length=512)
+
+    @field_validator("event_types")
+    @classmethod
+    def _unique_event_types(
+        cls, event_types: list[WebhookEventType]
+    ) -> list[WebhookEventType]:
+        if len(set(event_types)) != len(event_types):
+            raise ValueError("event_types must not contain duplicates")
+        return event_types
 
 
 class WebhookSubscriptionResponse(BaseModel):
@@ -74,6 +86,8 @@ class WebhookDeadLetterResponse(BaseModel):
     subscription_id: str
     event_type: str
     event_id: str
+    run_id: str | None = None
+    approval_id: str | None = None
     attempt_count: int
     last_error: str | None
     last_status_code: int | None
@@ -90,10 +104,68 @@ class WebhookDeadLetterListResponse(BaseModel):
     total: int
 
 
+class WebhookDeliveryResponse(BaseModel):
+    """Safe operator view of one delivery; payload and secret are intentionally absent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    delivery_id: str
+    subscription_id: str
+    event_type: str
+    event_id: str
+    run_id: str | None = None
+    approval_id: str | None = None
+    status: str
+    attempt_count: int
+    max_attempts: int
+    last_error: str | None
+    last_status_code: int | None
+    created_at: str
+    updated_at: str
+
+
+class WebhookDeliveryListResponse(BaseModel):
+    """Response for listing scoped webhook delivery state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    deliveries: list[WebhookDeliveryResponse]
+    total: int
+
+
 def _mask_secret(secret: str) -> str:
     """Return a redacted secret preview safe to include in API responses."""
     tail = secret[-4:] if len(secret) >= 4 else ""
     return f"••••{tail}"
+
+
+def _event_identity(payload_json: str) -> dict[str, str | None]:
+    """Extract only durable operator identity fields from a hidden event payload."""
+    empty = {
+        "run_id": None,
+        "approval_id": None,
+        "thread_id": None,
+        "graph_version_ref": None,
+    }
+    try:
+        payload = json.loads(payload_json)
+    except (json.JSONDecodeError, TypeError):
+        return empty
+    data = payload.get("data") if isinstance(payload, Mapping) else None
+    if not isinstance(data, Mapping):
+        return empty
+
+    def identifier(name: str) -> str | None:
+        value = data.get(name)
+        return value if isinstance(value, str) and 0 < len(value) <= 512 else None
+
+    return {name: identifier(name) for name in empty}
+
+
+def _event_correlation(payload_json: str) -> tuple[str | None, str | None]:
+    """Compatibility projection for public run/approval response fields."""
+    identity = _event_identity(payload_json)
+    return identity["run_id"], identity["approval_id"]
 
 
 def _serialize_subscription(
@@ -147,7 +219,7 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         payload: CreateSubscriptionRequest,
     ) -> WebhookSubscriptionResponse:
-        await require_permission(request, Permission.WEBHOOK_ADMIN)
+        principal = await require_permission(request, Permission.WEBHOOK_ADMIN)
         deployment = _served_deployment(request)
         # Tenant isolation (audit F8): only the served deployment's owner may
         # subscribe, and the subscription is BOUND to that deployment + tenant.
@@ -160,9 +232,10 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
             deployment_ref=deployment.deployment_ref,
             tenant_id=deployment.tenant_id,
             target_url=payload.target_url,
-            event_types=[WebhookEventType(e) for e in payload.event_types],
+            event_types=list(payload.event_types),
         )
-        created = await webhook_service.create_subscription(sub)
+        _webhook_audit_recorder(request, deployment).ensure_signing_available()
+        created = await webhook_service.create_subscription(sub, actor=principal.to_actor())
         return _serialize_subscription(created, reveal_secret=True)
 
     @app.get(
@@ -218,7 +291,7 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         subscription_id: str,
     ) -> None:
-        await require_permission(request, Permission.WEBHOOK_ADMIN)
+        principal = await require_permission(request, Permission.WEBHOOK_ADMIN)
         deployment = _served_deployment(request)
         await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
@@ -230,7 +303,57 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="subscription not found",
             )
-        await webhook_service.deactivate_subscription(subscription_id)
+        _webhook_audit_recorder(request, deployment).ensure_signing_available()
+        await webhook_service.deactivate_subscription(
+            subscription_id, actor=principal.to_actor()
+        )
+
+    @app.get(
+        "/webhooks/deliveries",
+        response_model=WebhookDeliveryListResponse,
+    )
+    async def list_deliveries(
+        request: Request,
+        subscription_id: str | None = None,
+        limit: int = Query(default=50, ge=1, le=1000),
+    ) -> WebhookDeliveryListResponse:
+        await require_permission(request, Permission.WEBHOOK_ADMIN)
+        deployment = _served_deployment(request)
+        await require_deployment_scope(request, deployment)
+        webhook_service = _webhook_service(request)
+        allowed = await _served_subscription_ids(request, deployment)
+        if subscription_id is not None:
+            if subscription_id not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="subscription not found",
+                )
+            deliveries = await webhook_service.list_deliveries(
+                subscription_id=subscription_id, limit=limit
+            )
+        else:
+            deliveries = await webhook_service.list_deliveries(
+                subscription_ids=sorted(allowed), limit=limit
+            )
+        items = [
+            WebhookDeliveryResponse(
+                delivery_id=item.delivery_id,
+                subscription_id=item.subscription_id,
+                event_type=item.event_type.value,
+                event_id=item.event_id,
+                run_id=_event_correlation(item.payload_json)[0],
+                approval_id=_event_correlation(item.payload_json)[1],
+                status=item.status.value,
+                attempt_count=item.attempt_count,
+                max_attempts=item.max_attempts,
+                last_error=item.last_error,
+                last_status_code=item.last_status_code,
+                created_at=item.created_at.isoformat(),
+                updated_at=item.updated_at.isoformat(),
+            )
+            for item in deliveries
+        ]
+        return WebhookDeliveryListResponse(deliveries=items, total=len(items))
 
     @app.get(
         "/webhooks/dead-letters",
@@ -270,6 +393,8 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
                 subscription_id=dl.subscription_id,
                 event_type=dl.event_type.value,
                 event_id=dl.event_id,
+                run_id=_event_correlation(dl.payload_json)[0],
+                approval_id=_event_correlation(dl.payload_json)[1],
                 attempt_count=dl.attempt_count,
                 last_error=dl.last_error,
                 last_status_code=dl.last_status_code,
@@ -291,7 +416,7 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         dead_letter_id: str,
     ) -> dict[str, Any]:
-        await require_permission(request, Permission.WEBHOOK_ADMIN)
+        principal = await require_permission(request, Permission.WEBHOOK_ADMIN)
         deployment = _served_deployment(request)
         await require_deployment_scope(request, deployment)
         webhook_service = _webhook_service(request)
@@ -305,6 +430,21 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="dead letter not found",
             )
+        identity = _event_identity(dead_letter.payload_json)
+        await _webhook_audit_recorder(request, deployment).record_webhook_event(
+            node_id="webhook.dead-letter.replay",
+            actor=principal.to_actor(),
+            subscription_id=dead_letter.subscription_id,
+            delivery_id=dead_letter.delivery_id,
+            event_id=dead_letter.event_id,
+            dead_letter_id=dead_letter.dead_letter_id,
+            event_type=dead_letter.event_type.value,
+            transition="replay_authorized",
+            run_id=identity["run_id"],
+            approval_id=identity["approval_id"],
+            thread_id=identity["thread_id"],
+            graph_version_ref=identity["graph_version_ref"],
+        )
         try:
             delivery = await webhook_service.replay_dead_letter(dead_letter_id)
         except KeyError as exc:
@@ -342,6 +482,23 @@ def _served_deployment(request: Request) -> Any:
             detail="service bootstrap is not configured",
         )
     return deployment
+
+
+def _webhook_audit_recorder(request: Request, deployment: Any) -> ServiceAuditRecorder:
+    bootstrap = getattr(request.app.state, "bootstrap", None)
+    audit_repository = (
+        getattr(bootstrap, "audit_repository", None) if bootstrap is not None else None
+    )
+    if audit_repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="webhook audit repository is unavailable",
+        )
+    return ServiceAuditRecorder(
+        repository=audit_repository,
+        deployment=deployment,
+        require_signed=True,
+    )
 
 
 async def _served_subscription_ids(request: Request, deployment: Any) -> set[str]:

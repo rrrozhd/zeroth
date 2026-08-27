@@ -38,6 +38,19 @@ async def test_get_artifact_returns_stored_bytes(sqlite_db, tmp_path) -> None:
         assert resp.status_code == 200
         assert resp.content == b"hello-artifact"
         assert resp.headers["content-type"] == "application/octet-stream"
+        assert resp.headers["x-zeroth-artifact-size"] == "14"
+
+
+async def test_get_artifact_preserves_persisted_media_type(sqlite_db, tmp_path) -> None:
+    store = FilesystemArtifactStore(base_dir=str(tmp_path))
+    await store.store("json-key", b'{"valid":true}', "application/json")
+    app = await _build_app(sqlite_db, artifact_store=store)
+
+    with TestClient(app) as client:
+        response = client.get("/v1/artifacts/json-key", headers=operator_headers())
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
 
 
 async def test_get_artifact_accepts_canonical_generated_path_key(sqlite_db, tmp_path) -> None:

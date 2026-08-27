@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
+from collections.abc import Callable, Sequence
 from typing import Protocol
 
+import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -30,7 +33,9 @@ from zeroth.service.api.health import (
     audit_delivery_health,
     langgraph_gateway_health,
 )
+from zeroth.service.api.identity_api import register_identity_routes
 from zeroth.service.api.langgraph_enforcement_api import register_langgraph_enforcement_routes
+from zeroth.service.api.operation_api import register_operation_routes
 from zeroth.service.api.regulus_proxy_api import register_regulus_proxy_routes
 from zeroth.service.api.retention_api import register_retention_routes
 from zeroth.service.api.rightsizing_api import register_rightsizing_routes
@@ -68,7 +73,11 @@ class ServiceBootstrapLike(Protocol):
     authenticator: object
 
 
-def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
+def create_app(
+    bootstrap: ServiceBootstrapLike,
+    *,
+    extra_v1_route_registrars: Sequence[Callable[[APIRouter], None]] = (),
+) -> FastAPI:
     """Create the service API for a single deployment."""
     app = FastAPI(
         title="Zeroth Platform API",
@@ -86,6 +95,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         _regulus_settings = get_settings().regulus
         app.state.regulus_base_url = _regulus_settings.base_url
         app.state.regulus_timeout = _regulus_settings.request_timeout
+        app.state.regulus_registration_ready = False
 
         # Self-auth headers for Zeroth's own calls to the (possibly in-process,
         # gated) Regulus mount: Zeroth's first service API key + a fresh
@@ -97,19 +107,17 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         _self_api_key = _auth_cfg.api_keys[0].secret if _auth_cfg and _auth_cfg.api_keys else None
         app.state.regulus_self_auth_headers = make_self_auth_headers_provider(_self_api_key)
 
-        # Mount the Regulus economic control plane in-process under
-        # /regulus (source at src/zeroth/econ/plane). Guarded so a plain
-        # `zeroth-core` install without the `regulus` extra still boots. The
-        # mount sits behind Zeroth's API-key auth (no bypass); econ_plane then
-        # enforces its own JWT on protected routes. Zeroth's econ client/budget/
-        # cost reach it over HTTP via ZEROTH_REGULUS__BASE_URL (point at
-        # http://<host>/regulus/v1 in-process), carrying both credentials so the
-        # fail-open boundary (D-12) is preserved. The backend keeps its own
-        # ECP_-prefixed settings, database, and JWT auth.
+        # Mount the Regulus economic control plane in-process under /regulus.
+        # External requests cross Zeroth's API-key gate and Regulus JWT auth;
+        # trusted self-calls dispatch directly through ASGI and still carry the
+        # Regulus service JWT. A configured external backend remains the
+        # fallback when the bundled plane is unavailable.
         try:
             from zeroth.econ.plane.main import app as econ_plane_app
 
             app.mount("/regulus", econ_plane_app)
+            app.state.regulus_base_url = "http://regulus.internal/v1"
+            app.state.regulus_transport = httpx.ASGITransport(app=econ_plane_app)
             logger.info("Mounted bundled Regulus control plane at /regulus")
         except ImportError:
             logger.warning(
@@ -190,6 +198,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             deployment_ref=deployment.deployment_ref,
             deployment_version=deployment.version,
             graph_version_ref=deployment.graph_version_ref,
+            campaign_id=getattr(app.state.bootstrap, "evaluation_campaign_id", None),
             langgraph_gateway=langgraph_gateway_health(app.state.bootstrap),
             audit_delivery=audit_delivery_health(app.state.bootstrap),
         )
@@ -200,6 +209,8 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_audit_routes(v1_router)
     register_approval_routes(v1_router)
     register_run_routes(v1_router)
+    register_operation_routes(v1_router)
+    register_identity_routes(v1_router)
 
     # Studio graph authoring API
     from zeroth.service.api.studio_api import router as studio_router
@@ -228,6 +239,8 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_deployment_routes(v1_router)
     register_connector_routes(v1_router)
     register_manifest_routes(v1_router)
+    for registrar in extra_v1_route_registrars:
+        registrar(v1_router)
 
     app.include_router(v1_router)
 
@@ -257,6 +270,8 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_audit_routes(compat_router)
     register_approval_routes(compat_router)
     register_run_routes(compat_router)
+    register_operation_routes(compat_router)
+    register_identity_routes(compat_router)
     register_admin_routes(compat_router)
     register_cost_routes(compat_router)
     register_rightsizing_routes(compat_router)
@@ -282,7 +297,13 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             CORSMiddleware,
             allow_origins=cors_origins,
             allow_methods=["*"],
-            allow_headers=["X-API-Key", "Content-Type", "Accept", "X-Correlation-ID"],
+            allow_headers=[
+                "X-API-Key",
+                "X-Tenant-ID",
+                "Content-Type",
+                "Accept",
+                "X-Correlation-ID",
+            ],
             allow_credentials=False,
         )
 
@@ -303,3 +324,13 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         return response
 
     return app
+
+
+_create_app_parameters = inspect.signature(create_app).parameters
+create_app.__signature__ = inspect.signature(create_app).replace(
+    parameters=[
+        parameter
+        for name, parameter in _create_app_parameters.items()
+        if name != "extra_v1_route_registrars"
+    ]
+)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 from unittest.mock import MagicMock
+import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -74,6 +76,175 @@ async def test_adapter_enriches_response_with_cost(
     assert len(result.cost_event_id) > 0
 
 
+async def test_adapter_reserves_before_each_concurrent_workflow_provider_call(token_usage):
+    from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
+
+    class Reservations:
+        def __init__(self) -> None:
+            self.active: set[str] = set()
+            self.committed: list[str] = []
+
+        async def reserve_probe(self, **fields):
+            assert fields["run_cap_usd"] == "0.25"
+            self.active.add(fields["operation_id"])
+
+        async def commit_probe(self, **fields):
+            assert fields["operation_id"] in self.active
+            self.committed.append(fields["operation_id"])
+            return SimpleNamespace(
+                cost_event_id=f"event:{fields['operation_id']}",
+                cost_measurement="estimated",
+                provider_request_id=None,
+                cleanup_status="complete",
+            )
+
+    class Inner:
+        async def ainvoke(self, request):
+            await asyncio.sleep(0)
+            return ProviderResponse(content="ok", token_usage=token_usage)
+
+    reservations = Reservations()
+    estimator = SimpleNamespace(estimate=lambda *args, **kwargs: Decimal("0.01"))
+    adapter = InstrumentedProviderAdapter(
+        inner=Inner(),
+        regulus_client=None,
+        cost_estimator=estimator,
+        node_id="node-a",
+        run_id="run-a",
+        tenant_id="tenant-a",
+        deployment_ref="deployment-a",
+        cost_instrumentation=reservations,
+        campaign_id="campaign-a",
+        per_run_cap_usd=Decimal("0.25"),
+        branch_id="branch-a",
+    )
+
+    results = await asyncio.gather(
+        adapter.ainvoke(
+            ProviderRequest(
+                model_name="openai/gpt-4o-mini", messages=[{"role": "user", "content": "a"}]
+            )
+        ),
+        adapter.ainvoke(
+            ProviderRequest(
+                model_name="openai/gpt-4o-mini", messages=[{"role": "user", "content": "b"}]
+            )
+        ),
+    )
+
+    assert len(set(reservations.committed)) == 2
+    assert all("branch-a" in operation for operation in reservations.committed)
+    assert {result.cost_event_id for result in results} == {
+        f"event:{operation}" for operation in reservations.committed
+    }
+    evidence = adapter.call_evidence
+    assert len(evidence) == 2
+    assert {item.operation_id for item in evidence} == set(reservations.committed)
+    assert {item.cost_event_id for item in evidence} == {
+        f"event:{operation}" for operation in reservations.committed
+    }
+    assert {item.model_name for item in evidence} == {"openai/gpt-4o-mini"}
+    assert all(item.estimated_cost_usd == Decimal("0.01") for item in evidence)
+    assert all(item.measured_cost_usd is None for item in evidence)
+    assert all(item.cleanup_status == "complete" for item in evidence)
+
+
+async def test_adapter_retains_max_when_workflow_provider_outcome_is_ambiguous():
+    from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
+
+    class Reservations:
+        def __init__(self) -> None:
+            self.reserved = []
+            self.ambiguous = []
+
+        async def reserve_probe(self, **fields):
+            self.reserved.append(fields)
+
+        async def mark_probe_ambiguous(self, **fields):
+            self.ambiguous.append(fields)
+
+    class TimeoutInner:
+        async def ainvoke(self, request):
+            raise TimeoutError("provider outcome unknown")
+
+    reservations = Reservations()
+    adapter = InstrumentedProviderAdapter(
+        inner=TimeoutInner(),
+        regulus_client=None,
+        cost_estimator=SimpleNamespace(estimate=lambda *args, **kwargs: Decimal("0.01")),
+        node_id="node-a",
+        run_id="run-a",
+        tenant_id="tenant-a",
+        deployment_ref="deployment-a",
+        cost_instrumentation=reservations,
+        campaign_id="campaign-a",
+        per_run_cap_usd=Decimal("0.25"),
+    )
+
+    with pytest.raises(TimeoutError):
+        await adapter.ainvoke(
+            ProviderRequest(
+                model_name="openai/gpt-4o-mini", messages=[{"role": "user", "content": "a"}]
+            )
+        )
+
+    assert len(reservations.reserved) == 1
+    assert reservations.ambiguous[0]["operation_id"] == reservations.reserved[0]["operation_id"]
+
+
+async def test_adapter_releases_reservation_when_local_fault_prevents_provider_call():
+    from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
+
+    class Reservations:
+        def __init__(self) -> None:
+            self.reserved = []
+            self.released = []
+            self.ambiguous = []
+
+        async def reserve_probe(self, **fields):
+            self.reserved.append(fields)
+
+        async def release_probe(self, **fields):
+            self.released.append(fields)
+
+        async def mark_probe_ambiguous(self, **fields):
+            self.ambiguous.append(fields)
+
+    class PreventedError(RuntimeError):
+        provider_call_attempted = False
+
+    class LocallyFaultedInner:
+        async def ainvoke(self, request):
+            raise PreventedError("deterministic local rate limit")
+
+    reservations = Reservations()
+    adapter = InstrumentedProviderAdapter(
+        inner=LocallyFaultedInner(),
+        regulus_client=None,
+        cost_estimator=SimpleNamespace(estimate=lambda *args, **kwargs: Decimal("0.01")),
+        node_id="node-a",
+        run_id="run-a",
+        tenant_id="tenant-a",
+        deployment_ref="deployment-a",
+        cost_instrumentation=reservations,
+        campaign_id="campaign-a",
+        per_run_cap_usd=Decimal("0.25"),
+    )
+
+    with pytest.raises(PreventedError):
+        await adapter.ainvoke(
+            ProviderRequest(
+                model_name="openai/gpt-4o-mini",
+                messages=[{"role": "user", "content": "a"}],
+            )
+        )
+
+    assert len(reservations.reserved) == 1
+    assert reservations.released[0]["operation_id"] == reservations.reserved[0]["operation_id"]
+    assert reservations.released[0]["cleanup_status"] == "provider_not_called"
+    assert reservations.ambiguous == []
+
+
 async def test_adapter_without_regulus_stamps_cost_but_emits_no_event(
     response_with_tokens, cost_estimator, provider_request
 ):
@@ -101,7 +272,9 @@ async def test_adapter_without_regulus_stamps_cost_but_emits_no_event(
 
 
 @pytest.mark.parametrize("with_regulus", [False, True])
-async def test_adapter_preserves_inner_measured_event(with_regulus, cost_estimator, provider_request):
+async def test_adapter_preserves_inner_measured_event(
+    with_regulus, cost_estimator, provider_request
+):
     from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
 
     client = MagicMock() if with_regulus else None
@@ -157,8 +330,11 @@ async def test_adapter_calls_track_execution_with_correct_event(
     mock_regulus_client.track_execution.assert_called_once()
     event = mock_regulus_client.track_execution.call_args[0][0]
     assert isinstance(event, ExecutionEvent)
-    assert event.capability_id == "test-node"
-    assert event.implementation_id == "openai/gpt-4o"
+    from zeroth.econ.analytics.identity import capability_identity, implementation_identity
+
+    expected_capability = capability_identity("tenant-1", "deploy-1", "test-node")
+    assert event.capability_id == expected_capability
+    assert event.implementation_id == implementation_identity(expected_capability, "openai/gpt-4o")
     assert event.token_cost_usd > Decimal("0")
     assert event.metadata["run_id"] == "run-1"
     assert event.metadata["tenant_id"] == "tenant-1"

@@ -6,3 +6,4 @@ export * from "./MonoLabel";
 export * from "./Button";
 export * from "./CodeBlock";
 export * from "./Skeleton";
+export * from "./ConsoleLayout";

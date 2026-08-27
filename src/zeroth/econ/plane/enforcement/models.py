@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import ClassVar
 
-from sqlalchemy import DateTime, ForeignKey, Index, String
+from decimal import Decimal
+
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -121,4 +123,40 @@ class TenantBudget(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     budget_cap_usd: Mapped[float] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class CostReservation(Base):
+    """Durable admission ledger for work that can incur external cost."""
+
+    __tablename__ = "cost_reservations"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.cost_reservation", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "operation_id", name="uq_cost_reservations_tenant_operation"
+        ),
+        Index("ix_cost_reservations_tenant_status", "tenant_id", "status"),
+        Index("ix_cost_reservations_tenant_run", "tenant_id", "run_id"),
+        Index("ix_cost_reservations_tenant_campaign", "tenant_id", "campaign_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    operation_id: Mapped[str] = mapped_column(String(192))
+    campaign_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    deployment_ref: Mapped[str | None] = mapped_column(String(192), nullable=True)
+    evidence_kind: Mapped[str] = mapped_column(String(32), default="legacy_unknown")
+    status: Mapped[str] = mapped_column(String(32))
+    max_cost_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8))
+    held_cost_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8))
+    actual_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    released_cost_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), default=Decimal("0"))
+    cost_measurement: Mapped[str] = mapped_column(String(16), default="unmeasured")
+    cost_event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    provider_request_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    cleanup_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)

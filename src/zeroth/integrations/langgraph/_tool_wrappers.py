@@ -28,8 +28,10 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from zeroth.governance.identity import ActorIdentity
-from zeroth.integrations.langgraph._action_lifecycle import SQLiteActionExecutionRepository
-from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
+from zeroth.integrations.langgraph._repository_protocols import (
+    ActionExecutionRepository,
+    ApprovalRepository,
+)
 from zeroth.integrations.langgraph._tool_configuration import (
     configuration_fingerprint,
     declared_configuration_names,
@@ -192,8 +194,8 @@ class _Seams:
     audit: ToolAuditSubmitter | None = None
     actor: ActorIdentity | None = None
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None
-    approval_lifecycle: SQLiteApprovalRepository | None = None
-    action_lifecycle: SQLiteActionExecutionRepository | None = None
+    approval_lifecycle: ApprovalRepository | None = None
+    action_lifecycle: ActionExecutionRepository | None = None
     side_effect: Callable[[Any], Any] | None = None
     contract_ref: Callable[[Any], Any] | None = None
     capability_refs: Callable[[Any], Any] | None = None
@@ -2643,8 +2645,8 @@ def govern_tools(
     audit: ToolAuditSubmitter | None = None,
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
-    approval_lifecycle: SQLiteApprovalRepository | None = None,
-    action_lifecycle: SQLiteActionExecutionRepository | None = None,
+    approval_lifecycle: ApprovalRepository | None = None,
+    action_lifecycle: ActionExecutionRepository | None = None,
     side_effect: Callable[[Any], Any] | None = None,
     contract_ref: Callable[[Any], Any] | None = None,
     capability_refs: Callable[[Any], Any] | None = None,

@@ -221,6 +221,30 @@ class RuntimeParallelExecutor:
                 ctx,
             )
 
+    async def _terminalize_cancelled_child_runs(
+        self,
+        contexts: list[BranchContext],
+    ) -> None:
+        """Fail started child Runs after fail-fast has drained branch tasks.
+
+        Cancellation can interrupt ``SubgraphExecutor.execute`` after it has
+        persisted a RUNNING child.  Terminalize those children serially here:
+        concurrent cleanup writes can contend with the parent's token CAS on
+        SQLite, and completed/failed children must never be overwritten.
+        """
+        for context in sorted(contexts, key=lambda item: item.branch_index):
+            child_run_id = context.metadata.get("subgraph_child_run_id")
+            if not isinstance(child_run_id, str):
+                continue
+            child = await self.run_repository.get(child_run_id)
+            if child is None or child.status not in {RunStatus.PENDING, RunStatus.RUNNING}:
+                continue
+            await self.orchestrator._fail_run(
+                child,
+                "parallel_branch_cancelled",
+                "child execution cancelled by its parent parallel branch",
+            )
+
     async def execute_fan_out(
         self,
         graph: Graph,
@@ -294,6 +318,7 @@ class RuntimeParallelExecutor:
 
             for ds_node_id in downstream_node_ids:
                 ds_node = node_by_id(graph, ds_node_id)
+                node_started_at = datetime.now(UTC)
 
                 # Per-branch policy enforcement
                 policy_result = (
@@ -322,9 +347,7 @@ class RuntimeParallelExecutor:
                         raise RuntimeError(
                             f"branch {ctx.branch_index}: SubgraphExecutor not configured"
                         )
-                    ctx.metadata["subgraph_input"] = self.audit_recorder.redact(
-                        dict(branch_output)
-                    )
+                    ctx.metadata["subgraph_input"] = self.audit_recorder.redact(dict(branch_output))
                     try:
                         child_run = await self.subgraph_executor.execute(
                             orchestrator=self.orchestrator,
@@ -338,7 +361,13 @@ class RuntimeParallelExecutor:
                         )
                     except Exception as exc:
                         await self.audit_recorder.record_failed_branch_execution(
-                            run, ds_node, ds_node_id, branch_output, exc, ctx
+                            run,
+                            ds_node,
+                            ds_node_id,
+                            branch_output,
+                            exc,
+                            ctx,
+                            started_at=node_started_at,
                         )
                         raise
                     if child_run.status == RunStatus.WAITING_APPROVAL:
@@ -380,7 +409,13 @@ class RuntimeParallelExecutor:
                             "cost_measurement": child_cost.cost_measurement,
                         }
                         await self.audit_recorder.record_failed_branch_execution(
-                            run, ds_node, ds_node_id, branch_output, error, ctx
+                            run,
+                            ds_node,
+                            ds_node_id,
+                            branch_output,
+                            error,
+                            ctx,
+                            started_at=node_started_at,
                         )
                         raise error
                     child_output = child_run.final_output or {}
@@ -407,7 +442,13 @@ class RuntimeParallelExecutor:
                         )
                     except Exception as exc:
                         await self.audit_recorder.record_failed_branch_execution(
-                            run, ds_node, ds_node_id, branch_output, exc, ctx
+                            run,
+                            ds_node,
+                            ds_node_id,
+                            branch_output,
+                            exc,
+                            ctx,
+                            started_at=node_started_at,
                         )
                         raise
 
@@ -431,6 +472,7 @@ class RuntimeParallelExecutor:
                 redacted_branch_output = self.audit_recorder.redact(dict(ds_output))
 
                 redacted_branch_audit = self.audit_recorder.redact(dict(ds_audit_with_branch))
+                completed_at = datetime.now(UTC)
                 # Write audit record if audit repo available
                 if self.audit_recorder.audit_repository is not None:
                     branch_tool_calls, branch_memory = self.audit_recorder.typed_fields(
@@ -443,13 +485,19 @@ class RuntimeParallelExecutor:
                             thread_id=run.thread_id,
                             tenant_id=run.tenant_id,
                             workspace_id=run.workspace_id,
+                            campaign_id=(
+                                str(run.metadata["campaign_id"])
+                                if run.metadata.get("campaign_id") is not None
+                                else None
+                            ),
                             node_id=ds_node_id,
                             node_version=ds_node.node_version,
                             graph_version_ref=run.graph_version_ref,
                             deployment_ref=run.deployment_ref,
                             attempt=1,
                             status="completed",
-                            completed_at=datetime.now(UTC),
+                            started_at=node_started_at,
+                            completed_at=completed_at,
                             input_snapshot=redacted_branch_input,
                             output_snapshot=redacted_branch_output,
                             execution_metadata=redacted_branch_audit,
@@ -469,6 +517,8 @@ class RuntimeParallelExecutor:
                         input_snapshot=redacted_branch_input,
                         output_snapshot=redacted_branch_output,
                         audit_ref=audit_ref,
+                        started_at=node_started_at,
+                        completed_at=completed_at,
                         cost_usd=redacted_branch_audit.get("cost_usd"),
                         estimated_cost_usd=redacted_branch_audit.get("estimated_cost_usd"),
                         cost_measurement=redacted_branch_audit.get("cost_measurement"),
@@ -497,9 +547,7 @@ class RuntimeParallelExecutor:
                 (c for c in branch_contexts if c.branch_index == pause.branch_index),
                 None,
             )
-            completed_results = list(
-                getattr(pause, "completed_branch_results", []) or []
-            )
+            completed_results = list(getattr(pause, "completed_branch_results", []) or [])
             self._enrich_branch_results(run, branch_contexts, completed_results)
             pause_state: dict[str, Any] = {
                 "paused": {
@@ -509,9 +557,7 @@ class RuntimeParallelExecutor:
                     "version": pause.version,
                     "node_id": pause.node_id,
                     "branch_context": (
-                        _dump_branch_context(paused_ctx)
-                        if paused_ctx is not None
-                        else None
+                        _dump_branch_context(paused_ctx) if paused_ctx is not None else None
                     ),
                 },
                 "completed_branch_results": completed_results,
@@ -527,6 +573,7 @@ class RuntimeParallelExecutor:
         except Exception as exc:
             # Fail-fast never reaches fan-in, so preserve already-recorded branch
             # failures on the parent before the driver persists the failed run.
+            await self._terminalize_cancelled_child_runs(branch_contexts)
             if isinstance(exc, MultipleBranchPauseError):
                 await self._settle_paused_children(run, graph, branch_contexts, exc)
                 failed_histories = [
@@ -544,8 +591,7 @@ class RuntimeParallelExecutor:
             for history, refs in failed_histories:
                 for entry in history:
                     if not entry.audit_ref or all(
-                        existing.audit_ref != entry.audit_ref
-                        for existing in run.execution_history
+                        existing.audit_ref != entry.audit_ref for existing in run.execution_history
                     ):
                         run.execution_history.append(entry)
                 for ref in refs:
@@ -677,6 +723,7 @@ class RuntimeParallelExecutor:
                 "cannot resume pending_parallel_subgraph without SubgraphExecutor"
             )
 
+        resumed_started_at = datetime.now(UTC)
         resumed_child_run: Run | None = None
         resume_error: Exception | None = None
         try:
@@ -698,6 +745,11 @@ class RuntimeParallelExecutor:
                     paused_version,
                     tenant_id=run.tenant_id,
                     workspace_id=run.workspace_id,
+                    campaign_id=(
+                        str(run.metadata["campaign_id"])
+                        if run.metadata.get("campaign_id") is not None
+                        else None
+                    ),
                 )
                 child_run = await self.run_repository.get(paused_child_run_id)
                 depth = child_run.metadata.get("subgraph_depth", 1) if child_run else 1
@@ -733,7 +785,7 @@ class RuntimeParallelExecutor:
                 resumed_cost = rollup_run_cost(resumed_child_run)
                 failure = resumed_child_run.failure_state
                 detail = failure.message if failure is not None else "unknown failure"
-                resume_error = RuntimeError(
+                resume_error = ParallelExecutionError(
                     f"parallel child run {resumed_child_run.run_id} ended "
                     f"{resumed_child_run.status.value}: {detail}"
                 )
@@ -758,6 +810,7 @@ class RuntimeParallelExecutor:
                 paused_ctx.metadata.get("subgraph_input", paused_ctx.input_payload),
                 resume_error,
                 paused_ctx,
+                started_at=resumed_started_at,
             )
             self._merge_histories(
                 run,
@@ -800,6 +853,7 @@ class RuntimeParallelExecutor:
             resume_input = paused_ctx.input_payload
         redacted_input = self.audit_recorder.redact(dict(resume_input))
         redacted_output = self.audit_recorder.redact(dict(resumed_output))
+        resumed_completed_at = datetime.now(UTC)
         if self.audit_recorder.audit_repository is not None:
             await self.audit_recorder.audit_repository.write(
                 NodeAuditRecord(
@@ -814,7 +868,8 @@ class RuntimeParallelExecutor:
                     deployment_ref=run.deployment_ref,
                     attempt=1,
                     status="completed",
-                    completed_at=datetime.now(UTC),
+                    started_at=resumed_started_at,
+                    completed_at=resumed_completed_at,
                     input_snapshot=redacted_input,
                     output_snapshot=redacted_output,
                     execution_metadata=resumed_audit,
@@ -829,6 +884,8 @@ class RuntimeParallelExecutor:
             input_snapshot=redacted_input,
             output_snapshot=redacted_output,
             audit_ref=audit_ref,
+            started_at=resumed_started_at,
+            completed_at=resumed_completed_at,
             cost_usd=resumed_cost.cost_usd,
             estimated_cost_usd=resumed_cost.estimated_cost_usd,
             cost_measurement=resumed_cost.cost_measurement,
@@ -867,6 +924,7 @@ class RuntimeParallelExecutor:
         """Rebuild cancelled siblings once for success and failed-resume settlement."""
         cancelled_results: list[BranchResult] = []
         for data in pending.get("cancelled_branches", []):
+            cancelled_at = datetime.now(UTC)
             cancelled_ctx = _restore_branch_context(data, run.run_id)
             cancelled_input = cancelled_ctx.metadata.get(
                 "subgraph_input", cancelled_ctx.input_payload
@@ -880,6 +938,8 @@ class RuntimeParallelExecutor:
                     status="cancelled",
                     input_snapshot=self.audit_recorder.redact(dict(cancelled_input)),
                     output_snapshot={},
+                    started_at=cancelled_at,
+                    completed_at=cancelled_at,
                     cost_measurement=MeasurementState.UNMEASURED,
                 ),
             ]

@@ -80,16 +80,18 @@ from zeroth.governance.audit.models import (
 )
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.langgraph._action_lifecycle import (
-    ActionExecutionRecord,
-    SQLiteActionExecutionRepository,
+    ActionExecutionClaim,
     result_fingerprint,
 )
 from zeroth.integrations.langgraph._approval_lifecycle import (
     ApprovalDecision,
     ApprovalRecord,
     ApprovalState,
-    SQLiteApprovalRepository,
     _current_resume_claim,
+)
+from zeroth.integrations.langgraph._repository_protocols import (
+    ActionExecutionRepository,
+    ApprovalRepository,
 )
 from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
@@ -119,6 +121,7 @@ from zeroth.integrations.langgraph._tool_types import (
 )
 
 logger = logging.getLogger(__name__)
+_AMBIGUITY_PERSISTENCE_FAILED = "action_ambiguity_persistence_failed"
 
 TOOL_GUARD_NODE_ID = "langgraph.tool_guard"
 """The node identity every decision record this module writes is attributed to.
@@ -588,7 +591,7 @@ def _suspend_for_approval(
     decision: ToolDecision,
     approval_ref: str,
     interrupt: Callable[[Mapping[str, Any]], Any] | None,
-    lifecycle: SQLiteApprovalRepository,
+    lifecycle: ApprovalRepository,
     client: ToolDecisionClient | None,
     unknown_side_effect: UnknownSideEffectPolicy,
     audit: ToolAuditSubmitter | None,
@@ -713,7 +716,7 @@ def _authorize_tool_action(
     audit: ToolAuditSubmitter | None = None,
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
-    approval_lifecycle: SQLiteApprovalRepository | None = None,
+    approval_lifecycle: ApprovalRepository | None = None,
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> _Authorization:
     """Return the verdict and exact action authorized for execution."""
@@ -724,13 +727,13 @@ def _authorize_tool_action(
     resume_claim = _current_resume_claim()
     replay = (
         approval_lifecycle.replay_for(action_identity)
-        if type(approval_lifecycle) is SQLiteApprovalRepository
+        if isinstance(approval_lifecycle, ApprovalRepository)
         else None
     )
     if replay is not None and replay.state in (ApprovalState.RESOLVED, ApprovalState.ORPHANED):
         raise ToolGovernanceError("approval terminal delivery permanently fences this action")
     if resume_claim is not None:
-        if type(approval_lifecycle) is not SQLiteApprovalRepository:
+        if not isinstance(approval_lifecycle, ApprovalRepository):
             raise ApprovalRequiresThreadError("approval needs its durable lifecycle store")
         claimed = approval_lifecycle._claimed_replay(*resume_claim)
         if claimed is None:
@@ -779,7 +782,7 @@ def _authorize_tool_action(
     approval_ref = _approval_reference(decision, governance)
     if (
         decision.kind is ToolDecisionKind.REQUIRE_APPROVAL
-        and type(approval_lifecycle) is not SQLiteApprovalRepository
+        and not isinstance(approval_lifecycle, ApprovalRepository)
     ):
         raise ApprovalRequiresThreadError("approval needs a durable lifecycle store")
     if decision.kind is ToolDecisionKind.REQUIRE_APPROVAL and approval_ref is not None:
@@ -813,7 +816,7 @@ def _authorize_tool_action(
 
 
 def _fail_authorization(
-    authorization: _Authorization, lifecycle: SQLiteApprovalRepository | None
+    authorization: _Authorization, lifecycle: ApprovalRepository | None
 ) -> None:
     if lifecycle is None or authorization.approval_ref is None or authorization.claim_token is None:
         return
@@ -823,7 +826,7 @@ def _fail_authorization(
 
 def _complete_authorization(
     authorization: _Authorization,
-    lifecycle: SQLiteApprovalRepository | None,
+    lifecycle: ApprovalRepository | None,
     audit: ToolAuditSubmitter | None,
     actor: ActorIdentity | None,
     result: Any,
@@ -847,15 +850,13 @@ def _complete_authorization(
 
 def _claim_action_execution(
     authorization: _Authorization,
-    lifecycle: SQLiteActionExecutionRepository | None,
-) -> tuple[ActionExecutionRecord, bool] | None:
+    lifecycle: ActionExecutionRepository | None,
+) -> ActionExecutionClaim | None:
     """Claim only side-effecting calls; read-only calls need no execution fence."""
     if authorization.action.side_effect is not SideEffectClass.SIDE_EFFECTING:
         return None
     if lifecycle is None:
         return None
-    if type(lifecycle) is not SQLiteActionExecutionRepository:
-        raise ToolGovernanceError("action execution needs its durable lifecycle store")
     return lifecycle.begin_once(authorization.action, authorization.governance)
 
 
@@ -868,7 +869,7 @@ def authorize_tool_call(
     audit: ToolAuditSubmitter | None = None,
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
-    approval_lifecycle: SQLiteApprovalRepository | None = None,
+    approval_lifecycle: ApprovalRepository | None = None,
 ) -> ToolDecision:
     """Decide and enforce one tool call when no invocation boundary is needed.
 
@@ -938,8 +939,8 @@ def guard_tool_call(
     audit: ToolAuditSubmitter | None = None,
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
-    approval_lifecycle: SQLiteApprovalRepository | None = None,
-    action_lifecycle: SQLiteActionExecutionRepository | None = None,
+    approval_lifecycle: ApprovalRepository | None = None,
+    action_lifecycle: ActionExecutionRepository | None = None,
     invoke_with_arguments: Callable[[Mapping[str, Any]], Any] | None = None,
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> Any:
@@ -988,25 +989,39 @@ def guard_tool_call(
         prepare_edited_arguments=prepare_edited_arguments,
     )
     execution = _claim_action_execution(authorization, action_lifecycle)
+    dispatch_started = False
     try:
-        if execution is not None and not execution[1]:
-            result = action_lifecycle.replay_or_raise(execution[0])
+        if execution is not None and not execution.may_execute:
+            result = action_lifecycle.replay_or_raise(execution.record)
         elif authorization.edited:
             if invoke_with_arguments is None:
                 raise ToolGovernanceError(
                     "edited tool arguments cannot be reissued on this surface"
                 )
+            dispatch_started = True
             result = invoke_with_arguments(authorization.action.arguments)
         else:
+            dispatch_started = True
             result = invoke()
     except BaseException as error:
-        if execution is not None and execution[1]:
-            with suppress(Exception):
-                action_lifecycle.fail(execution[0].action_key, error)
+        if execution is not None and execution.may_execute:
+            try:
+                if dispatch_started:
+                    action_lifecycle.mark_ambiguous(
+                        execution, error, close_claim=True
+                    )
+                else:
+                    action_lifecycle.fail_pre_effect(execution, error)
+            except Exception as persistence_error:
+                logger.error(
+                    "%s exception_type=%s",
+                    _AMBIGUITY_PERSISTENCE_FAILED,
+                    type(persistence_error).__name__,
+                )
         _fail_authorization(authorization, approval_lifecycle)
         raise
-    if execution is not None and execution[1]:
-        action_lifecycle.complete(execution[0].action_key, result)
+    if execution is not None and execution.may_execute:
+        action_lifecycle.complete(execution, result)
     _complete_authorization(authorization, approval_lifecycle, audit, actor, result)
     return result
 
@@ -1021,8 +1036,8 @@ async def aguard_tool_call(
     audit: ToolAuditSubmitter | None = None,
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
-    approval_lifecycle: SQLiteApprovalRepository | None = None,
-    action_lifecycle: SQLiteActionExecutionRepository | None = None,
+    approval_lifecycle: ApprovalRepository | None = None,
+    action_lifecycle: ActionExecutionRepository | None = None,
     invoke_with_arguments: Callable[[Mapping[str, Any]], Awaitable[Any]] | None = None,
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> Any:
@@ -1055,27 +1070,48 @@ async def aguard_tool_call(
             _claim_action_execution, authorization, action_lifecycle
         )
     )
+    dispatch_started = False
     try:
-        if execution is not None and not execution[1]:
-            result = await asyncio.to_thread(action_lifecycle.replay_or_raise, execution[0])
+        if execution is not None and not execution.may_execute:
+            result = await asyncio.to_thread(
+                action_lifecycle.replay_or_raise, execution.record
+            )
         elif authorization.edited:
             if invoke_with_arguments is None:
                 raise ToolGovernanceError(
                     "edited tool arguments cannot be reissued on this surface"
                 )
+            dispatch_started = True
             result = await invoke_with_arguments(authorization.action.arguments)
         else:
+            dispatch_started = True
             result = await invoke()
     except BaseException as error:
-        if execution is not None and execution[1]:
-            with suppress(Exception):
-                await asyncio.to_thread(
-                    action_lifecycle.fail, execution[0].action_key, error
+        if execution is not None and execution.may_execute:
+            transition = (
+                action_lifecycle.mark_ambiguous
+                if dispatch_started
+                else action_lifecycle.fail_pre_effect
+            )
+            kwargs = {"close_claim": True} if dispatch_started else {}
+            transition_task = asyncio.create_task(
+                asyncio.to_thread(transition, execution, error, **kwargs)
+            )
+            try:
+                await asyncio.shield(transition_task)
+            except asyncio.CancelledError:
+                with suppress(BaseException):
+                    await asyncio.wait_for(asyncio.shield(transition_task), timeout=5.0)
+            except Exception as persistence_error:
+                logger.error(
+                    "%s exception_type=%s",
+                    _AMBIGUITY_PERSISTENCE_FAILED,
+                    type(persistence_error).__name__,
                 )
         _fail_authorization(authorization, approval_lifecycle)
         raise
-    if execution is not None and execution[1]:
-        await asyncio.to_thread(action_lifecycle.complete, execution[0].action_key, result)
+    if execution is not None and execution.may_execute:
+        await asyncio.to_thread(action_lifecycle.complete, execution, result)
     _complete_authorization(authorization, approval_lifecycle, audit, actor, result)
     return result
 

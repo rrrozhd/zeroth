@@ -189,6 +189,8 @@ class TestApprovalWebhookEmission:
         call_kwargs = webhook_service.emit_event.call_args.kwargs
         assert call_kwargs["event_type"] == "approval.requested"
         assert call_kwargs["data"]["run_id"] == "run-1"
+        assert call_kwargs["data"]["thread_id"] == "thread-1"
+        assert call_kwargs["data"]["graph_version_ref"] == "graph:v1"
 
     async def test_approval_resolved_emits_event(self):
         """Resolve emits approval.resolved webhook."""
@@ -229,6 +231,8 @@ class TestApprovalWebhookEmission:
         call_kwargs = webhook_service.emit_event.call_args.kwargs
         assert call_kwargs["event_type"] == "approval.resolved"
         assert call_kwargs["data"]["decision"] == "approve"
+        assert call_kwargs["data"]["thread_id"] is None
+        assert call_kwargs["data"]["graph_version_ref"] == "graph:v1"
 
 
 # ---------------------------------------------------------------------------

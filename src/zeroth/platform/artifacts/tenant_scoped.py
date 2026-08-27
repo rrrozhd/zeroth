@@ -168,6 +168,15 @@ class TenantScopedArtifactStore:
         except ArtifactNotFoundError:
             raise ArtifactNotFoundError(f"Artifact not found: {key}") from None
 
+    @persistence_operation(ResourceOperation.READ)
+    async def reference(self, key: str) -> ArtifactReference:
+        """Return safe metadata while preserving the caller-visible logical key."""
+        try:
+            reference = await self._backend.reference(self._object_key(key))
+        except ArtifactNotFoundError:
+            raise ArtifactNotFoundError(f"Artifact not found: {key}") from None
+        return reference.model_copy(update={"key": key})
+
     @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, key: str, *, idempotency_key: str) -> bool:
         """Delete a scoped artifact with a scope-bound receipt."""

@@ -1,0 +1,1835 @@
+{
+  "schema_version": 1,
+  "catalog_id": "zeroth-published-product-v1",
+  "sources": {
+    "ambiguous-operation-resolution-ui-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "ambiguous-operation-resolution-ui-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "provider-independent-surface-closure-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "provider-independent-surface-closure-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "provider-independent-ui-runs-live-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "audit-broken-chain-checkpoint-20260825-2": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "audit-broken-chain-checkpoint-20260825-2",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "batch-negative-recovery-accepted-20260826-2": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "batch-negative-recovery-accepted-20260826-2",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "chroma-corpus-checkpoint-20260824-2": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "chroma-corpus-checkpoint-20260824-2",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "composed-execution-backend-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "composed-execution-backend-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "governance-enforcement-live-services-20260825-2": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "governance-enforcement-live-services-20260825-2",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "identity-isolation-live-checkpoint-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "identity-isolation-live-checkpoint-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "loops-code-runtime-checkpoint-20260825-3": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "loops-code-runtime-checkpoint-20260825-3",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "loops-code-ui-checkpoint-20260825-3": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "loops-code-ui-checkpoint-20260825-3",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "native-safari-context-threads-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "native-safari-context-threads-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "native-safari-loop-refresh-checkpoint-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "native-safari-loop-refresh-checkpoint-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "native-safari-operator-denial-checkpoint-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "native-safari-operator-denial-checkpoint-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "native-safari-retention-validation-checkpoint-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "native-safari-retention-validation-checkpoint-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "native-safari-webhook-worker-audits-20260825-1": {
+      "campaign": "evaluation-studio-v1-retention-disposable",
+      "bucket": "evidence",
+      "root": "native-safari-webhook-worker-audits-20260825-1",
+      "record": "results.json",
+      "record_kind": "completed_results"
+    },
+    "native-safari-webhooks-20260825-1": {
+      "campaign": "evaluation-studio-v1-retention-disposable",
+      "bucket": "evidence",
+      "root": "native-safari-webhooks-20260825-1",
+      "record": "results.json",
+      "record_kind": "completed_results"
+    },
+    "product-surface-inventory-deep-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "product-surface-inventory-deep-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "resilient-http-dual-browser-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "resilient-http-dual-browser-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "retention-compliance-live-checkpoint-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "retention-compliance-live-checkpoint-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "retention-dedicated-checkpoint-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "retention-dedicated-checkpoint-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "retention-held-refusal-current-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "retention-held-refusal-current-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "retention-erasure-evidence-repair-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "retention-erasure-evidence-repair-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "economics-provider-independent-ui-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "economics-provider-independent-ui-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "governance-economics-evidence-repair-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "governance-economics-evidence-repair-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "templates-artifacts-product-exact-20260826-2": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "templates-artifacts-product-exact-20260826-2",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "rightsizing-deterministic-ui-20260825-6": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "rightsizing-deterministic-ui-20260825-6",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "rightsizing-deterministic-ui-20260825-8": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "rightsizing-deterministic-ui-20260825-8",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "studio-if-shortcut-ui-checkpoint-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "studio-if-shortcut-ui-checkpoint-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "studio-live-authoring-checkpoint-20260824-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "studio-live-authoring-checkpoint-20260824-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "subgraph-validation-checkpoint-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "subgraph-validation-checkpoint-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "templates-provider-independent-gate-20260825-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "templates-provider-independent-gate-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "webhook-restart-recovery-live-20260825-1": {
+      "campaign": "evaluation-studio-v1-retention-disposable",
+      "bucket": "evidence",
+      "root": "webhook-restart-recovery-live-20260825-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "webhook-atomicity-product-ids-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "webhook-atomicity-product-ids-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "webhooks-exact-supersession-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "webhooks-exact-supersession-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "workflow1-chroma-unavailable-checkpoint-20260824-2": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "workflow1-chroma-unavailable-checkpoint-20260824-2",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "workflow2-child-pause-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "workflow2-child-pause-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "workflow2-retrieval-miss-accepted-20260826-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "workflow2-retrieval-miss-accepted-20260826-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "workflow3-current-happy-checkpoint-20260824-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "workflow3-current-happy-checkpoint-20260824-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    },
+    "workflow3-current-negative-checkpoint-20260824-1": {
+      "campaign": "evaluation-studio-v1",
+      "bucket": "evidence",
+      "root": "workflow3-current-negative-checkpoint-20260824-1",
+      "record": "acceptance.json",
+      "record_kind": "acceptance"
+    }
+  },
+  "mappings": [
+    {
+      "criterion_id": "CONTEXT-PERSISTENCE-NATIVE-SAFARI-002",
+      "source": "native-safari-context-threads-20260825-1",
+      "source_criterion_ids": [
+        "CONTEXT-PERSISTENCE-NATIVE-SAFARI-002"
+      ],
+      "files": [
+        "screenshots/01-published-read-only.jpg"
+      ]
+    },
+    {
+      "criterion_id": "CONTEXT-RUNTIME-DETERMINISTIC-005",
+      "source": "native-safari-context-threads-20260825-1",
+      "source_criterion_ids": [
+        "CONTEXT-RUNTIME-DETERMINISTIC-005"
+      ],
+      "files": [
+        "screenshots/01-published-read-only.jpg"
+      ]
+    },
+    {
+      "criterion_id": "CONTEXT-UI-NATIVE-SAFARI-001",
+      "source": "native-safari-context-threads-20260825-1",
+      "source_criterion_ids": [
+        "CONTEXT-UI-NATIVE-SAFARI-001"
+      ],
+      "files": [
+        "screenshots/01-published-read-only.jpg"
+      ]
+    },
+    {
+      "criterion_id": "CONTEXT-VALIDATION-NATIVE-SAFARI-003",
+      "source": "native-safari-context-threads-20260825-1",
+      "source_criterion_ids": [
+        "CONTEXT-VALIDATION-NATIVE-SAFARI-003"
+      ],
+      "files": [
+        "screenshots/01-published-read-only.jpg"
+      ]
+    },
+    {
+      "criterion_id": "LOOP-CODE-IMMUTABLE-003",
+      "source": "loops-code-runtime-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "LOOP-CODE-IMMUTABLE-003"
+      ],
+      "files": [
+        "runtime/missing-manifest-preflight.json"
+      ]
+    },
+    {
+      "criterion_id": "LOOP-CODE-RUNTIME-001",
+      "source": "loops-code-runtime-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "LOOP-CODE-RUNTIME-001"
+      ],
+      "files": [
+        "runtime/missing-manifest-preflight.json"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-CODE-CONTENT-IDENTITY-LIVE",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-CODE-CONTENT-IDENTITY-LIVE"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-CODE-EXECUTION-TIMEOUT",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-CODE-EXECUTION-TIMEOUT"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-CODE-INLINE-STUDIO-EXECUTION",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-CODE-INLINE-STUDIO-EXECUTION"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-CODE-MALFORMED-OUTPUT",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-CODE-MALFORMED-OUTPUT"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-CODE-MANIFEST-MISSING",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-CODE-MANIFEST-MISSING"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-CODE-READ-ONLY",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-CODE-READ-ONLY"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-LOOPS-BOTH-DEMOS",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-LOOPS-BOTH-DEMOS"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-LOOPS-DEDICATED-NODE",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-LOOPS-DEDICATED-NODE"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-LOOPS-LIMIT-ROUTE",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-LOOPS-LIMIT-ROUTE"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-LOOPS-MAX-RETRIES",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-LOOPS-MAX-RETRIES"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-LOOPS-REPEAT-DONE-LIMIT",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-LOOPS-REPEAT-DONE-LIMIT"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-LOOPS-THREE-REPETITIONS",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-LOOPS-THREE-REPETITIONS"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "PLAYWRIGHT-MANIFESTS-EXECUTION",
+      "source": "loops-code-ui-checkpoint-20260825-3",
+      "source_criterion_ids": [
+        "PLAYWRIGHT-MANIFESTS-EXECUTION"
+      ],
+      "files": [
+        "screenshots/incident-loop-12bb99b026197eff-loop-limit-after-max-retries.png"
+      ]
+    },
+    {
+      "criterion_id": "STUDIO-MODAL-FOCUS-TRAP-004",
+      "source": "native-safari-context-threads-20260825-1",
+      "source_criterion_ids": [
+        "STUDIO-MODAL-FOCUS-TRAP-004"
+      ],
+      "files": [
+        "screenshots/01-published-read-only.jpg"
+      ]
+    },
+    {
+      "criterion_id": "audit.approval-action-linkage",
+      "source": "workflow3-current-happy-checkpoint-20260824-1",
+      "source_criterion_ids": [
+        "audit.approval-action-linkage"
+      ],
+      "files": [
+        "screenshots/0e6cef466d160ab4-happy-2-pending.png"
+      ]
+    },
+    {
+      "criterion_id": "audit.child-parent-signed-linkage",
+      "source": "workflow2-child-pause-accepted-20260826-1",
+      "source_criterion_ids": [
+        "audit.child-parent-signed-linkage"
+      ],
+      "files": [
+        "screenshots/5686b0ee42668fc7-approve-02-paused-lineage-refresh-restored.png"
+      ]
+    },
+    {
+      "criterion_id": "audit.current-product-surface-broken-chain-rejection",
+      "source": "audit-broken-chain-checkpoint-20260825-2",
+      "source_criterion_ids": [
+        "audit.current-product-surface-broken-chain-rejection"
+      ],
+      "files": [
+        "screenshots/chromium-broken-chain.png"
+      ]
+    },
+    {
+      "criterion_id": "audit.every-node-timeline-entry",
+      "source": "native-safari-loop-refresh-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "audit.every-node-timeline-entry"
+      ],
+      "files": [
+        "screenshots/01-loop-succeeded-before-refresh-native-safari.jpg"
+      ]
+    },
+    {
+      "criterion_id": "audit.receipts-linked",
+      "source": "workflow3-current-happy-checkpoint-20260824-1",
+      "source_criterion_ids": [
+        "audit.receipts-linked"
+      ],
+      "files": [
+        "screenshots/0e6cef466d160ab4-happy-2-pending.png"
+      ]
+    },
+    {
+      "criterion_id": "audit.signed-chain-verifies",
+      "source": "native-safari-loop-refresh-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "audit.signed-chain-verifies"
+      ],
+      "files": [
+        "screenshots/01-loop-succeeded-before-refresh-native-safari.jpg"
+      ]
+    },
+    {
+      "criterion_id": "batching.active-refresh-restoration",
+      "source": "batch-negative-recovery-accepted-20260826-2",
+      "source_criterion_ids": [
+        "batching.active-refresh-restoration"
+      ],
+      "files": [
+        "screenshots/contract/32893c3a309bb762-batch-malformed-item-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "batching.malformed-item",
+      "source": "batch-negative-recovery-accepted-20260826-2",
+      "source_criterion_ids": [
+        "batching.malformed-item"
+      ],
+      "files": [
+        "screenshots/contract/32893c3a309bb762-batch-malformed-item-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "batching.real-eight-items-concurrency-four",
+      "source": "composed-execution-backend-20260825-1",
+      "source_criterion_ids": [
+        "batching.real-eight-items-concurrency-four"
+      ],
+      "files": [
+        "commands/0001-composed-execution-tests.json"
+      ]
+    },
+    {
+      "criterion_id": "control.chroma-corpus-seeded",
+      "source": "chroma-corpus-checkpoint-20260824-2",
+      "source_criterion_ids": [
+        "control.chroma-corpus-seeded"
+      ],
+      "files": [
+        "runtime/corpus-observation.json"
+      ]
+    },
+    {
+      "criterion_id": "controls.guide",
+      "source": "product-surface-inventory-deep-accepted-20260826-1",
+      "source_criterion_ids": [
+        "controls.guide"
+      ],
+      "files": [
+        "screenshots/07924cbdd84e46d0-checkpoint--artifacts.png"
+      ]
+    },
+    {
+      "criterion_id": "controls.overview",
+      "source": "product-surface-inventory-deep-accepted-20260826-1",
+      "source_criterion_ids": [
+        "controls.overview"
+      ],
+      "files": [
+        "screenshots/07924cbdd84e46d0-checkpoint--artifacts.png"
+      ]
+    },
+    {
+      "criterion_id": "economics.provider-free-zero-activity",
+      "source": "workflow2-child-pause-accepted-20260826-1",
+      "source_criterion_ids": [
+        "economics.provider-free-zero-activity"
+      ],
+      "files": [
+        "screenshots/5686b0ee42668fc7-approve-02-paused-lineage-refresh-restored.png"
+      ]
+    },
+    {
+      "criterion_id": "fields.retention-policy",
+      "source": "retention-compliance-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "fields.retention-policy"
+      ],
+      "files": [
+        "screenshots/070e51250874bf67-legal-hold-missing-run-rejected.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.authoritative-scope",
+      "source": "identity-isolation-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "identity.authoritative-scope"
+      ],
+      "files": [
+        "screenshots/04d6620ce9e5b22a-platform_admin-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.retention-tenant-isolation",
+      "source": "identity-isolation-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "identity.retention-tenant-isolation"
+      ],
+      "files": [
+        "screenshots/04d6620ce9e5b22a-platform_admin-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role-denial",
+      "source": "identity-isolation-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "identity.role-denial"
+      ],
+      "files": [
+        "screenshots/04d6620ce9e5b22a-platform_admin-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role.admin",
+      "source": "identity-isolation-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "identity.role.admin"
+      ],
+      "files": [
+        "screenshots/04d6620ce9e5b22a-platform_admin-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role.admin.live",
+      "source": "governance-enforcement-live-services-20260825-2",
+      "source_criterion_ids": [
+        "identity.role.admin.live"
+      ],
+      "files": [
+        "screenshots/0182952e7cfa7e4a-evaluation-studio-v1-twin-reviewer-enforcement-live-webkit-1440.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role.operator",
+      "source": "identity-isolation-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "identity.role.operator"
+      ],
+      "files": [
+        "screenshots/04d6620ce9e5b22a-platform_admin-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role.operator.live",
+      "source": "governance-enforcement-live-services-20260825-2",
+      "source_criterion_ids": [
+        "identity.role.operator.live"
+      ],
+      "files": [
+        "screenshots/0182952e7cfa7e4a-evaluation-studio-v1-twin-reviewer-enforcement-live-webkit-1440.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role.platform_admin",
+      "source": "identity-isolation-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "identity.role.platform_admin"
+      ],
+      "files": [
+        "screenshots/04d6620ce9e5b22a-platform_admin-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role.platform_admin.live",
+      "source": "governance-enforcement-live-services-20260825-2",
+      "source_criterion_ids": [
+        "identity.role.platform_admin.live"
+      ],
+      "files": [
+        "screenshots/0182952e7cfa7e4a-evaluation-studio-v1-twin-reviewer-enforcement-live-webkit-1440.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role.reviewer",
+      "source": "identity-isolation-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "identity.role.reviewer"
+      ],
+      "files": [
+        "screenshots/04d6620ce9e5b22a-platform_admin-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.role.reviewer.live",
+      "source": "governance-enforcement-live-services-20260825-2",
+      "source_criterion_ids": [
+        "identity.role.reviewer.live"
+      ],
+      "files": [
+        "screenshots/0182952e7cfa7e4a-evaluation-studio-v1-twin-reviewer-enforcement-live-webkit-1440.png"
+      ]
+    },
+    {
+      "criterion_id": "identity.tenant-isolation",
+      "source": "identity-isolation-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "identity.tenant-isolation"
+      ],
+      "files": [
+        "screenshots/04d6620ce9e5b22a-platform_admin-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "product.identity.native-safari-role-denial",
+      "source": "native-safari-operator-denial-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "product.identity.native-safari-role-denial"
+      ],
+      "files": [
+        "screenshots/01-operator-retention-controls-leak-before-fix.jpg"
+      ]
+    },
+    {
+      "criterion_id": "product.retention.invalid-ttl-validation",
+      "source": "native-safari-retention-validation-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "product.retention.invalid-ttl-validation"
+      ],
+      "files": [
+        "screenshots/01-invalid-ttl-native-safari.jpg"
+      ]
+    },
+    {
+      "criterion_id": "product.retention.native-safari-paint",
+      "source": "native-safari-retention-validation-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "product.retention.native-safari-paint"
+      ],
+      "files": [
+        "screenshots/01-invalid-ttl-native-safari.jpg"
+      ]
+    },
+    {
+      "criterion_id": "product.retention.refresh-restoration",
+      "source": "native-safari-retention-validation-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "product.retention.refresh-restoration"
+      ],
+      "files": [
+        "screenshots/01-invalid-ttl-native-safari.jpg"
+      ]
+    },
+    {
+      "criterion_id": "product.retention.responsive-and-zoom",
+      "source": "retention-dedicated-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "product.retention.responsive-and-zoom"
+      ],
+      "files": [
+        "screenshots/0c27b545acc3b9fe-retention-visual-accessibility.png"
+      ]
+    },
+    {
+      "criterion_id": "product.retention.webkit-axe-and-keyboard",
+      "source": "retention-dedicated-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "product.retention.webkit-axe-and-keyboard"
+      ],
+      "files": [
+        "screenshots/0c27b545acc3b9fe-retention-visual-accessibility.png"
+      ]
+    },
+    {
+      "criterion_id": "product.studio.add-node-shortcut",
+      "source": "studio-if-shortcut-ui-checkpoint-20260826-1",
+      "source_criterion_ids": [
+        "product.studio.add-node-shortcut"
+      ],
+      "files": [
+        "screenshots/if-node-inspector-modal.png"
+      ]
+    },
+    {
+      "criterion_id": "product.studio.if-inspector-dialog",
+      "source": "studio-if-shortcut-ui-checkpoint-20260826-1",
+      "source_criterion_ids": [
+        "product.studio.if-inspector-dialog"
+      ],
+      "files": [
+        "screenshots/if-node-inspector-modal.png"
+      ]
+    },
+    {
+      "criterion_id": "product.studio.if-node-config-persistence",
+      "source": "studio-if-shortcut-ui-checkpoint-20260826-1",
+      "source_criterion_ids": [
+        "product.studio.if-node-config-persistence"
+      ],
+      "files": [
+        "screenshots/if-node-inspector-modal.png"
+      ]
+    },
+    {
+      "criterion_id": "regulus.capabilities.authorization.live",
+      "source": "governance-enforcement-live-services-20260825-2",
+      "source_criterion_ids": [
+        "regulus.capabilities.authorization.live"
+      ],
+      "files": [
+        "screenshots/0182952e7cfa7e4a-evaluation-studio-v1-twin-reviewer-enforcement-live-webkit-1440.png"
+      ]
+    },
+    {
+      "criterion_id": "regulus.enforcement.authorization.live",
+      "source": "governance-enforcement-live-services-20260825-2",
+      "source_criterion_ids": [
+        "regulus.enforcement.authorization.live"
+      ],
+      "files": [
+        "screenshots/0182952e7cfa7e4a-evaluation-studio-v1-twin-reviewer-enforcement-live-webkit-1440.png"
+      ]
+    },
+    {
+      "criterion_id": "resilient-http.circuit-open",
+      "source": "resilient-http-dual-browser-accepted-20260826-1",
+      "source_criterion_ids": [
+        "resilient-http.circuit-open"
+      ],
+      "files": [
+        "screenshots/desktop-1440-79b64ca3d6c8232f-04-circuit-open.png",
+        "screenshots/webkit-1440-eeeadacc3e99279b-04-circuit-open.png"
+      ]
+    },
+    {
+      "criterion_id": "resilient-http.field-contract",
+      "source": "resilient-http-dual-browser-accepted-20260826-1",
+      "source_criterion_ids": [
+        "resilient-http.field-contract"
+      ],
+      "files": [
+        "screenshots/desktop-1440-2c417836fcd407c3-01-http-node-configured.png",
+        "screenshots/webkit-1440-4f1705e2234300d4-01-http-node-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "resilient-http.recovery",
+      "source": "resilient-http-dual-browser-accepted-20260826-1",
+      "source_criterion_ids": [
+        "resilient-http.recovery"
+      ],
+      "files": [
+        "screenshots/desktop-1440-d31b0eda05d71dd0-05-recovery-run-and-signed-audit.png",
+        "screenshots/webkit-1440-dd032d2bfdeed7ad-05-recovery-run-and-signed-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "resilient-http.retry-success",
+      "source": "resilient-http-dual-browser-accepted-20260826-1",
+      "source_criterion_ids": [
+        "resilient-http.retry-success"
+      ],
+      "files": [
+        "screenshots/desktop-1440-56615422dd62bada-02-retry-then-success.png",
+        "screenshots/webkit-1440-f74bd8ad4c837219-02-retry-then-success.png"
+      ]
+    },
+    {
+      "criterion_id": "resilient-http.sanitized-signed-audit",
+      "source": "resilient-http-dual-browser-accepted-20260826-1",
+      "source_criterion_ids": [
+        "resilient-http.sanitized-signed-audit"
+      ],
+      "files": [
+        "screenshots/desktop-1440-d31b0eda05d71dd0-05-recovery-run-and-signed-audit.png",
+        "screenshots/webkit-1440-dd032d2bfdeed7ad-05-recovery-run-and-signed-audit.png"
+      ]
+    },
+    {
+      "criterion_id": "resilient-http.timeout-exhaustion",
+      "source": "resilient-http-dual-browser-accepted-20260826-1",
+      "source_criterion_ids": [
+        "resilient-http.timeout-exhaustion"
+      ],
+      "files": [
+        "screenshots/desktop-1440-cbea082dbd77bd88-03-timeout-exhaustion.png",
+        "screenshots/webkit-1440-ab02b7d5a518dc13-03-timeout-exhaustion.png"
+      ]
+    },
+    {
+      "criterion_id": "resilient-http.zero-provider-economics",
+      "source": "resilient-http-dual-browser-accepted-20260826-1",
+      "source_criterion_ids": [
+        "resilient-http.zero-provider-economics"
+      ],
+      "files": [
+        "screenshots/desktop-1440-6b3a481a5787b3c0-06-zero-provider-economics.png",
+        "screenshots/webkit-1440-a146e66e87b9c241-06-zero-provider-economics.png"
+      ]
+    },
+    {
+      "criterion_id": "retention-and-erasure.boundary",
+      "source": "retention-compliance-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "retention-and-erasure.boundary"
+      ],
+      "files": [
+        "screenshots/070e51250874bf67-legal-hold-missing-run-rejected.png"
+      ]
+    },
+    {
+      "criterion_id": "retention-and-erasure.held-erasure-refusal",
+      "source": "retention-held-refusal-current-accepted-20260826-1",
+      "source_criterion_ids": [
+        "retention-and-erasure.held-erasure-refusal"
+      ],
+      "files": [
+        "screenshots/02b0f540cd87dfbb-retention-hold-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "retention-and-erasure.persistence",
+      "source": "retention-compliance-live-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "retention-and-erasure.persistence"
+      ],
+      "files": [
+        "screenshots/070e51250874bf67-legal-hold-missing-run-rejected.png"
+      ]
+    },
+    {
+      "criterion_id": "economics.tenant-deployment-run-measured-reconciliation",
+      "source": "economics-provider-independent-ui-20260826-1",
+      "source_criterion_ids": [
+        "economics.tenant-deployment-run-measured-reconciliation"
+      ],
+      "files": [
+        "screenshots/workflow-economics.png",
+        "manifest.json"
+      ]
+    },
+    {
+      "criterion_id": "economics.estimated-failed-run-tax-separation",
+      "source": "economics-provider-independent-ui-20260826-1",
+      "source_criterion_ids": [
+        "economics.estimated-failed-run-tax-separation"
+      ],
+      "files": [
+        "screenshots/rightsizing-economics.png",
+        "manifest.json"
+      ]
+    },
+    {
+      "criterion_id": "artifacts.workflow-output",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["artifacts.workflow-output"],
+      "files": ["handoff/artifact-lifecycle-result.json", "screenshots/artifacts-discovered-from-live-runs.png"]
+    },
+    {
+      "criterion_id": "artifacts.preview-download",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["artifacts.preview-download"],
+      "files": ["handoff/artifact-lifecycle-result.json", "screenshots/artifact-json-preview.png", "screenshots/artifact-image-preview.png", "screenshots/artifact-large-binary-download.png"]
+    },
+    {
+      "criterion_id": "artifacts.tenant-isolation",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["artifacts.tenant-isolation"],
+      "files": ["handoff/artifact-lifecycle-result.json"]
+    },
+    {
+      "criterion_id": "artifacts.expiry",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["artifacts.expiry"],
+      "files": ["handoff/artifact-lifecycle-result.json"]
+    },
+    {
+      "criterion_id": "artifacts.erasure",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["artifacts.erasure"],
+      "files": ["handoff/artifact-lifecycle-result.json", "screenshots/artifact-erased-ui-state.png"]
+    },
+    {
+      "criterion_id": "templates.configured",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.configured"],
+      "files": ["handoff/template-atomicity-ui-result.json", "screenshots/templates-created-v1.png"]
+    },
+    {
+      "criterion_id": "templates.persistence",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.persistence"],
+      "files": ["handoff/template-atomicity-ui-result.json", "handoff/template-restart-result.json"]
+    },
+    {
+      "criterion_id": "templates.secret-redaction",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.secret-redaction"],
+      "files": ["commands/0001-template-redaction-tests.json"]
+    },
+    {
+      "criterion_id": "templates.field-validation",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.field-validation"],
+      "files": ["handoff/template-atomicity-ui-result.json", "screenshots/templates-invalid-jinja.png"]
+    },
+    {
+      "criterion_id": "templates.versioning",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.versioning"],
+      "files": ["handoff/template-atomicity-ui-result.json", "screenshots/templates-created-v2.png"]
+    },
+    {
+      "criterion_id": "templates.twin-tenant-scope-isolation",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.twin-tenant-scope-isolation"],
+      "files": ["handoff/templates-provider-independent-acceptance.json", "handoff/templates-tenant-a-role-results.json", "handoff/templates-tenant-b-role-results.json"]
+    },
+    {
+      "criterion_id": "templates.refresh-persistence",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.refresh-persistence"],
+      "files": ["handoff/template-atomicity-ui-result.json", "screenshots/templates-refresh-restored.png"]
+    },
+    {
+      "criterion_id": "templates.backend-restart-persistence",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.backend-restart-persistence"],
+      "files": ["handoff/template-restart-result.json", "screenshots/templates-restored-after-backend-restart.png"]
+    },
+    {
+      "criterion_id": "templates.delete-version",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.delete-version"],
+      "files": ["handoff/template-restart-result.json", "screenshots/templates-disposable-versions-removed.png"]
+    },
+    {
+      "criterion_id": "templates.keyboard",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.keyboard"],
+      "files": ["handoff/templates-provider-independent-acceptance.json", "screenshots/templates-operator-keyboard-focus.png", "screenshots/templates-reviewer-keyboard-focus.png", "screenshots/templates-admin-keyboard-focus.png"]
+    },
+    {
+      "criterion_id": "templates.accessibility",
+      "source": "templates-artifacts-product-exact-20260826-2",
+      "source_criterion_ids": ["templates.accessibility"],
+      "files": ["handoff/templates-provider-independent-acceptance.json", "accessibility/templates-axe.json"]
+    },
+    {
+      "criterion_id": "rightsizing.field-contract",
+      "source": "rightsizing-deterministic-ui-20260825-8",
+      "source_criterion_ids": [
+        "rightsizing.field-contract"
+      ],
+      "files": [
+        "runtime/deterministic-observation.json"
+      ]
+    },
+    {
+      "criterion_id": "rightsizing.static-recommendation",
+      "source": "rightsizing-deterministic-ui-20260825-6",
+      "source_criterion_ids": [
+        "rightsizing.static-recommendation"
+      ],
+      "files": [
+        "runtime/deterministic-observation.json"
+      ]
+    },
+    {
+      "criterion_id": "runs.ambiguous-operation-authorized-resolution",
+      "source": "ambiguous-operation-resolution-ui-accepted-20260826-1",
+      "source_criterion_ids": [
+        "runs.ambiguous-operation-authorized-resolution"
+      ],
+      "files": [
+        "screenshots/after-resolution.png"
+      ]
+    },
+    {
+      "criterion_id": "runs.ambiguous-operation-control-conditional",
+      "source": "ambiguous-operation-resolution-ui-accepted-20260826-1",
+      "source_criterion_ids": [
+        "runs.ambiguous-operation-control-conditional"
+      ],
+      "files": [
+        "screenshots/before-resolution.png"
+      ]
+    },
+    {
+      "criterion_id": "runs.ambiguous-operation-signed-refresh-no-replay",
+      "source": "ambiguous-operation-resolution-ui-accepted-20260826-1",
+      "source_criterion_ids": [
+        "runs.ambiguous-operation-signed-refresh-no-replay"
+      ],
+      "files": [
+        "commands/0005-chain-verification.json"
+      ]
+    },
+    {
+      "criterion_id": "runs.cancel",
+      "source": "batch-negative-recovery-accepted-20260826-2",
+      "source_criterion_ids": [
+        "runs.cancel"
+      ],
+      "files": [
+        "screenshots/contract/32893c3a309bb762-batch-malformed-item-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "runs.refresh-restoration",
+      "source": "workflow2-child-pause-accepted-20260826-1",
+      "source_criterion_ids": [
+        "runs.refresh-restoration"
+      ],
+      "files": [
+        "screenshots/5686b0ee42668fc7-approve-02-paused-lineage-refresh-restored.png"
+      ]
+    },
+    {
+      "criterion_id": "subgraphs.child-approval-no-sibling-replay",
+      "source": "workflow2-child-pause-accepted-20260826-1",
+      "source_criterion_ids": [
+        "subgraphs.child-approval-no-sibling-replay"
+      ],
+      "files": [
+        "screenshots/5686b0ee42668fc7-approve-02-paused-lineage-refresh-restored.png"
+      ]
+    },
+    {
+      "criterion_id": "subgraphs.child-failure-and-partial-collection",
+      "source": "subgraph-validation-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "subgraphs.child-failure-and-partial-collection"
+      ],
+      "files": [
+        "screenshots/partial-failure-child-detail.png"
+      ]
+    },
+    {
+      "criterion_id": "subgraphs.child-pause-and-partial-collection",
+      "source": "workflow2-child-pause-accepted-20260826-1",
+      "source_criterion_ids": [
+        "subgraphs.child-pause-and-partial-collection"
+      ],
+      "files": [
+        "screenshots/5686b0ee42668fc7-approve-02-paused-lineage-refresh-restored.png"
+      ]
+    },
+    {
+      "criterion_id": "subgraphs.live-studio-child-run-inspection",
+      "source": "subgraph-validation-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "subgraphs.live-studio-child-run-inspection"
+      ],
+      "files": [
+        "screenshots/restart-restored-child-inspection.png"
+      ]
+    },
+    {
+      "criterion_id": "subgraphs.persisted-child-lineage",
+      "source": "composed-execution-backend-20260825-1",
+      "source_criterion_ids": [
+        "subgraphs.persisted-child-lineage"
+      ],
+      "files": [
+        "commands/0001-composed-execution-tests.json"
+      ]
+    },
+    {
+      "criterion_id": "subgraphs.persisted-cost-rollup",
+      "source": "composed-execution-backend-20260825-1",
+      "source_criterion_ids": [
+        "subgraphs.persisted-cost-rollup"
+      ],
+      "files": [
+        "commands/0001-composed-execution-tests.json"
+      ]
+    },
+    {
+      "criterion_id": "subgraphs.restart-restoration-in-served-parent",
+      "source": "subgraph-validation-checkpoint-20260825-1",
+      "source_criterion_ids": [
+        "subgraphs.restart-restoration-in-served-parent"
+      ],
+      "files": [
+        "screenshots/restart-restored-parent-lineage.png"
+      ]
+    },
+    {
+      "criterion_id": "templates.provider-independent-runtime",
+      "source": "templates-provider-independent-gate-20260825-1",
+      "source_criterion_ids": [
+        "templates.provider-independent-runtime"
+      ],
+      "files": [
+        "commands/0001-sanitized-runtime-matrix.json"
+      ]
+    },
+    {
+      "criterion_id": "templates.reference-delete-denial",
+      "source": "templates-provider-independent-gate-20260825-1",
+      "source_criterion_ids": [
+        "templates.reference-delete-denial"
+      ],
+      "files": [
+        "console/templates-reference-denial-ui-20260825-1-results.json"
+      ]
+    },
+    {
+      "criterion_id": "templates.workspace-role-matrix",
+      "source": "templates-provider-independent-gate-20260825-1",
+      "source_criterion_ids": [
+        "templates.workspace-role-matrix"
+      ],
+      "files": [
+        "console/templates-workspace-role-matrix-20260825-1-results.json"
+      ]
+    },
+    {
+      "criterion_id": "ui.keyboard-shortcuts",
+      "source": "studio-live-authoring-checkpoint-20260824-1",
+      "source_criterion_ids": [
+        "ui.keyboard-shortcuts"
+      ],
+      "files": [
+        "screenshots/6c0bf9e35ac11bfa-node-menu-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "ui.node-menu",
+      "source": "studio-live-authoring-checkpoint-20260824-1",
+      "source_criterion_ids": [
+        "ui.node-menu"
+      ],
+      "files": [
+        "screenshots/6c0bf9e35ac11bfa-node-menu-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.approval-escalated-live",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.approval-escalated-live"],
+      "files": ["accessibility/approval/a0c3ba83b461fa19-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.approval-event-unique",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.approval-event-unique"],
+      "files": ["accessibility/approval/a0c3ba83b461fa19-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.approval-requested-live",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.approval-requested-live"],
+      "files": ["accessibility/approval/a0c3ba83b461fa19-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.approval-resolved-live",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.approval-resolved-live"],
+      "files": ["accessibility/approval/a0c3ba83b461fa19-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.approval-signed-audit",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.approval-signed-audit"],
+      "files": ["accessibility/approval/a0c3ba83b461fa19-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.deactivation-stops-delivery",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.deactivation-stops-delivery"],
+      "files": ["accessibility/core/1d066d692d13e93e-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.dead-letter-replay",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.dead-letter-replay"],
+      "files": ["accessibility/core/1d066d692d13e93e-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.filtering",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.filtering"],
+      "files": ["accessibility/core/1d066d692d13e93e-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.replay-error-display",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.replay-error-display"],
+      "files": ["accessibility/core/1d066d692d13e93e-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.retry-exhaustion",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.retry-exhaustion"],
+      "files": ["accessibility/core/2aedb69dbaf4d89b-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.role-authorization",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.role-authorization"],
+      "files": ["console/roles/026815c331acbfed-webhook-role-scope-result.json"]
+    },
+    {
+      "criterion_id": "webhooks.runtime-correlation",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.runtime-correlation"],
+      "files": ["accessibility/core/74739de2d8a105e4-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.signed-audit",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.signed-audit"],
+      "files": ["accessibility/core/1d066d692d13e93e-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.sink-unavailable",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.sink-unavailable"],
+      "files": ["accessibility/core/74739de2d8a105e4-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.success",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.success"],
+      "files": ["accessibility/core/1d066d692d13e93e-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.tenant-isolation",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.tenant-isolation"],
+      "files": ["accessibility/core/1d066d692d13e93e-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.timeout",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.timeout"],
+      "files": ["accessibility/core/2aedb69dbaf4d89b-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.timeout-after-commit",
+      "source": "webhooks-exact-supersession-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.timeout-after-commit"],
+      "files": ["accessibility/core/74739de2d8a105e4-axe-wcag22-aa.json"]
+    },
+    {
+      "criterion_id": "webhooks.transactional-state-and-audit-postgres",
+      "source": "webhook-atomicity-product-ids-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.transactional-state-and-audit-postgres"],
+      "files": ["reconciliation/postgres/proofs/commands/0001-subscription-create-rollback.json"]
+    },
+    {
+      "criterion_id": "webhooks.transactional-state-and-audit-sqlite",
+      "source": "webhook-atomicity-product-ids-accepted-20260826-1",
+      "source_criterion_ids": ["webhooks.transactional-state-and-audit-sqlite"],
+      "files": ["reconciliation/sqlite/proofs/commands/0001-subscription-create-rollback.json"]
+    },
+    {
+      "criterion_id": "webhooks.deactivation",
+      "source": "native-safari-webhooks-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.deactivation"
+      ],
+      "files": [
+        "screenshots/10-deactivated.jpg"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.refresh-persistence",
+      "source": "native-safari-webhooks-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.refresh-persistence"
+      ],
+      "files": [
+        "screenshots/03-refresh-persisted.jpg"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.restart-dead-letter-replay",
+      "source": "webhook-restart-recovery-live-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.restart-dead-letter-replay"
+      ],
+      "files": [
+        "runtime/restart-proof.json"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.restart-leased-delivery",
+      "source": "webhook-restart-recovery-live-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.restart-leased-delivery"
+      ],
+      "files": [
+        "runtime/restart-proof.json"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.restart-subscription-persistence",
+      "source": "webhook-restart-recovery-live-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.restart-subscription-persistence"
+      ],
+      "files": [
+        "runtime/restart-proof.json"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.secret-redaction",
+      "source": "native-safari-webhooks-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.secret-redaction"
+      ],
+      "files": [
+        "screenshots/02-created-secret-masked.jpg"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.target-url-userinfo-refused",
+      "source": "native-safari-webhooks-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.target-url-userinfo-refused"
+      ],
+      "files": [
+        "screenshots/01-userinfo-rejected.jpg"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.worker-audit-chain",
+      "source": "native-safari-webhook-worker-audits-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.worker-audit-chain"
+      ],
+      "files": [
+        "screenshots/02-chain-intact.jpg"
+      ]
+    },
+    {
+      "criterion_id": "webhooks.worker-transition-audits",
+      "source": "native-safari-webhook-worker-audits-20260825-1",
+      "source_criterion_ids": [
+        "webhooks.worker-transition-audits"
+      ],
+      "files": [
+        "screenshots/01-dead-letter-transition-signed.jpg"
+      ]
+    },
+    {
+      "criterion_id": "workflow1.negative-chroma-unavailable",
+      "source": "workflow1-chroma-unavailable-checkpoint-20260824-2",
+      "source_criterion_ids": [
+        "workflow1.negative-chroma-unavailable"
+      ],
+      "files": [
+        "screenshots/02-exact-configured-run-native-safari.jpg"
+      ]
+    },
+    {
+      "criterion_id": "CONTEXT-PERSISTENCE-COMPACTION-007",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["CONTEXT-PERSISTENCE-COMPACTION-007"],
+      "files": ["console/context-results.json", "screenshots/context-persistence-refresh.png"]
+    },
+    {
+      "criterion_id": "CONTEXT-RUNTIME-COMPACTION-006",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["CONTEXT-RUNTIME-COMPACTION-006"],
+      "files": ["console/context-results.json", "console/context-compaction-runtime.json", "screenshots/context-runtime-compaction.png"]
+    },
+    {
+      "criterion_id": "audit.run-thread-deployment-graph-node-correlation",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["audit.run-thread-deployment-graph-node-correlation"],
+      "files": ["commands/0001-d012-correlation-read.json", "console/native-deployment-run-projection.json"]
+    },
+    {
+      "criterion_id": "batching.live-studio-three-repetitions",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["batching.live-studio-three-repetitions"],
+      "files": ["console/batch-events.ndjson", "console/batch-ui-results.json"]
+    },
+    {
+      "criterion_id": "deployments.exact-health-version",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["deployments.exact-health-version"],
+      "files": ["console/native-serving-health.json", "console/runtime-serving-health.json"]
+    },
+    {
+      "criterion_id": "deployments.rollback-rollforward-history",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["deployments.rollback-rollforward-history"],
+      "files": ["console/deployment-history.json", "screenshots/deployment-restart-restored.jpg"]
+    },
+    {
+      "criterion_id": "deployments.signed-attestation",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["deployments.signed-attestation"],
+      "files": ["console/deployment-attestation.json", "screenshots/deployment-signed-attestation.jpg"]
+    },
+    {
+      "criterion_id": "runs.curl-exact-execution",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["runs.curl-exact-execution"],
+      "files": ["console/curl-created-run.json", "console/runtime-serving-health.json"]
+    },
+    {
+      "criterion_id": "runs.signed-audit",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["runs.signed-audit"],
+      "files": ["console/curl-created-run-chain.json", "screenshots/run-chain-verified.jpg"]
+    },
+    {
+      "criterion_id": "ui.focus-visible-order",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["ui.focus-visible-order"],
+      "files": ["console/ui-visual-results.json", "screenshots/ui-operational-surface.png"]
+    },
+    {
+      "criterion_id": "ui.operational-surfaces",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["ui.operational-surfaces"],
+      "files": ["console/ui-visual-results.json", "screenshots/ui-operational-surface.png"]
+    },
+    {
+      "criterion_id": "ui.reduced-motion",
+      "source": "provider-independent-surface-closure-accepted-20260826-1",
+      "source_criterion_ids": ["ui.reduced-motion"],
+      "files": ["console/ui-visual-results.json", "screenshots/ui-operational-surface.png"]
+    },
+    {
+      "criterion_id": "retention-and-erasure.nonheld-run-erasure",
+      "source": "retention-erasure-evidence-repair-accepted-20260826-1",
+      "source_criterion_ids": [
+        "retention-and-erasure.nonheld-run-erasure"
+      ],
+      "files": [
+        "console/playwright-results.json",
+        "console/retention-erasure-result.json",
+        "screenshots/retention-direct-erasure-completed.png"
+      ]
+    },
+    {
+      "criterion_id": "retention-and-erasure.tenant-erasure",
+      "source": "retention-erasure-evidence-repair-accepted-20260826-1",
+      "source_criterion_ids": [
+        "retention-and-erasure.tenant-erasure"
+      ],
+      "files": [
+        "console/playwright-results.json",
+        "console/retention-erasure-result.json",
+        "screenshots/retention-tenant-erasure-completed.png"
+      ]
+    },
+    {
+      "criterion_id": "retention-and-erasure.audit-chain-after-erasure",
+      "source": "retention-erasure-evidence-repair-accepted-20260826-1",
+      "source_criterion_ids": [
+        "retention-and-erasure.audit-chain-after-erasure"
+      ],
+      "files": [
+        "console/playwright-results.json",
+        "console/retention-erasure-result.json",
+        "screenshots/retention-history-refresh-restored.png"
+      ]
+    },
+    {
+      "criterion_id": "retention-and-erasure.economics-after-erasure",
+      "source": "retention-erasure-evidence-repair-accepted-20260826-1",
+      "source_criterion_ids": [
+        "retention-and-erasure.economics-after-erasure"
+      ],
+      "files": [
+        "console/playwright-results.json",
+        "console/retention-erasure-result.json",
+        "console/econ-backend-assertions.json",
+        "screenshots/econ-erasure-zero.jpg"
+      ]
+    },
+    {
+      "criterion_id": "retention.erasure.configured-econ-adapter-reached",
+      "source": "retention-erasure-evidence-repair-accepted-20260826-1",
+      "source_criterion_ids": [
+        "retention.erasure.configured-econ-adapter-reached"
+      ],
+      "files": [
+        "console/econ-backend-assertions.json",
+        "screenshots/econ-erasure-zero.jpg",
+        "accessibility/econ-erasure-zero.txt"
+      ]
+    },
+    {
+      "criterion_id": "economics.quality-verdict-nonrewriting",
+      "source": "governance-economics-evidence-repair-accepted-20260826-1",
+      "source_criterion_ids": [
+        "economics.quality-verdict-nonrewriting"
+      ],
+      "files": [
+        "console/quality-before.json",
+        "console/quality-after.json",
+        "console/quality-comparison.json",
+        "screenshots/quality-verdict-attached.jpeg",
+        "screenshots/quality-verdict-refresh-restored.jpeg"
+      ]
+    },
+    {
+      "criterion_id": "economics-and-rightsizing.enforcement-approval",
+      "source": "governance-economics-evidence-repair-accepted-20260826-1",
+      "source_criterion_ids": [
+        "economics-and-rightsizing.enforcement-approval"
+      ],
+      "files": [
+        "console/enforcement-playwright-results.json",
+        "console/enforcement-approval-result.json",
+        "screenshots/enforcement-pending-configured.png",
+        "screenshots/enforcement-approved-persisted.png",
+        "videos/enforcement-approval.webm"
+      ]
+    },
+    {
+      "criterion_id": "workflow3.negative-rejection-zero-marker",
+      "source": "governance-economics-evidence-repair-accepted-20260826-1",
+      "source_criterion_ids": [
+        "workflow3.negative-rejection-zero-marker"
+      ],
+      "files": [
+        "console/workflow3-refresh-reject.json",
+        "screenshots/workflow3-rejection-result.png"
+      ]
+    },
+    {
+      "criterion_id": "workflow2.negative-child-pause-partial-collection",
+      "source": "workflow2-child-pause-accepted-20260826-1",
+      "source_criterion_ids": [
+        "workflow2.negative-child-pause-partial-collection"
+      ],
+      "files": [
+        "screenshots/5686b0ee42668fc7-approve-02-paused-lineage-refresh-restored.png"
+      ]
+    },
+    {
+      "criterion_id": "workflow2.negative-empty-batch",
+      "source": "batch-negative-recovery-accepted-20260826-2",
+      "source_criterion_ids": [
+        "workflow2.negative-empty-batch"
+      ],
+      "files": [
+        "screenshots/contract/32893c3a309bb762-batch-malformed-item-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "workflow2.negative-over-24-batch",
+      "source": "batch-negative-recovery-accepted-20260826-2",
+      "source_criterion_ids": [
+        "workflow2.negative-over-24-batch"
+      ],
+      "files": [
+        "screenshots/contract/32893c3a309bb762-batch-malformed-item-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "workflow2.negative-retrieval-miss",
+      "source": "workflow2-retrieval-miss-accepted-20260826-1",
+      "source_criterion_ids": [
+        "workflow2.negative-retrieval-miss"
+      ],
+      "files": [
+        "screenshots/01-exact-eight-retrieval-miss-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "workflow3.exactly-one-marker-each",
+      "source": "workflow3-current-happy-checkpoint-20260824-1",
+      "source_criterion_ids": [
+        "workflow3.exactly-one-marker-each"
+      ],
+      "files": [
+        "screenshots/0e6cef466d160ab4-happy-2-pending.png"
+      ]
+    },
+    {
+      "criterion_id": "workflow3.negative-refresh-before-approval",
+      "source": "workflow3-current-negative-checkpoint-20260824-1",
+      "source_criterion_ids": [
+        "workflow3.negative-refresh-before-approval"
+      ],
+      "files": [
+        "screenshots/22d4564d097a07b8-refresh-reject-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "workflow3.negative-sla-expiry",
+      "source": "workflow3-current-negative-checkpoint-20260824-1",
+      "source_criterion_ids": [
+        "workflow3.negative-sla-expiry"
+      ],
+      "files": [
+        "screenshots/22d4564d097a07b8-refresh-reject-configured.png"
+      ]
+    },
+    {
+      "criterion_id": "runs.filter-failure-replay",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["runs.filter-failure-replay"],
+      "files": [
+        "console/2e348c419f602a4e-runs-operations-result.json",
+        "screenshots/b9aaf559699d8127-runs-failed-filter-and-detail.png",
+        "screenshots/10ce45da587cff95-runs-dead-letter-replayed-and-failed-meaningfully.png",
+        "runtime/correlation.json"
+      ]
+    },
+    {
+      "criterion_id": "runs.interrupt-cancel-late-result-fence",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["runs.interrupt-cancel-late-result-fence"],
+      "files": [
+        "console/019f5a021244279c-run-interrupt-result.json",
+        "screenshots/6cf5b9106e1d83f5-run-genuinely-running-before-interrupt.png",
+        "screenshots/045ad3829ee630e2-run-paused-at-interrupt.png",
+        "screenshots/deb05280b06a8fb8-run-interrupt-cancel-fence-persisted.png",
+        "runtime/correlation.json"
+      ]
+    },
+    {
+      "criterion_id": "runs.thread-continuation-refresh",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["runs.thread-continuation-refresh"],
+      "files": [
+        "console/45b952a548c910d6-thread-continuation-result.json",
+        "screenshots/2363cbf218b6fb33-thread-retained-before-continuation.png",
+        "screenshots/cb63c5eb8b2dd4dc-thread-continuation-restored-in-runs.png",
+        "runtime/correlation.json"
+      ]
+    },
+    {
+      "criterion_id": "ui.approval-configuration",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.approval-configuration"],
+      "files": ["console/89e7b1df9d28b168-configuration-runtime-result.json", "screenshots/1c9722f32f78bfbc-connector-approval-result.png", "screenshots/ff55aae29ca5e729-configuration-refresh-restored.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.canvas-gestures",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.canvas-gestures"],
+      "files": ["console/0aa8f1c37d82a5e8-authoring-runtime-result.json", "screenshots/ae84c73e1477ebfd-authoring-result.png", "screenshots/40720144d47e6bd1-authoring-refresh-restored.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.connector-configuration",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.connector-configuration"],
+      "files": ["console/89e7b1df9d28b168-configuration-runtime-result.json", "screenshots/1c9722f32f78bfbc-connector-approval-result.png", "screenshots/ff55aae29ca5e729-configuration-refresh-restored.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.contract-configuration",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.contract-configuration"],
+      "files": ["console/89e7b1df9d28b168-configuration-runtime-result.json", "screenshots/87574903b8142b52-node-contract-inspector-configured.png", "screenshots/ff55aae29ca5e729-configuration-refresh-restored.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.empty-canvas-authoring",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.empty-canvas-authoring"],
+      "files": ["console/0aa8f1c37d82a5e8-authoring-runtime-result.json", "screenshots/58547ec77f5ecfe6-empty-canvas-configured.png", "screenshots/ae84c73e1477ebfd-authoring-result.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.node-inspector",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.node-inspector"],
+      "files": ["console/89e7b1df9d28b168-configuration-runtime-result.json", "screenshots/87574903b8142b52-node-contract-inspector-configured.png", "screenshots/ff55aae29ca5e729-configuration-refresh-restored.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.node-placement",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.node-placement"],
+      "files": ["console/0aa8f1c37d82a5e8-authoring-runtime-result.json", "screenshots/58547ec77f5ecfe6-empty-canvas-configured.png", "screenshots/ae84c73e1477ebfd-authoring-result.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.preflight-error-focus",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.preflight-error-focus"],
+      "files": ["console/c9fac2ebb6cd0a85-preflight-runtime-result.json", "screenshots/d605200b801f814b-preflight-error-configured.png", "screenshots/f9c0774efb4a3676-preflight-focused-result.png", "screenshots/9b036d88330d9ac5-preflight-refresh-restored.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.sidebar-active-route-navigation",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.sidebar-active-route-navigation"],
+      "files": ["console/0aa8f1c37d82a5e8-authoring-runtime-result.json", "screenshots/0a1aedc79ea8e8d2-sidebar-active-route-configured.png", "runtime/correlation.json"]
+    },
+    {
+      "criterion_id": "ui.undo-redo-refresh",
+      "source": "provider-independent-ui-runs-live-accepted-20260826-1",
+      "source_criterion_ids": ["ui.undo-redo-refresh"],
+      "files": ["console/0aa8f1c37d82a5e8-authoring-runtime-result.json", "screenshots/ae84c73e1477ebfd-authoring-result.png", "screenshots/40720144d47e6bd1-authoring-refresh-restored.png", "runtime/correlation.json"]
+    }
+  ],
+  "unmapped": {
+    "batching.provider-economics": "provider-dependent or unexecuted checkpoint remains outside this mapper expansion",
+    "rightsizing.cost-reconciliation": "provider-dependent or unexecuted checkpoint remains outside this mapper expansion",
+    "rightsizing.measured-experiment": "provider-dependent or unexecuted checkpoint remains outside this mapper expansion",
+    "templates.live-rendered-execution": "provider-dependent or unexecuted checkpoint remains outside this mapper expansion"
+  }
+}

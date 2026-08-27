@@ -13,6 +13,7 @@ from typing import Protocol
 
 from zeroth.contracts.graph.models import Graph
 from zeroth.contracts.graph.serialization import hydrate_deployed_graph
+from zeroth.contracts.graph.validation.control_nodes import canonicalize_if_route_edges
 from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
 
 
@@ -157,6 +158,7 @@ def namespace_subgraph(
         )
         for edge in graph.edges
     ]
+    namespaced_edges = canonicalize_if_route_edges(namespaced_nodes, namespaced_edges)
 
     namespaced_entry = f"{prefix}{graph.entry_step}" if graph.entry_step else None
 
@@ -170,15 +172,27 @@ def namespace_subgraph(
 
 
 _NAMESPACE_PREFIX = re.compile(r"^(?:branch:\d+:|subgraph:[^:]+:\d+:)+")
+_BRANCH_PREFIX = re.compile(r"^(?:branch:\d+:)+")
+
+
+def canonical_runner_id(node_id: str) -> str:
+    """Return the bootstrap runner key for a runtime node id.
+
+    Parallel execution adds an ephemeral ``branch:{index}:`` prefix, while the
+    subgraph-qualified portion identifies which deployed child supplied the
+    runner template.  Strip only the former so equally named agents in separate
+    deployed subgraphs cannot fall back to one authored-id entry.
+    """
+    return _BRANCH_PREFIX.sub("", node_id)
 
 
 def base_node_id(node_id: str) -> str:
     """Strip subgraph/branch namespacing to recover the authored node id.
 
     The inverse of :func:`namespace_subgraph` for a single id: peels every
-    stacked ``branch:{i}:`` / ``subgraph:{graph_ref}:{depth}:`` prefix so
-    runtime registries keyed by authored node ids (agent runners in
-    particular) keep resolving inside child workflows.
+    stacked ``branch:{i}:`` / ``subgraph:{graph_ref}:{depth}:`` prefix. Runtime
+    runner lookup deliberately uses :func:`canonical_runner_id` instead so the
+    deployed-subgraph qualifier remains collision-resistant.
     """
     return _NAMESPACE_PREFIX.sub("", node_id)
 

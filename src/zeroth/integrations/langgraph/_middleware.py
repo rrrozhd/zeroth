@@ -123,8 +123,10 @@ from langchain.agents.middleware import AgentMiddleware, ToolCallRequest
 from langchain_core.tools import BaseTool
 
 from zeroth.governance.identity import ActorIdentity
-from zeroth.integrations.langgraph._action_lifecycle import SQLiteActionExecutionRepository
-from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
+from zeroth.integrations.langgraph._repository_protocols import (
+    ActionExecutionRepository,
+    ApprovalRepository,
+)
 from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
     UnknownSideEffectPolicy,
@@ -350,8 +352,8 @@ class ZerothMiddleware(AgentMiddleware):
         audit: ToolAuditSubmitter | None = None,
         actor: ActorIdentity | None = None,
         interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
-        approval_lifecycle: SQLiteApprovalRepository | None = None,
-        action_lifecycle: SQLiteActionExecutionRepository | None = None,
+        approval_lifecycle: ApprovalRepository | None = None,
+        action_lifecycle: ActionExecutionRepository | None = None,
         side_effect: Callable[[Any], Any] | None = None,
         contract_ref: Callable[[Any], Any] | None = None,
         capability_refs: Callable[[Any], Any] | None = None,

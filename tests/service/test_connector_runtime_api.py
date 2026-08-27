@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+from decimal import Decimal
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -13,7 +15,9 @@ from tests.service.helpers import (
     reviewer_headers,
 )
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
+from zeroth.integrations.memory.embedding_calls import invoke_embedding_call
 from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory.models import ConnectorManifest
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry
 from zeroth.integrations.memory.runtime_configs import load_persisted_connectors
 from zeroth.service.bootstrap import bootstrap_app
@@ -257,10 +261,40 @@ async def test_reviewer_cannot_mutate(sqlite_db) -> None:
 
 
 async def test_probe_env_connector_succeeds(sqlite_db) -> None:
-    app, _ = await _app(sqlite_db, "probe")
+    class ProbeInstrumentation:
+        def __init__(self) -> None:
+            self.reserved = []
+            self.released = []
+
+        async def reserve_probe(self, **fields):
+            self.reserved.append(fields)
+
+        async def release_probe(self, **fields):
+            self.released.append(fields)
+            return SimpleNamespace(
+                cost_event_id="cost-event-connector",
+                cost_measurement="measured",
+                provider_request_id=None,
+                cleanup_status="complete",
+            )
+
+    app, service = await _app(sqlite_db, "probe")
+    instrumentation = ProbeInstrumentation()
+    service.probe_instrumentation = instrumentation
+    service.orchestrator.per_run_cap_usd = 0.25
 
     with TestClient(app) as client:
-        r = client.post("/v1/connectors/key_value/test", headers=operator_headers())
+        r = client.post(
+            "/v1/connectors/key_value/test",
+            headers=operator_headers(),
+            json={
+                "campaign_id": "campaign-1",
+                "operation_id": "connector-check",
+                "run_id": "run-1",
+                "max_cost_usd": "0.02",
+                "run_cap_usd": "0.25",
+            },
+        )
         missing = client.post("/v1/connectors/ghost/test", headers=operator_headers())
 
     assert r.status_code == 200, r.text
@@ -268,7 +302,123 @@ async def test_probe_env_connector_succeeds(sqlite_db) -> None:
     assert body["ok"] is True
     assert body["detail"] is None
     assert body["latency_ms"] >= 0
+    assert body["campaign_id"] == "campaign-1"
+    assert body["operation_id"] == "connector-check"
+    assert body["cost_event_id"] == "cost-event-connector"
+    assert body["cost_measurement"] == "measured"
+    assert body["cleanup_status"] == "complete"
+    assert instrumentation.reserved[0]["max_cost_usd"] == "0"
+    assert instrumentation.released[0]["operation_id"] == "connector-check"
     assert missing.status_code == 404
+
+    service.evaluation_campaign_id = "campaign-1"
+    with TestClient(app) as client:
+        uninstrumented = client.post(
+            "/v1/connectors/key_value/test",
+            headers=operator_headers(),
+        )
+    assert uninstrumented.status_code == 422
+
+
+async def test_embedding_connector_probe_commits_usage_and_provider_identity(sqlite_db) -> None:
+    class EmbeddingConnector:
+        connector_type = "chroma"
+        _embedding_model = "openai/text-embedding-3-small"
+
+        async def write(self, key, value, scope, *, target=None):
+            del key, value, scope, target
+            await invoke_embedding_call(
+                model=self._embedding_model,
+                inputs=["probe"],
+                provider_call=lambda: _embedding_response(),
+            )
+
+        async def read(self, key, scope, *, target=None):
+            del key, scope, target
+            return None
+
+        async def delete(self, key, scope, *, target=None):
+            del key, scope, target
+
+    async def _embedding_response():
+        return {
+            "id": "embedding-request-probe",
+            "usage": {"prompt_tokens": 5, "total_tokens": 5},
+        }
+
+    class Estimator:
+        def estimate(self, model, *, input_tokens, output_tokens):
+            del model, output_tokens
+            return Decimal(str(input_tokens)) / Decimal("1000000")
+
+    class ProbeInstrumentation:
+        def __init__(self) -> None:
+            self.reserved = []
+            self.committed = []
+
+        async def reserve_probe(self, **fields):
+            self.reserved.append(fields)
+
+        async def commit_probe(self, **fields):
+            self.committed.append(fields)
+            return SimpleNamespace(
+                cost_event_id="cost-embedding-probe",
+                cost_measurement="estimated",
+                provider_request_id=fields["provider_request_id"],
+                cleanup_status="complete",
+            )
+
+    app, service = await _app(sqlite_db, "embedding-probe")
+    service.memory_registry.register(
+        "embedding-probe",
+        ConnectorManifest(connector_type="chroma", scope=MemoryScope.SHARED),
+        EmbeddingConnector(),
+    )
+    instrumentation = ProbeInstrumentation()
+    service.probe_instrumentation = instrumentation
+    service.cost_estimator = Estimator()
+    service.orchestrator.per_run_cap_usd = 0.25
+
+    connector_schema = app.openapi()["components"]["schemas"]["ConnectorTestResponse"]
+    assert {
+        "campaign_id",
+        "operation_id",
+        "cost_event_id",
+        "audit_event_id",
+        "cost_measurement",
+        "estimated_cost_usd",
+        "provider_request_id",
+        "cleanup_status",
+    } <= set(connector_schema["properties"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/connectors/embedding-probe/test",
+            headers=operator_headers(),
+            json={
+                "campaign_id": "campaign-1",
+                "operation_id": "connector-embedding-check",
+                "run_id": "run-1",
+                "max_cost_usd": "0.001",
+                "run_cap_usd": "0.25",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["cost_event_id"] == "cost-embedding-probe"
+    assert response.json()["audit_event_id"] == "audit_cost-embedding-probe"
+    assert response.json()["estimated_cost_usd"] == "0.000005"
+    assert response.json()["provider_request_id"] == "embedding-request-probe"
+    assert response.json()["cleanup_status"] == "complete"
+    assert len(instrumentation.reserved) == 1
+    assert len(instrumentation.committed) == 1
+    assert instrumentation.reserved[0]["implementation_id"] == ("openai/text-embedding-3-small")
+    assert (
+        instrumentation.reserved[0]["implementation_id"]
+        == (instrumentation.committed[0]["implementation_id"])
+    )
+    assert instrumentation.committed[0]["operation_id"] == "connector-embedding-check"
+    assert instrumentation.committed[0]["actual_cost_usd"] == "0.000005"
 
 
 async def test_probe_is_tenant_namespaced_not_shared_cell(sqlite_db) -> None:

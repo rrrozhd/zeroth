@@ -1,0 +1,15 @@
+FROM python:3.12.13-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/zeroth-venv \
+    PATH=/opt/zeroth-venv/bin:/usr/local/bin:/usr/bin:/bin \
+    PYTHONPATH=/workspace/src:/workspace
+
+RUN pip install --no-cache-dir uv==0.8.17
+WORKDIR /workspace
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-install-project --no-dev \
+      --extra langgraph-gateway --extra memory-chroma --extra regulus
+
+CMD ["python", "scripts/zeroth_dev_instance.py", "--workspace", "/workspace", "--state-root", "/state", "--market-env", "/run/secrets/zeroth.env", "run-backend"]

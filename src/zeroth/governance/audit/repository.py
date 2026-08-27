@@ -70,11 +70,9 @@ if TYPE_CHECKING:
 
 @persistence_surface(
     "service.audit_chain_heads",
-    probe=named_isolation_probe(
-        "zeroth.service.audit_isolation_probe:_drive_audit_chain_heads"
-    ),
+    probe=named_isolation_probe("zeroth.service.audit_isolation_probe:_drive_audit_chain_heads"),
     non_persistence_public_methods=frozenset({"configure_capture"}),
-    method_names=frozenset({"write", "write_many"}),
+    method_names=frozenset({"write", "write_in_transaction", "write_many"}),
 )
 @persistence_surface(
     "service.node_audits",
@@ -205,64 +203,99 @@ class AuditRepository:
                 stored" as a successful delivery can narrow to the exact type
                 instead of reading every pre-commit failure as a durable record.
         """
-        # First, so the digest below covers the captured object.
-        record = self._capture.apply(record)
-        self._validate_owner(record.tenant_id, record.workspace_id)
+        record = self._prepare_record(record)
         async with self._audits.transaction(write_lock=True) as audits:
-            heads = audits.bind(self._chain_heads)
-            head = await lock_audit_chain(
-                audits,
-                heads,
-                run_id=record.run_id,
-            )
-            # WS-E: stamp the latest commitment digest version BEFORE the
-            # digest is computed, so the digest folds in the commitments and stays
-            # identical after a later crypto-erasure nulls the plaintext. Always
-            # populated for a commitment write — never left None (an empty
-            # record would still "verify" while binding no PII).
-            versioned = record.model_copy(update={"digest_version": LATEST_DIGEST_VERSION})
-            prepared = versioned.model_copy(
-                update={
-                    "pii_commitments": _compute_pii_commitments(versioned),
-                    "chain_sequence": head.next_sequence,
-                }
-            )
-            chained = compute_chained_record(
-                prepared,
-                head.digest,
-                self._signer,
-            )
-            existing = await audits.select_one(
-                where={"audit_id": chained.audit_id},
-                columns=("audit_id",),
-            )
-            if existing is not None:
-                raise DuplicateAuditIdError(f"audit_id {record.audit_id!r} already exists")
-            created_at = datetime.now(UTC)
-            await audits.insert(
-                {
-                    "audit_id": chained.audit_id,
-                    "run_id": chained.run_id,
-                    "thread_id": chained.thread_id,
-                    "node_id": chained.node_id,
-                    "graph_version_ref": chained.graph_version_ref,
-                    "deployment_ref": chained.deployment_ref,
-                    "tenant_id": chained.tenant_id,
-                    "workspace_id": chained.workspace_id,
-                    "created_at": created_at.isoformat(),
-                    "chain_sequence": chained.chain_sequence,
-                    "record_json": to_json_value(chained.model_dump(mode="json")),
-                }
-            )
-            if chained.record_digest is None:  # pragma: no cover - compute contract
-                raise RuntimeError("audit record digest was not computed")
-            await advance_audit_chain(
-                heads,
-                run_id=record.run_id,
-                digest=chained.record_digest,
-                next_sequence=head.next_sequence + 1,
-            )
-        return await self.get(record.audit_id)
+            return await self._write_bound(audits, record)
+
+    @persistence_resource_operations(
+        "service.audit_chain_heads",
+        ResourceOperation.CREATE,
+        ResourceOperation.READ,
+        ResourceOperation.UPDATE,
+    )
+    @persistence_resource_operations(
+        "service.node_audits", ResourceOperation.CREATE, ResourceOperation.READ
+    )
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
+    async def write_in_transaction(
+        self,
+        connection: AsyncConnection | BoundStructuredTable,
+        record: NodeAuditRecord,
+    ) -> NodeAuditRecord:
+        """Append ``record`` using a caller-owned database transaction.
+
+        This is the atomic composition boundary for service state transitions:
+        callers can mutate their scoped table and append the signed audit record
+        under one commit.  The supplied connection must belong to this
+        repository's database; ``ScopedTable.in_transaction`` enforces that
+        binding instead of opening a second transaction.
+        """
+        prepared = self._prepare_record(record)
+        audits = self._audits.in_transaction(connection)
+        return await self._write_bound(audits, prepared)
+
+    def _prepare_record(self, record: NodeAuditRecord) -> NodeAuditRecord:
+        """Apply capture and scope validation exactly once before persistence."""
+        captured = self._capture.apply(record)
+        self._validate_owner(captured.tenant_id, captured.workspace_id)
+        return captured
+
+    async def _write_bound(
+        self,
+        audits: BoundStructuredTable,
+        record: NodeAuditRecord,
+    ) -> NodeAuditRecord:
+        """Append a prepared record through an already-bound transaction."""
+        heads = audits.bind(self._chain_heads)
+        head = await lock_audit_chain(
+            audits,
+            heads,
+            run_id=record.run_id,
+        )
+        # WS-E: stamp the commitment version before digesting so erasure keeps
+        # the chain verifiable while the plaintext is removed.
+        versioned = record.model_copy(update={"digest_version": LATEST_DIGEST_VERSION})
+        prepared = versioned.model_copy(
+            update={
+                "pii_commitments": _compute_pii_commitments(versioned),
+                "chain_sequence": head.next_sequence,
+            }
+        )
+        chained = compute_chained_record(prepared, head.digest, self._signer)
+        existing = await audits.select_one(
+            where={"audit_id": chained.audit_id},
+            columns=("audit_id",),
+        )
+        if existing is not None:
+            raise DuplicateAuditIdError(f"audit_id {record.audit_id!r} already exists")
+        await audits.insert(
+            {
+                "audit_id": chained.audit_id,
+                "run_id": chained.run_id,
+                "thread_id": chained.thread_id,
+                "node_id": chained.node_id,
+                "graph_version_ref": chained.graph_version_ref,
+                "deployment_ref": chained.deployment_ref,
+                "tenant_id": chained.tenant_id,
+                "workspace_id": chained.workspace_id,
+                "created_at": datetime.now(UTC).isoformat(),
+                "cost_usd": chained.cost_usd,
+                "cost_event_id": chained.cost_event_id,
+                "chain_sequence": chained.chain_sequence,
+                "record_json": to_json_value(chained.model_dump(mode="json")),
+            }
+        )
+        if chained.record_digest is None:  # pragma: no cover - compute contract
+            raise RuntimeError("audit record digest was not computed")
+        await advance_audit_chain(
+            heads,
+            run_id=record.run_id,
+            digest=chained.record_digest,
+            next_sequence=head.next_sequence + 1,
+        )
+        return chained
 
     @persistence_operation(ResourceOperation.READ)
     async def get(self, audit_id: str, *, tenant_id: str | None = None) -> NodeAuditRecord | None:

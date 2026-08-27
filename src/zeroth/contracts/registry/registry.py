@@ -102,6 +102,14 @@ class ContractReference(BaseModel):
     name: str
     version: int | None = None
 
+    @classmethod
+    def parse(cls, value: str) -> ContractReference:
+        """Parse an optional trailing ``@<positive-version>`` pin."""
+        name, separator, raw_version = value.rpartition("@")
+        if separator and name and raw_version.isdecimal() and int(raw_version) > 0:
+            return cls(name=name, version=int(raw_version))
+        return cls(name=value)
+
 
 class ContractVersion(BaseModel):
     """The full record for a single version of a registered contract.

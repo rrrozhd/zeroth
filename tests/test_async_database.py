@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from zeroth.platform.storage.async_postgres import _sqlite_to_psycopg
@@ -65,6 +67,34 @@ class TestAsyncSQLiteDatabase:
         async with db.transaction() as conn:
             results = await conn.fetch_all("SELECT id, name FROM items")
         assert results == []
+
+    async def test_concurrent_first_transactions_initialize_wal_once(self, tmp_path, monkeypatch):
+        """Cold concurrent transactions share one database-wide WAL initialization."""
+        db = AsyncSQLiteDatabase(str(tmp_path / "cold-concurrency.db"))
+        original = AsyncSQLiteDatabase._enter_wal_mode
+        calls = 0
+
+        async def counted_enter_wal_mode(self, connection):
+            nonlocal calls
+            calls += 1
+            # Hold the initialization boundary open long enough for all callers
+            # to contend, reproducing the first-batch service startup race.
+            await asyncio.sleep(0.05)
+            await original(self, connection)
+
+        monkeypatch.setattr(
+            AsyncSQLiteDatabase,
+            "_enter_wal_mode",
+            counted_enter_wal_mode,
+        )
+
+        async def open_transaction() -> None:
+            async with db.transaction() as connection:
+                await connection.fetch_one("SELECT 1 AS ready")
+
+        await asyncio.gather(*(open_transaction() for _ in range(4)))
+
+        assert calls == 1
 
 
 class TestDatabaseFactory:

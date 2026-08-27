@@ -41,11 +41,17 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "create": frozenset({O.CREATE}),
             "get": frozenset({O.READ}),
             "list_runs": frozenset({O.ENUMERATE}),
+            "list_runs_for_scope": frozenset({O.ENUMERATE}),
+            "list_child_runs": frozenset({O.ENUMERATE}),
             "list_dead_letter_runs": frozenset({O.ENUMERATE}),
             "put": frozenset({O.CREATE, O.UPDATE}),
+            "merge_terminal_metadata": frozenset({O.UPDATE}),
             "transition": frozenset({O.READ, O.UPDATE}),
             "record_history": frozenset({O.READ, O.UPDATE}),
             "record_condition_result": frozenset({O.READ, O.UPDATE}),
+            "schedule_child_approval_continuation_in_transaction": frozenset(
+                {O.READ, O.UPDATE}
+            ),
             "increment_failure_count": frozenset({O.UPDATE}),
             "delete": frozenset({O.DELETE}),
             "count_pending": frozenset({O.ENUMERATE}),
@@ -117,10 +123,13 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "state_of": frozenset({O.READ}),
             "pending_reconciliation": frozenset({O.ENUMERATE}),
             "claim": frozenset({O.CREATE, O.READ, O.UPDATE}),
+            "begin_outcome_lookup": frozenset({O.UPDATE}),
             "complete": frozenset({O.UPDATE}),
             "fail": frozenset({O.UPDATE}),
             "mark_ambiguous": frozenset({O.UPDATE}),
+            "finish_outcome_lookup": frozenset({O.READ, O.UPDATE}),
             "record_reconciliation": frozenset({O.READ, O.UPDATE}),
+            "resolve_ambiguous": frozenset({O.UPDATE}),
             "erase_for_run": frozenset({O.ENUMERATE, O.DELETE}),
             "erase_for_run_in_transaction": frozenset({O.ENUMERATE, O.DELETE}),
         }
@@ -138,6 +147,9 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
     "service.webhook_deliveries": {
         WebhookRepository: {
             "enqueue_delivery": frozenset({O.CREATE}),
+            "enqueue_deliveries": frozenset({O.CREATE}),
+            "get_delivery": frozenset({O.READ}),
+            "list_deliveries": frozenset({O.ENUMERATE}),
             "claim_pending_delivery": frozenset({O.READ, O.ENUMERATE, O.UPDATE}),
             "mark_delivered": frozenset({O.UPDATE}),
             "mark_failed": frozenset({O.READ, O.UPDATE}),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from decimal import Decimal
 from datetime import datetime
 from typing import Literal
 
@@ -115,6 +116,14 @@ class TenantBudgetUpsert(BaseModel):
 class BudgetStatusOut(BaseModel):
     tenant_id: str
     total_cost_usd: float
+    actual_spend_usd: float = 0.0
+    paid_spend_usd: float = 0.0
+    estimated_spend_usd: float = 0.0
+    unmeasured_spend_usd: float = 0.0
+    active_exposure_usd: float = 0.0
+    ambiguous_exposure_usd: float = 0.0
+    budget_consumed_usd: float = 0.0
+    synthetic_control_usd: float = 0.0
     budget_cap_usd: float | None = None
     measurement_complete: bool = True
     cost_measurement: Literal["measured", "estimated", "unmeasured"] = "measured"
@@ -126,6 +135,53 @@ BudgetStatusOut.__signature__ = inspect.signature(BudgetStatusOut).replace(
     parameters=[
         parameter
         for name, parameter in inspect.signature(BudgetStatusOut).parameters.items()
-        if name not in {"measurement_complete", "cost_measurement"}
+        if name
+        not in {
+            "actual_spend_usd",
+            "paid_spend_usd",
+            "estimated_spend_usd",
+            "unmeasured_spend_usd",
+            "active_exposure_usd",
+            "ambiguous_exposure_usd",
+            "budget_consumed_usd",
+            "synthetic_control_usd",
+            "measurement_complete",
+            "cost_measurement",
+        }
+    ]
+)
+
+
+class CostReservationReconcile(BaseModel):
+    actual_cost_usd: Decimal = Field(ge=0)
+    cost_measurement: Literal["measured", "estimated"]
+    provider_request_id: str | None = Field(default=None, max_length=256)
+    cleanup_status: str = Field(default="complete", min_length=1, max_length=64)
+
+
+class CostReservationOut(BaseModel):
+    operation_id: str
+    campaign_id: str | None
+    run_id: str | None
+    deployment_ref: str | None
+    evidence_kind: str
+    status: str
+    max_cost_usd: Decimal
+    held_cost_usd: Decimal
+    actual_cost_usd: Decimal | None
+    released_cost_usd: Decimal
+    cost_measurement: str
+    cost_event_id: str | None
+    provider_request_id: str | None
+    cleanup_status: str | None
+
+    model_config = {"from_attributes": True}
+
+
+CostReservationOut.__signature__ = inspect.signature(CostReservationOut).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(CostReservationOut).parameters.items()
+        if name not in {"deployment_ref", "evidence_kind"}
     ]
 )

@@ -11,6 +11,7 @@ export const ROUTE_CASES: RouteCase[] = [
   { id: "nav-operate-approvals", href: "/approvals", file: "app/approvals/page.tsx", asyncStates: true },
   { id: "nav-operate-audit", href: "/audit", file: "app/audit/page.tsx", asyncStates: true },
   { id: "nav-operate-deployments", href: "/deployments", file: "app/deployments/page.tsx", asyncStates: true },
+  { id: "nav-operate-artifacts", href: "/artifacts", file: "app/artifacts/page.tsx", asyncStates: true },
   { id: "nav-build-studio", href: "/studio", file: "app/studio/page.tsx", asyncStates: true },
   { id: "nav-build-studio-edit", href: "/studio/edit", file: "app/studio/edit/page.tsx", asyncStates: true },
   { id: "nav-build-templates", href: "/templates", file: "app/templates/page.tsx", asyncStates: true },
@@ -56,7 +57,7 @@ export const POLLING_MUTATION_CASES: Record<string, { file: string; markers: str
 };
 
 export const STUDIO_CASES: Record<string, string[]> = {
-  "studio-drag": ["onDrop", "onDragOver"],
+  "studio-placement": ["beginPlacement", "onPaneClick={placeNode}", "placementType"],
   "studio-edge": ["onConnect", "sourceHandle === \"tools\"", "edgeKindProps"],
   "studio-config": ["NodeInspector"],
   "studio-publish": ["publish", "PublishIssuesContext"],

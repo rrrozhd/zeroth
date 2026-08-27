@@ -72,6 +72,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/budget/reservations/{operation_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconcile Reservation
+         * @description Resolve a retained ambiguous maximum using provider-authoritative cost.
+         */
+        post: operations["reconcile_reservation_v1_budget_reservations__operation_id__reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/budget/status": {
         parameters: {
             query?: never;
@@ -1004,8 +1024,28 @@ export interface components {
         };
         /** BudgetStatusOut */
         BudgetStatusOut: {
+            /**
+             * Active Exposure Usd
+             * @default 0
+             */
+            active_exposure_usd: number;
+            /**
+             * Actual Spend Usd
+             * @default 0
+             */
+            actual_spend_usd: number;
+            /**
+             * Ambiguous Exposure Usd
+             * @default 0
+             */
+            ambiguous_exposure_usd: number;
             /** Budget Cap Usd */
             budget_cap_usd?: number | null;
+            /**
+             * Budget Consumed Usd
+             * @default 0
+             */
+            budget_consumed_usd: number;
             /**
              * Cost Measurement
              * @default measured
@@ -1013,14 +1053,34 @@ export interface components {
              */
             cost_measurement: "measured" | "estimated" | "unmeasured";
             /**
+             * Estimated Spend Usd
+             * @default 0
+             */
+            estimated_spend_usd: number;
+            /**
              * Measurement Complete
              * @default true
              */
             measurement_complete: boolean;
+            /**
+             * Paid Spend Usd
+             * @default 0
+             */
+            paid_spend_usd: number;
+            /**
+             * Synthetic Control Usd
+             * @default 0
+             */
+            synthetic_control_usd: number;
             /** Tenant Id */
             tenant_id: string;
             /** Total Cost Usd */
             total_cost_usd: number;
+            /**
+             * Unmeasured Spend Usd
+             * @default 0
+             */
+            unmeasured_spend_usd: number;
             /**
              * Window
              * @default month_to_date
@@ -1400,6 +1460,54 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** CostReservationOut */
+        CostReservationOut: {
+            /** Actual Cost Usd */
+            actual_cost_usd: string | null;
+            /** Campaign Id */
+            campaign_id: string | null;
+            /** Cleanup Status */
+            cleanup_status: string | null;
+            /** Cost Event Id */
+            cost_event_id: string | null;
+            /** Cost Measurement */
+            cost_measurement: string;
+            /** Deployment Ref */
+            deployment_ref: string | null;
+            /** Evidence Kind */
+            evidence_kind: string;
+            /** Held Cost Usd */
+            held_cost_usd: string;
+            /** Max Cost Usd */
+            max_cost_usd: string;
+            /** Operation Id */
+            operation_id: string;
+            /** Provider Request Id */
+            provider_request_id: string | null;
+            /** Released Cost Usd */
+            released_cost_usd: string;
+            /** Run Id */
+            run_id: string | null;
+            /** Status */
+            status: string;
+        };
+        /** CostReservationReconcile */
+        CostReservationReconcile: {
+            /** Actual Cost Usd */
+            actual_cost_usd: number | string;
+            /**
+             * Cleanup Status
+             * @default complete
+             */
+            cleanup_status: string;
+            /**
+             * Cost Measurement
+             * @enum {string}
+             */
+            cost_measurement: "measured" | "estimated";
+            /** Provider Request Id */
+            provider_request_id?: string | null;
+        };
         /** DataQualityMix */
         DataQualityMix: {
             /** Inferred */
@@ -1548,8 +1656,12 @@ export interface components {
         };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {
+            /** Campaign Id */
+            campaign_id?: string | null;
             /** Capability Id */
             capability_id: string;
+            /** Cleanup Status */
+            cleanup_status?: string | null;
             /** Compute Cost Usd */
             compute_cost_usd?: number | string | null;
             /**
@@ -1558,6 +1670,14 @@ export interface components {
              */
             compute_time_ms: number;
             cost_measurement?: components["schemas"]["MeasurementState"] | null;
+            /** Deployment Ref */
+            deployment_ref?: string | null;
+            /**
+             * Evidence Kind
+             * @default production
+             * @enum {string}
+             */
+            evidence_kind: "production" | "synthetic_control" | "legacy_unknown";
             /** Execution Id */
             execution_id: string;
             /** Implementation Id */
@@ -1575,6 +1695,10 @@ export interface components {
             };
             /** Model Version */
             model_version: string;
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Provider Request Id */
+            provider_request_id?: string | null;
             /** Tenant Id */
             tenant_id?: string | null;
             /**
@@ -2284,10 +2408,46 @@ export interface operations {
             };
         };
     };
+    reconcile_reservation_v1_budget_reservations__operation_id__reconcile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostReservationReconcile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostReservationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     budget_status_v1_budget_status_get: {
         parameters: {
             query: {
                 tenant_id: string;
+                deployment_ref?: string | null;
             };
             header?: never;
             path?: never;

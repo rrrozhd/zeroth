@@ -138,6 +138,11 @@ async def _forward(request: Request, route: RegulusRoute) -> JSONResponse:
             headers=headers,
             json=body,
         )
+        if response.status_code == 404:
+            # Several latest-value reads use 404 to mean "no observation yet".
+            # Preserve only the status contract so the console can render its
+            # intended empty state; never forward the upstream response body.
+            raise HTTPException(status_code=404, detail="Regulus resource not found")
         if not 200 <= response.status_code < 300:
             raise HTTPException(status_code=502, detail="Regulus backend request failed")
         return JSONResponse(content=response.json(), status_code=response.status_code)
@@ -152,7 +157,8 @@ def register_regulus_proxy_routes(app: FastAPI | APIRouter) -> None:
 
     def handler_for(route: RegulusRoute):
         async def handler(request: Request) -> JSONResponse:
-            await require_permission(request, Permission.ECON_ADMIN)
+            permission = Permission.METRICS_READ if route.method == "GET" else Permission.ECON_ADMIN
+            await require_permission(request, permission)
             _validate_canonical_request(request)
             return await _forward(request, route)
 

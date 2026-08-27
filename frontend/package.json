@@ -12,7 +12,9 @@
     "check:api": "uv run --project .. python ../scripts/check_frontend_api.py --frontend .",
     "gen:version": "uv run --project .. python ../scripts/generate_frontend_version.py --pyproject ../pyproject.toml --out app/lib/version.ts",
     "check:version": "uv run --project .. python ../scripts/generate_frontend_version.py --pyproject ../pyproject.toml --out app/lib/version.ts --check",
-    "test": "vitest"
+    "test": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
@@ -26,6 +28,8 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

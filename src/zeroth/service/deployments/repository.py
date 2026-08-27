@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Protocol
 
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
@@ -42,6 +43,12 @@ class DeploymentRefLineageConflictError(RuntimeError):
         )
 
 
+class TemplateReferenceIndexWriter(Protocol):
+    """Transaction-aware reference sink used without coupling deployment persistence."""
+
+    async def sync_deployment(self, transaction: object, **snapshot: object) -> None: ...
+
+
 def _row_get(row: object, column: str) -> str | None:
     """Read an optional column, tolerating rows that predate it.
 
@@ -61,8 +68,14 @@ def _row_get(row: object, column: str) -> str | None:
 class SQLiteDeploymentRepository:
     """Persist and query deployment history using an async database."""
 
-    def __init__(self, database: AsyncDatabase):
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        *,
+        template_reference_index: TemplateReferenceIndexWriter | None = None,
+    ):
         self._database: AsyncDatabase = database
+        self._template_reference_index = template_reference_index
 
     def _deployments(self, tenant_id: str | None, workspace_id: str | None) -> ScopedTable:
         tenant = tenant_id or "default"
@@ -159,6 +172,15 @@ class SQLiteDeploymentRepository:
             )
             if not inserted:
                 raise KeyError(deployment.deployment_ref)
+            if self._template_reference_index is not None:
+                await self._template_reference_index.sync_deployment(
+                    deployments,
+                    deployment_ref=deployment.deployment_ref,
+                    version=deployment.version,
+                    serialized_graph=deployment.serialized_graph,
+                    tenant_id=owner_tenant,
+                    workspace_id=owner_workspace,
+                )
         return await self.get(
             deployment.deployment_ref,
             deployment.version,

@@ -157,6 +157,30 @@ async def test_deploy_published_graph_succeeds(sqlite_db) -> None:
     assert await service.list("graph-1-service") == [deployed]
 
 
+async def test_deploy_resolves_explicitly_versioned_contract_references(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
+    graph = build_graph()
+    nodes = [
+        node.model_copy(
+            update={
+                "input_contract_ref": "contract://input@1",
+                "output_contract_ref": "contract://output@1",
+            }
+        )
+        if node.node_id == graph.entry_step
+        else node
+        for node in graph.nodes
+    ]
+    stored = await service.graph_repository.create(graph.model_copy(update={"nodes": nodes}))
+    published = await service.graph_repository.publish(stored.graph_id, stored.version)
+
+    deployed = await service.deploy("pinned-contract-service", published.graph_id, 1)
+
+    assert deployed.entry_input_contract_ref == "contract://input@1"
+    assert deployed.entry_input_contract_version == 1
+    assert deployed.entry_output_contract_version == 1
+
+
 @pytest.mark.parametrize(
     ("authored_value", "expected_mode"),
     [
