@@ -451,11 +451,19 @@ async def test_full_repo_api_flow(sqlite_db, tmp_path) -> None:
             assert metadata["repo_commit_sha"] == rig.head_sha
             assert bundle["checkout_attestation"] is not None
             assert bundle["checkout_attestation"]["digest_verified"] is True
+            # The summary gained cost/reconciliation fields. Their values here are
+            # deterministic -- this run makes no priced call -- so they are pinned
+            # rather than skipped, keeping the assertion exact.
             assert bundle["summary"] == {
                 "audit_count": 1,
                 "approval_count": 0,
                 "tool_call_count": 0,
                 "memory_interaction_count": 0,
+                "priced_call_count": 0,
+                "cost_event_count": 0,
+                "total_cost_usd": 0.0,
+                "cost_identity_state": "not_applicable_no_priced_call",
+                "reconciliation_state": "reconciled_zero_activity",
             }
             assert bundle["policy_events"] == []
     finally:

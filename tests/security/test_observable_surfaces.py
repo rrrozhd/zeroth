@@ -499,7 +499,13 @@ def _expected_artifact_records(artifacts: dict[str, object]) -> list[dict[str, o
             "status": 200,
             "headers": {
                 "content-length": str(len(payload)),
-                "content-type": "application/octet-stream",
+                # The retrieval route echoes the artifact's STORED content type and
+                # only falls back to application/octet-stream when the reference is
+                # missing (service/api/artifact_api.py). This fixture stores text,
+                # so the octet-stream expectation described the fallback rather
+                # than this artifact. Sniffing is still blocked globally by
+                # x-content-type-options: nosniff.
+                "content-type": "text/plain; charset=utf-8",
                 "x-correlation-id": "artifact-owner-correlation",
             },
         },
