@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1.2]
+
+### Fixed
+
+- Re-pin the acceptance contracts' `schema_revision` to the real migration head. Resolving them to
+  `"028"` during the merge was wrong: the value is compared against the *live* revision, not merely
+  checked for internal consistency, so it must track the head — now `035`.
+- `/health` gained `production_ready` and `certification`, so the health test no longer asserts the
+  whole payload by equality. The key set is still pinned exactly, so a field leaking onto `/health`
+  is still caught, but `certification` carries environment-dependent blockers (a test host has no
+  server-owned serving commit) and pinning that block asserted the environment rather than the
+  endpoint.
+
 ## [0.25.1.1]
 
 ### Fixed
