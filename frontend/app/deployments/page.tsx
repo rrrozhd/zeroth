@@ -53,6 +53,7 @@ import {
   getOutputContract,
   getResultErrorStateSchema,
   listDeployments,
+  listCertifications,
   postVerifyAttestationOf,
   rollbackDeployment,
   type AttestationVerification,
@@ -63,10 +64,12 @@ import {
   type DeploymentMetadata,
   type DeploymentResultErrorStateSchema,
   type DeploymentSummary,
+  type CertificationResponse,
   type NodeAuditRecord,
   type PublicContractSchema,
 } from "@/app/lib/api";
 import { isConfigured } from "@/app/lib/config";
+import { DeploymentGuardrailsPanel } from "./GuardrailsPanel";
 
 // --------------------------------------------------------------------------
 // Shared helpers (mirrors the Runs screen conventions)
@@ -594,6 +597,8 @@ function DeploymentDetail({
       </div>
 
       {/* Panels — each owns its own load/empty/error */}
+      <CertificationPanel refId={d.deployment_ref} />
+      <DeploymentGuardrailsPanel refId={d.deployment_ref} serving={d.serving} />
       <MetadataPanel refId={d.deployment_ref} />
       <ContractsPanel refId={d.deployment_ref} />
       <AttestationPanel refId={d.deployment_ref} />
@@ -602,6 +607,89 @@ function DeploymentDetail({
       <CostPanel refId={d.deployment_ref} />
       <AuditsPanel />
     </div>
+  );
+}
+
+function CertificationPanel({ refId }: { refId: string }) {
+  const certifications = useLoad<CertificationResponse[]>(listCertifications);
+  const records = certifications.data ?? [];
+  const record = records.find((item) => item.promotion_target_key === refId) ?? null;
+
+  return (
+    <Card label="Production certification" pad={14}>
+      {certifications.loading && !certifications.data ? (
+        <Skeleton height={64} />
+      ) : certifications.error ? (
+        <InlineError message={certifications.error} onRetry={certifications.reload} />
+      ) : !record ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Pill tone="danger" style={{ alignSelf: "flex-start" }}>
+            production blocked
+          </Pill>
+          <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
+            No promoted certification owns this deployment target.
+          </span>
+          <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+            Remediation: configure the server-owned artifact identity, register a trusted
+            production receipt, and promote it to this exact deployment reference.
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <Pill tone={record.evaluation.production_ready ? "success" : "danger"}>
+              {record.evaluation.production_ready ? "production ready" : "production blocked"}
+            </Pill>
+            <Pill tone="neutral">{record.state}</Pill>
+            {record.evaluation.test_deployable && <Pill tone="info">test deployable</Pill>}
+            {record.evaluation.override_active && <Pill tone="warning">override active</Pill>}
+          </div>
+          {record.override && (
+            <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+              Override [{record.override.scopes.join(", ")}] until{" "}
+              {new Date(record.override.expires_at).toLocaleString()}: {record.override.reason}
+            </div>
+          )}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(100px, auto) 1fr",
+              gap: "5px 12px",
+              fontSize: 11.5,
+            }}
+          >
+            <span style={{ color: "var(--text-faint)" }}>commit</span>
+            <code style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+              {record.app_commit}
+            </code>
+            <span style={{ color: "var(--text-faint)" }}>image</span>
+            <code style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+              {record.image_digest}
+            </code>
+          </div>
+          {record.evaluation.blockers.map((blocker) => (
+            <div
+              key={blocker.code}
+              style={{
+                borderLeft: "2px solid var(--danger)",
+                paddingLeft: 10,
+                display: "flex",
+                flexDirection: "column",
+                gap: 3,
+              }}
+            >
+              <code style={{ fontSize: 11.5, color: "var(--danger)" }}>{blocker.code}</code>
+              <span style={{ fontSize: 12.5, color: "var(--text-primary)" }}>
+                {blocker.message}
+              </span>
+              <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+                Remediation: {blocker.remediation}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

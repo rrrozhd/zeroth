@@ -128,6 +128,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     "zeroth.platform.config.settings:ZerothSettings": (
         "approval_notifications",
         "deployment_mode",
+        "certification",
         "langgraph_gateway",
     ),
     "zeroth.runtime.agents.provider:ProviderResponse": (
@@ -177,6 +178,8 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "audit_delivery",
         "campaign_id",
         "langgraph_gateway",
+        "certification",
+        "production_ready",
     ),
     "zeroth.service.api.run_api:RunInvocationRequest": (
         "campaign_id",
@@ -210,6 +213,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "zeroth.service.bootstrap.container:ServiceBootstrap": (
         "audit_delivery_queue",
+        "certification_service",
         "decision_repository",
         "evaluation_campaign",
         "evaluation_fault_state",
@@ -217,6 +221,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "evaluation_receipt_restart_barriers",
         "enforcement_heartbeat_repository",
         "enforcement_stale_after_seconds",
+        "guardrail_policy_repository",
         "inventory_registration_repository",
         "langgraph_enforcement_service",
         "langgraph_gateway_capability_reporter",
@@ -229,6 +234,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "role_registry",
         "run_attestation_repository",
         "template_dependency_checker",
+        "serving_artifact_identity",
         "tool_decision_service",
         "verifier",
     ),
@@ -263,9 +269,7 @@ def declared_fields(target: Any) -> set[str]:
         return set(fields)
     if dataclasses.is_dataclass(target):
         return {field.name for field in dataclasses.fields(target)}
-    return {
-        name for name in inspect.signature(target.__init__).parameters if name != "self"
-    }
+    return {name for name in inspect.signature(target.__init__).parameters if name != "self"}
 
 
 def hidden_fields(target: Any) -> set[str]:
@@ -375,9 +379,7 @@ def _assignment_sites(tree: ast.Module, module: str) -> list[tuple[str, str]]:
                     sites.append((f"{module}:{where}:{owner}", owner))
             inner = (
                 (*scope, child.name)
-                if isinstance(
-                    child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
-                )
+                if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
                 else scope
             )
             visit(child, inner)
@@ -554,9 +556,7 @@ def test_the_non_class_check_would_reject_a_class_named_in_the_allowlist() -> No
         "governed",
         None,
     )
-    a_real_class = importlib.import_module(
-        "zeroth.governance.policy.models"
-    ).PolicyDefinition
+    a_real_class = importlib.import_module("zeroth.governance.policy.models").PolicyDefinition
 
     assert not inspect.isclass(honest)
     assert inspect.isclass(a_real_class)
@@ -644,6 +644,4 @@ def test_the_allowlist_exempts_a_place_and_not_a_name() -> None:
     assert "zeroth.integrations.langgraph._tool_wrappers:_elsewhere:governed" not in (
         NON_CLASS_SIGNATURE_SITES
     )
-    assert "zeroth.governance.policy.models:_elsewhere:governed" not in (
-        NON_CLASS_SIGNATURE_SITES
-    )
+    assert "zeroth.governance.policy.models:_elsewhere:governed" not in (NON_CLASS_SIGNATURE_SITES)

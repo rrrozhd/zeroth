@@ -396,6 +396,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repo = AsyncMock()
         repo.create = AsyncMock(side_effect=lambda r: r)
         repo.put = AsyncMock(side_effect=lambda r: r)
+        repo.put_if_status = AsyncMock(side_effect=lambda r, _expected: r)
         repo.get = AsyncMock(return_value=None)
         repo.write_checkpoint = AsyncMock()
 
@@ -495,6 +496,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repository = AsyncMock()
         repository.create = AsyncMock(side_effect=lambda run: run)
         repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.put_if_status = AsyncMock(side_effect=lambda run, _expected: run)
         repository.get = AsyncMock(return_value=None)
         repository.write_checkpoint = AsyncMock()
         orchestrator = RuntimeOrchestrator(
@@ -586,6 +588,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repository = AsyncMock()
         repository.create = AsyncMock(side_effect=lambda run: run)
         repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.put_if_status = AsyncMock(side_effect=lambda run, _expected: run)
         repository.write_checkpoint = AsyncMock()
         audit_repository = AsyncMock()
         audit_repository.write = AsyncMock()
@@ -711,6 +714,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repo = AsyncMock()
         repo.create = AsyncMock(side_effect=lambda r: r)
         repo.put = AsyncMock(side_effect=lambda r: r)
+        repo.put_if_status = AsyncMock(side_effect=lambda r, _expected: r)
         repo.get = AsyncMock(return_value=None)
         repo.write_checkpoint = AsyncMock()
 
@@ -861,6 +865,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repository = AsyncMock()
         repository.create = AsyncMock(side_effect=lambda run: run)
         repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.put_if_status = AsyncMock(side_effect=lambda run, _expected: run)
         repository.get = AsyncMock(return_value=None)
         repository.write_checkpoint = AsyncMock()
         orchestrator = RuntimeOrchestrator(

@@ -52,7 +52,7 @@ async def seed_ambiguous_operation_demo(
     """
     scope = _scope(tenant_id, workspace_id)
     run_repository = RunRepository(database, scope)
-    audit_repository = AuditRepository(database, scope, signer=signer)
+    audit_repository = AuditRepository.scoped(database, scope, signer=signer)
     operation_store = SideEffectOperationStore(database, scope)
 
     run_id = f"ambiguous-demo-run-{fixture_id}"

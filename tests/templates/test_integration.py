@@ -84,6 +84,9 @@ class _FakeRunRepository:
         self._runs[run.run_id] = run
         return run
 
+    async def put_if_status(self, run: Any, _expected_status: Any) -> Any:
+        return await self.put(run)
+
     async def get(self, run_id: str) -> Any:
         return self._runs.get(run_id)
 

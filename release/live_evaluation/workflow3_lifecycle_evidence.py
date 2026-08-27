@@ -5,6 +5,9 @@ sanitized, acceptance-relevant fields from live responses and binds both tracked
 diffs and untracked file bytes into the working-tree digest.
 """
 
+# Evidence prose and immutable checkpoint vectors are intentionally verbatim.
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 from .evidence import AcceptanceCriterion, CorrelationIds, EvidenceStore
-
 
 WORKTREE = Path("/Users/dondoe/.codex/worktrees/0327/zeroth")
 STATE_ROOT = Path("/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1")
@@ -45,7 +47,6 @@ def _git(repo: Path, *args: str, binary: bool = False) -> bytes | str:
 
 def _tree_digest(repo: Path = WORKTREE) -> str:
     """Hash tracked changes and the bytes of every untracked regular file."""
-
     digest = hashlib.sha256()
     digest.update(str(_git(repo, "status", "--porcelain=v1", "-z")).encode())
     tracked_diff = _git(repo, "diff", "--binary", "HEAD", binary=True)
@@ -258,7 +259,6 @@ def _acceptance_criteria(
     paths: dict[str, str], *, lifecycle_event: str | None = None
 ) -> list[AcceptanceCriterion]:
     """Apply the independent screenshot-first disposition to this slice."""
-
     health_evidence = (paths["health"],)
     if lifecycle_event is not None:
         health_evidence += (f"events.ndjson#{lifecycle_event}",)
@@ -514,7 +514,7 @@ def build() -> None:
         _select_artifact("artifacts/**/workflow-3-configured.png"),
         "screenshots/workflow3-v3-configured.png",
     ).relative_to(ROOT).as_posix()
-    results_path = store.ingest_artifact(
+    store.ingest_artifact(
         PLAYWRIGHT_ROOT / "results.json",
         "playwright-report/configured-results.json",
     ).relative_to(ROOT).as_posix()
@@ -585,7 +585,7 @@ def build() -> None:
             "result": "pass",
         },
     )
-    ui_event = store.append_event(
+    store.append_event(
         "ui.safari.lifecycle.verified",
         {
             "semantic_state": safari_path,
@@ -594,7 +594,7 @@ def build() -> None:
         },
         correlation=CorrelationIds(ui_action_id="safari-workflow3-lifecycle-v3"),
     )
-    run_event = store.append_event(
+    store.append_event(
         "run.sla_expiry.verified",
         {
             "run_observation": paths["run"],
@@ -604,7 +604,7 @@ def build() -> None:
         },
         correlation=CorrelationIds(run_id=RUN_ID),
     )
-    audit_event = store.append_event(
+    store.append_event(
         "audit.chain.verified",
         {
             "audit_observation": paths["audits"],

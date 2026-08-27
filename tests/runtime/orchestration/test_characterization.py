@@ -101,6 +101,10 @@ class _RecordingRunRepository:
         self._journal.record("run.put", run.status.value, run.current_step or "")
         return await self._inner.put(run)
 
+    async def put_if_status(self, run: Run, expected_status: RunStatus) -> Run:
+        self._journal.record("run.put", run.status.value, run.current_step or "")
+        return await self._inner.put_if_status(run, expected_status)
+
     async def get(self, run_id: str) -> Run | None:
         self._journal.record("run.get")
         return await self._inner.get(run_id)
@@ -548,8 +552,8 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
     assert continued.status is RunStatus.RUNNING
     assert continued.pending_node_ids == []
     assert journal.entries == [
-        ("audit.write", "gate", "completed"),
         ("run.put", "RUNNING", "gate"),
+        ("audit.write", "gate", "completed"),
         ("run.checkpoint", "RUNNING"),
     ]
 

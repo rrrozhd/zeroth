@@ -17,7 +17,7 @@ on:
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:
-  # The release pipeline calls this workflow so the four source-level gates are
+  # The release pipeline calls this workflow so the candidate-level gates are
   # produced once and validated in both places, rather than duplicated as YAML
   # that can drift.
   workflow_call:
@@ -479,9 +479,154 @@ jobs:
             release/evidence/security-scan.json
             release/evidence/security-regression.json
 
+  load-recovery:
+    name: Gate — load and recovery
+    needs: [candidate]
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+      options: --cpus 2 --memory 8g
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+    env:
+      ZEROTH_LOAD_POSTGRES_DSN: postgresql://zeroth:zeroth@postgres:5432/zeroth
+      ZEROTH_LOAD_REDIS_URL: redis://redis:6379/14
+      ZEROTH_LOAD_OBSERVATIONS: release/evidence/load-recovery-raw.json
+      ZEROTH_TEST_REDIS_URL: redis://redis:6379/15
+      ZEROTH_LOAD_RUNTIME_IMAGE: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+      ZEROTH_LOAD_POSTGRES_VERSION: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+      ZEROTH_LOAD_REDIS_VERSION: redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+        env:
+          POSTGRES_USER: zeroth
+          POSTGRES_PASSWORD: zeroth
+          POSTGRES_DB: zeroth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zeroth -d zeroth"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Download candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity
+          path: release/evidence
+
+      - name: Bind fresh service instances
+        shell: bash
+        env:
+          POSTGRES_INSTANCE_ID: ${{ job.services.postgres.id }}
+          REDIS_INSTANCE_ID: ${{ job.services.redis.id }}
+        run: |
+          set -euo pipefail
+          test -n "${POSTGRES_INSTANCE_ID}"
+          test -n "${REDIS_INSTANCE_ID}"
+          service_started_at() {
+            python - "$1" <<'PY'
+          import http.client
+          import json
+          import socket
+          import sys
+
+          class DockerConnection(http.client.HTTPConnection):
+              def connect(self) -> None:
+                  self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                  self.sock.connect("/var/run/docker.sock")
+
+          connection = DockerConnection("localhost")
+          connection.request("GET", f"/containers/{sys.argv[1]}/json")
+          response = connection.getresponse()
+          if response.status != 200:
+              raise SystemExit(f"Docker inspect failed: HTTP {response.status}")
+          print(json.loads(response.read())["State"]["StartedAt"])
+          PY
+          }
+          POSTGRES_STARTED_AT=$(service_started_at "${POSTGRES_INSTANCE_ID}")
+          REDIS_STARTED_AT=$(service_started_at "${REDIS_INSTANCE_ID}")
+          echo "ZEROTH_LOAD_POSTGRES_INSTANCE_ID=${POSTGRES_INSTANCE_ID}" >> "${GITHUB_ENV}"
+          echo "ZEROTH_LOAD_POSTGRES_STARTED_AT=${POSTGRES_STARTED_AT}" >> "${GITHUB_ENV}"
+          echo "ZEROTH_LOAD_REDIS_INSTANCE_ID=${REDIS_INSTANCE_ID}" >> "${GITHUB_ENV}"
+          echo "ZEROTH_LOAD_REDIS_STARTED_AT=${REDIS_STARTED_AT}" >> "${GITHUB_ENV}"
+
+      - name: Run product profiles and record every independent result
+        shell: bash
+        run: |
+          set +e
+          set -uo pipefail
+          mkdir -p release/evidence
+          uv sync --frozen --all-groups --all-extras
+          uv run pytest -q tests/load_release/test_profiles.py \
+            tests/load_release/test_report.py \
+            tests/load_release/test_product_profiles.py \
+            tests/acceptance/test_ephemeral_candidate.py \
+            tests/service/test_guardrails_api.py \
+            tests/security/distributed/test_postgres_tenant_isolation.py \
+            tests/security/distributed/test_redis_artifact_isolation.py \
+            --junitxml=release/evidence/load-recovery-junit.xml
+          PRODUCT=$?
+          uv run python release/load/receipt.py candidate \
+            --source . \
+            --identity release/evidence/candidate-identity.json \
+            --raw release/evidence/load-recovery-raw.json \
+            --output release/evidence/load-recovery-source-receipt.json
+          RECEIPT=$?
+          uv run python release/load/harness.py run \
+            --profiles release/load/profiles-v1.json \
+            --baseline release/load/baseline-v1.json \
+            --identity release/evidence/candidate-identity.json \
+            --observations release/evidence/load-recovery-raw.json \
+            --output release/evidence/load-recovery-benchmark.json
+          REPORT=$?
+          status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
+          python release/gates/cli.py record --gate load-recovery \
+            --identity release/evidence/candidate-identity.json \
+            --result "profiles=$(status ${PRODUCT})" \
+            --result "thresholds=$(status ${REPORT})" \
+            --result "recovery=$(status ${PRODUCT})" \
+            --result "accepted-run-integrity=$(status ${REPORT})" \
+            --result "source-receipt=$(status ${RECEIPT})" \
+            --kind benchmark=release/evidence/load-recovery-benchmark.json \
+            --kind junit=release/evidence/load-recovery-junit.xml \
+            --kind source-receipt=release/evidence/load-recovery-source-receipt.json \
+            --output release/evidence/load-recovery.json
+          RECORD=$?
+          cat release/evidence/load-recovery.json
+          if [ "${PRODUCT}" -ne 0 ] || [ "${RECEIPT}" -ne 0 ] || \
+             [ "${REPORT}" -ne 0 ] || [ "${RECORD}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Upload load and recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-load-recovery
+          path: release/evidence/load-recovery*
+          retention-days: 30
+
   evidence-gate:
     name: Validate evidence and publish the verdict
-    needs: [candidate, source, package, langgraph, untrusted-code, security-regression]
+    needs: [candidate, source, package, langgraph, untrusted-code, security-regression, load-recovery]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -515,7 +660,7 @@ jobs:
           # `VAR=$?` capture runs, so every captured status could only ever be 0 and
           # the recorded result was decided by whichever command failed first.
           set +e
-          # `--trigger nightly` selects exactly the four gates this workflow
+          # `--trigger nightly` selects exactly the gates this workflow
           # emits. The release pipeline runs its own full-phase gates on top;
           # this one must not demand evidence it never produces.
           python release/gates/cli.py verdict \

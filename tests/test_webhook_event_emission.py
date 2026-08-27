@@ -25,6 +25,7 @@ from zeroth.runtime.runs import Run, RunStatus
 def _make_orchestrator(webhook_service=None) -> RuntimeOrchestrator:
     """Build a minimal RuntimeOrchestrator with mocked dependencies."""
     run_repo = AsyncMock(spec=RunRepository)
+    run_repo.put_if_status = AsyncMock(side_effect=lambda run, _expected: run)
     orch = RuntimeOrchestrator(
         run_repository=run_repo,
         agent_runners={},

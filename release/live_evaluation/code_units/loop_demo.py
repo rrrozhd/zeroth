@@ -10,7 +10,6 @@ from collections.abc import Callable
 
 def _apply_evaluation_delay(data: dict) -> None:
     """Pause only when the bounded local-validation hook is explicitly set."""
-
     if "evaluation_delay_ms" not in data:
         return
     delay_ms = data["evaluation_delay_ms"]

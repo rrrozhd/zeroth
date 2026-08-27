@@ -6,9 +6,15 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Self
 
-from zeroth.platform.storage.database import AsyncConnection, AsyncDatabase
+from zeroth.platform.storage.database import (
+    AsyncConnection,
+    AsyncDatabase,
+    database_now,
+    database_now_text_expression,
+)
 from zeroth.platform.storage.scoping import (
     CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
@@ -34,6 +40,7 @@ ASYNC_PERSISTENCE_MODULES = frozenset(
         "governance/audit/coordination.py",
         "governance/audit/repository.py",
         "governance/decisions/repository.py",
+        "governance/guardrails/policy.py",
         "governance/retention/audit_log_repository.py",
         "governance/retention/claims.py",
         "governance/retention/cleanup_state_repository.py",
@@ -50,6 +57,7 @@ ASYNC_PERSISTENCE_MODULES = frozenset(
         "platform/artifacts/store.py",
         "platform/secrets/vault.py",
         "runtime/agents/thread_store.py",
+        "service/certifications/repository.py",
         "service/deployments/repository.py",
         "service/langgraph_gateway/enforcement_store.py",
         "service/webhooks/repository.py",
@@ -67,6 +75,8 @@ ASYNC_NON_PERSISTENCE_MODULES = frozenset(
 """Persistence-shaped modules explicitly classified as in-memory metadata helpers."""
 
 _SERVICE_TABLES = (
+    "app_certification_events",
+    "app_certifications",
     "approvals",
     "audit_chain_heads",
     "contract_versions",
@@ -74,6 +84,8 @@ _SERVICE_TABLES = (
     "deployment_versions",
     "enforcement_heartbeats",
     "graph_versions",
+    "guardrail_admission_state",
+    "guardrail_policy_revisions",
     "langgraph_decisions",
     "langgraph_inventories",
     "langgraph_run_attestations",
@@ -102,9 +114,12 @@ _SERVICE_TABLES = (
 )
 _SERVICE_WORKSPACE_TABLES = frozenset(
     {
+        "app_certification_events",
+        "app_certifications",
         "approvals",
         "deployment_versions",
         "graph_versions",
+        "guardrail_admission_state",
         "node_audits",
         "prompt_templates",
         "template_dependency_references",
@@ -118,6 +133,7 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
 _DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
     {
         "prompt_templates",
+        "guardrail_admission_state",
         "run_checkpoints",
         "runs",
         "side_effect_operations",
@@ -127,6 +143,17 @@ _DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
     }
 )
 _TASK9_RESOURCE_OPERATIONS = {
+    "app_certification_events": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    ),
+    "app_certifications": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
     "approvals": frozenset(
         {
             ResourceOperation.CREATE,
@@ -164,6 +191,10 @@ _TASK9_RESOURCE_OPERATIONS = {
             ResourceOperation.UPDATE,
         }
     ),
+    "guardrail_policy_revisions": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    ),
+    "guardrail_admission_state": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
     "memory_connector_configs": frozenset(ResourceOperation),
     "node_audits": frozenset(
         {
@@ -365,6 +396,7 @@ class ScopedJoin:
 
 class _StructuredTable:
     """Represent StructuredTable within the structural tenant-isolation boundary."""
+
     __slots__ = ("__database", "__registry", "__resource_name")
 
     def __init__(
@@ -677,6 +709,11 @@ class BoundStructuredTable:
             raise ValueError("bound tables must use the same structural scope")
         return BoundStructuredTable(table, self.__connection)
 
+    async def _database_now(self) -> datetime:
+        """Return authoritative statement-time from this bound transaction."""
+        database = self.__table._StructuredTable__database  # noqa: SLF001
+        return await database_now(self.__connection, database.backend)
+
     def _definition(self, operation: ResourceOperation) -> ResourceScopeDefinition:
         """Resolve definition for structurally scoped persistence."""
         definition = self.__table._canonical_definition()
@@ -690,6 +727,7 @@ class BoundStructuredTable:
         where_null: tuple[str, ...] = (),
         where_not_null: tuple[str, ...] = (),
         where_lt: dict[str, Any] | None = None,
+        where_gte_database_now: tuple[str, ...] = (),
         where_in: dict[str, tuple[Any, ...]] | None = None,
         where_not_in: dict[str, tuple[Any, ...]] | None = None,
     ) -> tuple[list[str], list[Any]]:
@@ -702,6 +740,12 @@ class BoundStructuredTable:
         for column, value in (where_lt or {}).items():
             predicates.append(f"{_identifier(column)} < ?")
             params.append(value)
+        if where_gte_database_now:
+            database = self.__table._StructuredTable__database  # noqa: SLF001
+            now = database_now_text_expression(database.backend)
+            predicates.extend(
+                f"{_identifier(column)} >= {now}" for column in where_gte_database_now
+            )
         for column, values in (where_in or {}).items():
             identifier = _identifier(column)
             if not values:
@@ -913,6 +957,7 @@ class BoundStructuredTable:
         *,
         where: dict[str, Any],
         returning: str,
+        where_gte_database_now: tuple[str, ...] = (),
         where_not_in: dict[str, tuple[Any, ...]] | None = None,
         increment: tuple[str, ...] = (),
     ) -> bool:
@@ -922,7 +967,12 @@ class BoundStructuredTable:
         if not where:
             raise ValueError("update requires a non-empty where predicate")
         rendered = self.__table._validate_values(values, create=False, definition=definition)
-        predicates, where_params = self._where(definition, where, where_not_in=where_not_in)
+        predicates, where_params = self._where(
+            definition,
+            where,
+            where_gte_database_now=where_gte_database_now,
+            where_not_in=where_not_in,
+        )
         increments = tuple(_identifier(column) for column in increment)
         if _OWNERSHIP_COLUMNS.intersection(increments):
             raise ValueError("ownership columns cannot be updated")

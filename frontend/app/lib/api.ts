@@ -58,6 +58,13 @@ export type RetrievedArtifact = {
   mediaType: string;
   size: number;
 };
+export type CertificationResponse = S["CertificationResponse"];
+export type RegisterCertificationRequest = S["RegisterCertificationRequest"];
+export type PromoteCertificationRequest = S["PromoteCertificationRequest"];
+export type RevokeCertificationRequest = S["RevokeCertificationRequest"];
+export type CertificationOverrideRequest = S["CertificationOverrideRequest"];
+export type GuardrailPolicyPatch = S["GuardrailPolicyPatch"];
+export type GuardrailPolicyResponse = S["GuardrailPolicyResponse"];
 
 // GET /v1/metrics has no fixed schema — the OpenAPI spec types its 200 body as
 // an open object, so the generated operation's response type (`unknown`) flows
@@ -588,6 +595,52 @@ export function rollbackDeployment(
   );
 }
 
+// ---- Production certification ----
+
+export function listCertifications(): Promise<CertificationResponse[]> {
+  return apiFetch<CertificationResponse[]>("/v1/certifications");
+}
+
+export function getCertification(id: string): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>(`/v1/certifications/${encodeURIComponent(id)}`);
+}
+
+export function registerCertification(
+  body: RegisterCertificationRequest,
+): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>("/v1/certifications", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function promoteCertification(id: string): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>(
+    `/v1/certifications/${encodeURIComponent(id)}/promote`,
+    { method: "POST", body: JSON.stringify({} satisfies PromoteCertificationRequest) },
+  );
+}
+
+export function revokeCertification(
+  id: string,
+  body: RevokeCertificationRequest,
+): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>(
+    `/v1/certifications/${encodeURIComponent(id)}/revoke`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function overrideCertification(
+  id: string,
+  body: CertificationOverrideRequest,
+): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>(
+    `/v1/certifications/${encodeURIComponent(id)}/override`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
 // ---- Metrics ----
 
 /** Runtime metrics snapshot for the connected service. The spec leaves the
@@ -891,6 +944,22 @@ export function resolveAmbiguousOperation(
 // selected ref explicitly).
 export function getDeploymentMetadata(ref: string): Promise<DeploymentMetadata> {
   return apiFetch<DeploymentMetadata>(`/v1/deployments/${encodeURIComponent(ref)}/metadata`);
+}
+
+export function getDeploymentGuardrails(ref: string): Promise<GuardrailPolicyResponse> {
+  return apiFetch<GuardrailPolicyResponse>(
+    `/v1/deployments/${encodeURIComponent(ref)}/guardrails`,
+  );
+}
+
+export function updateDeploymentGuardrails(
+  ref: string,
+  body: GuardrailPolicyPatch,
+): Promise<GuardrailPolicyResponse> {
+  return apiFetch<GuardrailPolicyResponse>(
+    `/v1/deployments/${encodeURIComponent(ref)}/guardrails`,
+    { method: "PUT", body: JSON.stringify(body) },
+  );
 }
 
 export function getDeploymentTimeline(ref: string): Promise<AuditTimeline> {

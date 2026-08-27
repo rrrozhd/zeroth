@@ -2,7 +2,7 @@
   "console": [
     {
       "disposition": "public",
-      "index": 137,
+      "index": 148,
       "kind": "APIRoute",
       "methods": [
         "GET"
@@ -13,7 +13,7 @@
     },
     {
       "disposition": "public",
-      "index": 138,
+      "index": 149,
       "kind": "Mount",
       "methods": [],
       "name": "console",

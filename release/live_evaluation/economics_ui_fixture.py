@@ -19,8 +19,6 @@ from pathlib import Path
 from scripts.economics_ui_fixture_environment import (
     FIXTURE_DEPLOYMENT,
     FIXTURE_TENANT,
-    PRIMARY_STATE_ROOT,
-    UI_ACCESS_VALUE,
     assert_disposable_state_root,
     fixture_environment,
 )
@@ -61,7 +59,7 @@ async def seed_economics_records(
 
     scope = NullWorkspaceScopeContext(tenant_id)
     runs = RunRepository(database, scope)
-    audits = AuditRepository(database, scope)
+    audits = AuditRepository.scoped(database, scope)
 
     measured_run = await runs.get(MEASURED_RUN_ID)
     if measured_run is None:
@@ -264,9 +262,9 @@ async def serve_fixture(
     if not 1024 <= port <= 65535:
         raise ValueError("fixture port must be between 1024 and 65535")
     await prepare_fixture(state_root, console_origin=console_origin)
-    from zeroth.service.entrypoint import _bootstrap
-
     import uvicorn
+
+    from zeroth.service.entrypoint import _bootstrap
 
     app = await _bootstrap()
     config = uvicorn.Config(

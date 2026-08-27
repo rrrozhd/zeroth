@@ -5,6 +5,9 @@ the exposed provider credential blocks the paid workflow matrices, while the
 local workflow, approval, sandbox, economics, and UI evidence remains useful.
 """
 
+# Evidence prose and recorded command vectors are intentionally preserved verbatim.
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import argparse
@@ -15,7 +18,6 @@ import subprocess
 from pathlib import Path
 
 from .evidence import AcceptanceCriterion, CorrelationIds, EvidenceStore
-
 
 WORKTREE = Path("/Users/dondoe/.codex/worktrees/0327/zeroth")
 STATE_ROOT = Path(

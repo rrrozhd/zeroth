@@ -45,6 +45,7 @@ def _make_run_repository() -> AsyncMock:
     repo = AsyncMock()
     repo.create = AsyncMock(side_effect=lambda r: r)
     repo.put = AsyncMock(side_effect=lambda r: r)
+    repo.put_if_status = AsyncMock(side_effect=lambda r, _expected: r)
     repo.get = AsyncMock(return_value=None)
     repo.write_checkpoint = AsyncMock()
     return repo
@@ -409,9 +410,7 @@ class TestApprovalPropagationResume:
         )
         resolver = AsyncMock(spec=SubgraphResolver)
         resolver.resolve = AsyncMock(return_value=(child_graph, MagicMock()))
-        orchestrator = _make_orchestrator(
-            subgraph_executor=SubgraphExecutor(resolver=resolver)
-        )
+        orchestrator = _make_orchestrator(subgraph_executor=SubgraphExecutor(resolver=resolver))
 
         with patch.object(
             RuntimeOrchestrator,

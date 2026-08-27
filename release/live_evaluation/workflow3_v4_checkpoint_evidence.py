@@ -6,6 +6,9 @@ campaign criteria remain conservative when native Safari rendered evidence is
 missing or captured at the wrong viewport.
 """
 
+# Evidence prose and immutable checkpoint vectors are intentionally verbatim.
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +23,6 @@ from typing import Any
 
 from .evidence import AcceptanceCriterion, CorrelationIds, EvidenceStore
 from .workflow3_lifecycle_evidence import (
-    SERVICE_KEY_PATH,
     STATE_ROOT,
     WORKTREE,
     _git,
@@ -32,7 +34,6 @@ from .workflow3_lifecycle_evidence import (
     _validate_observations,
     _write_observation,
 )
-
 
 ROOT = STATE_ROOT / "evidence/workflow3-v4-checkpoint-20260824-2"
 STAGING_ROOT = STATE_ROOT / "evidence/workflow3-safari-checkpoints-20260824-1-staging"
@@ -83,7 +84,6 @@ def _checkpoint_criteria(paths: dict[str, str]) -> list[AcceptanceCriterion]:
 
 def _sanitize_safari_log(value: Any) -> Any:
     """Remove credential-header-shaped lines while preserving Safari semantics."""
-
     if isinstance(value, dict):
         return {key: _sanitize_safari_log(child) for key, child in value.items()}
     if isinstance(value, list):

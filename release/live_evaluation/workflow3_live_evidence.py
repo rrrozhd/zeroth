@@ -1,5 +1,8 @@
 """Seal direct live evidence for the Workflow 3 SLA-expiry slice."""
 
+# Evidence prose and recorded observations are intentionally preserved verbatim.
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 import hashlib
@@ -11,7 +14,6 @@ import urllib.request
 from pathlib import Path
 
 from .evidence import CorrelationIds, EvidenceStore
-
 
 WORKTREE = Path("/Users/dondoe/.codex/worktrees/0327/zeroth")
 STATE_ROOT = Path("/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1")

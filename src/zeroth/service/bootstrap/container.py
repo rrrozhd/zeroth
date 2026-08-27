@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from zeroth.governance.audit import AuditRepository
     from zeroth.governance.guardrails.config import GuardrailConfig
     from zeroth.governance.guardrails.dead_letter import DeadLetterManager
+    from zeroth.governance.guardrails.policy import GuardrailPolicyRepository
     from zeroth.governance.guardrails.rate_limit import (
         QuotaEnforcer,
         TokenBucketRateLimiter,
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
         ServiceAuthConfig,
         ServiceAuthenticator,
     )
+    from zeroth.service.certifications.models import ServingArtifactIdentity
     from zeroth.service.deployments import Deployment, DeploymentService
 
 
@@ -63,6 +65,9 @@ class ServiceBootstrap:
     worker: RunWorker | None = None
     lease_manager: LeaseManager | None = None
     guardrail_config: GuardrailConfig | None = None
+    guardrail_policy_repository: GuardrailPolicyRepository | None = field(
+        default=None, init=False, repr=False
+    )
     rate_limiter: TokenBucketRateLimiter | None = None
     quota_enforcer: QuotaEnforcer | None = None
     dead_letter_manager: DeadLetterManager | None = None
@@ -127,6 +132,9 @@ class ServiceBootstrap:
     evaluation_fault_state: object | None = None
     evaluation_receipt_restart_barriers: object | None = None
     evaluation_webhook_sink: object | None = None
+    # ZER-31: scoped certification evaluation and atomic promotion boundary.
+    certification_service: object | None = None
+    serving_artifact_identity: ServingArtifactIdentity | None = None
     # LangGraph Agent Server gateway foundation. All remain absent when the
     # mode is disabled so the ordinary service creates no upstream client or
     # probe traffic.
@@ -205,6 +213,8 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             "evaluation_campaign_id",
             "probe_instrumentation",
             "template_dependency_checker",
+            "certification_service",
+            "serving_artifact_identity",
         }
     ]
 )

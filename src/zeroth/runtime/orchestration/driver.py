@@ -134,6 +134,10 @@ class GraphDriver:
         except Exception:
             logger.exception("artifact TTL refresh failed (non-fatal)")
 
+    async def _put_running(self, run: Run) -> Run:
+        """Persist one drive transition only while the run is still RUNNING."""
+        return await self.run_repository.put_if_status(run, RunStatus.RUNNING)
+
     async def external_stop(self, run: Run) -> Run | None:
         """Detect an operator's out-of-band cancel/interrupt (audit F3).
 
@@ -163,24 +167,13 @@ class GraphDriver:
             run.status = fresh.status
             run.failure_state = fresh.failure_state
             run.touch()
-            # Concurrency guard (F3 re-audit follow-up): an operator replay/resume
-            # (FAILED->PENDING, WAITING_INTERRUPT->RUNNING) can land between the
-            # read above and this write; the drive loop shares the event loop with
-            # the API handlers (modular monolith). Re-read immediately before the
-            # write and yield to the operator if they already moved the run out of
-            # a stop state, rather than blind-writing the stale status back and
-            # silently reverting their transition. This shrinks the race window to
-            # these two adjacent DB round-trips (a residual micro-race remains, but
-            # it self-heals: pending_node_ids is persisted correctly, so re-issuing
-            # the replay resumes — the cost is a wasted replay cycle, not data
-            # corruption).
-            latest = await self.run_repository.get(run.run_id)
-            if latest is not None and latest.status not in (
-                RunStatus.FAILED,
-                RunStatus.WAITING_INTERRUPT,
-            ):
+            try:
+                persisted = await self.run_repository.put_if_status(run, fresh.status)
+            except ValueError:
+                latest = await self.run_repository.get(run.run_id)
+                if latest is None:
+                    raise
                 return latest
-            persisted = await self.run_repository.put(run)
             await self.run_repository.write_checkpoint(persisted)
             return persisted
         return None
@@ -269,7 +262,7 @@ class GraphDriver:
             )
         run.metadata["in_flight_dispatch"] = record
         run.touch()
-        persisted = await self.run_repository.put(run)
+        persisted = await self._put_running(run)
         await self.run_repository.write_checkpoint(persisted)
 
     async def drive(
@@ -329,7 +322,7 @@ class GraphDriver:
                 run.current_node_ids = []
                 run.final_output = run.metadata.get("last_output")
                 run.touch()
-                persisted = await self.run_repository.put(run)
+                persisted = await self._put_running(run)
                 await self.run_repository.write_checkpoint(persisted)
                 await self.refresh_artifact_ttls(persisted)
                 await self.emit_webhook(
@@ -353,7 +346,7 @@ class GraphDriver:
             run.current_node_ids = [node_id]
             run.current_step = node_id
             run.touch()
-            run = await self.run_repository.put(run)
+            run = await self._put_running(run)
 
             # D-11 literal: resume path for a parallel fan-out that was
             # paused due to an approval inside a subgraph branch.
@@ -376,15 +369,12 @@ class GraphDriver:
                         node_id,
                         pending_psg.get("source_input", input_payload),
                         source_output,
-                        pending_psg.get("source_audit")
-                        or {"resumed_parallel_fan_out": True},
+                        pending_psg.get("source_audit") or {"resumed_parallel_fan_out": True},
                         started_at=node_started_at,
                     )
                     self.increment_node_visit(run, node_id)
                     del run.metadata["pending_parallel_subgraph"]
-                    return await self.fail_run(
-                        run, "parallel_execution_failed", str(exc)
-                    )
+                    return await self.fail_run(run, "parallel_execution_failed", str(exc))
                 if fan_in_resume.pause_state is not None:
                     # Nested approval inside the resumed branch (audit B8). Persist
                     # the pause durably via the SAME handler as the first pause,
@@ -418,8 +408,7 @@ class GraphDriver:
                     node_id,
                     pending_psg.get("source_input", input_payload),
                     source_output,
-                    pending_psg.get("source_audit")
-                    or {"resumed_parallel_fan_out": True},
+                    pending_psg.get("source_audit") or {"resumed_parallel_fan_out": True},
                     started_at=node_started_at,
                 )
                 self.increment_node_visit(run, node_id)
@@ -444,7 +433,7 @@ class GraphDriver:
                 if stopped is not None:
                     return stopped
                 run.touch()
-                run = await self.run_repository.put(run)
+                run = await self._put_running(run)
                 await self.run_repository.write_checkpoint(run)
                 continue
 
@@ -484,7 +473,7 @@ class GraphDriver:
                 }
                 run.pending_node_ids.insert(0, node.node_id)
                 run.touch()
-                persisted = await self.run_repository.put(run)
+                persisted = await self._put_running(run)
                 await self.run_repository.write_checkpoint(persisted)
                 await self.refresh_artifact_ttls(persisted)
                 return persisted
@@ -539,7 +528,7 @@ class GraphDriver:
                         run.status = RunStatus.WAITING_APPROVAL
                         run.pending_node_ids.insert(0, node_id)
                         run.touch()
-                        persisted = await self.run_repository.put(run)
+                        persisted = await self._put_running(run)
                         await self.run_repository.write_checkpoint(persisted)
                         await self.refresh_artifact_ttls(persisted)
                         return persisted
@@ -568,9 +557,7 @@ class GraphDriver:
                             error,
                             started_at=node_started_at,
                         )
-                        return await self.fail_run(
-                            run, "subgraph_execution_failed", str(error)
-                        )
+                        return await self.fail_run(run, "subgraph_execution_failed", str(error))
 
                     # Child completed -- clear pending state, use output.
                     del run.metadata["pending_subgraph"]
@@ -607,7 +594,7 @@ class GraphDriver:
                     if stopped is not None:
                         return stopped
                     run.touch()
-                    persisted = await self.run_repository.put(run)
+                    persisted = await self._put_running(run)
                     await self.run_repository.write_checkpoint(persisted)
                     await self.refresh_artifact_ttls(persisted)
                     continue
@@ -641,9 +628,7 @@ class GraphDriver:
                         exc,
                         started_at=node_started_at,
                     )
-                    return await self.fail_run(
-                        run, "subgraph_execution_failed", str(exc)
-                    )
+                    return await self.fail_run(run, "subgraph_execution_failed", str(exc))
 
                 # Check if child paused for approval -- propagate up.
                 if child_run.status == RunStatus.WAITING_APPROVAL:
@@ -656,7 +641,7 @@ class GraphDriver:
                     }
                     run.pending_node_ids.insert(0, node_id)  # Re-queue for resume
                     run.touch()
-                    persisted = await self.run_repository.put(run)
+                    persisted = await self._put_running(run)
                     await self.run_repository.write_checkpoint(persisted)
                     await self.refresh_artifact_ttls(persisted)
                     return persisted
@@ -685,9 +670,7 @@ class GraphDriver:
                         error,
                         started_at=node_started_at,
                     )
-                    return await self.fail_run(
-                        run, "subgraph_execution_failed", str(error)
-                    )
+                    return await self.fail_run(run, "subgraph_execution_failed", str(error))
 
                 # Use child run's final_output as this node's output.
                 output_data = child_run.final_output or {}
@@ -722,7 +705,7 @@ class GraphDriver:
                 if stopped is not None:
                     return stopped
                 run.touch()
-                persisted = await self.run_repository.put(run)
+                persisted = await self._put_running(run)
                 await self.run_repository.write_checkpoint(persisted)
                 await self.refresh_artifact_ttls(persisted)
                 continue
@@ -836,7 +819,7 @@ class GraphDriver:
                 run.status = RunStatus.RUNNING
                 run.current_node_ids = []
                 run.touch()
-                run = await self.run_repository.put(run)
+                run = await self._put_running(run)
                 await self.run_repository.write_checkpoint(run)
                 await self.refresh_artifact_ttls(run)
                 continue
@@ -862,7 +845,7 @@ class GraphDriver:
             run.status = RunStatus.RUNNING
             run.current_node_ids = []
             run.touch()
-            run = await self.run_repository.put(run)
+            run = await self._put_running(run)
             await self.run_repository.write_checkpoint(run)
             await self.refresh_artifact_ttls(run)
 
@@ -1539,13 +1522,14 @@ class GraphDriver:
         ``RunFailureState.message`` is returned verbatim by the public run API.
         ``redact`` is a no-op when no secret resolver is configured.
         """
+        expected_status = run.status
         run.status = RunStatus.FAILED
         run.failure_state = RunFailureState(
             reason=reason, message=self.audit_recorder.redact(message)
         )
         run.metadata["termination_reason"] = reason
         run.touch()
-        persisted = await self.run_repository.put(run)
+        persisted = await self.run_repository.put_if_status(run, expected_status)
         await self.run_repository.write_checkpoint(persisted)
         await self.refresh_artifact_ttls(persisted)
         await self.emit_webhook(
@@ -1607,6 +1591,7 @@ class GraphDriver:
         state, so the durable reconciliation work can be settled out of band and
         the run continued rather than restarted.
         """
+        expected_status = run.status
         run.status = RunStatus.WAITING_INTERRUPT
         # run_store rejects WAITING_INTERRUPT without an interrupt id, and the
         # operation key is the natural handle for the work that has to settle.
@@ -1616,7 +1601,7 @@ class GraphDriver:
             "reason": self.audit_recorder.redact(message),
         }
         run.touch()
-        persisted = await self.run_repository.put(run)
+        persisted = await self.run_repository.put_if_status(run, expected_status)
         await self.run_repository.write_checkpoint(persisted)
         await self.emit_webhook(
             "run.waiting_interrupt",

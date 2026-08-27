@@ -39,6 +39,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
     "service.runs": {
         RunRepository: {
             "create": frozenset({O.CREATE}),
+            "create_guarded": frozenset({O.CREATE}),
             "get": frozenset({O.READ}),
             "list_runs": frozenset({O.ENUMERATE}),
             "list_runs_for_scope": frozenset({O.ENUMERATE}),
@@ -46,6 +47,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "list_dead_letter_runs": frozenset({O.ENUMERATE}),
             "put": frozenset({O.CREATE, O.UPDATE}),
             "merge_terminal_metadata": frozenset({O.UPDATE}),
+            "put_if_status": frozenset({O.READ, O.UPDATE}),
             "transition": frozenset({O.READ, O.UPDATE}),
             "record_history": frozenset({O.READ, O.UPDATE}),
             "record_condition_result": frozenset({O.READ, O.UPDATE}),
@@ -53,6 +55,9 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
                 {O.READ, O.UPDATE}
             ),
             "increment_failure_count": frozenset({O.UPDATE}),
+            "replay_failed": frozenset({O.UPDATE}),
+            "interrupt": frozenset({O.READ, O.UPDATE}),
+            "cancel": frozenset({O.READ, O.UPDATE}),
             "delete": frozenset({O.DELETE}),
             "count_pending": frozenset({O.ENUMERATE}),
             "redact_run": frozenset({O.READ, O.UPDATE}),

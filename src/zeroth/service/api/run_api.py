@@ -14,9 +14,16 @@ from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.registry import ContractReference
 from zeroth.contracts.registry.errors import ContractNotFoundError
+from zeroth.governance.audit import AuditRepository, NodeAuditRecord
+from zeroth.governance.guardrails.policy import (
+    EffectiveGuardrailSettings,
+    configured_guardrails,
+)
 from zeroth.governance.guardrails.rate_limit import guardrail_identity_key
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.integrations.persistence.runs.run_repository import GuardrailAdmissionRejectedError
+from zeroth.platform.primitives import utc_now
 from zeroth.runtime.runs import Run, RunFailureState
 from zeroth.service.api.authorization import (
     Permission,
@@ -35,6 +42,7 @@ class RunApiBootstrapLike(Protocol):
     run_repository: RunRepository
     thread_repository: object
     orchestrator: object
+    audit_repository: AuditRepository | None
 
 
 class RunPublicStatus(StrEnum):
@@ -209,10 +217,11 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
             ),
             metadata=metadata,
         )
-        # Guardrail checks before persisting.
-        await _check_guardrails(bootstrap, run)
         try:
-            persisted = await bootstrap.run_repository.create(run)
+            persisted = await _create_guarded_run(bootstrap, run)
+        except GuardrailAdmissionRejectedError as exc:
+            await _record_guardrail_rejection(bootstrap, run, exc)
+            raise _guardrail_http_error(exc) from exc
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -484,8 +493,8 @@ def _pending_approval_payload(run: Run) -> dict[str, Any] | None:
 
 async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
     """Enforce rate limits, quotas, and backpressure before accepting a run."""
-    guardrail_config = getattr(bootstrap, "guardrail_config", None)
-    if guardrail_config is None:
+    settings = await _effective_guardrail_settings(bootstrap, run.deployment_ref)
+    if settings is None:
         return
 
     deployment_ref = run.deployment_ref
@@ -493,13 +502,13 @@ async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
     subject = None if run.submitted_by is None else run.submitted_by.subject
 
     # Backpressure: reject if the queue is too deep.
-    backpressure_limit = guardrail_config.backpressure_queue_depth
+    backpressure_limit = settings.backpressure_queue_depth
     pending_count = await bootstrap.run_repository.count_pending(deployment_ref)
     if pending_count >= backpressure_limit:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="service busy: too many pending runs",
-            headers={"Retry-After": "5"},
+            detail="queue capacity exceeded",
+            headers={"Retry-After": "1"},
         )
 
     # Rate limiting.
@@ -512,20 +521,20 @@ async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
             deployment_ref=deployment_ref,
             subject=subject,
         )
-        allowed = await rate_limiter.check_and_consume(
+        decision = await rate_limiter.decide(
             bucket_key,
-            capacity=guardrail_config.rate_limit_capacity,
-            refill_rate=guardrail_config.rate_limit_refill_rate,
+            capacity=settings.bucket_capacity,
+            refill_rate=settings.rate_limit_refill_rate,
         )
-        if not allowed:
+        if not decision.allowed:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="rate limit exceeded",
-                headers={"Retry-After": "1"},
+                headers={"Retry-After": str(decision.retry_after_seconds)},
             )
 
     # Daily quota.
-    quota_limit = guardrail_config.quota_daily_limit
+    quota_limit = settings.quota_daily_limit
     if quota_limit is not None:
         quota_enforcer = getattr(bootstrap, "quota_enforcer", None)
         if quota_enforcer is not None:
@@ -536,16 +545,127 @@ async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
                 deployment_ref=deployment_ref,
                 subject=subject,
             )
-            within_quota = await quota_enforcer.check_and_increment(
+            decision = await quota_enforcer.decide(
                 counter_key,
                 limit=quota_limit,
                 window_seconds=86400,
             )
-            if not within_quota:
+            if not decision.allowed:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="daily quota exceeded",
+                    headers={"Retry-After": str(decision.retry_after_seconds)},
                 )
+
+
+async def _create_guarded_run(bootstrap: RunApiBootstrapLike, run: Run) -> Run:
+    settings = await _effective_guardrail_settings(bootstrap, run.deployment_ref)
+    if settings is None:
+        return await bootstrap.run_repository.create(run)
+    rate_limiter = getattr(bootstrap, "rate_limiter", None)
+    quota_enforcer = getattr(bootstrap, "quota_enforcer", None)
+    if rate_limiter is None or quota_enforcer is None:
+        raise HTTPException(status_code=503, detail="guardrail enforcement unavailable")
+    persisted = await bootstrap.run_repository.create_guarded(
+        run,
+        settings=settings,
+        rate_limiter=rate_limiter,
+        quota_enforcer=quota_enforcer,
+    )
+    _record_guardrail_acceptance(bootstrap, persisted)
+    return persisted
+
+
+async def _effective_guardrail_settings(
+    bootstrap: RunApiBootstrapLike,
+    deployment_ref: str,
+) -> EffectiveGuardrailSettings | None:
+    """Resolve the same configured baseline and revision chain used by operators."""
+    repository = getattr(bootstrap, "guardrail_policy_repository", None)
+    if repository is not None:
+        return await repository.effective(deployment_ref)
+    config = getattr(bootstrap, "guardrail_config", None)
+    if config is None:
+        return None
+    return configured_guardrails(config)
+
+
+def _guardrail_http_error(exc: GuardrailAdmissionRejectedError) -> HTTPException:
+    """Map bounded rejection reasons to their status and time-based retry hint."""
+    details = {
+        "queue": "queue capacity exceeded",
+        "rate": "rate limit exceeded",
+        "quota": "daily quota exceeded",
+        "concurrency": "concurrency capacity exceeded",
+    }
+    return HTTPException(
+        status_code=429 if exc.reason == "rate" else 503,
+        detail=details.get(exc.reason, "guardrail admission rejected"),
+        headers={"Retry-After": str(exc.retry_after_seconds)},
+    )
+
+
+def _record_guardrail_acceptance(bootstrap: RunApiBootstrapLike, run: Run) -> None:
+    metrics = getattr(bootstrap, "metrics_collector", None)
+    if metrics is None:
+        return
+    metrics.increment("zeroth_guardrail_admissions_total")
+    admission = run.metadata.get("guardrail_admission", {})
+    if isinstance(admission, Mapping):
+        for resource in ("queue", "rate", "quota"):
+            value = admission.get(f"{resource}_utilization")
+            if isinstance(value, int | float):
+                metrics.gauge_set(
+                    "zeroth_guardrail_utilization_ratio",
+                    float(value),
+                    labels={"resource": resource},
+                )
+        depth = admission.get("queue_depth")
+        if isinstance(depth, int | float):
+            metrics.gauge_set("zeroth_guardrail_queue_depth", float(depth))
+
+
+async def _record_guardrail_rejection(
+    bootstrap: RunApiBootstrapLike,
+    run: Run,
+    rejection: GuardrailAdmissionRejectedError,
+) -> None:
+    metrics = getattr(bootstrap, "metrics_collector", None)
+    if metrics is not None:
+        metrics.increment(
+            "zeroth_guardrail_rejections_total",
+            labels={"reason": rejection.reason},
+        )
+        metrics.gauge_set(
+            "zeroth_guardrail_utilization_ratio",
+            rejection.utilization,
+            labels={"resource": rejection.reason},
+        )
+    audit_repository = bootstrap.audit_repository
+    if audit_repository is None:
+        return
+    now = utc_now()
+    await audit_repository.write(
+        NodeAuditRecord(
+            audit_id=f"{run.run_id}:guardrail:{rejection.reason}",
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            node_id=f"service.guardrail.{rejection.reason}",
+            graph_version_ref=run.graph_version_ref,
+            deployment_ref=run.deployment_ref,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+            status="rejected",
+            actor=run.submitted_by,
+            execution_metadata={
+                "admitted": False,
+                "decision": "deny",
+                "enforcement_applied": True,
+            },
+            started_at=now,
+            completed_at=now,
+        )
+    )
 
 
 def _entry_step(graph: object) -> str:
