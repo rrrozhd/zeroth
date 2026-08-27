@@ -1,5 +1,9 @@
 # Zeroth full-readiness campaign
 
+The remaining closure work for a bounded pilot is maintained in
+[`PILOT_READINESS.md`](PILOT_READINESS.md). That document narrows the pilot bar
+without changing this campaign's immutable claim boundary or acceptance totals.
+
 ## Decision and claim boundary
 
 The accelerated campaign is authorized for execution under
