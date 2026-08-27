@@ -1187,3 +1187,204 @@ export function attachQualityVerdict(body: QualityVerdictRequest): Promise<RunQu
     body: JSON.stringify(body),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Repositories (ZER-37) — GitHub installations, governed checkouts, script
+// runs. The routes are conditionally registered (settings.github.enabled), so
+// they are absent from the generated OpenAPI spec; the types below are
+// hand-declared mirrors of the in-module pydantic models in
+// src/zeroth/service/api/repo_api.py (the PublishIssue precedent above).
+// ---------------------------------------------------------------------------
+
+/** Mirrors RepoInstallationResponse. */
+export type RepoInstallation = {
+  installation_id: number;
+  account_login: string;
+  account_type: string;
+  repository_selection: string;
+  status: string;
+  last_verified_at: string | null;
+  suspended_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Mirrors RepoRepositoryResponse. */
+export type RepoRepository = {
+  repository_id: number;
+  owner: string;
+  name: string;
+  full_name: string;
+  private: boolean;
+  default_branch: string;
+  status: string;
+  added_at: string;
+  removed_at: string | null;
+};
+
+/** Mirrors ResolveRefResponse. */
+export type ResolveRefResult = { commit_sha: string };
+
+/** Mirrors RepoValidationIssueResponse — also the element shape of the 422
+    `detail.issues` list on checkout creation (manifest_validation_failed). */
+export type RepoValidationIssue = {
+  severity: string;
+  code: string;
+  path: string[];
+  message: string;
+};
+
+/** Mirrors CheckoutResponse. */
+export type RepoCheckout = {
+  checkout_id: string;
+  installation_id: number;
+  repository_id: number;
+  repository_full_name: string;
+  requested_ref: string;
+  state: string;
+  resolved_commit_sha: string | null;
+  git_tree_id: string | null;
+  tree_digest: string | null;
+  config_digest: string | null;
+  manifest_digest: string | null;
+  script_name: string | null;
+  failure_code: string | null;
+  failure_detail: string | null;
+  file_count: number | null;
+  size_bytes: number | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+  attestation_present: boolean;
+  validation_report: RepoValidationIssue[] | null;
+};
+
+/** Mirrors CheckoutAttestationPayload (service.repositories.attestation). */
+export type RepoCheckoutAttestationPayload = {
+  schema_version: number;
+  tenant_id: string;
+  workspace_id: string | null;
+  checkout_id: string;
+  installation_id: number;
+  repository_id: number;
+  repository_full_name: string;
+  requested_ref: string;
+  commit_sha: string;
+  git_tree_id: string;
+  tree_digest: string;
+  config_digest: string | null;
+  manifest_digest: string | null;
+  script_name: string | null;
+  issued_at: string;
+};
+
+/** Mirrors CheckoutAttestationResponse — `signature_verified` is three-state
+    (null = unsigned-legacy), like the deployment attestation. */
+export type RepoCheckoutAttestation = {
+  payload: RepoCheckoutAttestationPayload;
+  attestation_digest: string;
+  attestation_signature: string | null;
+  attestation_key_id: string | null;
+  attestation_algorithm: string | null;
+  digest_verified: boolean;
+  signature_verified: boolean | null;
+  verified: boolean;
+};
+
+/** Mirrors RepoRunResponse. */
+export type RepoRun = {
+  run_id: string;
+  checkout_id: string;
+  script_name: string;
+  state: string;
+  exit_code: number | null;
+  failure_code: string | null;
+  smoke_passed: boolean | null;
+  output_payload: unknown;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+};
+
+/** Mirrors RepoRunEvidenceResponse. */
+export type RepoRunEvidence = {
+  run: RepoRun;
+  checkout_attestation: RepoCheckoutAttestation | null;
+  audits: NodeAuditRecord[];
+  summary: S["EvidenceSummaryResponse"];
+  policy_events: string[];
+};
+
+/** Attach one GitHub App installation to the caller's tenant (REPOSITORY_ADMIN). */
+export function claimRepoInstallation(installationId: number): Promise<RepoInstallation> {
+  return apiFetch<RepoInstallation>(`/v1/repos/installations/${installationId}/claim`, {
+    method: "POST",
+  });
+}
+
+export function listRepoInstallations(): Promise<RepoInstallation[]> {
+  return apiFetch<RepoInstallation[]>("/v1/repos/installations");
+}
+
+export function listInstallationRepositories(
+  installationId: number,
+): Promise<RepoRepository[]> {
+  return apiFetch<RepoRepository[]>(
+    `/v1/repos/installations/${installationId}/repositories`,
+  );
+}
+
+/** Resolve a branch/tag/SHA to the verified commit it points at. */
+export function resolveRepoRef(repositoryId: number, ref: string): Promise<ResolveRefResult> {
+  return apiFetch<ResolveRefResult>(`/v1/repos/${repositoryId}/resolve-ref`, {
+    method: "POST",
+    body: JSON.stringify({ ref }),
+  });
+}
+
+/** Stage a governed checkout (202). Exactly one of `ref` or `commit_sha` is
+    required; a manifest with errors answers 422 with `detail.issues`
+    (RepoValidationIssue[]). */
+export function createRepoCheckout(
+  repositoryId: number,
+  body: { ref?: string; commit_sha?: string },
+): Promise<RepoCheckout> {
+  return apiFetch<RepoCheckout>(`/v1/repos/${repositoryId}/checkouts`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function getRepoCheckout(checkoutId: string): Promise<RepoCheckout> {
+  return apiFetch<RepoCheckout>(`/v1/repos/checkouts/${encodeURIComponent(checkoutId)}`);
+}
+
+export function getCheckoutAttestation(checkoutId: string): Promise<RepoCheckoutAttestation> {
+  return apiFetch<RepoCheckoutAttestation>(
+    `/v1/repos/checkouts/${encodeURIComponent(checkoutId)}/attestation`,
+  );
+}
+
+/** Admit one declared-script run against a STAGED checkout (202). */
+export function createRepoRun(
+  checkoutId: string,
+  body: { script: string; input_payload: Record<string, unknown> },
+): Promise<RepoRun> {
+  return apiFetch<RepoRun>(
+    `/v1/repos/checkouts/${encodeURIComponent(checkoutId)}/runs`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function getRepoRun(runId: string): Promise<RepoRun> {
+  return apiFetch<RepoRun>(`/v1/repos/runs/${encodeURIComponent(runId)}`);
+}
+
+/** Evidence bundle for a repo run (requires AUDIT_READ). */
+export function getRepoRunEvidence(runId: string): Promise<RepoRunEvidence> {
+  return apiFetch<RepoRunEvidence>(
+    `/v1/repos/runs/${encodeURIComponent(runId)}/evidence`,
+  );
+}

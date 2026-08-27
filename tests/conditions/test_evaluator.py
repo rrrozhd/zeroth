@@ -86,6 +86,67 @@ def test_condition_evaluator_rejects_dunder_attribute_on_object() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Missing-data operands raise the subsystem's typed error, not a raw TypeError
+# ---------------------------------------------------------------------------
+
+
+def test_compare_on_missing_operand_raises_typed() -> None:
+    # payload.count is missing -> None; ``None > 5`` is a raw TypeError that
+    # would escape ConditionEvaluationError-catching callers. It must be typed.
+    evaluator = ConditionEvaluator()
+    condition = GraphCondition(expression="payload.count > 5")
+    with pytest.raises(ConditionEvaluationError):
+        evaluator.evaluate(condition, ConditionContext(payload={}))
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "payload.count < 5",
+        "payload.count <= 5",
+        "payload.count > 5",
+        "payload.count >= 5",
+        "payload.count + 1",  # BinOp on None
+        "-payload.count",  # UnaryOp on None
+    ],
+)
+def test_missing_operand_raises_typed_not_raw_typeerror(expression: str) -> None:
+    # Compare/BinOp/UnaryOp on a missing (None) operand must raise the typed
+    # ConditionEvaluationError. A raw TypeError would fail this pytest.raises
+    # (TypeError is not a ConditionEvaluationError), which is the pre-fix bug.
+    evaluator = ConditionEvaluator()
+    condition = GraphCondition(expression=expression)
+    with pytest.raises(ConditionEvaluationError):
+        evaluator.evaluate(condition, ConditionContext(payload={}))
+
+
+def test_in_operator_on_missing_container_raises_typed() -> None:
+    # ``x in None`` raises "argument of type 'NoneType' is not iterable"; that
+    # raw TypeError must be re-raised as the subsystem's typed error.
+    evaluator = ConditionEvaluator()
+    condition = GraphCondition(expression="payload.x in payload.items")
+    with pytest.raises(ConditionEvaluationError):
+        evaluator.evaluate(condition, ConditionContext(payload={}))
+
+
+def test_boolop_and_short_circuits_on_missing_guard() -> None:
+    # The guard idiom must be safe: once ``payload.count is not None`` is False,
+    # the right operand ``payload.count > 5`` is never evaluated, so no raise.
+    evaluator = ConditionEvaluator()
+    condition = GraphCondition(expression="payload.count is not None and payload.count > 5")
+    result = evaluator.evaluate(condition, ConditionContext(payload={}))
+    assert result.matched is False
+
+
+def test_boolop_or_short_circuits_on_present_guard() -> None:
+    # ``payload.count is None`` is True, so the right operand is never reached.
+    evaluator = ConditionEvaluator()
+    condition = GraphCondition(expression="payload.count is None or payload.count > 5")
+    result = evaluator.evaluate(condition, ConditionContext(payload={}))
+    assert result.matched is True
+
+
+# ---------------------------------------------------------------------------
 # Safe builtins support in _SafeEvaluator
 # ---------------------------------------------------------------------------
 

@@ -15,7 +15,9 @@ import ipaddress
 import json
 import os
 import re
+import stat
 import subprocess
+import tarfile
 import tempfile
 import threading
 import time
@@ -25,6 +27,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -548,6 +551,8 @@ class SandboxManager:
                     timeout_seconds=timeout_seconds,
                     environment=env_snapshot,
                     resource_constraints=resource_constraints,
+                    sandbox_root=sandbox_root,
+                    relative_cwd=relative_cwd,
                 )
             if backend is SandboxBackendMode.DOCKER:
                 return self._run_in_docker(
@@ -655,9 +660,13 @@ class SandboxManager:
         cwd: Path,
         environment: SandboxEnvironment,
         resource_constraints: ResourceConstraints | None = None,
+        read_only_paths: Sequence[str] = (),
     ) -> SandboxExecutionResult:
         """Run a command as a local subprocess with the prepared environment."""
-        self._warn_about_unenforced_local_constraints(resource_constraints)
+        self._warn_about_unenforced_local_constraints(
+            resource_constraints,
+            read_only_paths=read_only_paths,
+        )
         started_at = time.perf_counter()
         try:
             started = self._command_runner(
@@ -699,11 +708,17 @@ class SandboxManager:
         relative_cwd: Path | None,
         environment: SandboxEnvironment,
         resource_constraints: ResourceConstraints | None = None,
+        read_only_paths: Sequence[str] = (),
     ) -> SandboxExecutionResult:
         """Run a command inside a Docker container.
 
         Starts an ephemeral container from the provisioned sandbox image,
         bind-mounts the sandbox root, and applies per-run resource flags.
+        ``read_only_paths`` names sandbox-relative subtrees remounted read-only
+        on top of the read-write root bind mount; entries are validated
+        lexically (mirroring the sidecar's workspace-path rule) before any
+        Docker invocation, and an empty sequence leaves the argv exactly as it
+        was before the option existed.
         """
         docker = self._config.docker
         container_name = docker.container_name
@@ -711,6 +726,14 @@ class SandboxManager:
         container_cwd = container_root
         if relative_cwd is not None:
             container_cwd = container_root.joinpath(*relative_cwd.parts)
+        # Validated before the image lookup so a hostile entry never buys any
+        # docker invocation at all.
+        read_only_mount_flags: list[str] = []
+        for subtree in read_only_paths:
+            validated = _validate_read_only_subtree(subtree)
+            read_only_mount_flags.extend(
+                ["-v", f"{sandbox_root}/{validated}:{container_root}/{validated}:ro"]
+            )
         translated_env = {
             key: _rewrite_sandbox_path(
                 value,
@@ -747,6 +770,7 @@ class SandboxManager:
             *_docker_hardening_flags(docker),
             "-v",
             f"{sandbox_root}:{container_root}",
+            *read_only_mount_flags,
             *build_docker_resource_flags(constraints),
             *self._docker_env_flags(translated_env),
             "-w",
@@ -886,41 +910,133 @@ class SandboxManager:
         timeout_seconds: float | None,
         environment: SandboxEnvironment,
         resource_constraints: ResourceConstraints | None = None,
+        sandbox_root: Path | None = None,
+        relative_cwd: str | Path | PurePosixPath | None = None,
+        read_only_paths: Sequence[str] = (),
+        capture_output_file: str | None = None,
     ) -> SandboxExecutionResult:
         """Dispatch execution to the sandbox sidecar over HTTP.
 
-        Uses ``asyncio.run()`` to bridge from the sync ``run()`` method
-        to the async sidecar client.
+        Uses a single ``asyncio.run()`` to bridge from the sync ``run()``
+        method to the async sidecar client; that is legal only because the
+        sole caller reaches this method via ``asyncio.to_thread`` (see the
+        runner's ``_run_with_prepared_environment``), so it runs on a
+        loop-less worker thread.
+
+        When ``sandbox_root`` is provided the staged tree travels with the
+        request: the tree is packed into an uncompressed tar and uploaded
+        under a fresh workspace id -- the upload must succeed before
+        ``/execute`` is attempted (fail-closed ordering) -- the working
+        directory and every host-path env value and command token are
+        rewritten to their ``/workspace`` container form, and a captured
+        output file returned on the response is written back under
+        ``sandbox_root`` (confined first; never fabricated when the sidecar
+        reports the payload truncated). Without ``sandbox_root`` the request
+        keeps its exact pre-staging shape.
         """
         import asyncio
+        import base64
         import uuid
 
-        from zeroth.integrations.sandbox.models import SidecarExecuteRequest
+        from zeroth.integrations.execution.io import OutputExtractionError
+        from zeroth.integrations.sandbox.models import (
+            WORKSPACE_MOUNT_ROOT,
+            SidecarExecuteRequest,
+        )
+        from zeroth.platform.primitives import confine_path
 
         execution_id = str(uuid.uuid4())
         image_ref = self._config.docker.container_name
 
+        workspace_id: str | None = None
+        working_directory = WORKSPACE_MOUNT_ROOT
+        translated_env: Mapping[str, str] = environment.variables
+        translated_command = [str(item) for item in command]
+        host_capture_path: Path | None = None
+        workspace_tar: bytes | None = None
+        if sandbox_root is not None:
+            workspace_id = uuid.uuid4().hex
+            container_root = PurePosixPath(WORKSPACE_MOUNT_ROOT)
+            relative = (
+                PurePosixPath(str(relative_cwd)) if relative_cwd is not None else PurePosixPath()
+            )
+            working_directory = str(container_root.joinpath(*relative.parts))
+            translated_env = {
+                key: _rewrite_sandbox_path(
+                    value,
+                    sandbox_root=sandbox_root,
+                    container_root=container_root,
+                )
+                for key, value in environment.variables.items()
+            }
+            translated_command = [
+                _rewrite_sandbox_path(
+                    str(item),
+                    sandbox_root=sandbox_root,
+                    container_root=container_root,
+                )
+                for item in command
+            ]
+            if capture_output_file is not None:
+                # Confined BEFORE anything leaves this process: a traversal
+                # capture path must never buy an upload, an execution, or a
+                # write outside the sandbox root.
+                host_capture_path = confine_path(
+                    capture_output_file,
+                    root=sandbox_root,
+                    context="sidecar capture output file",
+                )
+            workspace_tar = _pack_workspace_tar(sandbox_root)
+
         request = SidecarExecuteRequest(
             execution_id=execution_id,
             image=image_ref,
-            command=list(command),
+            command=translated_command,
             input_text=input_text,
             timeout_seconds=timeout_seconds,
-            environment=environment.variables,
+            environment=dict(translated_env),
+            working_directory=working_directory,
             cpu_cores=(resource_constraints.cpu_cores if resource_constraints else None),
             memory_mb=(resource_constraints.memory_mb if resource_constraints else None),
             max_processes=(resource_constraints.max_processes if resource_constraints else None),
             network_access=(resource_constraints.network_access if resource_constraints else False)
             or False,
+            workspace_id=workspace_id,
+            capture_output_file=capture_output_file if workspace_id is not None else None,
+            read_only_paths=list(read_only_paths) if workspace_id is not None else [],
         )
-        response = asyncio.run(self._sidecar_client.execute(request))
+
+        client = self._sidecar_client
+
+        async def _dispatch() -> Any:
+            # Fail-closed ordering: the upload must complete before /execute
+            # is attempted, so an upload failure raises here and no execution
+            # request is ever sent.
+            if workspace_tar is not None:
+                await client.upload_workspace(workspace_id, workspace_tar)
+            return await client.execute(request)
+
+        response = asyncio.run(_dispatch())
+
+        if sandbox_root is not None and response.output_file_truncated:
+            # Never fabricate a partial output file: surface the same bounded,
+            # truthful error family ``extract_output`` uses for an oversized
+            # ``zeroth-output.json``.
+            raise OutputExtractionError(
+                "output file exceeds the sidecar capture byte cap; "
+                "the truncated payload was withheld"
+            )
+        if host_capture_path is not None and response.output_file_b64 is not None:
+            host_capture_path.parent.mkdir(parents=True, exist_ok=True)
+            host_capture_path.write_bytes(base64.b64decode(response.output_file_b64))
+
         return SandboxExecutionResult(
-            command=tuple(command),
+            command=tuple(translated_command),
             returncode=response.returncode if response.returncode is not None else 1,
             stdout=response.stdout,
             stderr=response.stderr,
             workdir=request.working_directory,
-            environment=dict(environment.variables),
+            environment=dict(translated_env),
             timed_out=response.timed_out,
             duration_seconds=response.duration_seconds,
             cache_key=environment.cache_key,
@@ -977,8 +1093,14 @@ class SandboxManager:
     def _warn_about_unenforced_local_constraints(
         self,
         resource_constraints: ResourceConstraints | None,
+        read_only_paths: Sequence[str] = (),
     ) -> None:
         """Warn when local subprocess execution cannot fully honor requested limits."""
+        if read_only_paths:
+            warnings.warn(
+                "local sandbox backend does not enforce read-only path constraints",
+                stacklevel=2,
+            )
         if resource_constraints is None:
             return
         if resource_constraints.cpu_cores is not None:
@@ -1037,6 +1159,81 @@ def _rewrite_sandbox_path(
         return value
     suffix = value[len(prefix) :].replace(os.sep, "/")
     return str(container_root / PurePosixPath(suffix))
+
+
+def _validate_read_only_subtree(value: str) -> str:
+    """Lexically validate one read-only subtree entry for a ``-v ...:ro`` mount.
+
+    Reuses the sidecar's workspace-relative-path validator so both backends
+    accept exactly the same paths (relative POSIX, no ``..``/empty/``.`` part,
+    no NUL, no backslash, no colon -- a colon would split the ``-v`` docker
+    token the path is embedded in), re-raised in the sandbox error family. The
+    rejected value is caller-controlled and is never echoed.
+    """
+    from zeroth.integrations.sandbox.models import validate_workspace_relative_path
+
+    try:
+        return validate_workspace_relative_path(value)
+    except ValueError as exc:
+        raise SandboxPolicyViolationError(
+            "read-only sandbox paths must be clean relative POSIX paths"
+        ) from exc
+
+
+def _add_workspace_member(
+    archive: tarfile.TarFile,
+    entry: Path,
+    sandbox_root: Path,
+    *,
+    is_dir: bool,
+) -> None:
+    """Author one tar header for a staged tree entry, refusing anything special."""
+    if entry.is_symlink():
+        raise SandboxPolicyViolationError(
+            "sandbox workspace contains a non-regular member; refusing to stage it"
+        )
+    info = tarfile.TarInfo(entry.relative_to(sandbox_root).as_posix())
+    if is_dir:
+        info.type = tarfile.DIRTYPE
+        info.mode = 0o755
+        archive.addfile(info)
+        return
+    stats = entry.lstat()
+    if not stat.S_ISREG(stats.st_mode):
+        raise SandboxPolicyViolationError(
+            "sandbox workspace contains a non-regular member; refusing to stage it"
+        )
+    info.type = tarfile.REGTYPE
+    info.size = stats.st_size
+    info.mode = 0o755 if stats.st_mode & 0o111 else 0o644
+    with entry.open("rb") as handle:
+        archive.addfile(info, handle)
+
+
+def _pack_workspace_tar(sandbox_root: Path) -> bytes:
+    """Pack a staged sandbox tree into an uncompressed POSIX tar stream.
+
+    Belt for a tree the runner itself staged: only regular files and
+    directories are packed -- a symlink or any other special file is refused
+    outright rather than resolved or skipped. Member order is deterministic
+    (sorted walk, directories before files at each level, parents before
+    children) and every header is authored here (uid/gid 0, mtime 0, mode
+    clamped to ``0o755``/``0o644`` preserving the exec bit), so identical
+    trees produce identical archives. The sidecar re-validates and re-authors
+    the archive server-side; this packer simply never hands it anything but
+    the plain tree.
+    """
+    buffer = BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as archive:
+        for current, dirnames, filenames in os.walk(sandbox_root, followlinks=False):
+            dirnames.sort()
+            filenames.sort()
+            current_path = Path(current)
+            for name in dirnames:
+                _add_workspace_member(archive, current_path / name, sandbox_root, is_dir=True)
+            for name in filenames:
+                _add_workspace_member(archive, current_path / name, sandbox_root, is_dir=False)
+    return buffer.getvalue()
 
 
 __all__ = [

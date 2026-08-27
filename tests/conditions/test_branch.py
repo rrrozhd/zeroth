@@ -155,6 +155,64 @@ def test_branch_resolver_allows_cycle_traversal_with_safeguard() -> None:
     assert resolution.condition_results[0].matched is True
 
 
+def test_branch_resolver_suppresses_unconditional_edge_over_node_cap() -> None:
+    # An unconditional edge whose target is already at max_visits_per_node must
+    # be suppressed -- otherwise condition-less edges never enforce the node cap
+    # and an unconditional cycle runs until max_total_steps.
+    graph = build_graph([Edge(edge_id="edge-ab", source_node_id="node-a", target_node_id="node-b")])
+    traversal_state = TraversalState(node_visit_counts={"node-b": 3})  # cap is 3
+
+    resolution = BranchResolver().resolve(
+        graph,
+        "node-a",
+        ConditionContext(payload={}),
+        traversal_state=traversal_state,
+    )
+
+    assert resolution.active_edge_ids == []
+    assert resolution.next_node_ids == []
+    assert resolution.suppressed_edge_ids == ["edge-ab"]
+    assert resolution.condition_results[0].details["suppression_reason"] == "visit_limit"
+    assert resolution.terminal_reason == "branch_suppressed"
+
+
+def test_branch_resolver_suppresses_unconditional_edge_over_edge_cap() -> None:
+    # Same enforcement via the per-edge cap: the target node is fresh, but the
+    # edge itself has been traversed max_visits_per_edge times already.
+    graph = build_graph([Edge(edge_id="edge-ab", source_node_id="node-a", target_node_id="node-b")])
+    traversal_state = TraversalState(edge_visit_counts={"edge-ab": 3})  # cap is 3
+
+    resolution = BranchResolver().resolve(
+        graph,
+        "node-a",
+        ConditionContext(payload={}),
+        traversal_state=traversal_state,
+    )
+
+    assert resolution.active_edge_ids == []
+    assert resolution.suppressed_edge_ids == ["edge-ab"]
+    assert resolution.condition_results[0].details["suppression_reason"] == "visit_limit"
+    assert resolution.terminal_reason == "branch_suppressed"
+
+
+def test_branch_resolver_keeps_unconditional_edge_within_visit_limits() -> None:
+    # Regression guard: with fresh (within-cap) counts, an unconditional edge
+    # stays active and carries no suppression reason.
+    graph = build_graph([Edge(edge_id="edge-ab", source_node_id="node-a", target_node_id="node-b")])
+
+    resolution = BranchResolver().resolve(
+        graph,
+        "node-a",
+        ConditionContext(payload={}),
+        traversal_state=TraversalState(),
+    )
+
+    assert resolution.active_edge_ids == ["edge-ab"]
+    assert resolution.next_node_ids == ["node-b"]
+    assert resolution.suppressed_edge_ids == []
+    assert "suppression_reason" not in resolution.condition_results[0].details
+
+
 def test_next_step_planner_wraps_branch_resolution() -> None:
     graph = build_graph(
         [

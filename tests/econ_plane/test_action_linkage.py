@@ -101,13 +101,36 @@ def test_approval_transitions_the_policy_action_created_for_that_enforcement_act
         decide_action(tenant_a, first.id, "approve", "approver@example.com", "approved")
 
         raw.expire_all()
+        # TriggerInvestigation has no application branch, so an approved decision is
+        # APPROVED, not APPLIED (the DB no longer claims an effect that never ran).
         assert (first_policy.status, first_policy.approved_by) == (
-            "APPLIED",
+            "APPROVED",
             "approver@example.com",
         )
-        assert first_policy.applied_at is not None
+        assert first_policy.applied_at is None
         assert (second_policy.status, second_policy.approved_by) == ("PROPOSED", None)
         assert (second_policy.approved_at, second_policy.applied_at) == (None, None)
+    finally:
+        raw.close()
+
+
+def test_budget_cap_approval_is_not_marked_applied(econ_engine) -> None:
+    """ApplyBudgetCap has no application branch (audit P1): approving it records
+    APPROVED, not APPLIED, and enacts nothing — the DB stops claiming a phantom
+    effect."""
+    raw, tenant_a = _scope(econ_engine, "tenant-a")
+    try:
+        action = create_action(
+            tenant_a,
+            EnforcementActionCreate(
+                capability_id="cap-a", action_type="ApplyBudgetCap", reason="cap it"
+            ),
+        )
+        (policy,) = tenant_a.scalars(select(PolicyAction).order_by(PolicyAction.id)).all()
+        decide_action(tenant_a, action.id, "approve", "approver@example.com", "ok")
+        raw.expire_all()
+        assert policy.status == "APPROVED"
+        assert policy.applied_at is None
     finally:
         raw.close()
 

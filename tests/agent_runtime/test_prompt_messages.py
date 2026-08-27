@@ -85,6 +85,27 @@ def test_tool_turns_render_plain_when_safety_disabled() -> None:
     assert "balance: 42 EUR" in tool_turn
 
 
+def test_assemble_records_conversation_new_turns() -> None:
+    # The runner reads metadata["conversation_new_turns"] to size the fresh tail it
+    # appends after restoring compacted history. It counts the incoming items that
+    # SURVIVE conversation_max_turns truncation — not the raw incoming count.
+    from zeroth.runtime.agents.models import PromptConfig
+
+    # All four incoming turns survive when no cap is set.
+    assembly = PromptAssembler().assemble(_config(), _PAYLOAD)
+    assert assembly.metadata["conversation_new_turns"] == 4
+
+    # With a cap of 2, only the last two incoming turns survive.
+    capped = _config(prompt_config=PromptConfig(messages_key="messages", conversation_max_turns=2))
+    assembly_capped = PromptAssembler().assemble(capped, _PAYLOAD)
+    assert assembly_capped.metadata["conversation_new_turns"] == 2
+
+    # No messages_key => no incoming conversation items => zero new turns.
+    plain = _config(prompt_config=PromptConfig())
+    assembly_plain = PromptAssembler().assemble(plain, _PAYLOAD)
+    assert assembly_plain.metadata["conversation_new_turns"] == 0
+
+
 def test_without_messages_key_payload_stays_in_input_block() -> None:
     config = _config(prompt_config=PromptConfig())
     assembly = PromptAssembler().assemble(config, _PAYLOAD)

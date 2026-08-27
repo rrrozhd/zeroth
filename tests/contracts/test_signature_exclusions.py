@@ -94,6 +94,22 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "cost_measurement",
         "estimated_cost_usd",
     ),
+    # ZER-37: sidecar workspace staging. Additive and optional on all three
+    # models; a request naming none of them behaves exactly as before, and the
+    # response payload field is carried on the immediate execute response only.
+    "zeroth.integrations.sandbox.models:SidecarExecuteRequest": (
+        "capture_output_file",
+        "read_only_paths",
+        "workspace_id",
+    ),
+    "zeroth.integrations.sandbox.models:SidecarExecuteResponse": (
+        "output_file_b64",
+        "output_file_truncated",
+    ),
+    "zeroth.integrations.sandbox.models:SidecarStatusResponse": (
+        "output_file_b64",
+        "output_file_truncated",
+    ),
     "zeroth.contracts.langgraph_gateway.models:RunCapabilityEvidence": (
         "adapter_version",
         "inventory_fingerprint",
@@ -129,6 +145,9 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "approval_notifications",
         "deployment_mode",
         "certification",
+        # ZER-37: the GitHub App integration settings block. Additive and
+        # default-off; hidden for the same reason as the gateway block.
+        "github",
         "langgraph_gateway",
     ),
     "zeroth.runtime.agents.provider:ProviderResponse": (
@@ -222,6 +241,14 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "enforcement_heartbeat_repository",
         "enforcement_stale_after_seconds",
         "guardrail_policy_repository",
+        # ZER-37: optional GitHub App integration components, absent unless
+        # settings.github.enabled -- additive, like the gateway fields.
+        "github_client",
+        "github_integration_service",
+        "github_maintenance_worker",
+        "github_repository",
+        "github_token_broker",
+        "github_webhook_secret_resolver",
         "inventory_registration_repository",
         "langgraph_enforcement_service",
         "langgraph_gateway_capability_reporter",
@@ -231,6 +258,12 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "langgraph_gateway_websocket_handler",
         "policy_guard",
         "probe_instrumentation",
+        # ZER-37 orchestration glue: repository-unit persistence, service, and
+        # run worker -- optional alongside the GitHub integration components.
+        "repo_checkout_repository",
+        "repo_run_repository",
+        "repo_run_worker",
+        "repository_unit_service",
         "role_registry",
         "run_attestation_repository",
         "template_dependency_checker",

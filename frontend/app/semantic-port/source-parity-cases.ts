@@ -16,6 +16,7 @@ export const ROUTE_CASES: RouteCase[] = [
   { id: "nav-build-studio-edit", href: "/studio/edit", file: "app/studio/edit/page.tsx", asyncStates: true },
   { id: "nav-build-templates", href: "/templates", file: "app/templates/page.tsx", asyncStates: true },
   { id: "nav-build-connectors", href: "/connectors", file: "app/connectors/page.tsx", asyncStates: true },
+  { id: "nav-build-repos", href: "/repos", file: "app/repos/page.tsx", asyncStates: true },
   { id: "nav-build-webhooks", href: "/webhooks", file: "app/webhooks/page.tsx", asyncStates: true },
   { id: "nav-govern-cost", href: "/cost", file: "app/cost/page.tsx", asyncStates: true },
   { id: "nav-govern-retention", href: "/retention", file: "app/retention/page.tsx", asyncStates: true },

@@ -171,6 +171,16 @@ class SubgraphExecutor:
             child_metadata["campaign_id"] = str(parent_run.metadata["campaign_id"])
         if parent_run.metadata.get("campaign_strict") is True:
             child_metadata["campaign_strict"] = True
+        # Pin the resolved deployment version so a resume after an HITL pause
+        # re-resolves the SAME graph version even if the ref was republished
+        # while paused (see resume()). ``ResolvedDeployment`` is a typed seam that
+        # does NOT declare ``version``, so read it defensively rather than widen
+        # the Protocol (it is pinned by contract fixtures). A lookup that omits it
+        # — or any non-int — stores None, i.e. resume falls back to latest.
+        _deployment_version = getattr(deployment, "version", None)
+        child_metadata["subgraph_deployment_version"] = (
+            _deployment_version if isinstance(_deployment_version, int) else None
+        )
 
         # --- Create child Run (T-39-07 mitigation: inherit tenant/workspace) ---
         child_run = Run(
@@ -257,9 +267,17 @@ class SubgraphExecutor:
 
         # Scoped to the parent run's tenant (audit S7) — same guard as the
         # initial resolve so a resume can't cross tenants either.
+        #
+        # Pin the deployment version captured at start() so a republish during the
+        # HITL pause cannot swap the graph version underneath the resume. Runs
+        # paused before this fix lack the key => None => latest (the prior
+        # behavior, preserved for back-compat). NB: NOT child_run.graph_version_ref
+        # — that holds the GRAPH version in ``:v`` format, the wrong number for
+        # resolve()'s deployment-version argument.
+        pinned_version = child_run.metadata.get("subgraph_deployment_version")
         subgraph, _ = await self.resolver.resolve(
             graph_ref,
-            None,
+            pinned_version,
             tenant_id=parent_run.tenant_id,
             workspace_id=parent_run.workspace_id,
         )

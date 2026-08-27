@@ -52,6 +52,12 @@ from zeroth.governance.retention.coordination import RetentionCoordinator
 from zeroth.governance.retention.legal_hold_repository import LegalHoldRepository
 from zeroth.governance.retention.models import RetentionPolicy
 from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
+from zeroth.integrations.github.models import (
+    CheckoutFailureCode,
+    InstallationState,
+    RepositoryGrant,
+    RepositoryState,
+)
 from zeroth.integrations.langgraph import InventoryCoverage, ToolDecisionKind
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
@@ -72,6 +78,7 @@ from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcu
 from zeroth.runtime.runs import Run, RunStatus, Thread
 from zeroth.service.deployments.models import Deployment
 from zeroth.service.deployments.repository import SQLiteDeploymentRepository
+from zeroth.service.github.repository import SQLiteGitHubRepository
 from zeroth.service.langgraph_gateway.enforcement import (
     DecisionResponseV1,
     InventoryEntryV1,
@@ -79,6 +86,16 @@ from zeroth.service.langgraph_gateway.enforcement import (
     inventory_fingerprint,
 )
 from zeroth.service.langgraph_gateway.enforcement_store import LangGraphEnforcementRepository
+from zeroth.service.repositories.repo_models import (
+    RepoCheckout,
+    RepoCheckoutState,
+    RepoRun,
+    RepoRunState,
+)
+from zeroth.service.repositories.repository import (
+    SQLiteRepoCheckoutRepository,
+    SQLiteRepoRunRepository,
+)
 from zeroth.service.webhooks.models import (
     DeliveryStatus,
     WebhookDelivery,
@@ -1319,6 +1336,160 @@ async def _drive_run_attestations(database: AsyncDatabase, operation: ResourceOp
         assert foreign_after is None
 
 
+async def _seed_github_installation(
+    repository: SQLiteGitHubRepository, tenant: str
+) -> None:
+    """Seed one installation row for the tenant-isolation probe."""
+    await repository.upsert_installation(
+        tenant,
+        installation_id=4242,
+        account_login=f"{tenant}-account",
+        account_type="Organization",
+        repository_selection="selected",
+    )
+
+
+async def _drive_github_installations(
+    database: AsyncDatabase, operation: ResourceOperation
+) -> None:
+    """Exercise github installations operations through the tenant-isolation matrix."""
+    repository = SQLiteGitHubRepository(database)
+    await _seed_github_installation(repository, "driver-owner")
+    if operation is O.CREATE:
+        # The same GitHub installation id in another tenant is a distinct row.
+        await _seed_github_installation(repository, "driver-foreign")
+        owner = await repository.get_installation("driver-owner", 4242)
+        foreign = await repository.get_installation("driver-foreign", 4242)
+        assert owner is not None and owner.account_login == "driver-owner-account"
+        assert foreign is not None and foreign.account_login == "driver-foreign-account"
+    elif operation is O.READ:
+        assert await repository.get_installation("driver-foreign", 4242) is None
+        assert await repository.get_installation("driver-foreign", 9999) is None
+        assert await repository.get_installation("driver-owner", 4242) is not None
+    elif operation is O.ENUMERATE:
+        owned = await repository.list_installations("driver-owner")
+        assert [row.installation_id for row in owned] == [4242]
+        assert await repository.list_installations("driver-foreign") == []
+    else:
+        await repository.set_installation_status(
+            "driver-foreign", 4242, InstallationState.SUSPENDED
+        )
+        await repository.set_installation_status(
+            "driver-foreign", 9999, InstallationState.SUSPENDED
+        )
+        owner = await repository.get_installation("driver-owner", 4242)
+        assert owner is not None
+        assert owner.status is InstallationState.PENDING_CLAIM
+        await repository.set_installation_status("driver-owner", 4242, InstallationState.ACTIVE)
+        owner = await repository.get_installation("driver-owner", 4242)
+        assert owner is not None and owner.status is InstallationState.ACTIVE
+
+
+def _github_grant(tenant: str) -> RepositoryGrant:
+    """Build a repository grant for the tenant-isolation probe."""
+    return RepositoryGrant(
+        repo_id=1001,
+        owner=f"{tenant}-account",
+        name="driver-repo",
+        full_name=f"{tenant}-account/driver-repo",
+        private=True,
+        default_branch="main",
+    )
+
+
+async def _seed_github_repository(repository: SQLiteGitHubRepository, tenant: str) -> str:
+    """Seed one installation plus one grant; return the installation row id."""
+    installation = await repository.upsert_installation(
+        tenant,
+        installation_id=4242,
+        account_login=f"{tenant}-account",
+        account_type="Organization",
+        repository_selection="selected",
+    )
+    await repository.upsert_repository(
+        tenant, installation_pk=installation.id, grant=_github_grant(tenant)
+    )
+    return installation.id
+
+
+async def _drive_github_repositories(
+    database: AsyncDatabase, operation: ResourceOperation
+) -> None:
+    """Exercise github repositories operations through the tenant-isolation matrix."""
+    repository = SQLiteGitHubRepository(database)
+    owner_pk = await _seed_github_repository(repository, "driver-owner")
+    if operation is O.CREATE:
+        # The same repo id under another tenant is a distinct scoped row.
+        foreign_pk = await _seed_github_repository(repository, "driver-foreign")
+        owner = await repository.get_repository("driver-owner", owner_pk, 1001)
+        foreign = await repository.get_repository("driver-foreign", foreign_pk, 1001)
+        assert owner is not None and owner.owner == "driver-owner-account"
+        assert foreign is not None and foreign.owner == "driver-foreign-account"
+    elif operation is O.READ:
+        assert await repository.get_repository("driver-foreign", owner_pk, 1001) is None
+        assert await repository.get_repository("driver-foreign", "unknown-pk", 1001) is None
+        assert await repository.get_repository("driver-owner", owner_pk, 1001) is not None
+    elif operation is O.ENUMERATE:
+        assert len(await repository.list_repositories("driver-owner", owner_pk)) == 1
+        assert await repository.list_repositories("driver-foreign", owner_pk) == []
+        assert await repository.list_repositories("driver-foreign", "unknown-pk") == []
+    else:
+        await repository.set_repository_status(
+            "driver-foreign", installation_pk=owner_pk, status=RepositoryState.REMOVED
+        )
+        await repository.set_repository_status(
+            "driver-foreign", installation_pk="unknown-pk", status=RepositoryState.REMOVED
+        )
+        owner = await repository.get_repository("driver-owner", owner_pk, 1001)
+        assert owner is not None and owner.status is RepositoryState.ACTIVE
+        await repository.set_repository_status(
+            "driver-owner", installation_pk=owner_pk, status=RepositoryState.REMOVED
+        )
+        owner = await repository.get_repository("driver-owner", owner_pk, 1001)
+        assert owner is not None and owner.status is RepositoryState.REMOVED
+
+
+async def _drive_github_webhook_deliveries(
+    database: AsyncDatabase, operation: ResourceOperation
+) -> None:
+    """Exercise github webhook deliveries operations through the tenant-isolation matrix."""
+    repository = SQLiteGitHubRepository(database)
+    assert await repository.record_delivery(
+        "driver-owner", "driver-guid", event="installation", action="created",
+        installation_id=4242,
+    )
+    horizon = datetime.now(UTC) + timedelta(days=1)
+    if operation is O.CREATE:
+        # A duplicate GUID is refused within a tenant but not across tenants.
+        assert not await repository.record_delivery(
+            "driver-owner", "driver-guid", event="installation", action="created",
+            installation_id=4242,
+        )
+        assert await repository.record_delivery(
+            "driver-foreign", "driver-guid", event="installation", action="created",
+            installation_id=4242,
+        )
+    elif operation is O.ENUMERATE:
+        assert await repository.prune_deliveries("driver-foreign", horizon) == 0
+        assert await repository.prune_deliveries("driver-unknown", horizon) == 0
+        # The owner's row survived both foreign sweeps: its GUID still dedups.
+        assert not await repository.record_delivery(
+            "driver-owner", "driver-guid", event="installation", action="created",
+            installation_id=4242,
+        )
+    else:
+        assert await repository.prune_deliveries("driver-foreign", horizon) == 0
+        assert not await repository.record_delivery(
+            "driver-owner", "driver-guid", event="installation", action="created",
+            installation_id=4242,
+        )
+        assert await repository.prune_deliveries("driver-owner", horizon) == 1
+        assert await repository.record_delivery(
+            "driver-owner", "driver-guid", event="installation", action="created",
+            installation_id=4242,
+        )
+
+
 def _inventory_registration(tenant: str) -> InventoryRegistration:
     """Build inventory registration data for the tenant-isolation probe."""
     return InventoryRegistration(
@@ -1352,3 +1523,171 @@ async def _drive_tool_inventories(database: AsyncDatabase, operation: ResourceOp
         assert foreign_after.tenant_id == "driver-foreign"
     else:
         assert foreign_after is None
+
+
+async def _seed_repo_checkout_parent(database: AsyncDatabase, tenant: str) -> str:
+    """Seed the GitHub installation+grant chain; return the grant row id (FK)."""
+    github = SQLiteGitHubRepository(database)
+    installation = await github.upsert_installation(
+        tenant,
+        installation_id=4242,
+        account_login=f"{tenant}-account",
+        account_type="Organization",
+        repository_selection="selected",
+    )
+    record = await github.upsert_repository(
+        tenant, installation_pk=installation.id, grant=_github_grant(tenant)
+    )
+    return record.id
+
+
+def _repo_checkout(
+    tenant: str, repository_pk: str, *, checkout_id: str, workspace_id: str | None = None
+) -> RepoCheckout:
+    """Build checkout data for the tenant-isolation probe."""
+    return RepoCheckout(
+        id=checkout_id,
+        tenant_id=tenant,
+        workspace_id=workspace_id,
+        repository_pk=repository_pk,
+        installation_id=4242,
+        repository_id=1001,
+        repository_full_name=f"{tenant}-account/driver-repo",
+        requested_ref="main",
+    )
+
+
+async def _drive_repo_checkouts(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise repo checkouts operations through the tenant-isolation matrix."""
+    repository = SQLiteRepoCheckoutRepository(database)
+    owner_pk = await _seed_repo_checkout_parent(database, "driver-owner")
+    owner = await repository.create(
+        _repo_checkout("driver-owner", owner_pk, checkout_id="driver-checkout-owner")
+    )
+    if operation is O.CREATE:
+        # Checkout IDs are generated: a foreign append must not alter owner state.
+        foreign_pk = await _seed_repo_checkout_parent(database, "driver-foreign")
+        await repository.create(
+            _repo_checkout("driver-foreign", foreign_pk, checkout_id="driver-checkout-foreign")
+        )
+        owner_row = await repository.get("driver-owner", owner.id)
+        foreign_row = await repository.get("driver-foreign", "driver-checkout-foreign")
+        assert owner_row is not None and owner_row.repository_pk == owner_pk
+        assert foreign_row is not None and foreign_row.repository_pk == foreign_pk
+        assert [row.id for row in await repository.list_checkouts("driver-owner")] == [owner.id]
+    elif operation is O.READ:
+        assert await repository.get("driver-foreign", owner.id) is None
+        assert await repository.get("driver-foreign", "unknown-checkout") is None
+        assert await repository.get("driver-owner", owner.id) is not None
+    elif operation is O.ENUMERATE:
+        assert [row.id for row in await repository.list_checkouts("driver-owner")] == [owner.id]
+        assert await repository.list_checkouts("driver-foreign") == []
+        assert (
+            await repository.list_checkouts("driver-foreign", state=RepoCheckoutState.REQUESTED)
+            == []
+        )
+        # A workspace-scoped row is invisible to the tenant's null-workspace scope.
+        await repository.create(
+            _repo_checkout(
+                "driver-owner",
+                owner_pk,
+                checkout_id="driver-checkout-workspace",
+                workspace_id="driver-workspace",
+            )
+        )
+        assert [row.id for row in await repository.list_checkouts("driver-owner")] == [owner.id]
+        assert [
+            row.id
+            for row in await repository.list_checkouts(
+                "driver-owner", workspace_id="driver-workspace"
+            )
+        ] == ["driver-checkout-workspace"]
+    else:
+        assert not await repository.transition_state(
+            "driver-foreign", owner.id, RepoCheckoutState.VERIFYING
+        )
+        assert not await repository.record_failure(
+            "driver-foreign",
+            owner.id,
+            code=CheckoutFailureCode.GIT_ERROR,
+            redacted_detail="driver",
+        )
+        assert not await repository.record_attestation(
+            "driver-foreign",
+            owner.id,
+            digest="driver-digest",
+            signature=None,
+            key_id=None,
+            algorithm=None,
+            payload_json="{}",
+        )
+        horizon = datetime.now(UTC) + timedelta(days=1)
+        await repository.transition_state(
+            "driver-owner", owner.id, RepoCheckoutState.STAGED, expires_at=datetime.now(UTC)
+        )
+        assert await repository.expire_stale("driver-foreign", now=horizon) == []
+        owner_after = await repository.get("driver-owner", owner.id)
+        assert owner_after is not None
+        assert owner_after.state is RepoCheckoutState.STAGED
+        assert owner_after.failure_code is None
+        assert owner_after.attestation_digest is None
+        assert await repository.expire_stale("driver-owner", now=horizon) == [owner.id]
+
+
+async def _seed_repo_run(database: AsyncDatabase, tenant: str, *, run_id: str) -> RepoRun:
+    """Seed the parent chain and one PENDING run for the isolation probe."""
+    parent_pk = await _seed_repo_checkout_parent(database, tenant)
+    checkouts = SQLiteRepoCheckoutRepository(database)
+    checkout = await checkouts.create(
+        _repo_checkout(tenant, parent_pk, checkout_id=f"driver-checkout-{tenant}")
+    )
+    return await SQLiteRepoRunRepository(database).create(
+        RepoRun(
+            id=run_id,
+            tenant_id=tenant,
+            checkout_id=checkout.id,
+            script_name="driver-script",
+        )
+    )
+
+
+async def _drive_repo_runs(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise repo runs operations through the tenant-isolation matrix."""
+    repository = SQLiteRepoRunRepository(database)
+    owner = await _seed_repo_run(database, "driver-owner", run_id="driver-run-owner")
+    if operation is O.CREATE:
+        # Run IDs are generated: a foreign append must not alter owner state.
+        foreign = await _seed_repo_run(database, "driver-foreign", run_id="driver-run-foreign")
+        owner_row = await repository.get("driver-owner", owner.id)
+        foreign_row = await repository.get("driver-foreign", foreign.id)
+        assert owner_row is not None and owner_row.checkout_id == "driver-checkout-driver-owner"
+        assert (
+            foreign_row is not None
+            and foreign_row.checkout_id == "driver-checkout-driver-foreign"
+        )
+        assert [row.id for row in await repository.list_runs("driver-owner")] == [owner.id]
+    elif operation is O.READ:
+        assert await repository.get("driver-foreign", owner.id) is None
+        assert await repository.get("driver-foreign", "unknown-run") is None
+        assert await repository.get("driver-owner", owner.id) is not None
+    elif operation is O.ENUMERATE:
+        assert [row.id for row in await repository.list_runs("driver-owner")] == [owner.id]
+        assert await repository.list_runs("driver-foreign") == []
+        assert await repository.list_runs("driver-foreign", checkout_id=owner.checkout_id) == []
+        assert await repository.claim_pending("driver-foreign", worker_id="driver-worker") is None
+    else:
+        assert not await repository.cancel("driver-foreign", owner.id)
+        assert await repository.claim_pending("driver-foreign", worker_id="foreign-worker") is None
+        claimed = await repository.claim_pending("driver-owner", worker_id="owner-worker")
+        assert claimed is not None and claimed.run.id == owner.id
+        assert not await repository.finish(
+            "driver-foreign", owner.id, claimed.generation, exit_code=0
+        )
+        assert not await repository.fail(
+            "driver-foreign", owner.id, claimed.generation, failure_code="driver"
+        )
+        owner_row = await repository.get("driver-owner", owner.id)
+        assert owner_row is not None and owner_row.state is RepoRunState.RUNNING
+        assert await repository.finish("driver-owner", owner.id, claimed.generation, exit_code=0)
+        owner_row = await repository.get("driver-owner", owner.id)
+        assert owner_row is not None and owner_row.state is RepoRunState.SUCCEEDED

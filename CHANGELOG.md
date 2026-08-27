@@ -7,6 +7,272 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.6] - 2026-08-26
+
+### Changed
+
+- Merge the ZER-37 repository-backed execution line (`0.24`-`0.24.5`, which carries
+  the 2026-08-24 audit-fix line `0.23.9`-`0.23.15.1`) into main. Main had advanced
+  on a parallel line (its own `0.23.9`-`0.23.11` entries, further below) with
+  certification/admission gates, guardrail policies, prompt templates, and run
+  lineage; both lines are preserved in full. The ZER-37 migrations were renumbered
+  `033`/`034` to follow main's `032` head, and the migration-head pin now matches
+  the real post-merge head (main's pin had gone stale at `029`).
+
+## [0.24.5]
+
+### Added
+
+- ZER-37 phase 8: the console Repositories page — installation claim and
+  listing, repository selection, ref resolution and checkout creation with
+  digest and validation-report rendering, run launch with polled status and
+  smoke outcome, and the provenance card surfacing the checkout attestation
+  and run evidence.
+
+## [0.24.4]
+
+### Added
+
+- ZER-37 phase 7: the repository API surface — installation claim/listing,
+  repository listing, ref resolution, checkout creation with validation
+  reports and attestations, repository runs, and run evidence bundles, all
+  tenant-scoped with byte-identical not-found parity and three new
+  `repository:*` permissions.
+- Security closure: the minted installation token is now a canary across all
+  observable surfaces (proven against a run that authenticated with it on the
+  wire), a backend-parity pin for repository units, and settings-absorption
+  hardening — both `zeroth.yaml` and `.env` paths resolve once at process
+  start (`ZEROTH_SETTINGS_FILE` / `ZEROTH_ENV_FILE` overrides), so a
+  post-start directory change into a hostile checkout cannot re-target
+  platform configuration.
+
+## [0.24.3]
+
+### Added
+
+- ZER-37 phase 6: checkout/run orchestration — `RepositoryUnitService` (fail-closed
+  checkout admission, staging pipeline, manifest validation, admission-digest
+  registration, signed attestations with TTL) and the lease-fenced `RepoRunWorker`
+  executing repository units through per-run runner instances with staged-path
+  materialization, smoke evaluation, and hash-chained audit records carrying the
+  full repository provenance set; maintenance sweep for expired checkouts; repo
+  staging/poll settings and construct-when-enabled bootstrap wiring.
+
+## [0.24.2]
+
+### Added
+
+- ZER-37 phase 5: the repository execution model — `RepositoryUnitManifest` +
+  `repository_checkout` artifact source with commit/config/tree identity, the
+  validator branch for repository units, per-run binding synthesis with the
+  `repo://` manifest-ref scheme, the runner's checkout-materializer seam
+  (staged trees land read-only under `checkout/`), smoke-assertion evaluation,
+  and the audit capture vocabulary's repository provenance keys
+  (commit/config/tree/manifest digests, checkout identity, smoke outcome).
+- Tenant- and workspace-scoped `repo_checkouts`/`repo_runs` persistence
+  (migration 028) with lease-fenced run claiming, checkout lifecycle states,
+  and signed checkout attestations mirroring the deployment attestation
+  pattern (unsigned-legacy when no signing key is configured).
+
+## [0.24.1]
+
+### Added
+
+- ZER-37 phase 2: the GitHub App integration core (`zeroth.integrations.github`) — RS256
+  App-JWT issuance, a repo-scoped installation-token broker with a lifetime redaction
+  history, a governed GitHub REST client, object-level tree policy (Phase A), a scrubbed
+  credential-invisible git subprocess runner, and the checkout pipeline (API-pinned
+  commit fetch into a per-tenant bare cache, hostile-tree hardening, staged materialization).
+- ZER-37 service layer: tenant-bound `github_installations`/`github_repositories`/
+  `github_webhook_deliveries` persistence (migration 027), the HMAC-verified inbound
+  GitHub webhook receiver on a delegated auth path, installation claim/refresh service,
+  maintenance worker, `github` settings block, and construct-when-enabled bootstrap.
+- ZER-37 sidecar staging channel: hardened tar workspace uploads
+  (`PUT /workspaces/{id}`), per-execution named-volume staging via offline helper
+  containers, bounded output-file capture, read-only subtree mounts on the docker
+  backend, and end-to-end dispatch plumbing that stages sandbox trees to the sidecar
+  with rewritten container paths.
+
+### Fixed
+
+- Sidecar executions longer than 60 seconds no longer fail client-side: the sidecar
+  client's per-request deadline now tracks the execution timeout.
+- The sidecar dispatch path no longer ships host filesystem paths in workload
+  environment variables, and honors the staged working directory.
+
+## [0.24]
+
+### Added
+
+- Repository-backed executable units, phase 1 (ZER-37): the versioned `.zeroth.yaml`
+  repo-manifest contract (`zeroth.contracts.repo_manifest`) — strict one-script v1 schema
+  with stable, forward-compatible validation codes; `load_untrusted_yaml`, the platform's
+  single sanctioned door for hostile YAML (alias/depth/size/duplicate-key hardening);
+  `confine_directory` boundary primitive; `guard_tree` hardened descriptor walk with a
+  streamed artifact tree digest (`zeroth.platform.primitives.treeguard`); and
+  `validate_staged_manifest` filesystem confinement checks for staged checkouts.
+- GitHub integration test substrate: an in-process fake GitHub API with real RS256
+  App-JWT verification, a smart-HTTP git server that asserts credential injection on
+  the wire, and hostile repository fixture builders (symlink escapes, crafted in-tree
+  `.git` entries, submodule gitlinks, LFS pointers, size bombs).
+
+## [0.23.15.1]
+
+### Fixed
+
+- test-layer follow-ups surfaced by the first full-suite run (no runtime changes): the io-client
+  governance allowlist tracks the transport flush split (the relocated pre-factory `httpx.Client`
+  site plus the write-path ASGI `AsyncClient`, the mirror of the allowlisted read-path enforcer
+  client — the governed factory caches by running-loop id, which the throwaway-per-flush loop would
+  poison); the release-gate workflow pin tracks the deployed-profile contract; the docs-reference
+  correction record tracks the checkout-at-tag install form; and the two new econ e2e modules use
+  dedicated tenants so seeding a budget cap for tenant `default` in the process-shared econ-plane DB
+  no longer budget-denies later service e2e runs (the write path works now, so a seeded cap really
+  enforces).
+
+## [0.23.15]
+
+### Fixed
+
+- release deployed-acceptance gate (P1): the CLI-driven deployed acceptance run installs an
+  `HttpLifecycleController` whose `stop_upstream` raises (a deployed platform exposes no
+  upstream-removal controller), while the required contract forced a `stop_upstream -> 502 ->
+  start_upstream` triad in `gateway_http` — so the remote gate could never pass. Added
+  `AcceptanceContract.profile` (`full` default / `deployed`); the 502 proof is required only for the
+  `full` profile. The shipped `zeroth-v1.json` is unchanged (the ephemeral leg still proves 502); a
+  new `zeroth-deployed-v1.json` omits only the lifecycle triad, and the deployed-acceptance
+  workflows now use it. (This makes `gateway_http` satisfiable; the remote gate still has separate
+  blockers — `/__acceptance/*` endpoints and a deploy-time deny policy — so it is not yet green.)
+- install docs funnel (P1): README/docs led with `pip install zeroth-core` and langgraph-release.md
+  pinned an exact `==` version, but PyPI serves only a stale `0.1.0` placeholder (verified
+  2026-08-24), so the documented install was uninstallable. Docs now lead with a source checkout,
+  label the stale PyPI placeholder, and install the release from a checkout at its tag; the
+  enforcing tests track the corrected form while keeping docs↔pyproject version coherence.
+
+### Security
+
+- (deferred) cryptography `46.0.6` carries a reachable advisory cluster (GHSA-537c-gmf6-5ccf plus
+  CVE-2026-69247/69248/69249, backing JOSE/JWT verify and provenance signing). The fix is only in
+  cryptography `50.0.0`, which the current resolver can reach only by downgrading `langchain-litellm`
+  0.6.4 → 0.5.1 — a core LLM dependency. That coordinated upgrade needs its own verification and is
+  tracked separately rather than bundled silently here.
+
+## [0.23.14.1]
+
+### Fixed
+
+- readiness regression from the in-process cost-event write path (v0.23.9): the factory pointed
+  `RegulusClient.base_url` at the unroutable placeholder `http://regulus.internal/v1` when dispatching
+  in-process, but `/health/ready` HTTP-GETs that base_url to probe Regulus — so the probe raised,
+  the regulus check reported `unavailable`, and readiness flipped to `degraded` (cascading approvals,
+  audit, artifacts, and restart-recovery failures in the ephemeral acceptance leg). base_url is now
+  the resolvable configured value; `httpx.ASGITransport` routes the write POST by path (host ignored),
+  so events still land in the mounted plane while the readiness probe reaches a real host. Caught by
+  `tests/acceptance/test_ephemeral_candidate.py`, which was outside every per-cluster targeted suite.
+
+## [0.23.14]
+
+### Fixed
+
+- conditions engine (P1): (1) condition-less (unconditional) edges bypassed
+  `_would_exceed_visit_limits`, so `max_visits_per_node`/`max_visits_per_edge` were never enforced
+  on them and an unconditional loop ran to `max_total_steps`; the visit-limit check now runs for the
+  condition-less branch too (suppressing with reason `visit_limit`). (2) the evaluator's
+  Compare/BinOp/UnaryOp applied operators to possibly-None operands with no guard, so a missing-data
+  expression raised a raw `TypeError` that escaped `ConditionEvaluationError`-catching callers; the
+  operator-application regions are now wrapped into typed `ConditionEvaluationError`s, and BoolOp
+  short-circuits so the guard idiom `x is not None and x > n` returns False instead of raising.
+
+## [0.23.13]
+
+### Fixed
+
+- governance lifecycle unwedge (P1): (1) an alert SLA escalation flipped the approval
+  PENDING->ESCALATED, making it permanently unresolvable and wedging the run in WAITING_APPROVAL
+  forever; the alert path now keeps the approval PENDING and latches out of the overdue sweep by
+  nulling `sla_deadline` (added to `resolve_pending`'s write set) and recording the breach in
+  `urgency_metadata` — so resolve()/GET/list keep working and no webhook storm re-fires. A
+  graph-author latch-bypass (a node seeding `urgency_metadata.escalated`) is closed. (2) an SLA
+  auto-reject resolved the approval REJECT but never continued the run; it now drives the same
+  REJECT continuation as the HTTP path (run -> FAILED, reason `approval_rejected`, decision audit).
+  (3) retention erasure rejected framed-v1 artifact keys for slash-bearing run_ids that harvest
+  accepts (validate by `artifact_key_owner`), and `purge_runs` caught only `LegalHoldError` so one
+  poisoned run stalled the whole tenant sweep — it now isolates a failing run and logs the skip.
+
+## [0.23.12]
+
+### Fixed
+
+- runtime agent correctness (P1): (1) restoring compacted history on a follow-up turn REPLACED the
+  freshly-assembled prompt, dropping the new user input/memory/thread-state — the run answered stale
+  context and could re-trigger compaction and wedge. The fresh turn is now appended after the
+  restored compacted history (by a recorded post-truncation new-turn count, not a head-offset slice
+  that would re-drop input under `messages_key` + `conversation_max_turns`). (2) an HITL-paused
+  subgraph resumed with `version=None` (latest), so a republish during the pause resumed the child
+  on a different graph version; the concrete deployment version is now persisted at subgraph start()
+  and reused at resume() (runs paused before this fix still fall back to latest).
+
+## [0.23.11.1]
+
+### Fixed
+
+- token-runtime per-run cap parity (P1): the token engine evaluated the per-run budget on every
+  loop iteration BEFORE the COMPLETED-state return, so a run whose FINAL node crossed
+  `per_run_cap_usd` was marked FAILED and its `final_output` discarded (and a completing run with an
+  unmeasured final-node cost was spuriously failed too). The cap check now fires only immediately
+  before claiming/recovering the next node — matching the legacy driver — so a run that completes
+  within its work stays COMPLETED while an intermediate crossing still halts the next dispatch.
+
+## [0.23.11]
+
+### Fixed
+
+- sandbox isolation (P1): `settings.sandbox` was read by nobody — the factory built
+  `ExecutableUnitRunner()` bare, so untrusted executable units always ran on the default LOCAL
+  backend regardless of configuration. The factory now builds a `SandboxManager` from
+  `settings.sandbox` (byte-equal to the bare default under default settings; sidecar client
+  constructed lazily and fail-closed when its secret is unset). Separately,
+  `_run_with_prepared_environment` dispatched only docker-vs-local, so a SIDECAR-configured manager
+  silently executed on the host; a SIDECAR branch now delegates to the sidecar. Verified with a real
+  container run (a host-only path is absent inside the docker sandbox) and a runner-path dispatch
+  test proving SIDECAR no longer falls through to local execution.
+
+## [0.23.10]
+
+### Fixed
+
+- econ enforcement honesty (P1): (1) the self-auth Bearer hard-pinned its tenant claim to the
+  configured `service_principal_tenant_id`, so every non-default tenant's budget check and cost
+  ingest 403'd on `require_claimed_tenant` and silently fell open — the token is now minted
+  per-queried-tenant, and the gateway-only fallback enforcer (previously built unauthenticated
+  against the external default) is wired through the in-process mount like the primary path.
+  (2) a single `unmeasured` execution row flipped `measurement_complete` False for the whole
+  tenant-month and was routed through the outage path, poisoning every subsequent budget check
+  (fail-open: cap silently unenforced; fail-closed: deny-all) — partial measurement is now a third
+  outcome that enforces the measured spend as a sound floor. (3) approved `ApplyBudgetCap` /
+  `TriggerInvestigation` / `EscalateAlert` actions were marked `APPLIED` while enacting nothing;
+  they now stay `APPROVED` (applied_at unset) so only a concrete application (AdjustTrafficWeights)
+  records `APPLIED`.
+
+## [0.23.9]
+
+### Fixed
+
+- econ cost-event WRITE path (P0): the bundled deploy built its `RegulusClient` against the
+  external `localhost:8000` default and posted cost events over a plain `httpx.Client`, so in a
+  bundled in-process deploy every event connection-refused and was dropped — tenant spend stayed
+  `0.0` and budget caps enforced against `$0`. The transport now carries an optional `asgi_app` and,
+  when set, dispatches cost-event writes in-process over `httpx.ASGITransport` (the exact mirror of
+  the budget READ seam); the factory wires the mounted plane into the write path. Execution ingest
+  now auto-registers the capability/implementation a platform event names (behind default-on
+  `ECP_AUTO_REGISTER_INGEST_CAPABILITIES`) so those events stop 422-ing, while preserving
+  cross-tenant ownership isolation and leaving the outcome path strict.
+---
+
+_The entries between here and `0.23.8.1.3` are main's parallel release line,
+developed concurrently with the audit-fix line above; version numbers in the
+`0.23.9`-`0.23.11` range therefore appear in both lines._
+
 ## [0.23.11] - 2026-08-26
 
 ### Added

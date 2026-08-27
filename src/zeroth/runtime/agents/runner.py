@@ -590,17 +590,26 @@ class AgentRunner:
         messages: list[Any] = list(prompt.messages)
 
         # Phase 37: Restore compacted messages from thread state if available.
+        # Restoring must ADD this turn's new content to the compacted history, not
+        # REPLACE the freshly-assembled prompt: replacing dropped the new user
+        # input, this turn's memory, and its runtime context, so the run answered
+        # the prior turn's question and could re-wedge on the same stale context.
         if thread_state is not None and "compacted_messages" in thread_state:
-            restored = list(thread_state["compacted_messages"])
-            stored_turns = prompt.metadata.get("conversation_stored_turns", 0)
-            stored_turn_count = stored_turns if isinstance(stored_turns, int) else 0
-            # The compacted checkpoint already carries the old system/history.
-            # Append this turn's user block and only the newly submitted chat
-            # turns; replacing the prompt here used to discard the continuation
-            # input, while replaying every stored turn duplicated old context.
-            current_turn = list(prompt.messages[1:2])
-            new_conversation = list(prompt.messages[2 + stored_turn_count :])
-            messages = [*restored, *current_turn, *new_conversation]
+            # prompt.messages is [system, user, *conversation]. The fresh user
+            # message (index 1) carries this turn's new input plus the memory and
+            # runtime-context blocks; the last ``conversation_new_turns`` messages
+            # are the chat turns new this turn. The compacted history already holds
+            # the system message and every previously-stored turn, so re-appending
+            # those would re-trigger compaction — only new content is appended.
+            new_turns = prompt.metadata.get("conversation_new_turns", 0)
+            fresh_user = prompt.messages[1]
+            # Keep the ``len(...) - new_turns`` form with the ``if new_turns``
+            # guard: ``prompt.messages[-0:]`` returns the ENTIRE list and would
+            # silently re-append the system+user messages when new_turns is 0.
+            new_tail = (
+                list(prompt.messages[len(prompt.messages) - new_turns :]) if new_turns else []
+            )
+            messages = list(thread_state["compacted_messages"]) + [fresh_user, *new_tail]
 
         # Phase 37: Context window compaction before first LLM invocation (per D-09).
         compaction_result: Any = None
@@ -742,18 +751,6 @@ class AgentRunner:
                             ),
                             "cost_measurement": compaction_result.cost_measurement,
                         }
-                        # Content-free projection for the default metadata-only
-                        # audit posture. The nested block remains useful when a
-                        # capture policy permits content, while these scalars
-                        # keep the operator-visible compaction facts queryable.
-                        record.update(
-                            context_compaction_applied=True,
-                            context_compaction_strategy=compaction_result.strategy_name,
-                            context_tokens_before=compaction_result.tokens_before,
-                            context_tokens_after=compaction_result.tokens_after,
-                            context_messages_before=compaction_result.original_count,
-                            context_messages_after=compaction_result.compacted_count,
-                        )
                     memory_interactions.extend(
                         await self._store_memory(
                             output.model_dump(mode="json"),
@@ -773,13 +770,6 @@ class AgentRunner:
                         compaction_result, "archived_messages"
                     ):
                         _archived_msgs = compaction_result.archived_messages
-                    _thread_state_checkpointed = (
-                        thread_id is not None and self.thread_state_store is not None
-                    )
-                    record["thread_state_checkpointed"] = _thread_state_checkpointed
-                    record["compacted_thread_state_saved"] = bool(
-                        _thread_state_checkpointed and compaction_result is not None
-                    )
                     await self._checkpoint_thread_state(
                         thread_id,
                         validated_input,

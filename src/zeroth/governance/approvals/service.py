@@ -121,6 +121,14 @@ class ApprovalService:
             urgency_metadata=dict(node.human_approval.pause_behavior_config),
             resolution_schema_ref=node.human_approval.resolution_schema_ref,
         )
+        # 'escalated' / 'escalated_sla_deadline' are a SERVICE-OWNED alert latch,
+        # not graph-author input. urgency_metadata is seeded from the node's
+        # pause_behavior_config above, so a node that pre-seeds these keys could
+        # otherwise short-circuit the first escalate() and leave the SLA deadline
+        # live -- re-opening the very webhook storm the latch exists to prevent.
+        # Reserve the namespace at creation so only escalate() can write it.
+        record.urgency_metadata.pop("escalated", None)
+        record.urgency_metadata.pop("escalated_sla_deadline", None)
         # SLA deadline from node config (D-09)
         if node.human_approval.sla_timeout_seconds is not None:
             record.sla_deadline = record.created_at + timedelta(
@@ -160,7 +168,13 @@ class ApprovalService:
                     deployment_ref=record.deployment_ref,
                     tenant_id=record.tenant_id,
                     summary=summary or record.summary,
-                    sla_deadline=(record.sla_deadline.isoformat() if record.sla_deadline else None),
+                    # After an alert latch the live column is cleared, so fall
+                    # back to the breached deadline stashed in urgency_metadata
+                    # rather than reporting a null SLA on the escalation notice.
+                    sla_deadline=(
+                        record.urgency_metadata.get("escalated_sla_deadline")
+                        or (record.sla_deadline.isoformat() if record.sla_deadline else None)
+                    ),
                 )
             )
         except Exception:
@@ -542,8 +556,12 @@ class ApprovalService:
 
         Supports three actions:
         - delegate: marks original ESCALATED, creates new approval for delegate
-        - auto_reject: resolves original as REJECTED with system actor
-        - alert (default): marks original ESCALATED (webhook emission by caller)
+        - auto_reject: resolves original as REJECTED with system actor, then
+          continues the run so the rejection actually fails it
+        - alert (default): keeps the original PENDING so a human can still
+          resolve it, but latches it out of the SLA sweep (nulls sla_deadline
+          and marks urgency_metadata['escalated']). Flipping it to ESCALATED
+          would hide it from list/get and make the run unresolvable forever.
 
         If the approval is no longer pending, this is a no-op. That covers both
         double-escalation and, critically, a RESOLVED approval: SLA enforcement
@@ -645,9 +663,28 @@ class ApprovalService:
             )
             if changed:
                 await self._emit_escalation_webhook(resolved)
+                # Resolving REJECT alone leaves the run parked in
+                # WAITING_APPROVAL. schedule_continuation's REJECT branch marks
+                # the run FAILED (reason='approval_rejected') and records the
+                # decision audit, so the SLA rejection actually terminates the
+                # run instead of wedging it. Gated on ``changed``: when another
+                # resolver won the race, that resolver already scheduled the
+                # continuation.
+                await self.schedule_continuation(approval_id)
             return resolved
 
         else:  # "alert" or unknown
+            if record.urgency_metadata.get("escalated") and record.sla_deadline is None:
+                # Already alert-escalated on an earlier tick. The row is still
+                # PENDING (that is the whole point of the alert latch), so the
+                # short-circuit at the top of ``escalate`` cannot catch a repeat
+                # call. The ``sla_deadline is None`` conjunct keys off the
+                # PERSISTED latch invariant, not just the marker: a marker that
+                # somehow accompanies a live deadline is treated as not-yet
+                # latched and re-claimed, so the fence self-heals rather than
+                # leaving the row matching ``list_overdue`` forever. Otherwise a
+                # second escalate() (or a stray poll) is a true no-op.
+                return record
             written = await self._claim_escalation(record)
             if written is None:
                 return await self._require(
@@ -673,24 +710,41 @@ class ApprovalService:
                 "graph_version_ref": record.graph_version_ref,
                 "node_id": record.node_id,
                 "escalation_action": record.escalation_action or "alert",
+                # An alert escalation clears the live sla_deadline column (the
+                # latch removes the row from the overdue sweep); the breached
+                # deadline is preserved in urgency_metadata for this event.
                 "sla_deadline": (
-                    record.sla_deadline.isoformat() if record.sla_deadline else None
+                    record.urgency_metadata.get("escalated_sla_deadline")
+                    or (record.sla_deadline.isoformat() if record.sla_deadline else None)
                 ),
             },
         )
 
     async def _claim_escalation(self, record: ApprovalRecord) -> ApprovalRecord | None:
-        """Flip a still-pending approval to ESCALATED, or return None if it moved.
+        """Latch a still-pending alert escalation, or return None if it moved.
+
+        The row deliberately STAYS ``PENDING``: an alert is a nudge, not a
+        decision, so a human must still be able to resolve it and the run must
+        not wedge in WAITING_APPROVAL. What changes is the SLA fence -- the
+        deadline is nulled and ``urgency_metadata['escalated']`` is set -- so
+        ``list_overdue`` (status=PENDING AND sla_deadline<now) stops matching the
+        row and the checker does not re-escalate it every tick.
 
         ``ApprovalRepository.resolve_pending`` is a conditional write -- it updates
         the row only while its stored status is still PENDING and publishes under a
-        write lock. Reusing it here (rather than an in-memory status check followed
-        by an unconditional ``write``) closes the window between the read in
+        write lock. Reusing it here (rather than an in-memory mutation followed by
+        an unconditional ``write``) closes the window between the read in
         ``escalate`` and the write: a human resolution or a second SLA checker that
         lands inside that window makes the update match zero rows and this returns
-        None instead of overwriting the newer state.
+        None instead of overwriting the newer state. The nulled ``sla_deadline``
+        only latches once resolve_pending's write set carries the column.
         """
-        record.status = ApprovalStatus.ESCALATED
+        if record.sla_deadline is not None:
+            # Preserve the breached deadline for the escalation webhook/notice,
+            # which now reads it from here since the column is cleared.
+            record.urgency_metadata["escalated_sla_deadline"] = record.sla_deadline.isoformat()
+        record.urgency_metadata["escalated"] = True
+        record.sla_deadline = None
         record.updated_at = datetime.now(UTC)
         return await self.repository.resolve_pending(record)
 

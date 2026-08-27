@@ -647,3 +647,122 @@ class TestSubgraphExecutorErrors:
                 input_payload={},
                 step_tracker=None,
             )
+
+
+# ---------------------------------------------------------------------------
+# Tests: Deployment-version pin (resume after HITL pause must not drift)
+# ---------------------------------------------------------------------------
+
+
+def _make_versioned_deployment(graph: Graph, version: int) -> Deployment:
+    """A child deployment with an explicit deployment ``version``."""
+    return Deployment(
+        deployment_id=f"dep-child-v{version}",
+        deployment_ref="child-g",
+        version=version,
+        graph_id=graph.graph_id,
+        graph_version=graph.version,
+        graph_version_ref=f"{graph.graph_id}:v{graph.version}",
+        serialized_graph=serialize_graph(graph),
+    )
+
+
+def _make_paused_child_run(metadata: dict) -> Run:
+    """A previously-created child Run, as resume() would load from the repo."""
+    return Run(
+        run_id="child-run-paused",
+        graph_version_ref="child-g:v1",
+        deployment_ref="child-g",
+        thread_id="child-thread",
+        tenant_id="tenant-1",
+        workspace_id="ws-1",
+        status=RunStatus.RUNNING,
+        metadata=metadata,
+    )
+
+
+class TestSubgraphExecutorDeploymentVersionPin:
+    """start() records the resolved deployment version; resume() re-resolves it."""
+
+    @pytest.mark.asyncio
+    async def test_start_persists_deployment_version_in_metadata(self) -> None:
+        # The resolved deployment version is pinned into child-run metadata so a
+        # later resume re-resolves the SAME version, not whatever is latest then.
+        child_graph = _make_child_graph()
+        deployment = _make_versioned_deployment(child_graph, version=7)
+        resolver = MagicMock(spec=SubgraphResolver)
+        resolver.resolve = AsyncMock(return_value=(child_graph, deployment))
+
+        executor = SubgraphExecutor(resolver=resolver)
+        orch = _make_orchestrator()
+        parent_graph = _make_parent_graph()
+        parent_run = _make_parent_run()
+        node = parent_graph.nodes[0]
+
+        await executor.execute(
+            orchestrator=orch,
+            parent_graph=parent_graph,
+            parent_run=parent_run,
+            node=node,
+            node_id="s1",
+            input_payload={},
+            step_tracker=None,
+        )
+
+        child_run_arg = orch.run_repository.create.call_args[0][0]
+        assert child_run_arg.metadata["subgraph_deployment_version"] == 7
+
+    @pytest.mark.asyncio
+    async def test_resume_resolves_pinned_deployment_version(self) -> None:
+        # A run paused at v1 must resume on v1 even if the ref was republished to a
+        # newer version during the pause: resolve() gets version=1, not None/latest.
+        child_graph = _make_child_graph()
+        deployment = _make_versioned_deployment(child_graph, version=1)
+        resolver = MagicMock(spec=SubgraphResolver)
+        resolver.resolve = AsyncMock(return_value=(child_graph, deployment))
+
+        executor = SubgraphExecutor(resolver=resolver)
+        orch = _make_orchestrator()
+        paused_child = _make_paused_child_run(
+            {"subgraph_depth": 1, "subgraph_deployment_version": 1}
+        )
+        orch.run_repository.get = AsyncMock(return_value=paused_child)
+        parent_graph = _make_parent_graph()
+        parent_run = _make_parent_run()
+
+        await executor.resume(
+            orchestrator=orch,
+            parent_graph=parent_graph,
+            parent_run=parent_run,
+            paused_child_run_id="child-run-paused",
+            step_tracker=None,
+        )
+
+        # resolve(graph_ref, version, ...): the version positional arg is the pin.
+        assert resolver.resolve.call_args[0][1] == 1
+
+    @pytest.mark.asyncio
+    async def test_resume_falls_back_to_latest_when_pin_absent(self) -> None:
+        # Back-compat: runs paused before the pin existed have no metadata key, so
+        # resume resolves with version=None (latest) — today's behavior, unchanged.
+        child_graph = _make_child_graph()
+        deployment = _make_versioned_deployment(child_graph, version=2)
+        resolver = MagicMock(spec=SubgraphResolver)
+        resolver.resolve = AsyncMock(return_value=(child_graph, deployment))
+
+        executor = SubgraphExecutor(resolver=resolver)
+        orch = _make_orchestrator()
+        paused_child = _make_paused_child_run({"subgraph_depth": 1})
+        orch.run_repository.get = AsyncMock(return_value=paused_child)
+        parent_graph = _make_parent_graph()
+        parent_run = _make_parent_run()
+
+        await executor.resume(
+            orchestrator=orch,
+            parent_graph=parent_graph,
+            parent_run=parent_run,
+            paused_child_run_id="child-run-paused",
+            step_tracker=None,
+        )
+
+        assert resolver.resolve.call_args[0][1] is None

@@ -2,8 +2,12 @@
 
 Every Zeroth setting is loaded from (in priority order): environment variables
 (`ZEROTH_` prefix, nested via `__`), a local `.env` file, then `zeroth.yaml`.
-This reference is auto-generated from `zeroth.platform.config.settings` via
-`scripts/dump_config.py` — **do not edit by hand**.
+Both file paths are resolved once at process start from the launch working
+directory; set `ZEROTH_ENV_FILE` and `ZEROTH_SETTINGS_FILE` to absolute paths
+to pin them explicitly (recommended for deployments that execute
+repository-backed workloads). This reference is auto-generated from
+`zeroth.platform.config.settings` via `scripts/dump_config.py` — **do not
+edit by hand**.
 
 CI runs `python scripts/dump_config.py --check` on every PR and fails if this
 file is stale.
@@ -279,3 +283,23 @@ Configuration for the optional Agent Server-compatible gateway.
 | `ZEROTH_LANGGRAPH_GATEWAY__SUPPORTED_AGENT_SERVER_VERSIONS` | `tuple[str, Ellipsis]` | `('0.11.1',)` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__HEARTBEAT_INTERVAL_SECONDS` | `int` | `30` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__STALE_THRESHOLD_SECONDS` | `int` | `90` |  |  |
+
+## Github
+
+GitHub App integration configuration (ZER-37).
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_GITHUB__ENABLED` | `bool` | `False` |  |  |
+| `ZEROTH_GITHUB__APP_ID` | `str` | `""` |  |  |
+| `ZEROTH_GITHUB__API_BASE_URL` | `str` | `"https://api.github.com"` |  |  |
+| `ZEROTH_GITHUB__GIT_BASE_URL` | `str` | `"https://github.com"` |  |  |
+| `ZEROTH_GITHUB__PRIVATE_KEY_SECRET_NAME` | `str` | `"github.app_private_key"` |  |  |
+| `ZEROTH_GITHUB__WEBHOOK_SECRET_NAME` | `str` | `"github.webhook_secret"` |  |  |
+| `ZEROTH_GITHUB__CACHE_DIR` | `str` | `""` |  |  |
+| `ZEROTH_GITHUB__MAX_FILE_BYTES` | `int` | `52428800` |  |  |
+| `ZEROTH_GITHUB__MAX_TOTAL_BYTES` | `int` | `524288000` |  |  |
+| `ZEROTH_GITHUB__MAX_FILE_COUNT` | `int` | `50000` |  |  |
+| `ZEROTH_GITHUB__CHECKOUT_TTL_SECONDS` | `int` | `900` |  |  |
+| `ZEROTH_GITHUB__STAGING_DIR` | `str` | `""` |  |  |
+| `ZEROTH_GITHUB__REPO_RUN_POLL_SECONDS` | `float` | `1.0` |  |  |

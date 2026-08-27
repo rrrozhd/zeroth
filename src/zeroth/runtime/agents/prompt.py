@@ -101,6 +101,13 @@ class PromptAssembler:
         ):
             conversation_items = input_dump.pop(prompt_config.messages_key)
 
+        # Count of items that are NEW this turn (the incoming messages_key list
+        # popped just above), captured BEFORE stored turns are prepended. The
+        # runner uses the post-truncation survivor count of these to know how much
+        # of the freshly-assembled prompt to append after restoring compacted
+        # history, so genuinely-new input is never dropped by the restore.
+        incoming_count = len(conversation_items)
+
         # Persistent conversation: turns stored in thread state replay before
         # the incoming ones, so a caller submitting the same thread_id only
         # sends what is new. Lifted out of the thread-state block to avoid
@@ -117,6 +124,15 @@ class PromptAssembler:
             conversation_items = stored + conversation_items
         if prompt_config.conversation_max_turns is not None:
             conversation_items = conversation_items[-prompt_config.conversation_max_turns :]
+        # How many of THIS turn's incoming items survived truncation. Because
+        # ``conversation_items == stored + incoming``, a tail slice keeps the
+        # incoming items last, so the survivors are always the final ``new_turns``
+        # entries of the rendered conversation — never a stored turn. This is a
+        # COUNT the runner tail-slices by, deliberately NOT a head offset:
+        # ``messages[2 + stored_turns:]`` returns [] when the head is trimmed and
+        # (messages_key mode) the new chat content was popped out of the input
+        # block, reintroducing the dropped-input bug.
+        new_turns = min(incoming_count, len(conversation_items))
 
         system_parts = [
             f"Agent: {config.name}",
@@ -177,6 +193,9 @@ class PromptAssembler:
             "tool_refs": list(config.declared_tool_refs),
             "memory_refs": list(config.memory_refs),
         }
+        # Always recorded (0 is meaningful): the runner reads it to size the
+        # new-content tail it appends after restoring compacted history.
+        metadata["conversation_new_turns"] = new_turns
         if conversation_items:
             metadata["conversation_messages"] = conversation_items
         if stored_turns:

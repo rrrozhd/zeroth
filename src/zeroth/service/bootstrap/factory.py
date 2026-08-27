@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any
@@ -50,7 +51,14 @@ from zeroth.governance.policy import (
     PolicyRegistry,
     default_capability_registry,
 )
-from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.integrations.execution import (
+    DockerSandboxConfig,
+    ExecutableUnitRunner,
+    SandboxBackendMode,
+    SandboxConfig,
+    SandboxManager,
+)
+from zeroth.integrations.execution.sidecar_client import SandboxSidecarClient
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.memory.factory import register_memory_connectors
 from zeroth.integrations.memory.registry import (
@@ -59,7 +67,7 @@ from zeroth.integrations.memory.registry import (
 )
 from zeroth.integrations.memory.runtime_configs import load_persisted_connectors
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
-from zeroth.platform.config.settings import get_settings
+from zeroth.platform.config.settings import SandboxSettings, get_settings
 from zeroth.platform.dispatch import LeaseManager
 from zeroth.platform.dispatch.operations import SideEffectOperationStore
 from zeroth.platform.observability.metrics import MetricsCollector
@@ -157,6 +165,31 @@ def _configured_policy_registry(
     return registry
 
 
+def _build_sandbox_manager(cfg: SandboxSettings) -> SandboxManager:
+    """Build a SandboxManager honouring the configured sandbox backend.
+
+    Under default settings (backend='local') the produced config is byte-equal to
+    a bare ``SandboxConfig()``, so existing default-settings behaviour is
+    unchanged. The sidecar client is constructed LAZILY, only for backend=sidecar
+    (its __init__ fail-closes when ZEROTH_SANDBOX_SIDECAR_SECRET is unset — the
+    intended boot error for a sidecar deployment, not a regression for
+    local/docker). ``sidecar_url`` is set only in the sidecar branch so a
+    non-sidecar config stays identical to the default.
+    """
+    backend = SandboxBackendMode(cfg.backend)
+    docker = DockerSandboxConfig(
+        container_name=cfg.docker_container_name,
+        docker_binary=cfg.docker_binary,
+    )
+    sidecar_client = None
+    sidecar_url = None
+    if backend is SandboxBackendMode.SIDECAR:
+        sidecar_url = cfg.sidecar_url
+        sidecar_client = SandboxSidecarClient(cfg.sidecar_url)
+    config = SandboxConfig(backend=backend, docker=docker, sidecar_url=sidecar_url)
+    return SandboxManager(config=config, sidecar_client=sidecar_client)
+
+
 async def bootstrap_scoped_service(
     database: AsyncDatabase,
     *,
@@ -246,7 +279,13 @@ async def bootstrap_scoped_service(
     )
     contract_registry = deployment_service.contract_registry
     resolved_agent_runners = dict(agent_runners or {})
-    resolved_executable_unit_runner = executable_unit_runner or ExecutableUnitRunner()
+    # Resolved here (memoized singleton) so the default executable-unit runner
+    # actually honours settings.sandbox instead of always running untrusted code
+    # on the bare LOCAL backend. An injected runner is left untouched.
+    settings = get_settings()
+    resolved_executable_unit_runner = executable_unit_runner or ExecutableUnitRunner(
+        sandbox_manager=_build_sandbox_manager(settings.sandbox),
+    )
     metrics_collector = MetricsCollector()
     # ZER-26: the durable receipt store is what turns the runtime's at-least-once
     # boundary into a recognisable repeat. Constructed here so live executions get
@@ -314,39 +353,45 @@ async def bootstrap_scoped_service(
         worker.guardrail_policy_repository = guardrail_policy_repository
 
     # Phase 13: Regulus economics integration.
-    settings = get_settings()
     approval_service.notifier = build_approval_notifier(settings.approval_notifications)
     # OBS: enable OpenTelemetry tracing when configured (no-op when disabled).
     configure_tracing(settings.tracing)
     regulus_client: RegulusClient | None = None
     budget_enforcer: object | None = None
     cost_estimator: object | None = None
-    if settings.regulus.enabled:
-        # Self-auth for calls to the bundled control plane: X-API-Key (Zeroth's
-        # own first service key, to pass the gated /regulus mount) + a fresh
-        # econ_plane Admin JWT. Degrades gracefully when no Zeroth key exists
-        # (Bearer only -> 401 -> fail-open). See econ.service_auth.
-        from zeroth.econ.analytics.service_auth import make_self_auth_headers_provider
+    # Self-auth + in-process mount resolved ONCE, before the regulus/gateway
+    # branches: X-API-Key (Zeroth's own first service key, to pass the gated
+    # /regulus mount) + a fresh econ_plane Admin JWT (per-tenant, minted at call
+    # time). A default bundled deploy points regulus.base_url at the EXTERNAL
+    # localhost:8000 topology, but the plane is mounted at /regulus on this
+    # service's own port, so the cost-event WRITE path (RegulusClient), the budget
+    # READ path (BudgetEnforcer), AND the gateway-only fallback enforcer must all
+    # dispatch straight into the mounted ASGI app; otherwise writes POST to a
+    # refused socket (spend stays 0, caps never trip) and reads/gateway checks hit
+    # an unauthenticated external socket and silently fail open. Degrades
+    # gracefully when no Zeroth key exists (Bearer only -> 401 -> fail-open).
+    # See econ.service_auth.
+    from zeroth.econ.analytics.service_auth import make_self_auth_headers_provider
 
-        _self_api_key = (
-            resolved_auth_config.api_keys[0].secret if resolved_auth_config.api_keys else None
-        )
-        regulus_self_auth = make_self_auth_headers_provider(_self_api_key)
-
+    _self_api_key = (
+        resolved_auth_config.api_keys[0].secret if resolved_auth_config.api_keys else None
+    )
+    regulus_self_auth = make_self_auth_headers_provider(_self_api_key)
+    econ_plane_app = None
+    try:
+        from zeroth.econ.plane.main import app as econ_plane_app
+    except ImportError:
         econ_plane_app = None
-        try:
-            from zeroth.econ.plane.main import app as econ_plane_app
-        except ImportError:
-            econ_plane_app = None
 
-        regulus_base_url = (
-            "http://regulus.internal/v1"
-            if econ_plane_app is not None
-            else settings.regulus.base_url
-        )
-
+    if settings.regulus.enabled:
         regulus_client = RegulusClient(
-            base_url=regulus_base_url,
+            # Keep base_url the operator-configured, RESOLVABLE value even when
+            # dispatching in-process: httpx.ASGITransport routes the cost-event POST
+            # by PATH (the host is ignored), so asgi_app alone lands events in the
+            # mounted plane. The readiness probe HTTP-GETs regulus_client.base_url,
+            # so it must stay a real host — pointing it at the unroutable
+            # 'regulus.internal' flips /health/ready to degraded (regression).
+            base_url=settings.regulus.base_url,
             timeout=settings.regulus.request_timeout,
             enabled=True,
             headers_provider=regulus_self_auth,
@@ -793,6 +838,153 @@ async def bootstrap_scoped_service(
             poll_interval=settings.retention.worker_poll_interval,
         )
 
+    # ZER-37: the GitHub App integration surface, constructed only when
+    # settings.github.enabled is true. When disabled nothing is built and the
+    # webhook route is never registered (the path 404s like any other unknown
+    # route). Enabled without the git binary fails the deployment loudly at
+    # bootstrap instead of failing the first checkout at run time.
+    github_repository: object | None = None
+    github_client: object | None = None
+    github_token_broker: object | None = None
+    github_integration_service: object | None = None
+    github_maintenance_worker: object | None = None
+    github_webhook_secret_resolver: object | None = None
+    repo_checkout_repository: object | None = None
+    repo_run_repository: object | None = None
+    repository_unit_service: object | None = None
+    repo_run_worker: object | None = None
+    if settings.github.enabled:
+        if shutil.which("git") is None:
+            raise DeploymentBootstrapError(
+                "GitHub integration is enabled but the 'git' binary is not on PATH"
+            )
+        import tempfile
+        from pathlib import Path
+
+        from zeroth.contracts.repo_manifest import RepoUnitPolicy
+        from zeroth.integrations.execution.integrity import AdmissionController
+        from zeroth.integrations.github.app_jwt import AppJwtIssuer
+        from zeroth.integrations.github.checkout import CheckoutService
+        from zeroth.integrations.github.client import GitHubAppClient
+        from zeroth.integrations.github.config import GitHubAppConfig
+        from zeroth.integrations.github.git_cli import GitInvocation
+        from zeroth.integrations.github.token_broker import InstallationTokenBroker
+        from zeroth.platform.secrets.provider import resolve_secret_async
+        from zeroth.service.github.janitor import GitHubMaintenanceWorker
+        from zeroth.service.github.repository import SQLiteGitHubRepository
+        from zeroth.service.github.service import GitHubIntegrationService
+        from zeroth.service.repositories.repository import (
+            SQLiteRepoCheckoutRepository,
+            SQLiteRepoRunRepository,
+        )
+        from zeroth.service.repositories.service import (
+            RepoCheckoutPipelineRecorder,
+            RepositoryUnitService,
+        )
+        from zeroth.service.repositories.worker import RepoRunWorker
+
+        github_config = GitHubAppConfig(
+            app_id=settings.github.app_id,
+            api_base_url=settings.github.api_base_url,
+            git_base_url=settings.github.git_base_url,
+            private_key_secret_name=settings.github.private_key_secret_name,
+            max_file_bytes=settings.github.max_file_bytes,
+            max_total_bytes=settings.github.max_total_bytes,
+            max_file_count=settings.github.max_file_count,
+        )
+        github_jwt_issuer = AppJwtIssuer(
+            github_config, secret_provider, tenant_id=deployment.tenant_id
+        )
+        github_client = GitHubAppClient(github_config, github_jwt_issuer)
+        github_token_broker = InstallationTokenBroker(github_client)
+        github_repository = SQLiteGitHubRepository(database)
+        github_integration_service = GitHubIntegrationService(
+            github_repository,
+            github_client,
+            github_token_broker,
+            config=github_config,
+            jwt_issuer=github_jwt_issuer,
+            tenant_id=deployment.tenant_id,
+        )
+        # ZER-37 orchestration glue: checkout staging, repo-run persistence,
+        # the repository-unit service, and the repo-run execution worker. The
+        # staging root defaults to a "stages" sibling of the resolved cache
+        # directory; directories are created lazily at first use, not here.
+        github_cache_root = (
+            Path(settings.github.cache_dir)
+            if settings.github.cache_dir
+            else Path(tempfile.gettempdir()) / "zeroth-github" / "cache"
+        )
+        github_staging_root = (
+            Path(settings.github.staging_dir)
+            if settings.github.staging_dir
+            else github_cache_root.parent / "stages"
+        )
+        repo_checkout_repository = SQLiteRepoCheckoutRepository(database)
+        repo_run_repository = SQLiteRepoRunRepository(database)
+        # One admission controller shared by the staging service (which
+        # registers each checkout's trusted manifest digest) and the run
+        # worker's per-run runners (which enforce it). Repository units are
+        # python3-only in v1, so the runtime/command allowlists pin that.
+        repo_admission_controller = AdmissionController(
+            allowed_runtimes={"python"}, allowed_commands={"python3"}
+        )
+        repo_policy = RepoUnitPolicy()
+        github_checkout_service = CheckoutService(
+            github_config,
+            github_client,
+            github_token_broker,
+            GitInvocation(),
+            cache_dir=github_cache_root,
+            store=RepoCheckoutPipelineRecorder(repo_checkout_repository),
+        )
+        repository_unit_service = RepositoryUnitService(
+            checkout_repository=repo_checkout_repository,
+            run_repository=repo_run_repository,
+            github_repository=github_repository,
+            checkout_service=github_checkout_service,
+            admission_controller=repo_admission_controller,
+            policy=repo_policy,
+            staging_root=github_staging_root,
+            signer=signer,
+            checkout_ttl_seconds=settings.github.checkout_ttl_seconds,
+        )
+        # The worker shares the bootstrap runner's SandboxManager (so repo
+        # runs honour settings.sandbox) but builds a private per-run
+        # ExecutableUnitRunner around it, because the checkout-materializer
+        # seam is per-run state.
+        repo_run_worker = RepoRunWorker(
+            checkout_repository=repo_checkout_repository,
+            run_repository=repo_run_repository,
+            github_repository=github_repository,
+            audit_repository=audit_repository,
+            policy=repo_policy,
+            sandbox_manager=resolved_executable_unit_runner.sandbox_manager,
+            admission_controller=repo_admission_controller,
+            deployment_ref=deployment.deployment_ref,
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
+            poll_interval=settings.github.repo_run_poll_seconds,
+        )
+        github_maintenance_worker = GitHubMaintenanceWorker(
+            github_repository,
+            tenant_id=deployment.tenant_id,
+            checkout_repository=repo_checkout_repository,
+            staging_root=github_staging_root,
+            workspace_id=deployment.workspace_id,
+        )
+        github_secret_name = settings.github.webhook_secret_name
+        github_tenant_id = deployment.tenant_id
+        github_secret_provider = secret_provider
+
+        async def _resolve_github_webhook_secret() -> str | None:
+            """Resolve the webhook secret through the shared secret provider."""
+            return await resolve_secret_async(
+                github_secret_provider, github_secret_name, tenant_id=github_tenant_id
+            )
+
+        github_webhook_secret_resolver = _resolve_github_webhook_secret
+
     # ZER-8: the tool-enforcement surface. Wired unconditionally -- an SDK
     # adapter that cannot reach a decision endpoint falls back to its own
     # deny-everything default, so leaving this behind a flag would make the
@@ -853,11 +1045,19 @@ async def bootstrap_scoped_service(
         if budget_enforcer is None:
             from zeroth.econ.analytics import BudgetEnforcer
 
+            # Gateway-only fallback: authenticate through the mounted plane in-process,
+            # exactly like the regulus-enabled path above. Built bare (no
+            # headers_provider, external base_url) it could never authenticate, so
+            # the gateway's budget check silently failed open.
             budget_enforcer = BudgetEnforcer(
-                regulus_base_url=settings.regulus.base_url,
+                regulus_base_url=(
+                    settings.regulus.base_url if econ_plane_app is None else None
+                ),
                 cache_ttl=settings.regulus.budget_cache_ttl,
                 timeout=settings.regulus.request_timeout,
+                headers_provider=regulus_self_auth,
                 fail_closed=settings.regulus.fail_closed,
+                asgi_app=econ_plane_app,
             )
             orchestrator.budget_enforcer = budget_enforcer
 
@@ -1025,6 +1225,16 @@ async def bootstrap_scoped_service(
             inventory_registration_repository=inventory_registration_repository,
             run_attestation_repository=run_attestation_repository,
             enforcement_heartbeat_repository=enforcement_heartbeat_repository,
+            github_repository=github_repository,
+            github_client=github_client,
+            github_token_broker=github_token_broker,
+            github_integration_service=github_integration_service,
+            github_maintenance_worker=github_maintenance_worker,
+            github_webhook_secret_resolver=github_webhook_secret_resolver,
+            repo_checkout_repository=repo_checkout_repository,
+            repo_run_repository=repo_run_repository,
+            repository_unit_service=repository_unit_service,
+            repo_run_worker=repo_run_worker,
             # The *configured* freshness window, so the status routes report
             # the threshold this deployment actually runs with rather than the
             # module default. Read unconditionally: the setting always has a

@@ -51,6 +51,13 @@ from zeroth.service.bootstrap.lifecycle import service_lifespan
 logger = logging.getLogger(__name__)
 
 _PUBLIC_HEALTH_PATHS = frozenset({"/health", "/health/live", "/health/ready"})
+# Paths authenticated by an HMAC signature inside their own handler (ZER-37:
+# the GitHub webhook receiver verifies X-Hub-Signature-256 over the raw body,
+# fail-closed) rather than by Zeroth credentials, which the sender cannot
+# carry. They bypass the credential middleware exactly like the health paths;
+# when the owning integration is disabled the route is never registered and
+# the path falls through to an ordinary 404.
+_HMAC_AUTH_PATHS = frozenset({"/integrations/github/webhook"})
 _SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; "
@@ -143,6 +150,16 @@ def create_app(
         # CORSMiddleware before they reach this authentication boundary.
         path = request.url.path
         if path in _PUBLIC_HEALTH_PATHS or path == "/console" or path.startswith("/console/"):
+            cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
+            set_correlation_id(cid)
+            response = await call_next(request)
+            response.headers["X-Correlation-ID"] = get_correlation_id()
+            return response
+
+        # HMAC-authenticated integration paths: the handler owns the
+        # fail-closed signature check, so the credential middleware only
+        # threads the correlation id through (exactly like health paths).
+        if path in _HMAC_AUTH_PATHS:
             cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
             set_correlation_id(cid)
             response = await call_next(request)
@@ -250,7 +267,33 @@ def create_app(
     for registrar in extra_v1_route_registrars:
         registrar(v1_router)
 
+    # ZER-37: repository-unit routes ride the same enabled flag as the GitHub
+    # integration -- register_repo_routes is a no-op unless the bootstrap
+    # carries the integration + repository-unit components, so a disabled (or
+    # bare inventory) bootstrap keeps them out of every route contract. Unlike
+    # the HMAC webhook receiver these are ordinary credentialed routes, so
+    # they go through the standard /v1 + unversioned dual mount.
+    from zeroth.service.api.repo_api import register_repo_routes
+
+    register_repo_routes(v1_router, bootstrap)
+
     app.include_router(v1_router)
+
+    # ZER-37: the GitHub webhook receiver, registered once directly on the
+    # app (never under /v1 or the compat aliases -- the path is part of the
+    # GitHub App's configured webhook URL). Present only when the bootstrap
+    # constructed the integration, i.e. settings.github.enabled.
+    github_integration_service = getattr(bootstrap, "github_integration_service", None)
+    github_webhook_secret_resolver = getattr(bootstrap, "github_webhook_secret_resolver", None)
+    if github_integration_service is not None and github_webhook_secret_resolver is not None:
+        from zeroth.service.github.webhook_receiver import register_github_webhook_route
+
+        register_github_webhook_route(
+            app,
+            github_integration_service,
+            github_webhook_secret_resolver,
+            on_revoked=github_integration_service.drop_installation_caches,
+        )
 
     # Mount the static console before the gateway catch-all so native console
     # navigation remains authoritative.
@@ -295,6 +338,7 @@ def create_app(
     register_deployment_routes(compat_router)
     register_connector_routes(compat_router)
     register_manifest_routes(compat_router)
+    register_repo_routes(compat_router, bootstrap)
 
     app.include_router(compat_router)
 

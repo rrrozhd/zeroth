@@ -246,6 +246,13 @@ class AcceptanceContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1]
+    # 'full' (default, ephemeral) demands the whole gateway_http assurance including
+    # the 502 upstream-failure proof, which needs a lifecycle controller that can
+    # remove the upstream. 'deployed' drops only that lifecycle-dependent 502 step
+    # (a real deployed platform exposes no such controller), keeping the 200-admit
+    # and 403-deny proofs — so a controller-less remote CLI can satisfy the gate
+    # without the ephemeral leg's 502 proof being weakened (it runs the full profile).
+    profile: Literal["full", "deployed"] = "full"
     supported_agent_server_versions: list[str] = Field(min_length=1)
     scenarios: dict[str, ScenarioSpec]
     cleanup: list[AcceptanceStep] = Field(min_length=1)
@@ -415,7 +422,10 @@ class AcceptanceContract(BaseModel):
 
         if not refuses_with_namespaced_code(403):
             raise ValueError("gateway_http must prove a policy denial carries a zeroth.* code")
-        if not refuses_with_namespaced_code(502):
+        # The 502 proof needs a lifecycle controller that can remove the upstream,
+        # which a deployed platform does not expose; require it only for the 'full'
+        # (ephemeral) profile, where the controller exists.
+        if self.profile == "full" and not refuses_with_namespaced_code(502):
             raise ValueError("gateway_http must prove an upstream failure carries a zeroth.* code")
 
         if not any(

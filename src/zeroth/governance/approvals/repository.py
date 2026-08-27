@@ -173,6 +173,12 @@ class ApprovalRepository:
                 {
                     "status": record.status.value,
                     "updated_at": record.updated_at.isoformat(),
+                    # The alert-escalation latch nulls sla_deadline while keeping
+                    # the row PENDING; without this column in the write set that
+                    # change is inert and list_overdue re-escalates every tick.
+                    "sla_deadline": (
+                        record.sla_deadline.isoformat() if record.sla_deadline else None
+                    ),
                     "record_json": to_json_value(record.model_dump(mode="json")),
                 },
                 where={

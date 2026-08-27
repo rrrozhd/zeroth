@@ -57,6 +57,15 @@ GOVERNED_MODULES = frozenset(
 ALLOWED_DIRECT_CONSTRUCTION: frozenset[str] = frozenset(
     {
         "econ/analytics/budget.py::BudgetEnforcer._check_budget_status::httpx.AsyncClient",
+        # The two flush paths are one pre-factory site: _flush_http is the original
+        # flush_once httpx.Client relocated when the ASGI seam split delivery in two,
+        # and _flush_asgi._run is the WRITE-path mirror of the allowlisted
+        # BudgetEnforcer READ-path AsyncClient above (same ASGITransport pattern,
+        # config-mandated timeout, closed per flush). The governed factory is
+        # deliberately not used there: it caches by running-loop id, and the flush
+        # drives a throwaway loop per call, so a recycled id could hand back a
+        # client bound to a closed loop.
+        "econ/instrumentation/transport.py::TelemetryTransport.deliver_execution_confirmed::httpx.Client",
         "econ/instrumentation/transport.py::TelemetryTransport.flush_once::httpx.Client",
         "econ/plane/connectors/registry.py::HttpJsonAdapter.send::httpx.Client",
         "governance/approvals/notifications.py::SlackNotifier.notify::httpx.AsyncClient",

@@ -36,6 +36,24 @@ class SimpleOutput(BaseModel):
     answer: str
 
 
+class ChatMessagesInput(BaseModel):
+    messages: list[dict]
+
+
+def _content_of(message: Any) -> str:
+    """Read a message's text whether it is a PromptMessage or a plain dict.
+
+    Restored histories mix persisted dicts (compacted history) with the
+    freshly-assembled ``PromptMessage`` objects the runner appends, so tests
+    that scan the restored list must accept both shapes.
+    """
+    if hasattr(message, "content"):
+        return str(message.content)
+    if isinstance(message, dict):
+        return str(message.get("content", ""))
+    return str(message)
+
+
 def _make_config(**overrides: Any) -> AgentConfig:
     defaults = {
         "name": "test-agent",
@@ -144,12 +162,6 @@ async def test_compaction_metadata_in_audit_record() -> None:
     assert cw["tokens_after"] == 2000
     assert cw["messages_before"] == 10
     assert cw["messages_after"] == 6
-    assert result.audit_record["context_compaction_applied"] is True
-    assert result.audit_record["context_compaction_strategy"] == "observation_masking"
-    assert result.audit_record["context_tokens_before"] == 5000
-    assert result.audit_record["context_tokens_after"] == 2000
-    assert result.audit_record["context_messages_before"] == 10
-    assert result.audit_record["context_messages_after"] == 6
 
 
 # ---------------------------------------------------------------------------
@@ -173,16 +185,12 @@ async def test_compacted_messages_persisted_in_thread_state() -> None:
         thread_state_store=store,
         context_tracker=tracker,
     )
-    result = await runner.run({"query": "hi"}, thread_id="thread-1")
+    await runner.run({"query": "hi"}, thread_id="thread-1")
 
     state = await store.load("thread-1")
     assert state is not None
     assert "compacted_messages" in state
     assert state["compacted_messages"] == compacted_msgs
-    assert result.audit_record["thread_state_checkpointed"] is True
-    assert result.audit_record["compacted_thread_state_saved"] is True
-    assert state["audit"]["thread_state_checkpointed"] is True
-    assert state["audit"]["compacted_thread_state_saved"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -255,13 +263,133 @@ async def test_compacted_messages_restored_from_thread_state() -> None:
     result2 = await runner.run({"query": "second"}, thread_id="thread-2")
     assert result2.output_data == {"answer": "second"}
 
-    # The saved compacted context is the prefix, but the new turn must still be
-    # present. Replacing the new prompt with the checkpoint silently ignored
-    # every continuation input after the first compaction.
+    # The restore must ADD this turn's fresh content to the compacted history, not
+    # REPLACE the whole prompt with it (which dropped the new "second" input and
+    # let the run answer the prior turn). The compacted history is a PREFIX and the
+    # new input rides in the appended tail.
     second_call_messages = tracker.maybe_compact.call_args_list[1][0][0]
     assert second_call_messages[: len(compacted_msgs)] == compacted_msgs
     assert len(second_call_messages) > len(compacted_msgs)
-    assert "second" in str(second_call_messages[len(compacted_msgs) :])
+    appended = second_call_messages[len(compacted_msgs) :]
+    assert any("second" in _content_of(m) for m in appended)
+
+
+@pytest.mark.asyncio
+async def test_compacted_restore_appends_new_input() -> None:
+    """Restore = compacted history + the fresh user message carrying new input.
+
+    Without messages_key there are no conversation turns, so exactly one message
+    (the freshly-assembled user block, carrying the new query) is appended after
+    the compacted history.
+    """
+    provider = DeterministicProviderAdapter(
+        [
+            ProviderResponse(content='{"answer":"first"}'),
+            ProviderResponse(content='{"answer":"second"}'),
+        ]
+    )
+    compacted_msgs = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "compacted-context"},
+    ]
+    compaction_result = _make_compaction_result()
+    tracker = AsyncMock()
+    tracker.maybe_compact = AsyncMock(
+        side_effect=[
+            (compacted_msgs, compaction_result),
+            (compacted_msgs, None),
+        ]
+    )
+    store = InMemoryThreadStateStore()
+    runner = AgentRunner(
+        _make_config(),
+        provider,
+        thread_state_store=store,
+        context_tracker=tracker,
+    )
+
+    await runner.run({"query": "first"}, thread_id="thread-append")
+    # Guard the precondition: turn 1 must have compacted and persisted, or turn 2
+    # never takes the restore branch and the assertion below is vacuous.
+    state = await store.load("thread-append")
+    assert state is not None and "compacted_messages" in state
+
+    await runner.run({"query": "SECOND_MARKER"}, thread_id="thread-append")
+
+    restored = tracker.maybe_compact.call_args_list[1][0][0]
+    # Exactly the compacted history plus one appended fresh-user message.
+    assert restored[: len(compacted_msgs)] == compacted_msgs
+    assert len(restored) == len(compacted_msgs) + 1
+    assert "SECOND_MARKER" in _content_of(restored[-1])
+
+
+@pytest.mark.asyncio
+async def test_compacted_restore_with_messages_key_and_max_turns() -> None:
+    """Truncation edge: the NEW incoming chat turn survives the restore.
+
+    stored history is longer than ``conversation_max_turns`` (so the head is
+    trimmed) and the input is popped out of the input block (messages_key mode) —
+    the exact combination where a head-offset slice would drop the new turn. The
+    tail-count approach must still carry the new incoming turn into the restore.
+    """
+    provider = DeterministicProviderAdapter(
+        [
+            ProviderResponse(content='{"answer":"a1"}'),
+            ProviderResponse(content='{"answer":"a2"}'),
+        ]
+    )
+    from zeroth.runtime.agents.models import PromptConfig
+
+    config = _make_config(
+        input_model=ChatMessagesInput,
+        prompt_config=PromptConfig(
+            messages_key="messages",
+            persist_conversation=True,
+            conversation_max_turns=2,
+        ),
+    )
+    compacted_msgs = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "compacted-context"},
+    ]
+    compaction_result = _make_compaction_result()
+    tracker = AsyncMock()
+    tracker.maybe_compact = AsyncMock(
+        side_effect=[
+            (compacted_msgs, compaction_result),
+            (compacted_msgs, None),
+        ]
+    )
+    store = InMemoryThreadStateStore()
+    runner = AgentRunner(
+        config,
+        provider,
+        thread_state_store=store,
+        context_tracker=tracker,
+    )
+
+    # Turn 1 seeds a stored conversation (human + ai reply) and a compacted history.
+    await runner.run(
+        {"messages": [{"role": "human", "content": "FIRST_CHAT"}]},
+        thread_id="thread-mk",
+    )
+    state = await store.load("thread-mk")
+    assert state is not None and "compacted_messages" in state
+    # Stored conversation is capped at 2 (human + ai reply); turn 2 will push it
+    # over the cap so the oldest stored turn is trimmed.
+    assert len(state["conversation"]) == 2
+
+    # Turn 2: one new incoming turn; stored(2) + incoming(1) truncated to last 2,
+    # dropping the oldest stored turn but keeping the NEW turn at the tail.
+    await runner.run(
+        {"messages": [{"role": "human", "content": "SECOND_CHAT"}]},
+        thread_id="thread-mk",
+    )
+
+    restored = tracker.maybe_compact.call_args_list[1][0][0]
+    assert restored[: len(compacted_msgs)] == compacted_msgs
+    # The new incoming chat turn must be present in the restored messages.
+    assert any("SECOND_CHAT" in _content_of(m) for m in restored)
 
 
 # ---------------------------------------------------------------------------

@@ -52,6 +52,13 @@ class Permission(StrEnum):
     # evaluation service. Keep it outside every tenant-scoped role, including
     # ordinary administrators; only the platform administrator may arm it.
     EVALUATION_ADMIN = "evaluation:admin"
+    # ZER-37: the repository-unit surface. READ covers installations, grants,
+    # ref resolution, checkouts, runs, and attestations; RUN stages checkouts
+    # and admits declared-script executions; ADMIN claims installations into a
+    # tenant (a trust decision -- it attaches an external GitHub grant set).
+    REPOSITORY_READ = "repository:read"
+    REPOSITORY_RUN = "repository:run"
+    REPOSITORY_ADMIN = "repository:admin"
 
 
 ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
@@ -77,6 +84,11 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # tier as starting a run (RUN_CREATE): it is the running system talking
         # about itself, not an operator changing what is governed.
         Permission.ENFORCEMENT_REPORT,
+        # ZER-37: repository units are part of the operator authoring loop --
+        # claim the installation, stage checkouts, run declared scripts.
+        Permission.REPOSITORY_READ,
+        Permission.REPOSITORY_RUN,
+        Permission.REPOSITORY_ADMIN,
     },
     ServiceRole.REVIEWER: {
         Permission.DEPLOYMENT_READ,
@@ -89,6 +101,9 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # read-only governance data, same tier as runs and approvals.
         # Cost/spend (METRICS_READ) stays admin-only.
         Permission.AUDIT_READ,
+        # ZER-37: reviewers read checkouts, runs, and attestations but never
+        # stage or execute (REPOSITORY_RUN/ADMIN stay operator-tier).
+        Permission.REPOSITORY_READ,
     },
     ServiceRole.ADMIN: set(Permission) - {
         Permission.ECON_ADMIN,

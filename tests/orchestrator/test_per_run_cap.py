@@ -100,6 +100,62 @@ async def test_per_run_cap_halts_run_on_next_node(sqlite_db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_per_run_cap_completes_when_final_node_crosses_cap(sqlite_db) -> None:
+    """A run completes when only its FINAL node pushes cumulative spend over the cap.
+
+    Two nodes each cost $0.02; the cap is $0.03. n1 runs (cumulative $0.02 <
+    cap) and dispatches n2; n2 runs (cumulative $0.04 > cap) but there is no
+    next node to gate, so -- matching the legacy driver, which checks the cap
+    only immediately before dispatching the next node -- the run completes
+    instead of failing.
+    """
+    runners = {nid: _CostingRunner(0.02) for nid in ("n1", "n2")}
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
+        agent_runners=runners,
+        executable_unit_runner=None,
+        budget_enforcer=None,
+        per_run_cap_usd=0.03,
+    )
+
+    run = await orchestrator.run_graph(_linear_graph(["n1", "n2"]), {"value": "go"})
+
+    assert run.status is RunStatus.COMPLETED
+    assert run.final_output == {"answer": "ok"}
+    assert runners["n1"].call_count == 1
+    assert runners["n2"].call_count == 1
+    assert [e.node_id for e in run.execution_history] == ["n1", "n2"]
+
+
+@pytest.mark.asyncio
+async def test_per_run_cap_token_mode_halts_on_intermediate_node(sqlite_db) -> None:
+    """In token mode, an INTERMEDIATE node crossing the cap halts the run.
+
+    Three nodes each cost $0.02; the cap is $0.03. n1 and n2 run (cumulative
+    $0.04 > cap) with n3 still queued, so the cap check fires before dispatching
+    n3 and the run fails -- the fix for the final-node case must not weaken this.
+    """
+    runners = {nid: _CostingRunner(0.02) for nid in ("n1", "n2", "n3")}
+    orchestrator = RuntimeOrchestrator(
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
+        agent_runners=runners,
+        executable_unit_runner=None,
+        budget_enforcer=None,
+        per_run_cap_usd=0.03,
+    )
+
+    run = await orchestrator.run_graph(_linear_graph(["n1", "n2", "n3"]), {"value": "go"})
+
+    assert run.status is RunStatus.FAILED
+    assert runners["n1"].call_count == 1
+    assert runners["n2"].call_count == 1
+    assert runners["n3"].call_count == 0
+    assert [e.node_id for e in run.execution_history] == ["n1", "n2"]
+
+
+@pytest.mark.asyncio
 async def test_per_run_cap_none_is_noop(sqlite_db) -> None:
     """With per_run_cap_usd=None the run completes regardless of cost."""
     runners = {nid: _CostingRunner(1.0) for nid in ("n1", "n2", "n3")}
