@@ -151,13 +151,21 @@ async def _approval(sqlite_db, suffix: str):
 async def test_approval_enumerate_api_foreign_matches_unknown(sqlite_db, monkeypatch) -> None:
     app, service, deployment, _ = await _approval(sqlite_db, "approval-enumerate")
     calls = []
-    original = service.approval_service.list_pending
+    # Record the method the route actually calls. Deployment and graph scoping
+    # moved out of the repository query into `_filter_visible_records`, so
+    # `list_pending` now legitimately receives only tenant/workspace and pinning
+    # it there asserted an internal shape rather than the API's scoping.
+    original = service.approval_service.list_pending_visible_to_deployment
 
     async def recording_list_pending(**scope):
         calls.append(scope)
         return await original(**scope)
 
-    monkeypatch.setattr(service.approval_service, "list_pending", recording_list_pending)
+    monkeypatch.setattr(
+        service.approval_service,
+        "list_pending_visible_to_deployment",
+        recording_list_pending,
+    )
     with TestClient(app) as client:
         assert (
             client.get(
@@ -190,13 +198,18 @@ async def test_approval_enumerate_api_foreign_matches_unknown(sqlite_db, monkeyp
 async def test_approval_retrieve_api_foreign_id_matches_unknown(sqlite_db, monkeypatch) -> None:
     app, service, deployment, record = await _approval(sqlite_db, "approval-retrieve")
     calls = []
-    original = service.approval_service.get
+    # Same move as the enumerate case: the route reads through
+    # `get_visible_to_deployment`, which is where the deployment and graph scope
+    # is applied, so that is the call whose scope this test is about.
+    original = service.approval_service.get_visible_to_deployment
 
     async def recording_get(approval_id, **scope):
         calls.append(scope)
         return await original(approval_id, **scope)
 
-    monkeypatch.setattr(service.approval_service, "get", recording_get)
+    monkeypatch.setattr(
+        service.approval_service, "get_visible_to_deployment", recording_get
+    )
     base = f"/deployments/{deployment.deployment_ref}/approvals"
     with TestClient(app) as client:
         assert (

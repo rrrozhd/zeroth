@@ -319,6 +319,11 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
             tenant_id=principal.tenant_id,
             workspace_id=target_workspace_id,
             workspace_scoped=True,
+            # ZER-32: the timeline is a deployment-scoped read. This kwarg was
+            # dropped when the endpoint was refactored, leaving
+            # target_deployment_ref feeding only the response body, so the query
+            # itself narrowed no further than tenant+workspace.
+            deployment_ref=target_deployment_ref,
         )
         if run is None and not records:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
