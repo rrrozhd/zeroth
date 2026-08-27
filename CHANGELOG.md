@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1.5]
+
+### Fixed
+
+- `test_fresh_head_matches_upgraded_task9_schema` compared a database at revision 025 against one
+  taken to head, so it was asserting that two different revisions agree. That held only while
+  nothing after 025 touched the schema; migration 031 added `runs.parent_run_id` and
+  `idx_runs_parent`. Both databases now go to head, which is what the test's name claims.
+
 ## [0.25.1.4]
 
 ### Changed
