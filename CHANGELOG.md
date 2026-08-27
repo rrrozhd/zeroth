@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1.3]
+
+### Fixed
+
+- The repo bundle summary gained five cost/reconciliation fields; the expectation now pins them
+  rather than asserting a four-key subset. Their values are deterministic here — the run makes no
+  priced call — so the assertion stays exact.
+- The artifact observability expectation asserted `application/octet-stream`. The retrieval route
+  echoes the artifact's *stored* content type and only falls back to octet-stream when the reference
+  is missing, so that described the fallback rather than this fixture, which stores text.
+  `tests/security/` is now fully green.
+
 ## [0.25.1.2]
 
 ### Fixed
