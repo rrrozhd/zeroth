@@ -1,6 +1,6 @@
 # Deploy the LangGraph release
 
-This is the canonical clean install and operations path for Zeroth `0.25.0.3`.
+This is the canonical clean install and operations path for Zeroth `0.25.0.4`.
 The tested compatibility matrix is LangGraph `1.2.9`, Agent Server `0.11.1`,
 and Zeroth adapter `1.0`.
 
@@ -18,7 +18,7 @@ so the documented version is installed from source):
 ```bash
 git clone https://github.com/rrrozhd/zeroth.git
 cd zeroth
-git checkout v0.25.0.3
+git checkout v0.25.0.4
 uv sync --extra langgraph --extra langgraph-gateway
 ```
 

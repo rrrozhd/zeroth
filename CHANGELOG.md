@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0.4]
+
+### Fixed
+
+- Bind the admin run-control tests' audit repository to the deployment's own scope. The recorder
+  refuses a write whose tenant differs from the one it is bound to, and `for_default_compatibility`
+  binds a different tenant entirely, so the cross-scope assertion these tests exist for was never
+  reached. `tests/dispatch/` now has one failure instead of seventeen; the remaining one is a genuine
+  recovery defect on `main`, left for whoever owns it.
+
 ## [0.25.0.3]
 
 ### Fixed
