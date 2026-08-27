@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1]
+
+### Security
+
+- **Restore deployment scoping on the audit timeline read.** `GET /runs/{run_id}/timeline` stopped
+  passing `deployment_ref` to `list_by_run` when the endpoint was refactored in `e850cca3`, leaving
+  `target_deployment_ref` feeding only the response body while the query narrowed no further than
+  tenant + workspace. The ZER-32 regression test added in `7249ca04` has been failing on `main` ever
+  since, which is exactly what it was written to catch.
+
+### Fixed
+
+- Point the two approval isolation tests at the methods that now carry the scope
+  (`list_pending_visible_to_deployment`, `get_visible_to_deployment`). Deployment and graph filtering
+  moved out of the repository query into `_filter_visible_records`, so asserting on `list_pending`
+  pinned an internal shape rather than the API's scoping. Isolation itself was intact — only the
+  call being observed had moved.
+
 ## [0.25.0.6]
 
 ### Fixed
