@@ -274,9 +274,13 @@ class TestListNodeTypes:
         # whose source is authored inline. It is no longer the same list as the
         # *palette*: "mcp_tool" is registered so the canvas can resolve its
         # ports (a node with none would draw without handles and its tool edge
-        # would silently fail to attach) but is served creatable=False and
-        # filtered out of the palette, because an imported tool is pinned to a
-        # schema digest canvas authoring cannot produce.
+        # would silently fail to attach) but it is served in the "imported"
+        # category, which the palette filters out, because an imported tool is
+        # pinned to a schema digest canvas authoring cannot produce.
+        #
+        # The category carries this rather than a dedicated flag: NodeTypeResponse
+        # is an immutable legacy capability pinned in backend_surface_legacy.json,
+        # so it may not gain a field.
         type_names = {item["type"] for item in data}
         assert type_names == {
             "agent",
@@ -291,9 +295,10 @@ class TestListNodeTypes:
             "retrieval",
             "subgraph",
         }
-        creatable = {item["type"] for item in data if item.get("creatable", True)}
-        assert "mcp_tool" not in creatable
-        assert creatable == type_names - {"mcp_tool"}
+        palette = {item["type"] for item in data if item["category"] != "imported"}
+        assert "mcp_tool" not in palette
+        assert palette == type_names - {"mcp_tool"}
+        assert {item["category"] for item in data if item["type"] == "mcp_tool"} == {"imported"}
         # Each should have type, label, category, ports
         for item in data:
             assert "type" in item
