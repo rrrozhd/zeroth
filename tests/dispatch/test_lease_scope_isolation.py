@@ -369,13 +369,18 @@ async def test_duplicate_run_id_admin_cancel_clears_only_its_scope(
         run_repository=owner_repository,
         lease_manager=lease_manager,
         # Admin run-control answers 503 unless it can record an audit entry, so
-        # a bootstrap without this never reaches the scope check under test.
-        audit_repository=AuditRepository.for_default_compatibility(dual_database),
+        # a bootstrap without this never reaches the scope check under test. It has
+        # to be bound to the deployment's own scope: the recorder refuses a write
+        # whose tenant differs from the one it is bound to, and the default-
+        # compatibility scope is a different tenant entirely.
+        audit_repository=AuditRepository.scoped(
+            dual_database, ScopeContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A)
+        ),
     )
     # Run control now records who cancelled, so the permission check has to hand
     # back a real principal (the recorder calls to_actor on it); a bare AsyncMock
-    # returns a coroutine and the audit
-    # record fails validation before the scope assertion is ever reached.
+    # returns a coroutine and the audit record fails validation before the scope
+    # assertion is ever reached.
     monkeypatch.setattr(
         admin_api,
         "require_permission",
@@ -446,8 +451,8 @@ async def test_duplicate_run_id_admin_replay_requeues_only_its_scope(
     )
     # Run control now records who cancelled, so the permission check has to hand
     # back a real principal (the recorder calls to_actor on it); a bare AsyncMock
-    # returns a coroutine and the audit
-    # record fails validation before the scope assertion is ever reached.
+    # returns a coroutine and the audit record fails validation before the scope
+    # assertion is ever reached.
     monkeypatch.setattr(
         admin_api,
         "require_permission",
