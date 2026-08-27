@@ -9,13 +9,29 @@ import pytest
 from zeroth.service.bootstrap.migrations import run_migrations
 
 
+def _migration_head() -> str:
+    """The single head of the service migration chain."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config("alembic.ini")
+    config.set_main_option("script_location", "src/zeroth/service/_migrations")
+    heads = ScriptDirectory.from_config(config).get_heads()
+    assert len(heads) == 1, f"expected one migration head, got {heads}"
+    return heads[0]
+
+
 def test_027_is_greenfield_scoped_unique_and_events_are_append_only(tmp_path) -> None:
     database_path = tmp_path / "certifications.db"
     run_migrations(f"sqlite:///{database_path}")
     connection = sqlite3.connect(database_path)
     try:
+        # Derived, not pinned: this test is about 027's shape, and the head is
+        # only here to prove the chain ran to the end. A literal made it fail on
+        # every later migration -- it still said "029" at head 034 -- which is
+        # noise, not a signal about certifications.
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "029",
+            _migration_head(),
         )
         assert connection.execute("SELECT COUNT(*) FROM app_certifications").fetchone() == (0,)
         event_columns = {

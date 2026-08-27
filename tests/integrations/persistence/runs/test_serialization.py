@@ -94,6 +94,10 @@ def _run_row(**overrides: object) -> dict[str, object]:
         "audit_refs": to_json_value(["audit-1"]),
         "final_output": None,
         "failure_state": None,
+        # Persisted since migration 031 (parent-run lineage) and read
+        # unconditionally by the deserializer, so a row without it is not a row
+        # the database can produce.
+        "parent_run_id": None,
     }
     row.update(overrides)
     return row
