@@ -53,6 +53,16 @@ def _worker(
     worker._lease_generations = {}
     worker._stopping = False
     worker.poll_interval = 0.01
+    # `start()` reconciles child approvals before the poll loop, which reads
+    # `self.orchestrator`. This helper builds a deliberately partial worker via
+    # __new__, so the attribute has to be supplied; an orchestrator with no
+    # approval_service makes that step a no-op, which is what these tests want.
+    worker.orchestrator = SimpleNamespace()
+    # `_schedule_orphan_recovery` refuses to start a second sweep while one is
+    # live, and `start()` stamps the next sweep deadline afterwards.
+    worker._orphan_recovery_task = None
+    worker._next_orphan_sweep_at = None
+    worker.orphan_sweep_interval = 60.0
 
     class _Leases:
         def __init__(self) -> None:

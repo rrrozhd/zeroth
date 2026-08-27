@@ -12,6 +12,8 @@ import pytest
 from tests.conftest import requires_docker
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
+from zeroth.governance.audit import AuditRepository
+from zeroth.governance.identity.models import AuthenticatedPrincipal, AuthMethod
 from zeroth.platform.dispatch.lease import LeaseManager
 from zeroth.platform.storage.scoping import ScopeContext
 from zeroth.runtime.runs import Run, RunFailureState, RunStatus
@@ -366,8 +368,26 @@ async def test_duplicate_run_id_admin_cancel_clears_only_its_scope(
         deployment=deployment,
         run_repository=owner_repository,
         lease_manager=lease_manager,
+        # Admin run-control answers 503 unless it can record an audit entry, so
+        # a bootstrap without this never reaches the scope check under test.
+        audit_repository=AuditRepository.for_default_compatibility(dual_database),
     )
-    monkeypatch.setattr(admin_api, "require_permission", AsyncMock())
+    # Run control now records who cancelled, so the permission check has to hand
+    # back a real principal (the recorder calls to_actor on it); a bare AsyncMock
+    # returns a coroutine and the audit
+    # record fails validation before the scope assertion is ever reached.
+    monkeypatch.setattr(
+        admin_api,
+        "require_permission",
+        AsyncMock(
+            return_value=AuthenticatedPrincipal(
+                subject="scope-isolation-operator",
+                auth_method=AuthMethod.API_KEY,
+                tenant_id=TENANT_A,
+                workspace_id=WORKSPACE_A,
+            )
+        ),
+    )
     monkeypatch.setattr(admin_api, "require_deployment_scope", AsyncMock())
     request = Request(
         {
@@ -424,7 +444,22 @@ async def test_duplicate_run_id_admin_replay_requeues_only_its_scope(
         deployment=deployment,
         run_repository=owner_repository,
     )
-    monkeypatch.setattr(admin_api, "require_permission", AsyncMock())
+    # Run control now records who cancelled, so the permission check has to hand
+    # back a real principal (the recorder calls to_actor on it); a bare AsyncMock
+    # returns a coroutine and the audit
+    # record fails validation before the scope assertion is ever reached.
+    monkeypatch.setattr(
+        admin_api,
+        "require_permission",
+        AsyncMock(
+            return_value=AuthenticatedPrincipal(
+                subject="scope-isolation-operator",
+                auth_method=AuthMethod.API_KEY,
+                tenant_id=TENANT_A,
+                workspace_id=WORKSPACE_A,
+            )
+        ),
+    )
     monkeypatch.setattr(admin_api, "require_deployment_scope", AsyncMock())
     request = Request(
         {

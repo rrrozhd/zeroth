@@ -81,7 +81,16 @@ class _FakeGraph:
 class _GenerationReadFails(LeaseManager):
     """The lease-store read at the top of the setup window throws."""
 
-    async def current_generation(self, run_id: str) -> int | None:
+    async def current_generation(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: object = None,
+    ) -> int | None:
+        # Mirrors LeaseManager.current_generation, which is scope-aware: a double
+        # that only accepts run_id makes the caller fail on a TypeError instead of
+        # exercising the read failure this test is about.
         raise RuntimeError("lease store read failed")
 
 
@@ -292,7 +301,10 @@ async def test_a_contended_snapshot_does_not_strand_the_shutdown_batch() -> None
 
     released: list[str] = []
 
-    async def _release(run_id: str) -> None:
+    async def _release(run_id: str, *, generation: int | None = None) -> None:
+        # `_release_to_pending` takes the lease generation it observed; accept and
+        # ignore it so this stub matches the method it replaces.
+        del generation
         released.append(run_id)
 
     worker._release_to_pending = _release  # type: ignore[method-assign]
