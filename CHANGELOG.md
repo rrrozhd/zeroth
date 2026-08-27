@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0.6]
+
+### Fixed
+
+- Register the five `/v1/mcp` routes in the product-validation catalog as machine-only. They are
+  operator-only with no console surface, which is exactly what `machine_only_exclusions` is for, and
+  without them `test_catalog_backend_operations_cover_stable_public_openapi` counted them as
+  unmapped. The ten certifications/guardrails operations still unmapped there are pre-existing on
+  `main` and do have console surfaces, so they belong to a capability rather than an exclusion.
+
 ## [0.25.0.5]
 
 ### Fixed

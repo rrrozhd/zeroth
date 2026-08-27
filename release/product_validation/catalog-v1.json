@@ -14,96 +14,324 @@
       "role_denial_when_scoped"
     ],
     "select_options": "every_enabled_option",
-    "checkbox_states": [false, true],
+    "checkbox_states": [
+      false,
+      true
+    ],
     "conditional_fields": "appearance_and_disappearance",
     "credential_capture": "masked_only"
   },
   "capabilities": [
     {
       "capability_id": "shell-navigation",
-      "routes": ["/", "/approvals", "/artifacts", "/audit", "/connectors", "/cost", "/deployments", "/guide", "/metrics", "/regulus", "/regulus/capabilities", "/regulus/costing", "/regulus/enforcement", "/regulus/reconciliation", "/retention", "/rightsizing", "/runs", "/studio", "/studio/edit", "/templates", "/webhooks"],
-      "control_patterns": ["*.link.*", "*.button.connection-settings", "*.button.collapse-navigation"],
-      "backend_operations": ["GET /health*", "GET /v1/identity"],
-      "checkpoints": ["configured", "result", "failure", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"],
+      "routes": [
+        "/",
+        "/approvals",
+        "/artifacts",
+        "/audit",
+        "/connectors",
+        "/cost",
+        "/deployments",
+        "/guide",
+        "/metrics",
+        "/regulus",
+        "/regulus/capabilities",
+        "/regulus/costing",
+        "/regulus/enforcement",
+        "/regulus/reconciliation",
+        "/retention",
+        "/rightsizing",
+        "/runs",
+        "/studio",
+        "/studio/edit",
+        "/templates",
+        "/webhooks"
+      ],
+      "control_patterns": [
+        "*.link.*",
+        "*.button.connection-settings",
+        "*.button.collapse-navigation"
+      ],
+      "backend_operations": [
+        "GET /health*",
+        "GET /v1/identity"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "failure",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ],
       "tenant_scoped": false
     },
     {
       "capability_id": "connection-and-identity",
-      "routes": ["/", "/guide"],
-      "control_patterns": ["overview.*", "guide.*", "shell.connection.*"],
-      "backend_operations": ["GET /health*", "GET /v1/identity"],
-      "checkpoints": ["configured", "result", "failure", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"],
+      "routes": [
+        "/",
+        "/guide"
+      ],
+      "control_patterns": [
+        "overview.*",
+        "guide.*",
+        "shell.connection.*"
+      ],
+      "backend_operations": [
+        "GET /health*",
+        "GET /v1/identity"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "failure",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ],
       "tenant_scoped": false
     },
     {
       "capability_id": "tenant-and-role-isolation",
-      "routes": ["/runs", "/approvals", "/audit", "/cost", "/retention"],
-      "control_patterns": ["shell.connection.*", "*.scope.*"],
-      "backend_operations": ["GET /v1/admin/*"],
-      "checkpoints": ["configured", "result", "denied", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/runs",
+        "/approvals",
+        "/audit",
+        "/cost",
+        "/retention"
+      ],
+      "control_patterns": [
+        "shell.connection.*",
+        "*.scope.*"
+      ],
+      "backend_operations": [
+        "GET /v1/admin/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "denied",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "studio-authoring",
-      "routes": ["/studio", "/studio/edit"],
-      "control_patterns": ["studio.*"],
-      "backend_operations": ["GET /api/studio/*", "POST /api/studio/*", "PUT /api/studio/*", "DELETE /api/studio/*"],
-      "checkpoints": ["configured", "result", "validation", "persistence"],
-      "roles": ["operator", "admin", "platform_admin"]
+      "routes": [
+        "/studio",
+        "/studio/edit"
+      ],
+      "control_patterns": [
+        "studio.*"
+      ],
+      "backend_operations": [
+        "GET /api/studio/*",
+        "POST /api/studio/*",
+        "PUT /api/studio/*",
+        "DELETE /api/studio/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "validation",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "agent-tool-use",
-      "routes": ["/studio/edit", "/runs", "/audit"],
-      "control_patterns": ["studio.*tool*", "runs.*", "audit.*"],
-      "backend_operations": ["POST /v1/runs", "GET /v1/runs/*"],
-      "checkpoints": ["configured", "result", "denied", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/studio/edit",
+        "/runs",
+        "/audit"
+      ],
+      "control_patterns": [
+        "studio.*tool*",
+        "runs.*",
+        "audit.*"
+      ],
+      "backend_operations": [
+        "POST /v1/runs",
+        "GET /v1/runs/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "denied",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "inline-and-manifest-code",
-      "routes": ["/studio/edit", "/metrics", "/runs"],
-      "control_patterns": ["studio.*code*", "studio.*manifest*", "metrics.*manifest*"],
-      "backend_operations": ["GET /v1/manifests", "GET /v1/manifests/{manifest_ref}", "GET /v1/manifests/{manifest_ref}/runs", "POST /v1/runs"],
-      "checkpoints": ["configured", "result", "sandbox-denied", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/studio/edit",
+        "/metrics",
+        "/runs"
+      ],
+      "control_patterns": [
+        "studio.*code*",
+        "studio.*manifest*",
+        "metrics.*manifest*"
+      ],
+      "backend_operations": [
+        "GET /v1/manifests",
+        "GET /v1/manifests/{manifest_ref}",
+        "GET /v1/manifests/{manifest_ref}/runs",
+        "POST /v1/runs"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "sandbox-denied",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "connectors-and-retrieval",
-      "routes": ["/connectors", "/studio/edit", "/runs"],
-      "control_patterns": ["connectors.*", "studio.*retrieval*"],
-      "backend_operations": ["GET /v1/connectors*", "POST /v1/connectors*", "PUT /v1/connectors*", "DELETE /v1/connectors*"],
-      "checkpoints": ["configured", "result", "failure", "persistence"],
-      "roles": ["operator", "admin", "platform_admin"]
+      "routes": [
+        "/connectors",
+        "/studio/edit",
+        "/runs"
+      ],
+      "control_patterns": [
+        "connectors.*",
+        "studio.*retrieval*"
+      ],
+      "backend_operations": [
+        "GET /v1/connectors*",
+        "POST /v1/connectors*",
+        "PUT /v1/connectors*",
+        "DELETE /v1/connectors*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "failure",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "batching-and-joins",
-      "routes": ["/studio/edit", "/runs"],
-      "control_patterns": ["studio.*parallel*", "studio.*batch*", "studio.*join*"],
-      "backend_operations": ["POST /v1/runs", "GET /v1/runs/*"],
-      "checkpoints": ["configured", "result", "partial-failure", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/studio/edit",
+        "/runs"
+      ],
+      "control_patterns": [
+        "studio.*parallel*",
+        "studio.*batch*",
+        "studio.*join*"
+      ],
+      "backend_operations": [
+        "POST /v1/runs",
+        "GET /v1/runs/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "partial-failure",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "loops",
-      "routes": ["/studio/edit", "/runs"],
-      "control_patterns": ["studio.*loop*", "runs.*routing*"],
-      "backend_operations": ["POST /v1/runs", "GET /v1/runs/*"],
-      "checkpoints": ["configured", "result", "limit", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/studio/edit",
+        "/runs"
+      ],
+      "control_patterns": [
+        "studio.*loop*",
+        "runs.*routing*"
+      ],
+      "backend_operations": [
+        "POST /v1/runs",
+        "GET /v1/runs/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "limit",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "subgraphs",
-      "routes": ["/studio/edit", "/runs"],
-      "control_patterns": ["studio.*subgraph*", "runs.*"],
-      "backend_operations": ["POST /v1/runs", "GET /v1/runs/*"],
-      "checkpoints": ["configured", "result", "child-failure", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/studio/edit",
+        "/runs"
+      ],
+      "control_patterns": [
+        "studio.*subgraph*",
+        "runs.*"
+      ],
+      "backend_operations": [
+        "POST /v1/runs",
+        "GET /v1/runs/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "child-failure",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "context-windows-and-threads",
-      "routes": ["/studio/edit", "/runs"],
+      "routes": [
+        "/studio/edit",
+        "/runs"
+      ],
       "control_patterns": [
         "studio.agent.context-window.*",
         "studio.agent.input-messages-key",
@@ -111,115 +339,431 @@
         "studio.agent.conversation-max-turns",
         "runs.*thread*"
       ],
-      "backend_operations": ["POST /v1/runs", "GET /v1/runs/*"],
-      "checkpoints": ["configured", "result", "compaction", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "backend_operations": [
+        "POST /v1/runs",
+        "GET /v1/runs/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "compaction",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "runs",
-      "routes": ["/runs"],
-      "control_patterns": ["runs.*"],
-      "backend_operations": ["GET /v1/admin/runs", "POST /v1/admin/runs/*", "GET /v1/runs/*", "POST /v1/runs*", "POST /v1/deployments/*/operations/*/resolve"],
-      "checkpoints": ["configured", "result", "failure", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/runs"
+      ],
+      "control_patterns": [
+        "runs.*"
+      ],
+      "backend_operations": [
+        "GET /v1/admin/runs",
+        "POST /v1/admin/runs/*",
+        "GET /v1/runs/*",
+        "POST /v1/runs*",
+        "POST /v1/deployments/*/operations/*/resolve"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "failure",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "approvals",
-      "routes": ["/approvals", "/studio/edit", "/runs"],
-      "control_patterns": ["approvals.*", "studio.*approval*"],
-      "backend_operations": ["GET /v1/deployments/*/approvals*", "POST /v1/deployments/*/approvals*", "POST /v1/deployments/*/operations/*"],
-      "checkpoints": ["configured", "result", "rejected", "persistence"],
-      "roles": ["reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/approvals",
+        "/studio/edit",
+        "/runs"
+      ],
+      "control_patterns": [
+        "approvals.*",
+        "studio.*approval*"
+      ],
+      "backend_operations": [
+        "GET /v1/deployments/*/approvals*",
+        "POST /v1/deployments/*/approvals*",
+        "POST /v1/deployments/*/operations/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "rejected",
+        "persistence"
+      ],
+      "roles": [
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "audit",
-      "routes": ["/audit", "/runs", "/deployments"],
-      "control_patterns": ["audit.*", "runs.*evidence*", "deployments.*audit*"],
-      "backend_operations": ["GET /v1/audit-readiness", "GET /v1/deployments/*", "GET /v1/runs/*", "POST /v1/runs/*/verify-chain", "GET /v1/admin/audits"],
-      "checkpoints": ["configured", "result", "broken-chain", "persistence"],
-      "roles": ["reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/audit",
+        "/runs",
+        "/deployments"
+      ],
+      "control_patterns": [
+        "audit.*",
+        "runs.*evidence*",
+        "deployments.*audit*"
+      ],
+      "backend_operations": [
+        "GET /v1/audit-readiness",
+        "GET /v1/deployments/*",
+        "GET /v1/runs/*",
+        "POST /v1/runs/*/verify-chain",
+        "GET /v1/admin/audits"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "broken-chain",
+        "persistence"
+      ],
+      "roles": [
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "deployments-and-rollbacks",
-      "routes": ["/deployments", "/studio/edit"],
-      "control_patterns": ["deployments.*", "studio.*deploy*"],
-      "backend_operations": ["GET /v1/deployments*", "POST /v1/deployments*"],
-      "checkpoints": ["configured", "result", "rollback", "persistence"],
-      "roles": ["operator", "admin", "platform_admin"]
+      "routes": [
+        "/deployments",
+        "/studio/edit"
+      ],
+      "control_patterns": [
+        "deployments.*",
+        "studio.*deploy*"
+      ],
+      "backend_operations": [
+        "GET /v1/deployments*",
+        "POST /v1/deployments*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "rollback",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "artifacts",
-      "routes": ["/artifacts", "/runs", "/retention"],
-      "control_patterns": ["artifacts.*", "artifacts-*", "runs.*artifact*", "retention.*artifact*"],
-      "backend_operations": ["GET /v1/artifacts/*"],
-      "checkpoints": ["configured", "result", "workflow-output", "preview-download", "tenant-isolation", "expiry", "erasure", "not-found", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/artifacts",
+        "/runs",
+        "/retention"
+      ],
+      "control_patterns": [
+        "artifacts.*",
+        "artifacts-*",
+        "runs.*artifact*",
+        "retention.*artifact*"
+      ],
+      "backend_operations": [
+        "GET /v1/artifacts/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "workflow-output",
+        "preview-download",
+        "tenant-isolation",
+        "expiry",
+        "erasure",
+        "not-found",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "templates",
-      "routes": ["/templates", "/studio/edit"],
-      "control_patterns": ["templates.*", "templates-*", "studio.*template*"],
-      "backend_operations": ["GET /v1/templates*", "POST /v1/templates*", "DELETE /v1/templates*"],
-      "checkpoints": ["configured", "result", "validation", "secret-redaction", "field-validation", "versioning", "twin-tenant-scope-isolation", "refresh-persistence", "backend-restart-persistence", "delete-version", "keyboard", "accessibility", "persistence"],
-      "roles": ["admin", "platform_admin"]
+      "routes": [
+        "/templates",
+        "/studio/edit"
+      ],
+      "control_patterns": [
+        "templates.*",
+        "templates-*",
+        "studio.*template*"
+      ],
+      "backend_operations": [
+        "GET /v1/templates*",
+        "POST /v1/templates*",
+        "DELETE /v1/templates*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "validation",
+        "secret-redaction",
+        "field-validation",
+        "versioning",
+        "twin-tenant-scope-isolation",
+        "refresh-persistence",
+        "backend-restart-persistence",
+        "delete-version",
+        "keyboard",
+        "accessibility",
+        "persistence"
+      ],
+      "roles": [
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "webhooks",
-      "routes": ["/webhooks"],
-      "control_patterns": ["webhooks.*"],
-      "backend_operations": ["GET /v1/webhooks/*", "POST /v1/webhooks/*", "DELETE /v1/webhooks/*"],
-      "checkpoints": ["configured", "result", "dead-letter", "persistence"],
-      "roles": ["admin", "platform_admin"]
+      "routes": [
+        "/webhooks"
+      ],
+      "control_patterns": [
+        "webhooks.*"
+      ],
+      "backend_operations": [
+        "GET /v1/webhooks/*",
+        "POST /v1/webhooks/*",
+        "DELETE /v1/webhooks/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "dead-letter",
+        "persistence"
+      ],
+      "roles": [
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "retention-and-erasure",
-      "routes": ["/retention"],
-      "control_patterns": ["retention.*"],
-      "backend_operations": ["GET /v1/retention/*", "POST /v1/retention/*", "PUT /v1/retention/*", "DELETE /v1/retention/*"],
-      "checkpoints": ["configured", "result", "held", "persistence"],
-      "roles": ["admin", "platform_admin"]
+      "routes": [
+        "/retention"
+      ],
+      "control_patterns": [
+        "retention.*"
+      ],
+      "backend_operations": [
+        "GET /v1/retention/*",
+        "POST /v1/retention/*",
+        "PUT /v1/retention/*",
+        "DELETE /v1/retention/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "held",
+        "persistence"
+      ],
+      "roles": [
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "economics-and-rightsizing",
-      "routes": ["/cost", "/rightsizing", "/regulus", "/regulus/costing", "/regulus/reconciliation"],
-      "control_patterns": ["cost.*", "rightsizing.*", "regulus.*"],
-      "backend_operations": ["GET /v1/econ/*", "POST /v1/econ/*", "GET /v1/tenants/*", "PUT /v1/tenants/*"],
-      "checkpoints": ["configured", "result", "budget-denied", "tenant-deployment-run-measured-reconciliation", "estimated-failed-run-tax-separation", "persistence"],
-      "roles": ["admin", "platform_admin"]
+      "routes": [
+        "/cost",
+        "/rightsizing",
+        "/regulus",
+        "/regulus/costing",
+        "/regulus/reconciliation"
+      ],
+      "control_patterns": [
+        "cost.*",
+        "rightsizing.*",
+        "regulus.*"
+      ],
+      "backend_operations": [
+        "GET /v1/econ/*",
+        "POST /v1/econ/*",
+        "GET /v1/tenants/*",
+        "PUT /v1/tenants/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "budget-denied",
+        "tenant-deployment-run-measured-reconciliation",
+        "estimated-failed-run-tax-separation",
+        "persistence"
+      ],
+      "roles": [
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "governance-and-enforcement",
-      "routes": ["/regulus/capabilities", "/regulus/enforcement"],
-      "control_patterns": ["regulus.*capability*", "regulus.*enforcement*"],
-      "backend_operations": ["GET /v1/enforcement/*", "GET /v1/econ/regulus/*", "POST /v1/econ/regulus/*"],
-      "checkpoints": ["configured", "result", "denied", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/regulus/capabilities",
+        "/regulus/enforcement"
+      ],
+      "control_patterns": [
+        "regulus.*capability*",
+        "regulus.*enforcement*"
+      ],
+      "backend_operations": [
+        "GET /v1/enforcement/*",
+        "GET /v1/econ/regulus/*",
+        "POST /v1/econ/regulus/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "denied",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "metrics-and-manifests",
-      "routes": ["/metrics"],
-      "control_patterns": ["metrics.*"],
-      "backend_operations": ["GET /v1/metrics", "GET /v1/manifests"],
-      "checkpoints": ["configured", "result", "failure", "persistence"],
-      "roles": ["admin", "platform_admin"]
+      "routes": [
+        "/metrics"
+      ],
+      "control_patterns": [
+        "metrics.*"
+      ],
+      "backend_operations": [
+        "GET /v1/metrics",
+        "GET /v1/manifests"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "failure",
+        "persistence"
+      ],
+      "roles": [
+        "admin",
+        "platform_admin"
+      ]
     },
     {
       "capability_id": "resilient-http",
-      "routes": ["/studio/edit", "/runs", "/audit", "/cost"],
-      "control_patterns": ["studio.http_request.*", "runs.*http*", "audit.*", "cost.*"],
-      "backend_operations": ["GET /api/studio/v1/node-types", "PUT /api/studio/v1/workflows/*", "POST /v1/runs", "GET /v1/runs/*", "POST /v1/runs/*/verify-chain", "GET /v1/econ/*"],
-      "checkpoints": ["configured", "result", "retry-exhaustion", "circuit-open", "recovery", "sanitized-signed-audit", "zero-provider-economics", "persistence"],
-      "roles": ["operator", "reviewer", "admin", "platform_admin"]
+      "routes": [
+        "/studio/edit",
+        "/runs",
+        "/audit",
+        "/cost"
+      ],
+      "control_patterns": [
+        "studio.http_request.*",
+        "runs.*http*",
+        "audit.*",
+        "cost.*"
+      ],
+      "backend_operations": [
+        "GET /api/studio/v1/node-types",
+        "PUT /api/studio/v1/workflows/*",
+        "POST /v1/runs",
+        "GET /v1/runs/*",
+        "POST /v1/runs/*/verify-chain",
+        "GET /v1/econ/*"
+      ],
+      "checkpoints": [
+        "configured",
+        "result",
+        "retry-exhaustion",
+        "circuit-open",
+        "recovery",
+        "sanitized-signed-audit",
+        "zero-provider-economics",
+        "persistence"
+      ],
+      "roles": [
+        "operator",
+        "reviewer",
+        "admin",
+        "platform_admin"
+      ]
     }
   ],
   "machine_only_exclusions": [
-    {"operation": "POST /v1/enforcement/attestations", "reason": "deployment self-report callback"},
-    {"operation": "POST /v1/enforcement/decisions", "reason": "deployment policy-decision callback"},
-    {"operation": "POST /v1/enforcement/heartbeats", "reason": "deployment liveness callback"},
-    {"operation": "POST /v1/enforcement/registrations", "reason": "deployment inventory callback"},
-    {"operation": "POST /v1/langgraph/deployments/{deployment_ref}/attestations", "reason": "LangGraph adapter callback"},
-    {"operation": "POST /v1/langgraph/deployments/{deployment_ref}/decisions", "reason": "LangGraph adapter callback"},
-    {"operation": "POST /v1/langgraph/deployments/{deployment_ref}/heartbeat", "reason": "LangGraph adapter callback"},
-    {"operation": "POST /v1/langgraph/deployments/{deployment_ref}/inventories", "reason": "LangGraph adapter callback"}
+    {
+      "operation": "DELETE /v1/mcp/servers/{ref}",
+      "reason": "MCP server registry: operator-only, no console surface yet"
+    },
+    {
+      "operation": "GET /v1/mcp/servers",
+      "reason": "MCP server registry: operator-only, no console surface yet"
+    },
+    {
+      "operation": "GET /v1/mcp/servers/{ref}/tools",
+      "reason": "MCP tool discovery: driven by zeroth-core mcp-import"
+    },
+    {
+      "operation": "POST /v1/enforcement/attestations",
+      "reason": "deployment self-report callback"
+    },
+    {
+      "operation": "POST /v1/enforcement/decisions",
+      "reason": "deployment policy-decision callback"
+    },
+    {
+      "operation": "POST /v1/enforcement/heartbeats",
+      "reason": "deployment liveness callback"
+    },
+    {
+      "operation": "POST /v1/enforcement/registrations",
+      "reason": "deployment inventory callback"
+    },
+    {
+      "operation": "POST /v1/langgraph/deployments/{deployment_ref}/attestations",
+      "reason": "LangGraph adapter callback"
+    },
+    {
+      "operation": "POST /v1/langgraph/deployments/{deployment_ref}/decisions",
+      "reason": "LangGraph adapter callback"
+    },
+    {
+      "operation": "POST /v1/langgraph/deployments/{deployment_ref}/heartbeat",
+      "reason": "LangGraph adapter callback"
+    },
+    {
+      "operation": "POST /v1/langgraph/deployments/{deployment_ref}/inventories",
+      "reason": "LangGraph adapter callback"
+    },
+    {
+      "operation": "POST /v1/mcp/servers",
+      "reason": "MCP server registry: operator-only, no console surface yet"
+    },
+    {
+      "operation": "PUT /v1/mcp/servers/{ref}",
+      "reason": "MCP server registry: operator-only, no console surface yet"
+    }
   ]
 }
