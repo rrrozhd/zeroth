@@ -214,12 +214,25 @@ async def test_health_endpoint_returns_success(sqlite_db) -> None:
         response = client.get("/health", headers=operator_headers())
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "ok",
-        "deployment_ref": deployment.deployment_ref,
-        "deployment_version": deployment.version,
-        "graph_version_ref": deployment.graph_version_ref,
+    body = response.json()
+    # The key set is still pinned exactly, so a field leaking onto /health is
+    # still caught. The values are asserted separately because `certification`
+    # carries environment-dependent blockers -- a test host has no server-owned
+    # serving commit, so it reports serving_artifact_identity_unavailable -- and
+    # pinning that whole block would assert the environment, not the endpoint.
+    assert set(body) == {
+        "status",
+        "deployment_ref",
+        "deployment_version",
+        "graph_version_ref",
+        "production_ready",
+        "certification",
     }
+    assert body["status"] == "ok"
+    assert body["deployment_ref"] == deployment.deployment_ref
+    assert body["deployment_version"] == deployment.version
+    assert body["graph_version_ref"] == deployment.graph_version_ref
+    assert body["certification"]["test_deployable"] is True
     assert "default-src 'self'" in response.headers["content-security-policy"]
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-content-type-options"] == "nosniff"

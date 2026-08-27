@@ -4146,12 +4146,12 @@ wheels = [
 
 [[package]]
 name = "zeroth-console"
-version = "0.25.1.1"
+version = "0.25.1.2"
 source = { directory = "packaging/console" }
 
 [[package]]
 name = "zeroth-core"
-version = "0.25.1.1"
+version = "0.25.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
