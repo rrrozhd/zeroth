@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0.3]
+
+### Fixed
+
+- Two more pre-existing test fixtures that had drifted behind the schema. The run row fixture gained
+  `parent_run_id`, which the deserializer has read unconditionally since migration 031, so a row
+  without it was not a row the database could produce. And the certifications migration test derived
+  the migration head instead of pinning the literal `"029"` — it was still asserting 029 at head 034,
+  so it failed on every migration added after it, which is noise rather than a signal about
+  certifications.
+
 ## [0.25.0.2]
 
 ### Fixed
