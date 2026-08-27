@@ -130,6 +130,24 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "direct_child_run_id": MetadataKind.IDENTIFIER,
     "continuation_parent_run_id": MetadataKind.IDENTIFIER,
     "child_deployment_ref_sha256": MetadataKind.DIGEST,
+    # ZER-37 repository-unit provenance. The ids are IDENTIFIER for the same
+    # reason operation_key is: an auditor must be able to *correlate* every run
+    # of one installation/repository/checkout, and the values are platform- or
+    # GitHub-minted numerics and ids, not author text -- producers write them
+    # as strings ("8891"). The digests pin what ran: ``repo_commit_sha`` is
+    # retained as the bare 40-hex string StagedCheckout carries (the DIGEST
+    # shape admits unprefixed hex); ``repo_config_digest`` and
+    # ``repo_tree_digest`` are ``sha256:``-prefixed, and
+    # ``repo_manifest_digest`` is the bare 64-hex compute_manifest_digest
+    # returns.
+    "checkout_id": MetadataKind.IDENTIFIER,
+    "repo_commit_sha": MetadataKind.DIGEST,
+    "repo_config_digest": MetadataKind.DIGEST,
+    "repo_installation_id": MetadataKind.IDENTIFIER,
+    "repo_manifest_digest": MetadataKind.DIGEST,
+    "repo_repository_id": MetadataKind.IDENTIFIER,
+    "repo_tree_digest": MetadataKind.DIGEST,
+    "smoke_passed": MetadataKind.BOOLEAN,
     "budget_cap_usd": MetadataKind.NUMBER,
     "budget_check_degraded": MetadataKind.BOOLEAN,
     "budget_spend_usd": MetadataKind.NUMBER,
@@ -337,6 +355,7 @@ _ZEROTH_FAILURE_CODES: frozenset[str] = frozenset(
         "parallel_step_limit_error",
         "probe_too_large_error",
         "reducer_ref_validation_error",
+        "repo_manifest_validation_error",
         "sandbox_backend_unavailable_error",
         "sandbox_policy_violation_error",
         "sandbox_timeout_error",
@@ -392,15 +411,21 @@ _DENIAL_REASON_CODES: frozenset[str] = frozenset(
         "budget_denied",
         "budget_exceeded",
         "capability_denied",
+        # ZER-37 repository-unit stage verdicts: why a repo run was refused
+        # (or its smoke stage judged failed) before or after execution.
+        "checkout_unavailable_error",
         "classifier_unavailable",
         "command_not_allowed",
         "concurrency",
         "no_trusted_digest_registered",
         "enforcement_unavailable",
+        "installation_revoked",
         "policy_denied",
         "policy_unavailable",
         "policy_violation",
         "runtime_not_allowed",
+        "script_not_declared",
+        "smoke_assertion_failed",
         "trusted_digest",
         "trusted_digest_mismatch",
         "unknown_action",

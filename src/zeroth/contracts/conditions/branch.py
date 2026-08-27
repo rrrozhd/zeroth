@@ -120,7 +120,17 @@ class BranchResolver:
             )
 
         if binding.condition is None:
-            return True, self._build_result(binding, matched=True, value=True), None
+            # An unconditional edge always "matches", but it must still respect
+            # the graph's visit limits -- otherwise max_visits_per_node/edge are
+            # never enforced on condition-less edges and an unconditional cycle
+            # runs until max_total_steps. _would_exceed_visit_limits gates only
+            # its cycle clause behind ``condition is not None``; the node- and
+            # edge-count clauses are condition-agnostic, so it is safe here.
+            result = self._build_result(binding, matched=True, value=True)
+            if self._would_exceed_visit_limits(graph, binding, traversal_state):
+                result.details["suppression_reason"] = "visit_limit"
+                return False, result, "visit_limit"
+            return True, result, None
 
         result = self._evaluator.evaluate(
             binding.condition,

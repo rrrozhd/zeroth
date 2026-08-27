@@ -192,6 +192,21 @@ TEMPORARY_EXCEPTIONS = {
             "did not open inside the plan."
         ),
     ),
+    **_exception_group(
+        ("zeroth.runtime.orchestration.dispatcher", "zeroth.integrations.http.models"),
+        reason=(
+            "The dispatcher's HTTP-request node execution (merged from the "
+            "certification/admission line at the 0.24.6 merge) names "
+            "EndpointConfig and HttpCallRecord, whose definitions live with the "
+            "governed HTTP client in the integrations layer; runtime may not "
+            "import integrations, so the edge is recorded rather than hidden."
+        ),
+        removal_task=(
+            "Give the HTTP node vocabulary a contracts home (the way graph node "
+            "models live in zeroth.contracts.graph) or a runtime-owned "
+            "structural protocol, then delete this edge."
+        ),
+    ),
 }
 
 

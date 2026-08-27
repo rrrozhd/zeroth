@@ -59,7 +59,9 @@ ASYNC_PERSISTENCE_MODULES = frozenset(
         "runtime/agents/thread_store.py",
         "service/certifications/repository.py",
         "service/deployments/repository.py",
+        "service/github/repository.py",
         "service/langgraph_gateway/enforcement_store.py",
+        "service/repositories/repository.py",
         "service/webhooks/repository.py",
     }
 )
@@ -83,6 +85,9 @@ _SERVICE_TABLES = (
     "decision_records",
     "deployment_versions",
     "enforcement_heartbeats",
+    "github_installations",
+    "github_repositories",
+    "github_webhook_deliveries",
     "graph_versions",
     "guardrail_admission_state",
     "guardrail_policy_revisions",
@@ -96,6 +101,8 @@ _SERVICE_TABLES = (
     "template_dependency_references",
     "quota_counters",
     "rate_limit_buckets",
+    "repo_checkouts",
+    "repo_runs",
     "retention_audit_log",
     "retention_cleanup_operations",
     "retention_cleanup_state",
@@ -123,6 +130,8 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
         "node_audits",
         "prompt_templates",
         "template_dependency_references",
+        "repo_checkouts",
+        "repo_runs",
         "run_checkpoints",
         "runs",
         "side_effect_operations",
@@ -183,6 +192,25 @@ _TASK9_RESOURCE_OPERATIONS = {
         }
     ),
     "enforcement_heartbeats": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+    "github_installations": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "github_repositories": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "github_webhook_deliveries": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.ENUMERATE, ResourceOperation.DELETE}
+    ),
     "graph_versions": frozenset(
         {
             ResourceOperation.CREATE,
@@ -220,6 +248,22 @@ _TASK9_RESOURCE_OPERATIONS = {
     ),
     "rate_limit_buckets": frozenset(
         {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE}
+    ),
+    "repo_checkouts": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "repo_runs": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
     ),
     "retention_audit_log": frozenset(
         {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}

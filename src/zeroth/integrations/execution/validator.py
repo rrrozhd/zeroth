@@ -7,6 +7,7 @@ This module does those checks and produces a detailed report of any issues.
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Any
 
@@ -17,8 +18,14 @@ from zeroth.integrations.execution.models import (
     ExecutableUnitManifest,
     NativeUnitManifest,
     ProjectUnitManifest,
+    RepositoryUnitManifest,
     WrappedCommandUnitManifest,
 )
+
+# The identity shapes a repository manifest pins: a prefixed sha-256 for the
+# tree and config digests, bare 40-hex for the commit.
+_SHA256_DIGEST = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
+_COMMIT_SHA = re.compile(r"\A[0-9a-f]{40}\Z")
 
 
 class ValidationSeverity(StrEnum):
@@ -48,6 +55,7 @@ class ValidationCode(StrEnum):
     INVALID_TIMEOUT = "invalid_timeout"
     INVALID_CACHE_IDENTITY = "invalid_cache_identity"
     INVALID_DEPENDENCY = "invalid_dependency"
+    INVALID_RUN_COMMAND = "invalid_run_command"
 
 
 class ValidationIssue(BaseModel):
@@ -113,7 +121,7 @@ class ExecutableUnitValidator:
 
     Validates common fields (ID, version, contracts) and then runs
     mode-specific checks depending on whether the manifest is native,
-    wrapped command, or project.
+    wrapped command, project, or repository.
     """
 
     def validate(self, manifest: ExecutableUnitManifest) -> ManifestValidationReport:
@@ -129,6 +137,8 @@ class ExecutableUnitValidator:
                 self._validate_wrapped_command(manifest, issues)
             case ProjectUnitManifest():
                 self._validate_project(manifest, issues)
+            case RepositoryUnitManifest():
+                self._validate_repository(manifest, issues)
 
         return ManifestValidationReport(unit_id=manifest.unit_id, issues=issues)
 
@@ -330,6 +340,73 @@ class ExecutableUnitValidator:
                 message="project_archive_ref is required",
                 unit_id=manifest.unit_id,
                 path=("project_archive_ref",),
+            )
+
+    def _validate_repository(
+        self,
+        manifest: RepositoryUnitManifest,
+        issues: list[ValidationIssue],
+    ) -> None:
+        """Check rules specific to repository checkout manifests.
+
+        Messages never carry the failing value: every identity field is
+        derived from author-reachable inputs, so only the field's location and
+        the expected shape are named.
+        """
+        if manifest.artifact_source.kind != "repository_checkout":
+            self._append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_ARTIFACT_SOURCE,
+                message="repository units must reference a repository_checkout artifact source",
+                unit_id=manifest.unit_id,
+                path=("artifact_source", "kind"),
+                details={"kind": manifest.artifact_source.kind},
+            )
+        if not _SHA256_DIGEST.match(manifest.artifact_source.ref):
+            self._append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_ARTIFACT_SOURCE,
+                message="artifact_source.ref must be the tree digest, sha256:<64 hex>",
+                unit_id=manifest.unit_id,
+                path=("artifact_source", "ref"),
+            )
+        if not _COMMIT_SHA.match(manifest.artifact_source.commit_sha):
+            self._append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_ARTIFACT_SOURCE,
+                message="artifact_source.commit_sha must be a 40-hex commit id",
+                unit_id=manifest.unit_id,
+                path=("artifact_source", "commit_sha"),
+            )
+        if not _SHA256_DIGEST.match(manifest.artifact_source.config_digest):
+            self._append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_ARTIFACT_SOURCE,
+                message="artifact_source.config_digest must be sha256:<64 hex>",
+                unit_id=manifest.unit_id,
+                path=("artifact_source", "config_digest"),
+            )
+        if not manifest.run_config.command:
+            self._append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.MISSING_COMMAND,
+                message="repository units require a run command",
+                unit_id=manifest.unit_id,
+                path=("run_config", "command"),
+            )
+        elif manifest.run_config.command[0] != "python3":
+            self._append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_RUN_COMMAND,
+                message="repository units must run through the python3 interpreter",
+                unit_id=manifest.unit_id,
+                path=("run_config", "command"),
             )
 
     def _append_issue(

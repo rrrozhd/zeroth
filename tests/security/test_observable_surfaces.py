@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -27,6 +28,16 @@ from zeroth.service.app import create_app
 
 
 CANARY = "github_pat_" + "A" * 82
+# The git-credential form of the same canary (ZER-37): base64 of
+# ``x-access-token:<token>`` carried as an HTTP Basic Authorization value --
+# the exact shape the installation-token broker hands to git via
+# ``http.<base>.extraheader``. The leak scanner derives base64/hex/url/json
+# variants of each canary on its own, but NOT this composed form, so it must
+# be a canary in its own right on every surface.
+BASIC_CANARY = "Basic " + base64.b64encode(f"x-access-token:{CANARY}".encode("ascii")).decode(
+    "ascii"
+)
+CANARIES = (CANARY, BASIC_CANARY)
 
 
 class _RecordingArtifactStore:
@@ -193,12 +204,15 @@ async def test_recording_artifact_store_is_transparent(
 
 
 async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, object]:
-    manager = SandboxManager(base_env={"GITHUB_TOKEN": CANARY})
+    manager = SandboxManager(
+        base_env={"GITHUB_TOKEN": CANARY, "GIT_AUTH_HEADER": BASIC_CANARY}
+    )
     result = manager.run(
         [
             sys.executable,
             "-c",
             "import os,sys; print(os.getenv('GITHUB_TOKEN')); "
+            "print(os.getenv('GIT_AUTH_HEADER')); "
             "print(os.getenv('GITHUB_TOKEN'), file=sys.stderr); sys.exit(7)",
         ]
     )
@@ -269,7 +283,7 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
             deployment_ref="observable-surface-deployment",
             tenant_id="tenant-a",
             status="failed",
-            input_snapshot={"authorization": CANARY},
+            input_snapshot={"authorization": CANARY, "access_token": BASIC_CANARY},
             stdout=result.stdout,
             stderr=result.stderr,
             error=f"provider rejected {CANARY}",
@@ -589,7 +603,7 @@ async def test_credential_canary_absent_from_workload_environment(
 ) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
     assert (
-        CredentialLeakScanner([CANARY]).scan(
+        CredentialLeakScanner(CANARIES).scan(
             captured["workload-environment"], surface="workload-environment"
         )
         == []
@@ -599,13 +613,13 @@ async def test_credential_canary_absent_from_workload_environment(
 @pytest.mark.asyncio()
 async def test_credential_canary_absent_from_logs(sqlite_db, tmp_path: Path) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
-    assert CredentialLeakScanner([CANARY]).scan(captured["logs"], surface="logs") == []
+    assert CredentialLeakScanner(CANARIES).scan(captured["logs"], surface="logs") == []
 
 
 @pytest.mark.asyncio()
 async def test_credential_canary_absent_from_errors(sqlite_db, tmp_path: Path) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
-    assert CredentialLeakScanner([CANARY]).scan(captured["errors"], surface="errors") == []
+    assert CredentialLeakScanner(CANARIES).scan(captured["errors"], surface="errors") == []
 
 
 @pytest.mark.asyncio()
@@ -620,7 +634,7 @@ async def test_credential_canary_absent_from_artifacts(sqlite_db, tmp_path: Path
     assert _normalized_isolation_record(records[3]) == _normalized_isolation_record(records[5])
     assert _normalized_isolation_record(records[4]) == _normalized_isolation_record(records[6])
     assert _normalized_isolation_record(records[10]) == _normalized_isolation_record(records[11])
-    assert CredentialLeakScanner([CANARY]).scan(captured["artifacts"], surface="artifacts") == []
+    assert CredentialLeakScanner(CANARIES).scan(captured["artifacts"], surface="artifacts") == []
 
 
 @pytest.mark.asyncio()
@@ -653,7 +667,7 @@ async def test_artifact_evidence_literal_assertion_kills_structural_mutations(
 async def test_credential_canary_absent_from_audit_payloads(sqlite_db, tmp_path: Path) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
     assert (
-        CredentialLeakScanner([CANARY]).scan(captured["audit-payloads"], surface="audit-payloads")
+        CredentialLeakScanner(CANARIES).scan(captured["audit-payloads"], surface="audit-payloads")
         == []
     )
 
@@ -662,5 +676,5 @@ async def test_credential_canary_absent_from_audit_payloads(sqlite_db, tmp_path:
 async def test_credential_canary_absent_from_other_tenant(sqlite_db, tmp_path: Path) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
     assert (
-        CredentialLeakScanner([CANARY]).scan(captured["other-tenant"], surface="other-tenant") == []
+        CredentialLeakScanner(CANARIES).scan(captured["other-tenant"], surface="other-tenant") == []
     )

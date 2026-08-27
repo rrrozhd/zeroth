@@ -120,14 +120,7 @@ procedure when a clean campaign is intended.
 
 ## Install
 
-Install the latest published release from [PyPI](https://pypi.org/project/zeroth-core/):
-
-```bash
-pip install zeroth-core
-```
-
-The documentation site tracks `main`, which can be ahead of PyPI. To use the
-current source documented here, install from a checkout:
+Install from a source checkout — the documented, current path:
 
 ```bash
 git clone https://github.com/rrrozhd/zeroth.git
@@ -135,20 +128,26 @@ cd zeroth
 uv sync
 ```
 
-Optional extras pull in swappable backends (base install stays minimal):
+> **PyPI note:** the published [`zeroth-core`](https://pypi.org/project/zeroth-core/)
+> package is a stale `0.1.0` placeholder (verified 2026-08-24) that predates this
+> documentation. Do **not** `pip install zeroth-core` for the version described
+> here — use the source checkout above until a current release is published.
+
+Optional extras pull in swappable backends (base install stays minimal); enable
+them on the checkout with `uv sync --extra <name>`:
 
 ```bash
-pip install "zeroth-core[console]"       # Bundled web console UI (no Node needed)
-pip install "zeroth-core[langgraph]"     # Govern LangGraph and create_agent tool calls
-pip install "zeroth-core[langgraph-gateway]" # Agent Server gateway transport
-pip install "zeroth-core[memory-pg]"     # Postgres + pgvector memory backend
-pip install "zeroth-core[memory-chroma]" # Chroma memory backend
-pip install "zeroth-core[memory-es]"     # Elasticsearch memory backend
-pip install "zeroth-core[dispatch]"      # Distributed worker (redis + arq)
-pip install "zeroth-core[sandbox]"       # Sandbox sidecar marker
-pip install "zeroth-core[otel]"          # OpenTelemetry trace/metric export
-pip install "zeroth-core[regulus]"       # Bundled economic control plane backend
-pip install "zeroth-core[all]"           # Headless runtime bundle; excludes console and langgraph middleware
+uv sync --extra console            # Bundled web console UI (no Node needed)
+uv sync --extra langgraph          # Govern LangGraph and create_agent tool calls
+uv sync --extra langgraph-gateway  # Agent Server gateway transport
+uv sync --extra memory-pg          # Postgres + pgvector memory backend
+uv sync --extra memory-chroma      # Chroma memory backend
+uv sync --extra memory-es          # Elasticsearch memory backend
+uv sync --extra dispatch           # Distributed worker (redis + arq)
+uv sync --extra sandbox            # Sandbox sidecar marker
+uv sync --extra otel               # OpenTelemetry trace/metric export
+uv sync --extra regulus            # Bundled economic control plane backend
+uv sync --extra all                # Headless runtime bundle; excludes console and langgraph middleware
 ```
 
 Available extras: `console`, `langgraph`, `langgraph-gateway`, `memory-pg`,

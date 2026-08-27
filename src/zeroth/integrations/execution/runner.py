@@ -16,9 +16,12 @@ import tempfile
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
+
+if TYPE_CHECKING:
+    from zeroth.integrations.execution.repo_units import CheckoutMaterializer
 
 from zeroth.contracts.graph import OperationIdentity
 from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
@@ -33,10 +36,12 @@ from zeroth.integrations.execution.io import (
     inject_input,
 )
 from zeroth.integrations.execution.models import (
+    REPOSITORY_CHECKOUT_DIRNAME,
     ExecutableUnitManifest,
     InlineUnitManifest,
     NativeUnitManifest,
     ProjectUnitManifest,
+    RepositoryUnitManifest,
     WrappedCommandUnitManifest,
 )
 from zeroth.integrations.execution.sandbox import (
@@ -245,6 +250,12 @@ class ExecutableUnitRunner:
         self.secret_resolver = secret_resolver
         self.admission_controller = admission_controller
         self.project_materializer = project_materializer
+        # ZER-37: the repository checkout seam. A plain attribute, not a
+        # constructor keyword, because this constructor's signature is pinned
+        # in tests/contracts/fixtures/backend_surface_canonical.json; the
+        # service wiring sets it after construction, and repository execution
+        # fails closed while it is None.
+        self.checkout_materializer: CheckoutMaterializer | None = None
         self._built_cache_keys: set[str] = set()
 
     async def run_manifest_ref(
@@ -299,11 +310,16 @@ class ExecutableUnitRunner:
         *,
         enforcement_context: Mapping[str, Any] | None = None,
         operation_identity: OperationIdentity | None = None,
+        read_only_paths: Sequence[str] = (),
     ) -> ExecutableUnitRunResult:
         """Run an executable unit from a binding directly.
 
         Validates the input, then dispatches to either native Python execution
         or sandboxed subprocess execution depending on the manifest type.
+        ``read_only_paths`` names sandbox-relative subtrees the backend should
+        remount read-only (ZER-37); it defaults to empty -- the repository
+        execution phase populates it -- and is ignored by native units, which
+        run no sandbox at all.
         """
         validated_input = self._validate_input(binding.input_model, payload)
         input_data = validated_input.model_dump(mode="json")
@@ -334,6 +350,7 @@ class ExecutableUnitRunner:
             validated_input,
             operation_identity=operation_identity,
             enforcement_context=enforcement_context,
+            read_only_paths=read_only_paths,
         )
 
     async def run_inline_source(
@@ -427,6 +444,7 @@ class ExecutableUnitRunner:
         *,
         enforcement_context: Mapping[str, Any] | None = None,
         operation_identity: OperationIdentity | None = None,
+        read_only_paths: Sequence[str] = (),
     ) -> ExecutableUnitRunResult:
         """Run a command or project unit as a sandboxed subprocess.
 
@@ -438,6 +456,18 @@ class ExecutableUnitRunner:
         if isinstance(manifest, ProjectUnitManifest) and project_materializer is None:
             raise ExecutableUnitExecutionError(
                 "project execution requires an injected trusted project materializer"
+            )
+        checkout_materializer = self.checkout_materializer
+        if isinstance(manifest, RepositoryUnitManifest):
+            if checkout_materializer is None:
+                raise ExecutableUnitExecutionError(
+                    "repository execution requires an injected trusted checkout materializer"
+                )
+            # The whole checkout subtree rides read-only on every backend: v1
+            # repo manifests only offer json_stdin/json_stdout/exit_code_only,
+            # so no IO file is ever written inside the tree.
+            read_only_paths = tuple(
+                dict.fromkeys((*read_only_paths, REPOSITORY_CHECKOUT_DIRNAME))
             )
         enforcement = dict(enforcement_context or {})
         manifest_env, secret_env_keys = await self._manifest_environment(manifest)
@@ -479,6 +509,11 @@ class ExecutableUnitRunner:
                 if inspect.isawaitable(materialized):
                     await materialized
                 cwd = self._resolve_workdir(sandbox_root, manifest.run_config.working_directory)
+            if isinstance(manifest, RepositoryUnitManifest):
+                assert checkout_materializer is not None
+                checkout_dir = sandbox_root / REPOSITORY_CHECKOUT_DIRNAME
+                checkout_dir.mkdir(parents=True, exist_ok=True)
+                await checkout_materializer.materialize(manifest.artifact_source, checkout_dir)
             if isinstance(manifest, InlineUnitManifest):
                 # Inline units carry their code with them — materialize it as
                 # the entry file the manifest's run command expects.
@@ -492,8 +527,16 @@ class ExecutableUnitRunner:
             )
             overlay_env = dict(secret_filtered_env)
             overlay_env.update(injected.env)
+            capture_output_file: str | None = None
             if manifest.output_mode.value == "output_file_json":
                 overlay_env["ZEROTH_OUTPUT_FILE"] = str(output_file)
+                # The sandbox-relative twin of the host path above: the sidecar
+                # backend asks the sidecar to capture this file and writes the
+                # returned payload back to the host path, so extract_output
+                # below reads it exactly as it does for the other backends.
+                capture_output_file = (
+                    cwd.relative_to(sandbox_root) / "zeroth-output.json"
+                ).as_posix()
             timeout_seconds = self._effective_timeout(
                 manifest.timeout_seconds,
                 enforcement.get("timeout_override_seconds"),
@@ -527,6 +570,8 @@ class ExecutableUnitRunner:
                 timeout_seconds=timeout_seconds,
                 resource_constraints=resource_constraints,
                 sandbox_strictness_mode=sandbox_strictness_mode,
+                read_only_paths=read_only_paths,
+                capture_output_file=capture_output_file,
             )
             if sandbox_result.returncode != 0 and manifest.output_mode.value != "exit_code_only":
                 command_output = sandbox_result.stderr or sandbox_result.stdout
@@ -635,6 +680,8 @@ class ExecutableUnitRunner:
         timeout_seconds: float | None = None,
         resource_constraints: ResourceConstraints | None = None,
         sandbox_strictness_mode: SandboxStrictnessMode | None = None,
+        read_only_paths: Sequence[str] = (),
+        capture_output_file: str | None = None,
     ) -> SandboxExecutionResult:
         """Run a command through the sandbox manager with optional policy overrides."""
         sandbox_manager = self._sandbox_manager_with_strictness(sandbox_strictness_mode)
@@ -657,6 +704,8 @@ class ExecutableUnitRunner:
                 input_text,
                 timeout_seconds,
                 resource_constraints,
+                read_only_paths,
+                capture_output_file,
             )
         return await asyncio.to_thread(
             sandbox_manager.run,
@@ -698,9 +747,28 @@ class ExecutableUnitRunner:
         input_text: str | None,
         timeout_seconds: float | None,
         resource_constraints: ResourceConstraints | None,
+        read_only_paths: Sequence[str] = (),
+        capture_output_file: str | None = None,
     ) -> SandboxExecutionResult:
         """Dispatch execution through SandboxManager internals using a prepared sandbox root."""
         backend = sandbox_manager._resolve_backend(resource_constraints)  # noqa: SLF001
+        if backend.value == "sidecar":
+            # A SIDECAR-configured manager must delegate to the sidecar, not fall
+            # through to _run_locally, which would execute untrusted code on the
+            # host. The sole caller is run_binding via asyncio.to_thread, so the
+            # asyncio.run() inside _run_via_sidecar runs on a loop-less worker
+            # thread; _resolve_backend already raises when SIDECAR has no client.
+            return sandbox_manager._run_via_sidecar(  # noqa: SLF001
+                command=command,
+                input_text=input_text,
+                timeout_seconds=timeout_seconds,
+                environment=environment,
+                resource_constraints=resource_constraints,
+                sandbox_root=sandbox_root,
+                relative_cwd=relative_cwd,
+                read_only_paths=read_only_paths,
+                capture_output_file=capture_output_file,
+            )
         if backend.value == "docker":
             return sandbox_manager._run_in_docker(  # noqa: SLF001
                 command=command,
@@ -710,6 +778,7 @@ class ExecutableUnitRunner:
                 relative_cwd=relative_cwd,
                 environment=environment,
                 resource_constraints=resource_constraints,
+                read_only_paths=read_only_paths,
             )
         return sandbox_manager._run_locally(  # noqa: SLF001
             command=command,
@@ -718,6 +787,7 @@ class ExecutableUnitRunner:
             cwd=cwd,
             environment=environment,
             resource_constraints=resource_constraints,
+            read_only_paths=read_only_paths,
         )
 
     def _apply_allowed_secrets(
@@ -818,7 +888,12 @@ class ExecutableUnitRunner:
 
     def _resource_constraints_for(
         self,
-        manifest: WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
+        manifest: (
+            WrappedCommandUnitManifest
+            | ProjectUnitManifest
+            | InlineUnitManifest
+            | RepositoryUnitManifest
+        ),
         enforcement_context: Mapping[str, Any],
     ) -> ResourceConstraints | None:
         """Translate manifest limits plus policy network mode into sandbox constraints."""
@@ -847,7 +922,12 @@ class ExecutableUnitRunner:
 
     def _command_for(
         self,
-        manifest: WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
+        manifest: (
+            WrappedCommandUnitManifest
+            | ProjectUnitManifest
+            | InlineUnitManifest
+            | RepositoryUnitManifest
+        ),
         argv: Sequence[str] = (),
     ) -> list[str]:
         """Build the full command list from the manifest's config plus extra args."""

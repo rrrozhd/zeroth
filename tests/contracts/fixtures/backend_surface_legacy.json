@@ -2,7 +2,9 @@
   "baseline": "backend architecture refactor pre-move surface, 2026-07-18",
   "capabilities": [
     {
-      "evidence": ["schema_model:zeroth.econ.plane.enforcement.schemas"],
+      "evidence": [
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
+      ],
       "id": "zeroth.econ_plane.enforcement.schemas:CostReservationOut",
       "kind": "class",
       "legacy_module": "zeroth.econ_plane.enforcement.schemas",
@@ -10,7 +12,9 @@
       "signature": "(*, operation_id: str, campaign_id: str | None, run_id: str | None, status: str, max_cost_usd: decimal.Decimal, held_cost_usd: decimal.Decimal, actual_cost_usd: decimal.Decimal | None, released_cost_usd: decimal.Decimal, cost_measurement: str, cost_event_id: str | None, provider_request_id: str | None, cleanup_status: str | None) -> None"
     },
     {
-      "evidence": ["schema_model:zeroth.econ.plane.enforcement.schemas"],
+      "evidence": [
+        "schema_model:zeroth.econ.plane.enforcement.schemas"
+      ],
       "id": "zeroth.econ_plane.enforcement.schemas:CostReservationReconcile",
       "kind": "class",
       "legacy_module": "zeroth.econ_plane.enforcement.schemas",
@@ -18,7 +22,9 @@
       "signature": "(*, actual_cost_usd: Annotated[decimal.Decimal, Ge(ge=0)], cost_measurement: Literal['measured', 'estimated'], provider_request_id: Annotated[str | None, MaxLen(max_length=256)] = None, cleanup_status: Annotated[str, MinLen(min_length=1), MaxLen(max_length=64)] = 'complete') -> None"
     },
     {
-      "evidence": ["schema_model:zeroth.service.api.connector_api"],
+      "evidence": [
+        "schema_model:zeroth.service.api.connector_api"
+      ],
       "id": "zeroth.core.service.connector_api:ConnectorTestRequest",
       "kind": "class",
       "legacy_module": "zeroth.core.service.connector_api",
@@ -26,7 +32,9 @@
       "signature": "(*, campaign_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], operation_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], run_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, max_cost_usd: Annotated[decimal.Decimal, Gt(gt=0)], run_cap_usd: Annotated[decimal.Decimal | None, Gt(gt=0)] = None) -> None"
     },
     {
-      "evidence": ["schema_model:zeroth.service.api.operation_api"],
+      "evidence": [
+        "schema_model:zeroth.service.api.operation_api"
+      ],
       "id": "zeroth.core.service.operation_api:OperationResolutionRequest",
       "kind": "class",
       "legacy_module": "zeroth.core.service.operation_api",
@@ -34,7 +42,9 @@
       "signature": "(*, resolution: zeroth.service.api.operation_api.OperatorResolution, reason: Annotated[str, MinLen(min_length=1), MaxLen(max_length=2000)], receipt: typing.Any | None = None) -> None"
     },
     {
-      "evidence": ["schema_model:zeroth.service.api.operation_api"],
+      "evidence": [
+        "schema_model:zeroth.service.api.operation_api"
+      ],
       "id": "zeroth.core.service.operation_api:OperationResolutionResponse",
       "kind": "class",
       "legacy_module": "zeroth.core.service.operation_api",
@@ -477,7 +487,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.agent_runtime",
       "legacy_name": "LiteLLMProviderAdapter",
-      "signature": "(*, default_timeout: 'float' = 600.0, secret_provider: 'SecretProvider | None' = None, tenant_id: 'str | None' = None, allow_env_fallback: 'bool' = True, llm_key_map: 'dict[str, str] | None' = None) -> 'None'"
+      "signature": "(*, default_timeout: 'float' = 600.0, secret_provider: 'SecretProvider | None' = None, tenant_id: 'str | None' = None, allow_env_fallback: 'bool' = True, llm_key_map: 'dict[str, str] | None' = None, llm_base_url_map: 'dict[str, str] | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -1123,7 +1133,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.approvals",
       "legacy_name": "ApprovalResolution",
-      "signature": "(*, decision: zeroth.core.approvals.models.ApprovalDecision, actor: zeroth.core.identity.models.ActorIdentity, edited_payload: dict[str, typing.Any] | None = None, resolved_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, decision: zeroth.governance.approvals.models.ApprovalDecision, actor: zeroth.governance.identity.models.ActorIdentity, edited_payload: dict[str, typing.Any] | None = None, reason: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=1000)] = None, resolved_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -1179,7 +1189,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.approvals.models",
       "legacy_name": "ApprovalResolution",
-      "signature": "(*, decision: zeroth.core.approvals.models.ApprovalDecision, actor: zeroth.core.identity.models.ActorIdentity, edited_payload: dict[str, typing.Any] | None = None, resolved_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, decision: zeroth.governance.approvals.models.ApprovalDecision, actor: zeroth.governance.identity.models.ActorIdentity, edited_payload: dict[str, typing.Any] | None = None, reason: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=1000)] = None, resolved_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -1508,7 +1518,7 @@
       "kind": "function",
       "legacy_module": "zeroth.core.audit",
       "legacy_name": "build_summary",
-      "signature": "(audits: 'list[NodeAuditRecord]', approvals: 'list[object]', *, resolve_artifacts: 'bool' = False, artifact_store: 'Any | None' = None) -> 'dict[str, int | bool]'"
+      "signature": "(audits: 'list[NodeAuditRecord]', approvals: 'list[object]', *, resolve_artifacts: 'bool' = False, artifact_store: 'Any | None' = None) -> 'dict[str, int | float | str | bool]'"
     },
     {
       "evidence": [
@@ -2279,7 +2289,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.deployments",
       "legacy_name": "SQLiteDeploymentRepository",
-      "signature": "(database: 'AsyncDatabase')"
+      "signature": "(database: 'AsyncDatabase', *, template_reference_index: 'TemplateReferenceIndexWriter | None' = None)"
     },
     {
       "evidence": [
@@ -2335,7 +2345,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.dispatch",
       "legacy_name": "RunWorker",
-      "signature": "(deployment_ref: 'str', run_repository: 'RunRepository', orchestrator: 'RuntimeOrchestrator', graph: 'Graph', lease_manager: 'LeaseManager', tenant_id: 'str | None' = None, workspace_id: 'str | None' = None, max_concurrency: 'int' = 8, poll_interval: 'float' = 0.5, worker_id: 'str' = <factory>, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, shutdown_timeout: 'float' = 30.0) -> None"
+      "signature": "(deployment_ref: 'str', run_repository: 'RunRepository', orchestrator: 'RuntimeOrchestrator', graph: 'Graph', lease_manager: 'LeaseManager', tenant_id: 'str | None' = None, workspace_id: 'str | None' = None, max_concurrency: 'int' = 8, poll_interval: 'float' = 0.5, orphan_sweep_interval: 'float' = 5.0, worker_id: 'str' = <factory>, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, shutdown_timeout: 'float' = 30.0) -> None"
     },
     {
       "evidence": [
@@ -2516,7 +2526,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.econ",
       "legacy_name": "ExperimentReport",
-      "signature": "(*, incumbent: str, node_id: str | None = None, mode: str = 'equivalence', cases: int = 0, min_cases: int = 5, tolerance_pct: float = 5.0, incumbent_self_equivalence: float = 0.0, mean_input_tokens: float = 0.0, mean_output_tokens: float = 0.0, token_profile_measured: bool = False, harvest: zeroth.core.econ.rightsizing_experiment.HarvestStats | None = None, outcomes: list[zeroth.core.econ.rightsizing_experiment.CandidateOutcome] = <factory>, recommended_model: str | None = None, verdict: str = 'none', note: str = '') -> None"
+      "signature": "(*, incumbent: str, node_id: str | None = None, mode: str = 'equivalence', cases: int = 0, min_cases: int = 5, tolerance_pct: float = 5.0, incumbent_self_equivalence: float = 0.0, mean_input_tokens: float = 0.0, mean_output_tokens: float = 0.0, token_profile_measured: bool = False, harvest: zeroth.econ.analytics.rightsizing_experiment.HarvestStats | None = None, outcomes: list[zeroth.econ.analytics.rightsizing_experiment.CandidateOutcome] = <factory>, recommended_model: str | None = None, verdict: str = 'none', note: str = '', execution: zeroth.econ.analytics.rightsizing_experiment.ExperimentExecutionEvidence | None = None) -> None"
     },
     {
       "evidence": [
@@ -2562,7 +2572,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.econ",
       "legacy_name": "NodeSpend",
-      "signature": "(*, node_id: str, runs: int = 0, total_cost_usd: float = 0.0, mean_cost_per_call_usd: float = 0.0, incumbent_model: str | None = None, uses_tools: bool = False, tool_free_runs: int = 0, cheaper_alternatives: int = 0, best_savings_pct: float | None = None, projected_savings_usd: float | None = None, experiment_ready: bool = False) -> None"
+      "signature": "(*, node_id: str, source_deployment_ref: str | None = None, runs: int = 0, total_cost_usd: float = 0.0, mean_cost_per_call_usd: float = 0.0, total_estimated_cost_usd: float = 0.0, mean_estimated_cost_per_call_usd: float = 0.0, incumbent_model: str | None = None, uses_tools: bool = False, tool_free_runs: int = 0, cheaper_alternatives: int = 0, best_savings_pct: float | None = None, projected_savings_usd: float | None = None, projected_estimated_savings_usd: float | None = None, experiment_ready: bool = False) -> None"
     },
     {
       "evidence": [
@@ -2623,7 +2633,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.econ",
       "legacy_name": "SpendReport",
-      "signature": "(*, total_cost_usd: float = 0.0, nodes: list[zeroth.core.econ.opportunities.NodeSpend] = <factory>, note: str = '') -> None"
+      "signature": "(*, total_cost_usd: float = 0.0, total_estimated_cost_usd: float = 0.0, nodes: list[zeroth.econ.analytics.opportunities.NodeSpend] = <factory>, note: str = '') -> None"
     },
     {
       "evidence": [
@@ -2635,7 +2645,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.econ",
       "legacy_name": "TenantEconomics",
-      "signature": "(*, tenant_id: str, runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, success_rate: float = 0.0, terminal_cost_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0) -> None"
+      "signature": "(*, tenant_id: str, runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, success_rate: float = 0.0, terminal_cost_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0, estimated_terminal_cost_usd: float = 0.0, estimated_cost_per_successful_run_usd: float | None = None, estimated_failure_tax_usd: float = 0.0) -> None"
     },
     {
       "evidence": [
@@ -2647,7 +2657,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.econ",
       "legacy_name": "UnitEconomicsReport",
-      "signature": "(*, window_runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, in_flight_runs: int = 0, success_rate: float = 0.0, total_cost_usd: float = 0.0, terminal_cost_usd: float = 0.0, cost_on_successful_usd: float = 0.0, cost_on_failed_usd: float = 0.0, cost_on_in_flight_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, mean_cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0, failure_tax_ratio: float = 0.0, runs_with_cost: int = 0, by_workflow: list[zeroth.core.econ.unit_economics.WorkflowEconomics] = <factory>, by_tenant: list[zeroth.core.econ.unit_economics.TenantEconomics] = <factory>, quality: zeroth.core.econ.quality.QualityEconomicsReport | None = None, note: str = '') -> None"
+      "signature": "(*, window_runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, in_flight_runs: int = 0, success_rate: float = 0.0, total_cost_usd: float = 0.0, terminal_cost_usd: float = 0.0, cost_on_successful_usd: float = 0.0, cost_on_failed_usd: float = 0.0, cost_on_in_flight_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, mean_cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0, failure_tax_ratio: float = 0.0, estimated_total_cost_usd: float = 0.0, estimated_terminal_cost_usd: float = 0.0, estimated_cost_on_successful_usd: float = 0.0, estimated_cost_on_failed_usd: float = 0.0, estimated_cost_on_in_flight_usd: float = 0.0, estimated_cost_per_successful_run_usd: float | None = None, estimated_mean_cost_per_successful_run_usd: float | None = None, estimated_failure_tax_usd: float = 0.0, estimated_failure_tax_ratio: float = 0.0, runs_with_cost: int = 0, runs_with_estimated_cost: int = 0, by_workflow: list[zeroth.econ.analytics.unit_economics.WorkflowEconomics] = <factory>, by_tenant: list[zeroth.econ.analytics.unit_economics.TenantEconomics] = <factory>, quality: zeroth.econ.analytics.quality.QualityEconomicsReport | None = None, note: str = '') -> None"
     },
     {
       "evidence": [
@@ -2719,7 +2729,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.econ",
       "legacy_name": "WorkflowEconomics",
-      "signature": "(*, workflow_name: str, runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, success_rate: float = 0.0, terminal_cost_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0) -> None"
+      "signature": "(*, workflow_name: str, runs: int = 0, successful_runs: int = 0, failed_runs: int = 0, success_rate: float = 0.0, terminal_cost_usd: float = 0.0, cost_per_successful_run_usd: float | None = None, failure_tax_usd: float = 0.0, estimated_terminal_cost_usd: float = 0.0, estimated_cost_per_successful_run_usd: float | None = None, estimated_failure_tax_usd: float = 0.0) -> None"
     },
     {
       "evidence": [
@@ -2827,7 +2837,7 @@
       "kind": "function",
       "legacy_module": "zeroth.core.econ",
       "legacy_name": "spend_opportunities",
-      "signature": "(audits: 'Sequence[NodeAuditRecord]', *, min_savings_pct: 'float' = 20.0, limit: 'int' = 20) -> 'SpendReport'"
+      "signature": "(audits: 'Sequence[NodeAuditRecord]', *, min_savings_pct: 'float' = 20.0, limit: 'int' = 20, eligible_run_ids: 'set[str] | None' = None) -> 'SpendReport'"
     },
     {
       "evidence": [
@@ -5370,7 +5380,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.graph",
       "legacy_name": "GraphRepository",
-      "signature": "(database: 'AsyncDatabase', validator: 'GraphValidator | None' = None)"
+      "signature": "(database: 'AsyncDatabase', validator: 'GraphValidator | None' = None, template_reference_index: 'TemplateReferenceIndexWriter | None' = None)"
     },
     {
       "evidence": [
@@ -7289,7 +7299,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention",
       "legacy_name": "RetentionPolicy",
-      "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, enabled: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1), Le(le=2147483647)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1), Le(le=2147483647)] = None, enabled: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -7322,7 +7332,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention",
       "legacy_name": "SqlAlchemyEconEventEraser",
-      "signature": "()"
+      "signature": "(session_factory: 'Callable[[], object] | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -7373,7 +7383,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention.models",
       "legacy_name": "RetentionPolicy",
-      "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, enabled: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1), Le(le=2147483647)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1), Le(le=2147483647)] = None, enabled: bool = True, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -7941,7 +7951,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service",
       "legacy_name": "ServiceBootstrap",
-      "signature": "(deployment_service: 'DeploymentService', deployment: 'Deployment', graph: 'Graph', run_repository: 'RunRepository', thread_repository: 'ThreadRepository', approval_service: 'ApprovalService', audit_repository: 'AuditRepository', contract_registry: 'ContractRegistry', orchestrator: 'RuntimeOrchestrator', auth_config: 'ServiceAuthConfig', authenticator: 'ServiceAuthenticator', worker: 'RunWorker | None' = None, lease_manager: 'LeaseManager | None' = None, guardrail_config: 'GuardrailConfig | None' = None, rate_limiter: 'TokenBucketRateLimiter | None' = None, quota_enforcer: 'QuotaEnforcer | None' = None, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, queue_gauge: 'QueueDepthGauge | None' = None, regulus_client: 'RegulusClient | None' = None, budget_enforcer: 'object | None' = None, memory_registry: 'InMemoryConnectorRegistry | None' = None, memory_connector_config_repository: 'MemoryConnectorConfigRepository | None' = None, memory_resolver: 'object | None' = None, database: 'AsyncDatabase | None' = None, graph_repository: 'GraphRepository | None' = None, webhook_service: 'object | None' = None, webhook_repository: 'object | None' = None, delivery_worker: 'object | None' = None, sla_checker: 'object | None' = None, webhook_http_client: 'object | None' = None, cost_estimator: 'object | None' = None, arq_pool: 'object | None' = None, redis_client: 'object | None' = None, artifact_store: 'object | None' = None, http_client: 'object | None' = None, template_registry: 'object | None' = None, subgraph_executor: 'object | None' = None, secret_provider: 'SecretProvider | None' = None, signer: 'SigningKeyProvider | None' = None, retention_policy_repository: 'object | None' = None, legal_hold_repository: 'object | None' = None, retention_log_repository: 'object | None' = None, retention_erasure_service: 'object | None' = None, retention_worker: 'object | None' = None) -> None"
+      "signature": "(deployment_service: 'DeploymentService', deployment: 'Deployment', graph: 'Graph', run_repository: 'RunRepository', thread_repository: 'ThreadRepository', approval_service: 'ApprovalService', audit_repository: 'AuditRepository', contract_registry: 'ContractRegistry', orchestrator: 'RuntimeOrchestrator', auth_config: 'ServiceAuthConfig', authenticator: 'ServiceAuthenticator', worker: 'RunWorker | None' = None, lease_manager: 'LeaseManager | None' = None, guardrail_config: 'GuardrailConfig | None' = None, rate_limiter: 'TokenBucketRateLimiter | None' = None, quota_enforcer: 'QuotaEnforcer | None' = None, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, queue_gauge: 'QueueDepthGauge | None' = None, regulus_client: 'RegulusClient | None' = None, budget_enforcer: 'object | None' = None, memory_registry: 'InMemoryConnectorRegistry | None' = None, memory_connector_config_repository: 'MemoryConnectorConfigRepository | None' = None, memory_resolver: 'object | None' = None, database: 'AsyncDatabase | None' = None, graph_repository: 'GraphRepository | None' = None, webhook_service: 'object | None' = None, webhook_repository: 'object | None' = None, delivery_worker: 'object | None' = None, sla_checker: 'object | None' = None, webhook_http_client: 'object | None' = None, cost_estimator: 'object | None' = None, arq_pool: 'object | None' = None, redis_client: 'object | None' = None, artifact_store: 'object | None' = None, http_client: 'object | None' = None, template_registry: 'object | None' = None, subgraph_executor: 'object | None' = None, secret_provider: 'SecretProvider | None' = None, signer: 'SigningKeyProvider | None' = None, evaluation_webhook_sink: 'object | None' = None, retention_policy_repository: 'object | None' = None, legal_hold_repository: 'object | None' = None, retention_log_repository: 'object | None' = None, retention_erasure_service: 'object | None' = None, retention_worker: 'object | None' = None) -> None"
     },
     {
       "evidence": [
@@ -8022,7 +8032,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.approval_api",
       "legacy_name": "ApprovalResolutionRequest",
-      "signature": "(*, decision: zeroth.core.approvals.models.ApprovalDecision, edited_payload: dict[str, typing.Any] | None = None) -> None"
+      "signature": "(*, decision: zeroth.governance.approvals.models.ApprovalDecision, edited_payload: dict[str, typing.Any] | None = None, reason: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=1000)] = None) -> None"
     },
     {
       "evidence": [
@@ -8102,7 +8112,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.audit_api",
       "legacy_name": "EvidenceSummaryResponse",
-      "signature": "(*, audit_count: int = 0, approval_count: int = 0, tool_call_count: int = 0, memory_interaction_count: int = 0) -> None"
+      "signature": "(*, audit_count: int = 0, approval_count: int = 0, tool_call_count: int = 0, memory_interaction_count: int = 0, priced_call_count: int = 0, cost_event_count: int = 0, total_cost_usd: float = 0.0, cost_identity_state: str = 'not_applicable_no_priced_call', reconciliation_state: str = 'reconciled_zero_activity') -> None"
     },
     {
       "evidence": [
@@ -8186,7 +8196,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.bootstrap",
       "legacy_name": "ServiceBootstrap",
-      "signature": "(deployment_service: 'DeploymentService', deployment: 'Deployment', graph: 'Graph', run_repository: 'RunRepository', thread_repository: 'ThreadRepository', approval_service: 'ApprovalService', audit_repository: 'AuditRepository', contract_registry: 'ContractRegistry', orchestrator: 'RuntimeOrchestrator', auth_config: 'ServiceAuthConfig', authenticator: 'ServiceAuthenticator', worker: 'RunWorker | None' = None, lease_manager: 'LeaseManager | None' = None, guardrail_config: 'GuardrailConfig | None' = None, rate_limiter: 'TokenBucketRateLimiter | None' = None, quota_enforcer: 'QuotaEnforcer | None' = None, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, queue_gauge: 'QueueDepthGauge | None' = None, regulus_client: 'RegulusClient | None' = None, budget_enforcer: 'object | None' = None, memory_registry: 'InMemoryConnectorRegistry | None' = None, memory_connector_config_repository: 'MemoryConnectorConfigRepository | None' = None, memory_resolver: 'object | None' = None, database: 'AsyncDatabase | None' = None, graph_repository: 'GraphRepository | None' = None, webhook_service: 'object | None' = None, webhook_repository: 'object | None' = None, delivery_worker: 'object | None' = None, sla_checker: 'object | None' = None, webhook_http_client: 'object | None' = None, cost_estimator: 'object | None' = None, arq_pool: 'object | None' = None, redis_client: 'object | None' = None, artifact_store: 'object | None' = None, http_client: 'object | None' = None, template_registry: 'object | None' = None, subgraph_executor: 'object | None' = None, secret_provider: 'SecretProvider | None' = None, signer: 'SigningKeyProvider | None' = None, retention_policy_repository: 'object | None' = None, legal_hold_repository: 'object | None' = None, retention_log_repository: 'object | None' = None, retention_erasure_service: 'object | None' = None, retention_worker: 'object | None' = None) -> None"
+      "signature": "(deployment_service: 'DeploymentService', deployment: 'Deployment', graph: 'Graph', run_repository: 'RunRepository', thread_repository: 'ThreadRepository', approval_service: 'ApprovalService', audit_repository: 'AuditRepository', contract_registry: 'ContractRegistry', orchestrator: 'RuntimeOrchestrator', auth_config: 'ServiceAuthConfig', authenticator: 'ServiceAuthenticator', worker: 'RunWorker | None' = None, lease_manager: 'LeaseManager | None' = None, guardrail_config: 'GuardrailConfig | None' = None, rate_limiter: 'TokenBucketRateLimiter | None' = None, quota_enforcer: 'QuotaEnforcer | None' = None, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, queue_gauge: 'QueueDepthGauge | None' = None, regulus_client: 'RegulusClient | None' = None, budget_enforcer: 'object | None' = None, memory_registry: 'InMemoryConnectorRegistry | None' = None, memory_connector_config_repository: 'MemoryConnectorConfigRepository | None' = None, memory_resolver: 'object | None' = None, database: 'AsyncDatabase | None' = None, graph_repository: 'GraphRepository | None' = None, webhook_service: 'object | None' = None, webhook_repository: 'object | None' = None, delivery_worker: 'object | None' = None, sla_checker: 'object | None' = None, webhook_http_client: 'object | None' = None, cost_estimator: 'object | None' = None, arq_pool: 'object | None' = None, redis_client: 'object | None' = None, artifact_store: 'object | None' = None, http_client: 'object | None' = None, template_registry: 'object | None' = None, subgraph_executor: 'object | None' = None, secret_provider: 'SecretProvider | None' = None, signer: 'SigningKeyProvider | None' = None, evaluation_webhook_sink: 'object | None' = None, retention_policy_repository: 'object | None' = None, legal_hold_repository: 'object | None' = None, retention_log_repository: 'object | None' = None, retention_erasure_service: 'object | None' = None, retention_worker: 'object | None' = None) -> None"
     },
     {
       "evidence": [
@@ -8437,7 +8447,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.retention_api",
       "legacy_name": "ErasureRunResult",
-      "signature": "(*, run_id: str, audits_erased: int = 0, checkpoints_deleted: int = 0, run_redacted: bool = False, artifacts_deleted: int = 0, econ_events_deleted: int | None = None) -> None"
+      "signature": "(*, run_id: str, audits_erased: int = 0, checkpoints_deleted: int = 0, run_redacted: bool = False, artifacts_deleted: int = 0, econ_events_deleted: int | None = None, cleanup_state: Literal['complete', 'failed', 'pending'], authorization_log_id: str | None = None, retry_log_id: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -8467,7 +8477,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.retention_api",
       "legacy_name": "RetentionPolicyBody",
-      "signature": "(*, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, enabled: bool = True) -> None"
+      "signature": "(*, audit_ttl_seconds: Annotated[int | None, Ge(ge=1), Le(le=2147483647)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1), Le(le=2147483647)] = None, enabled: bool = True) -> None"
     },
     {
       "evidence": [
@@ -8477,7 +8487,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.retention_api",
       "legacy_name": "RetentionPolicyResponse",
-      "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1)] = None, enabled: bool = True) -> None"
+      "signature": "(*, tenant_id: str, audit_ttl_seconds: Annotated[int | None, Ge(ge=1), Le(le=2147483647)] = None, run_ttl_seconds: Annotated[int | None, Ge(ge=1), Le(le=2147483647)] = None, enabled: bool = True) -> None"
     },
     {
       "evidence": [
@@ -8487,7 +8497,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.rightsizing_api",
       "legacy_name": "ExperimentRequest",
-      "signature": "(*, node_id: Annotated[str, MinLen(min_length=1)], incumbent: Annotated[str, MinLen(min_length=1)], instruction: Annotated[str, MinLen(min_length=1)], needs_tools: bool = False, needs_vision: bool = False, judge_model: str | None = None, max_candidates: Annotated[int, Ge(ge=1), Le(le=6)] = 2, max_cases: Annotated[int, Ge(ge=1), Le(le=25)] = 5, min_cases: Annotated[int, Ge(ge=1), Le(le=50)] = 5, tolerance_pct: Annotated[float, Ge(ge=0.0), Le(le=100.0)] = 5.0, mode: Literal['equivalence', 'correctness'] = 'equivalence') -> None"
+      "signature": "(*, node_id: Annotated[str, MinLen(min_length=1)], source_deployment_ref: Annotated[str | None, MinLen(min_length=1)] = None, incumbent: Annotated[str, MinLen(min_length=1)], instruction: Annotated[str, MinLen(min_length=1)], needs_tools: bool = False, needs_vision: bool = False, judge_model: str | None = None, max_candidates: Annotated[int, Ge(ge=1), Le(le=6)] = 2, max_cases: Annotated[int, Ge(ge=1), Le(le=25)] = 5, min_cases: Annotated[int, Ge(ge=1), Le(le=50)] = 5, tolerance_pct: Annotated[float, Ge(ge=0.0), Le(le=100.0)] = 5.0, mode: Literal['equivalence', 'correctness'] = 'equivalence') -> None"
     },
     {
       "evidence": [
@@ -8527,7 +8537,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.run_api",
       "legacy_name": "RunInvocationResponse",
-      "signature": "(*, run_id: str, status: zeroth.core.service.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.core.service.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
+      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, parent_run_id: str | None = None, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.runtime.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.service.api.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -8537,7 +8547,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.run_api",
       "legacy_name": "RunStatusResponse",
-      "signature": "(*, run_id: str, status: zeroth.core.service.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.core.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.core.service.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
+      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, parent_run_id: str | None = None, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.runtime.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.service.api.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -8637,7 +8647,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.studio_schemas",
       "legacy_name": "UpdateWorkflowRequest",
-      "signature": "(*, name: str | None = None, nodes: list[zeroth.core.service.studio_schemas.StudioNodeResponse] | None = None, edges: list[zeroth.core.service.studio_schemas.StudioEdgeResponse] | None = None, viewport: zeroth.core.service.studio_schemas.StudioViewport | None = None, entry_step: str | None = None) -> None"
+      "signature": "(*, name: str | None = None, nodes: list[zeroth.service.api.studio_schemas.StudioNodeResponse] | None = None, edges: list[zeroth.service.api.studio_schemas.StudioEdgeInput] | None = None, viewport: zeroth.service.api.studio_schemas.StudioViewport | None = None, entry_step: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -8667,7 +8677,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.template_api",
       "legacy_name": "CreateTemplateRequest",
-      "signature": "(*, name: str, version: int = 1, template_str: str, variables: list[str] = [], description: str = '') -> None"
+      "signature": "(*, name: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128), _PydanticGeneralMetadata(pattern='^[A-Za-z0-9][A-Za-z0-9._-]*$')], version: Annotated[int, Ge(ge=1), Le(le=1000000)] = 1, template_str: Annotated[str, MinLen(min_length=1), MaxLen(max_length=100000)], variables: Annotated[list[str], MaxLen(max_length=256)] = <factory>, description: Annotated[str, MaxLen(max_length=2000)] = '') -> None"
     },
     {
       "evidence": [
@@ -8697,7 +8707,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.webhook_api",
       "legacy_name": "CreateSubscriptionRequest",
-      "signature": "(*, deployment_ref: str, target_url: str, event_types: list[str], tenant_id: str = 'default') -> None"
+      "signature": "(*, deployment_ref: Annotated[str, MinLen(min_length=1), MaxLen(max_length=512)], target_url: Annotated[str, MinLen(min_length=1), MaxLen(max_length=2048)], event_types: Annotated[list[zeroth.service.webhooks.models.WebhookEventType], MinLen(min_length=1), MaxLen(max_length=5)], tenant_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=512)] = 'default') -> None"
     },
     {
       "evidence": [
@@ -8717,7 +8727,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.service.webhook_api",
       "legacy_name": "WebhookDeadLetterResponse",
-      "signature": "(*, dead_letter_id: str, delivery_id: str, subscription_id: str, event_type: str, event_id: str, attempt_count: int, last_error: str | None, last_status_code: int | None, created_at: str, dead_lettered_at: str) -> None"
+      "signature": "(*, dead_letter_id: str, delivery_id: str, subscription_id: str, event_type: str, event_id: str, run_id: str | None = None, approval_id: str | None = None, attempt_count: int, last_error: str | None, last_status_code: int | None, created_at: str, dead_lettered_at: str) -> None"
     },
     {
       "evidence": [
@@ -10424,6 +10434,266 @@
       "legacy_module": "zeroth.service.certifications.models",
       "legacy_name": "CertificationEvaluation",
       "signature": "(*, certification_id: str | None = None, state: zeroth.service.certifications.models.CertificationState | None = None, test_deployable: bool, production_ready: bool, override_active: bool = False, blockers: tuple[zeroth.service.certifications.models.CertificationBlocker, ...] = ()) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.integrations.execution.models"
+      ],
+      "id": "zeroth.integrations.execution.models:RepositoryCheckoutArtifactSource",
+      "kind": "class",
+      "legacy_module": "zeroth.integrations.execution.models",
+      "legacy_name": "RepositoryCheckoutArtifactSource",
+      "signature": "(*, kind: Literal['repository_checkout'] = 'repository_checkout', ref: str, commit_sha: str, config_digest: str, repository_id: int, installation_id: int) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.integrations.execution.models"
+      ],
+      "id": "zeroth.integrations.execution.models:RepositoryUnitManifest",
+      "kind": "class",
+      "legacy_module": "zeroth.integrations.execution.models",
+      "legacy_name": "RepositoryUnitManifest",
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.REPOSITORY: 'repository'>] = <ExecutionMode.REPOSITORY: 'repository'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.integrations.execution.models.RepositoryCheckoutArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:RepoInstallationResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "RepoInstallationResponse",
+      "signature": "(*, installation_id: int, account_login: str, account_type: str, repository_selection: str, status: str, last_verified_at: str | None = None, suspended_at: str | None = None, revoked_at: str | None = None, created_at: str, updated_at: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:RepoRepositoryResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "RepoRepositoryResponse",
+      "signature": "(*, repository_id: int, owner: str, name: str, full_name: str, private: bool, default_branch: str, status: str, added_at: str, removed_at: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:ResolveRefRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "ResolveRefRequest",
+      "signature": "(*, ref: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:ResolveRefResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "ResolveRefResponse",
+      "signature": "(*, commit_sha: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:CreateCheckoutRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "CreateCheckoutRequest",
+      "signature": "(*, ref: str | None = None, commit_sha: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:RepoValidationIssueResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "RepoValidationIssueResponse",
+      "signature": "(*, severity: str, code: str, path: list[str] = <factory>, message: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:CheckoutResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "CheckoutResponse",
+      "signature": "(*, checkout_id: str, installation_id: int, repository_id: int, repository_full_name: str, requested_ref: str, state: str, resolved_commit_sha: str | None = None, git_tree_id: str | None = None, tree_digest: str | None = None, config_digest: str | None = None, manifest_digest: str | None = None, script_name: str | None = None, failure_code: str | None = None, failure_detail: str | None = None, file_count: int | None = None, size_bytes: int | None = None, expires_at: str | None = None, created_at: str, updated_at: str, attestation_present: bool = False, validation_report: list[zeroth.service.api.repo_api.RepoValidationIssueResponse] | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:CheckoutAttestationResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "CheckoutAttestationResponse",
+      "signature": "(*, payload: zeroth.service.repositories.attestation.CheckoutAttestationPayload, attestation_digest: str, attestation_signature: str | None = None, attestation_key_id: str | None = None, attestation_algorithm: str | None = None, digest_verified: bool, signature_verified: bool | None = None, verified: bool) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:CreateRepoRunRequest",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "CreateRepoRunRequest",
+      "signature": "(*, script: str, input_payload: dict[str, typing.Any] = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:RepoRunResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "RepoRunResponse",
+      "signature": "(*, run_id: str, checkout_id: str, script_name: str, state: str, exit_code: int | None = None, failure_code: str | None = None, smoke_passed: bool | None = None, output_payload: typing.Any | None = None, created_at: str, started_at: str | None = None, finished_at: str | None = None, updated_at: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.repo_api"
+      ],
+      "id": "zeroth.service.api.repo_api:RepoRunEvidenceResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.repo_api",
+      "legacy_name": "RepoRunEvidenceResponse",
+      "signature": "(*, run: zeroth.service.api.repo_api.RepoRunResponse, checkout_attestation: zeroth.service.api.repo_api.CheckoutAttestationResponse | None = None, audits: list[zeroth.governance.audit.models.NodeAuditRecord] = <factory>, summary: zeroth.service.api.audit_api.EvidenceSummaryResponse, policy_events: list[str] = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.contracts.graph.models"
+      ],
+      "id": "zeroth.contracts.graph.models:HttpRequestNode",
+      "kind": "class",
+      "legacy_module": "zeroth.contracts.graph.models",
+      "legacy_name": "HttpRequestNode",
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['http_request'] = 'http_request', http_request: zeroth.contracts.graph.models.HttpRequestNodeData) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.contracts.graph.models"
+      ],
+      "id": "zeroth.contracts.graph.models:HttpRequestNodeData",
+      "kind": "class",
+      "legacy_module": "zeroth.contracts.graph.models",
+      "legacy_name": "HttpRequestNodeData",
+      "signature": "(*, method: Literal['GET'] = 'GET', url: str = '', timeout_seconds: Annotated[float, Gt(gt=0), Le(le=30)] = 5.0, max_retries: Annotated[int, Ge(ge=0), Le(le=5)] = 2, retryable_status_codes: Annotated[set[int], MinLen(min_length=1), MaxLen(max_length=16)] = <factory>, max_response_bytes: Annotated[int, Ge(ge=1), Le(le=1048576)] = 262144) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.contracts.graph.models"
+      ],
+      "id": "zeroth.contracts.graph.models:IfNode",
+      "kind": "class",
+      "legacy_module": "zeroth.contracts.graph.models",
+      "legacy_name": "IfNode",
+      "signature": "(*, node_id: str, graph_version_ref: str, node_version: Annotated[int, Ge(ge=1)] = 1, display: zeroth.contracts.graph.models.DisplayMetadata = <factory>, input_contract_ref: str | None = None, output_contract_ref: str | None = None, execution_config: dict[str, typing.Any] = <factory>, policy_bindings: list[str] = <factory>, capability_bindings: list[str] = <factory>, audit_config: dict[str, typing.Any] = <factory>, parallel_config: zeroth.contracts.graph.models.ParallelConfig | None = None, join_config: zeroth.contracts.graph.models.JoinConfig | None = None, node_type: Literal['if'] = 'if', condition: zeroth.contracts.graph.models.IfNodeData) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.contracts.graph.models"
+      ],
+      "id": "zeroth.contracts.graph.models:IfNodeData",
+      "kind": "class",
+      "legacy_module": "zeroth.contracts.graph.models",
+      "legacy_name": "IfNodeData",
+      "signature": "(*, expression: str = '') -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.identity_api"
+      ],
+      "id": "zeroth.service.api.identity_api:IdentityResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.identity_api",
+      "legacy_name": "IdentityResponse",
+      "signature": "(*, subject: str, roles: list[str], tenant_id: str, workspace_id: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.manifest_api"
+      ],
+      "id": "zeroth.service.api.manifest_api:ManifestDetailResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.manifest_api",
+      "legacy_name": "ManifestDetailResponse",
+      "signature": "(*, manifest_ref: str, kind: str, runtime: str | None = None, description: str | None = None, version: int | None = None, onboarding_mode: str | None = None, artifact_source_kind: str | None = None, entrypoint_type: str | None = None, input_mode: str | None = None, output_mode: str | None = None, input_contract_ref: str | None = None, output_contract_ref: str | None = None, capability_requests: list[str] = <factory>, resource_limits: dict[str, typing.Any] | None = None, timeout_seconds: int | None = None, execution_placement: str | None = None, side_effect: bool | None = None, content_hash: str | None = None, input_schema: dict[str, typing.Any] | None = None, output_schema: dict[str, typing.Any] | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.manifest_api"
+      ],
+      "id": "zeroth.service.api.manifest_api:ManifestRunLinkResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.manifest_api",
+      "legacy_name": "ManifestRunLinkResponse",
+      "signature": "(*, run_id: str, node_id: str, status: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.manifest_api"
+      ],
+      "id": "zeroth.service.api.manifest_api:ManifestRunListResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.manifest_api",
+      "legacy_name": "ManifestRunListResponse",
+      "signature": "(*, manifest_ref: str, runs: list[zeroth.service.api.manifest_api.ManifestRunLinkResponse] = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.retention_api"
+      ],
+      "id": "zeroth.service.api.retention_api:ErasureHistoryEntry",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.retention_api",
+      "legacy_name": "ErasureHistoryEntry",
+      "signature": "(*, log_id: str, run_id: str | None = None, action: str, reason: str | None = None, detail: dict[str, typing.Any] | None = None, created_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.run_api"
+      ],
+      "id": "zeroth.service.api.run_api:ChildRunSummaryResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.run_api",
+      "legacy_name": "ChildRunSummaryResponse",
+      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, parent_run_id: str, campaign_id: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.studio_schemas"
+      ],
+      "id": "zeroth.service.api.studio_schemas:StudioEdgeInput",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.studio_schemas",
+      "legacy_name": "StudioEdgeInput",
+      "signature": "(*, id: str, source: str, target: str, source_handle: str | None = None, target_handle: str | None = None, kind: Literal['data', 'tool'] = 'data', mapping: zeroth.contracts.mappings.models.EdgeMapping | None = None, condition: zeroth.contracts.graph.models.Condition | None = None, enabled: bool = True) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.webhook_api"
+      ],
+      "id": "zeroth.service.api.webhook_api:WebhookDeliveryListResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.webhook_api",
+      "legacy_name": "WebhookDeliveryListResponse",
+      "signature": "(*, deliveries: list[zeroth.service.api.webhook_api.WebhookDeliveryResponse], total: int) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.service.api.webhook_api"
+      ],
+      "id": "zeroth.service.api.webhook_api:WebhookDeliveryResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.service.api.webhook_api",
+      "legacy_name": "WebhookDeliveryResponse",
+      "signature": "(*, delivery_id: str, subscription_id: str, event_type: str, event_id: str, run_id: str | None = None, approval_id: str | None = None, status: str, attempt_count: int, max_attempts: int, last_error: str | None, last_status_code: int | None, created_at: str, updated_at: str) -> None"
     }
   ],
   "immutable": true,

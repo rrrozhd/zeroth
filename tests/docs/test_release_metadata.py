@@ -52,7 +52,10 @@ def test_langgraph_release_version_tracks_project_version() -> None:
         f"This is the canonical clean install and operations path for Zeroth `{expected_version}`."
         in guide
     )
-    assert f"zeroth-core[langgraph,langgraph-gateway]=={expected_version}" in guide
+    # The guide installs from a checkout at the release tag (PyPI serves only a
+    # stale 0.1.0 placeholder), so the version-coherence check tracks that form
+    # instead of the uninstallable pinned pip install it used to advertise.
+    assert f"git checkout v{expected_version}" in guide
 
 
 def test_changelog_documents_the_hardening_release() -> None:

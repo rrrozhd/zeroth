@@ -182,39 +182,35 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             )
             if failed is not None:
                 return failed
-            spent: float | None = None
-            if self.driver.per_run_cap_usd is not None:
-                spent = sum_run_cost(run)
-                if spent is None:
-                    return await self.driver.fail_run(
-                        run,
-                        "node_execution_failed",
-                        "per-run budget cannot be evaluated: cost is unmeasured",
-                    )
-                if spent < self.driver.per_run_cap_usd:
-                    spent = None
-            if spent is not None:
-                return await self.driver.fail_run(
-                    run,
-                    "node_execution_failed",
-                    f"per-run budget exceeded: ${spent:.4f} >= ${self.driver.per_run_cap_usd:.4f}",
-                )
             if snapshot.state is TokenEngineSnapshotState.COMPLETED:
                 return await self._complete_run(run)
             if snapshot.in_flight_dispatches:
-                claim = await self._recover(snapshot)
+                recover_in_flight = True
             elif snapshot.queue and (
                 snapshot.state is TokenEngineSnapshotState.RUNNING
                 or any(
                     token.fork_lineage or token.iteration_memberships for token in snapshot.queue
                 )
             ):
-                claim = await self._claim(snapshot)
+                recover_in_flight = False
             else:
                 if any(token.settled_revision is None for token in snapshot.tokens):
                     raise OrchestratorError("token engine is non-terminal with an empty work queue")
                 await self._mark_snapshot_completed(snapshot)
                 continue
+            # Enforce the per-run cost ceiling only here -- after the COMPLETED
+            # return and after the empty-queue completion branch is ruled out,
+            # but before the mutating claim/recover. This matches the legacy
+            # driver, which checks the cap immediately before dispatching the
+            # next node, so a run whose final node crosses the cap completes
+            # instead of failing, and no orphaned in-flight dispatch is left in
+            # the persisted snapshot when a budget stop does fire.
+            budget_stop = await self._enforce_per_run_cap(run)
+            if budget_stop is not None:
+                return budget_stop
+            claim = (
+                await self._recover(snapshot) if recover_in_flight else await self._claim(snapshot)
+            )
             terminal = await self._dispatch_or_settle_parallel_failure(graph, run, claim)
             if terminal is not None:
                 return terminal
@@ -333,6 +329,33 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         if loaded is None:
             raise OrchestratorError(missing) from None
         return loaded
+
+    async def _enforce_per_run_cap(self, run: Run) -> Run | None:
+        """Fail the run when cumulative spend has crossed the local per-run cap.
+
+        Mirrors the legacy driver's ceiling: the caller invokes this only
+        immediately before dispatching the next node -- never before the
+        COMPLETED return or the empty-queue completion branch -- so a run whose
+        final node crosses the cap completes normally, and a completing run
+        whose last node has unmeasured cost is not spuriously failed. Returns
+        the failed ``Run`` to halt on, or ``None`` to proceed.
+        """
+        if self.driver.per_run_cap_usd is None:
+            return None
+        spent = sum_run_cost(run)
+        if spent is None:
+            return await self.driver.fail_run(
+                run,
+                "node_execution_failed",
+                "per-run budget cannot be evaluated: cost is unmeasured",
+            )
+        if spent >= self.driver.per_run_cap_usd:
+            return await self.driver.fail_run(
+                run,
+                "node_execution_failed",
+                f"per-run budget exceeded: ${spent:.4f} >= ${self.driver.per_run_cap_usd:.4f}",
+            )
+        return None
 
     async def _claim(self, snapshot: TokenEngineSnapshot) -> DispatchClaim:
         """Claim the head of the queue, retrying a bounded number of lost CASes."""

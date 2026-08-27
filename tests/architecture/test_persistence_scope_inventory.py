@@ -182,6 +182,16 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
     "src/zeroth/service/api/econ_analytics_api.py": {
         (("_windowed_runs_and_audits",), ("bootstrap", "audit_repository")): frozenset({"list"}),
     },
+    # ZER-37: the repo-run evidence route reads the run's audit records through
+    # the bootstrap's deployment-scoped audit repository, mirroring
+    # audit_api.get_run_evidence (tenant + workspace scoped, per-record
+    # require_resource_scope before serialization).
+    "src/zeroth/service/api/repo_api.py": {
+        (
+            ("register_repo_routes", "get_repository_run_evidence"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list_by_run"}),
+    },
     "src/zeroth/service/api/retention_api.py": {
         (
             ("register_retention_routes", "_erase_tenant"),
@@ -201,6 +211,11 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
             ("register_rightsizing_routes", "run_rightsizing_experiment"),
             ("bootstrap", "audit_repository"),
         ): frozenset({"list"}),
+    },
+    # ZER-37: the repo-run worker writes ONE terminal NodeAuditRecord per run
+    # through the bootstrap's deployment-scoped audit repository.
+    "src/zeroth/service/repositories/worker.py": {
+        (("RepoRunWorker", "_write_audit"), ("self", "_audit_repository")): frozenset({"write"}),
     },
 }
 
@@ -4430,6 +4445,7 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/service/api/econ_analytics_api.py::_windowed_runs_and_audits::list",
     "src/zeroth/service/api/manifest_api.py::list_manifest_runs::list",
     "src/zeroth/service/api/operation_api.py::resolve_ambiguous_operation::write",
+    "src/zeroth/service/api/repo_api.py::get_repository_run_evidence::list_by_run",
     "src/zeroth/service/api/retention_api.py::_erase_tenant::list_erasable",
     "src/zeroth/service/api/retention_api.py::_require_run_tenant::list",
     "src/zeroth/service/api/rightsizing_api.py::_composed_deployment_records::list",
@@ -4446,6 +4462,7 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+    "src/zeroth/service/repositories/worker.py::_write_audit::write",
     "src/zeroth/service/webhooks/repository.py::_write_audit::write_in_transaction",
 )
 
@@ -11875,6 +11892,8 @@ def test_service_workspace_scope_definitions_match_head_columns(
         "node_audits",
         "prompt_templates",
         "template_dependency_references",
+        "repo_checkouts",
+        "repo_runs",
         "run_checkpoints",
         "runs",
         "side_effect_operations",

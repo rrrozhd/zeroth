@@ -178,7 +178,11 @@ class TestApprovalRepositoryListOverdue:
             graph_version_ref=record.graph_version_ref,
         )
 
-        assert escalated.status is ApprovalStatus.ESCALATED
+        # Alert latch: the row stays PENDING (resolvable) but is fenced out of
+        # the overdue sweep via a nulled deadline + the escalated marker.
+        assert escalated.status is ApprovalStatus.PENDING
+        assert escalated.sla_deadline is None
+        assert escalated.urgency_metadata["escalated"] is True
         assert (
             await repository.get(
                 record.approval_id,
@@ -187,6 +191,8 @@ class TestApprovalRepositoryListOverdue:
             )
             == escalated
         )
+        # And it is no longer overdue, so the checker will not re-escalate it.
+        assert await reader.list_overdue() == []
 
 
 # ---------------------------------------------------------------------------
@@ -364,8 +370,16 @@ class TestApprovalServiceEscalate:
         assert result.resolution.actor.tenant_id == original.tenant_id
         assert result.resolution.actor.workspace_id == original.workspace_id
 
-    async def test_alert_marks_escalated(self, service, repo):
-        """escalate with action=alert marks as ESCALATED."""
+    async def test_alert_latches_pending_out_of_sla_sweep(self, service, repo):
+        """escalate with action=alert keeps the row PENDING but latches it.
+
+        An alert is a nudge, not a decision. Flipping the row to ESCALATED hides
+        it from list/get and makes the run unresolvable forever; instead the
+        alert nulls sla_deadline (so list_overdue stops matching) and sets
+        urgency_metadata['escalated'] while leaving status PENDING so a human can
+        still resolve it. (Renamed from test_alert_marks_escalated, which pinned
+        the bug.)
+        """
         original = _make_record(
             escalation_action="alert",
             sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
@@ -375,18 +389,31 @@ class TestApprovalServiceEscalate:
 
         result = await service.escalate(original.approval_id)
 
-        assert result.status == ApprovalStatus.ESCALATED
+        assert result.status is ApprovalStatus.PENDING
+        assert result.urgency_metadata["escalated"] is True
+        assert result.sla_deadline is None
 
     async def test_alert_emits_one_correlated_event_only_for_the_cas_winner(
         self, service, repo
     ):
-        """The approval transition, not the polling loop, owns escalation emission."""
+        """The approval transition, not the polling loop, owns escalation emission.
+
+        Under the alert-latch design (0.23.13 line, kept at the 0.24.6 merge)
+        the CAS winner's row deliberately STAYS ``PENDING`` -- an alert is a
+        nudge, not a decision -- with ``sla_deadline`` nulled and the breached
+        deadline preserved in ``urgency_metadata``. The property this test owns
+        is unchanged: exactly one correlated event, emitted by the winning
+        persisted transition only.
+        """
         original = _make_record(
             escalation_action="alert",
             sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
         )
-        winner_view = original.model_copy(update={"status": ApprovalStatus.ESCALATED})
-        repo.get = AsyncMock(side_effect=[original, winner_view])
+        breached_deadline = original.sla_deadline.isoformat()
+        # _claim_escalation mutates the record in place before resolve_pending,
+        # so returning it IS the latched winner view; the second call loses the
+        # CAS (None) and re-reads the already-latched row.
+        repo.get = AsyncMock(side_effect=[original, original])
         repo.resolve_pending = AsyncMock(side_effect=[original, None])
         webhook_service = AsyncMock()
         webhook_service.emit_event = AsyncMock(return_value=[])
@@ -395,8 +422,10 @@ class TestApprovalServiceEscalate:
         winner = await service.escalate(original.approval_id)
         loser = await service.escalate(original.approval_id)
 
-        assert winner.status is ApprovalStatus.ESCALATED
-        assert loser.status is ApprovalStatus.ESCALATED
+        assert winner.status is ApprovalStatus.PENDING
+        assert winner.sla_deadline is None
+        assert winner.urgency_metadata.get("escalated") is True
+        assert loser.status is ApprovalStatus.PENDING
         webhook_service.emit_event.assert_awaited_once()
         emitted = webhook_service.emit_event.await_args.kwargs
         assert emitted["event_type"] == "approval.escalated"
@@ -407,7 +436,7 @@ class TestApprovalServiceEscalate:
             "graph_version_ref": original.graph_version_ref,
             "node_id": original.node_id,
             "escalation_action": "alert",
-            "sla_deadline": original.sla_deadline.isoformat(),
+            "sla_deadline": breached_deadline,
         }
 
     async def test_already_escalated_is_noop(self, service, repo):
