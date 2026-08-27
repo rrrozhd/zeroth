@@ -202,9 +202,10 @@ TEMPORARY_EXCEPTIONS = {
             "import integrations, so the edge is recorded rather than hidden."
         ),
         removal_task=(
-            "Give the HTTP node vocabulary a contracts home (the way graph node "
-            "models live in zeroth.contracts.graph) or a runtime-owned "
-            "structural protocol, then delete this edge."
+            "Task beyond the 2026-07-18 refactor plan: give the HTTP node "
+            "vocabulary a contracts home (the way graph node models live in "
+            "zeroth.contracts.graph) or a runtime-owned structural protocol, "
+            "then delete this edge."
         ),
     ),
 }

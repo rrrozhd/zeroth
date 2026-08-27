@@ -29,7 +29,12 @@ async def test_bootstrap_threads_self_auth_provider_when_regulus_enabled(
         assert service.regulus_client is not None
         assert service.regulus_client._client.transport._headers_provider is not None
         assert service.regulus_client._client.transport._asgi_app is not None
-        assert service.regulus_client.base_url == "http://regulus.internal/v1"
+        # base_url deliberately stays the operator-configured, RESOLVABLE value.
+        # ASGITransport routes the cost-event POST by PATH, so _asgi_app above is
+        # what proves in-process dispatch; the readiness probe HTTP-GETs this
+        # base_url, so pointing it at the unroutable "regulus.internal" sentinel
+        # would flip /health/ready to degraded. See bootstrap/factory.py.
+        assert service.regulus_client.base_url == settings.regulus.base_url
         assert service.budget_enforcer is not None
         assert service.budget_enforcer._headers_provider is not None
         assert service.probe_instrumentation is not None
