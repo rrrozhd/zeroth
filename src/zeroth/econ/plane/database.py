@@ -286,10 +286,20 @@ def _ensure_sqlite_compat() -> None:
                         existing_type=Numeric(12, 4),
                         nullable=True,
                     )
-        execution_types = {
-            column["name"]: column["type"]
-            for column in inspect(conn).get_columns("execution_events")
-        }
+        # Guarded like every other access in this function. Reflection raises
+        # NoSuchTableError on a database that has no execution_events, and a
+        # database missing tables is precisely what this compatibility shim
+        # exists to repair -- an unguarded read here made it crash on the one
+        # input it is for. PRAGMA returns nothing for an absent table, so an
+        # empty `execution_columns` is the existence check already in hand.
+        execution_types = (
+            {
+                column["name"]: column["type"]
+                for column in inspect(conn).get_columns("execution_events")
+            }
+            if execution_columns
+            else {}
+        )
         if any(
             (
                 getattr(execution_types.get(column), "precision", None),

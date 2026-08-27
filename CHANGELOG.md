@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0.5]
+
+### Fixed
+
+- `_ensure_sqlite_compat` no longer crashes on a database without an `execution_events` table. Every
+  other access in that function guards table existence first; one reflection call did not, and
+  raised `NoSuchTableError` — on exactly the kind of partial legacy database the shim exists to
+  repair. Pre-existing on `main`.
+
 ## [0.25.0.4]
 
 ### Fixed
