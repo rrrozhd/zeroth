@@ -319,11 +319,16 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
             tenant_id=principal.tenant_id,
             workspace_id=target_workspace_id,
             workspace_scoped=True,
-            # ZER-32: the timeline is a deployment-scoped read. This kwarg was
-            # dropped when the endpoint was refactored, leaving
-            # target_deployment_ref feeding only the response body, so the query
-            # itself narrowed no further than tenant+workspace.
-            deployment_ref=target_deployment_ref,
+            # NOT deployment-scoped, and that is a genuine unresolved conflict on
+            # this line rather than an oversight. `deployment_ref=` was passed
+            # here before e850cca3; restoring it satisfies the ZER-32 regression
+            # test (test_api_surface_isolation) and simultaneously BREAKS
+            # test_run_evidence_and_verification_include_composed_deployment_records,
+            # which requires a composed run's timeline to include the PARENT
+            # deployment's records. Both tests currently encode requirements that
+            # a single-ref filter cannot satisfy at once; reconciling them
+            # (scoping to the run's deployment ancestry rather than one ref) is a
+            # design decision for the owner of composed deployments.
         )
         if run is None and not records:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")

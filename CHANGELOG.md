@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1.4]
+
+### Changed
+
+- Revert the audit-timeline deployment scoping added in 0.25.1, and record why in the source. It
+  satisfied the ZER-32 regression test but broke
+  `test_run_evidence_and_verification_include_composed_deployment_records`, which requires a composed
+  run's timeline to include the **parent** deployment's records. Two tests on `main` encode
+  requirements a single-ref filter cannot satisfy at once. That contradiction — not the missing
+  kwarg — is the real defect, and reconciling it (scoping to the run's deployment ancestry rather
+  than one ref) belongs to the owner of composed deployments.
+
 ## [0.25.1.3]
 
 ### Fixed
