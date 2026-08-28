@@ -22,8 +22,17 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 
+@persistence_surface(
+    "service.prompt_templates", probe=named_isolation_probe("_drive_prompt_templates")
+)
 class DatabaseTemplateRegistry:
     """Persist immutable template versions in the service database."""
 
@@ -92,6 +101,7 @@ class DatabaseTemplateRegistry:
             created_at=created_at,
         )
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def register(
         self,
         name: str,
@@ -178,6 +188,7 @@ class DatabaseTemplateRegistry:
             raise
         return template
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self, name: str, version: int | None = None) -> PromptTemplate:
         async with self._templates.transaction() as templates:
             return await self.get_in_transaction(templates, name, version)
@@ -218,6 +229,7 @@ class DatabaseTemplateRegistry:
     async def get_latest(self, name: str) -> PromptTemplate:
         return await self.get(name)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(self) -> list[PromptTemplate]:
         async with self._templates.transaction() as templates:
             rows = await templates.select(
@@ -233,6 +245,7 @@ class DatabaseTemplateRegistry:
             )
         return [self._from_row(row) for row in rows]
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, name: str, version: int) -> None:
         async with self.mutation_transaction() as transaction:
             await self.delete_in_transaction(transaction, name, version)
