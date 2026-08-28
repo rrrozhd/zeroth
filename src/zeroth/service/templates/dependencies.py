@@ -17,7 +17,11 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
-from zeroth.platform.storage.scoping import persistence_operation
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 
 class GraphVersionReader(Protocol):
@@ -144,6 +148,10 @@ class TemplateDependencyChecker:
         return None
 
 
+@persistence_surface(
+    "service.template_dependency_references",
+    probe=named_isolation_probe("_drive_template_dependency_references"),
+)
 class TemplateReferenceIndex:
     """Durable dependency index updated in graph/deployment write transactions."""
 

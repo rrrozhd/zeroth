@@ -31,7 +31,20 @@ from zeroth.platform.storage.scoping import (
 
 
 @persistence_surface(
-    "service.prompt_templates", probe=named_isolation_probe("_drive_prompt_templates")
+    "service.prompt_templates",
+    probe=named_isolation_probe("_drive_prompt_templates"),
+    # Transaction seams, not persistence operations: they hand the caller a bound
+    # table so a write can join an outer transaction, and the *_in_transaction
+    # methods they serve are the ones carrying the operation metadata.
+    non_persistence_public_methods=frozenset(
+        {
+            "mutation_transaction",
+            "register_in_transaction",
+            "get_in_transaction",
+            "delete_in_transaction",
+            "get_latest",
+        }
+    ),
 )
 class DatabaseTemplateRegistry:
     """Persist immutable template versions in the service database."""
