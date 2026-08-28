@@ -776,7 +776,14 @@ async def preflight_workflow(
     if graph is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    report = await GraphValidator().validate(graph)
+    # Ask the validator publish will actually enforce with. A bare GraphValidator()
+    # carries no contract registry and no mcp_grants_resolver, and graph_validation
+    # returns early when that resolver is None -- above the node loop, so ALL three
+    # mcp_tool rules (unknown server, capability floor, capability ceiling) are
+    # skipped. Preflight then answers ready=true for a graph publish rejects 422.
+    # The fallback is for repositories constructed without a validator (test doubles).
+    validator = _get_graph_repository(request).validator or GraphValidator()
+    report = await validator.validate(graph)
     issues = [
         WorkflowPreflightIssue(
             severity=issue.severity.value,

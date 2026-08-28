@@ -56,6 +56,19 @@ class GraphRepository:
         self._validator: GraphValidator | None = validator
         self._template_reference_index = template_reference_index
 
+    @property
+    def validator(self) -> GraphValidator | None:
+        """The validator ``publish`` enforces with, exposed for read-only preflights.
+
+        A caller that wants to tell an author "this graph will publish" must ask the
+        SAME validator publish will ask. Constructing a fresh ``GraphValidator()``
+        instead silently drops whatever the wired one carries -- the contract
+        registry, and the MCP grants resolver whose absence makes
+        ``graph_validation`` skip every mcp_tool rule -- so the preflight answers a
+        strictly weaker question than the one it appears to answer.
+        """
+        return self._validator
+
     def _graphs(self, tenant_id: str | None, workspace_id: str | None) -> ScopedTable:
         tenant = tenant_id or "default"
         if workspace_id is None:
