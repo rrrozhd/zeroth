@@ -376,15 +376,17 @@ a Next.js **static export** that talks to the platform's HTTP API.
 | | |
 |---|---|
 | ![Overview — deployment health and getting-started checklist](docs/assets/console/overview.png) | ![Studio — workflow templates and graph list](docs/assets/console/studio.png) |
-| ![Graph editor — RAG template on the canvas](docs/assets/console/editor.png) | ![Node editor — inline help and field hints](docs/assets/console/node-editor.png) |
+| ![MCP tool workflow — an agent connected to pinned MCP tools](docs/assets/console/mcp-tool-workflow.png) | ![Economics — actual provider spend, exposure, and deployment attribution](docs/assets/console/economics.png) |
+| ![Audit — signed per-node execution evidence](docs/assets/console/audit.png) | ![Rightsizing — advisory model experiments](docs/assets/console/rightsizing.png) |
+| ![Retention — TTLs, legal holds, and right-to-erasure](docs/assets/console/retention.png) | ![Artifacts — safe metadata, preview, and download](docs/assets/console/artifacts.png) |
 
-**Start from a template, not a blank canvas.** Studio ships ready-made example
-graphs — *Grounded Q&A (RAG)*, *Approval-gated action*, *Tool → Agent
-pipeline* — that instantiate as fully editable drafts in one click. Every node
-config field carries a hint and example value, each node type explains itself
-in the editor, and the built-in **Guide** page covers concepts, the
-zero-to-run walkthrough, a node type reference, and an API quickstart. Empty
-states across Runs, Approvals, and Audit explain how each view gets populated.
+**Start empty or from an operator-ready template.** Studio can author agents,
+inline or manifest-backed code, retrieval, approval, subgraph, dedicated
+**If**, bounded **Loop**, and imported **MCP tool** nodes. Imported tools retain
+their server/tool identity and schema digest on the canvas; conditional and
+loop behavior is owned by visible nodes rather than hidden edge labels. Every
+node configuration field carries contextual help, and the built-in **Guide**
+covers the zero-to-run workflow, node reference, and API quickstart.
 
 The console is built once and runs in **two modes from the same bundle**:
 
@@ -398,12 +400,11 @@ The console is built once and runs in **two modes from the same bundle**:
 The console reads its API base URL and `X-API-Key` from the browser at runtime
 (localStorage), so the same artifact works in both modes.
 
-**What it covers:** an overview/health dashboard with deployments and a
-getting-started checklist; runs (submit with example payloads, a live-polling
-detail view, and ready-made cURL for the deployed API); approvals
-(approve/reject); per-node audit; deployment cost; connector administration;
-a Studio with workflow templates, CRUD, publish/deploy, and a full-screen
-React Flow canvas; and an in-console Guide.
+**What it covers:** deployment health; authoring and versioning; runs and exact
+cURL reproduction; approvals and governed actions; signed per-node audit;
+artifacts; connectors and webhooks; tenant economics, cost models, and
+reconciliation; advisory Rightsizing; capabilities and enforcement; retention,
+legal holds, and erasure; repositories and manifests; and an in-console Guide.
 
 > **Studio authoring closes the canvas→run loop.** On a *draft* you can add
 > any of the node types above — plus inline Python **code** nodes that execute
@@ -415,6 +416,13 @@ React Flow canvas; and an in-console Guide.
 > it still needs a service restart — runs from the canvas execute against the
 > currently *served* deployment. Published graphs are read-only — *clone to a
 > draft* to edit.
+
+The persistent local pilot instance and its server-owned artifact identity are
+documented in [Pilot operations](docs/operations/pilot-operations.md). README
+screenshots are reproducible against an authenticated local instance with
+`frontend/scripts/capture-console-screenshots.mjs`; the script reads the API
+credential only from `ZEROTH_SCREENSHOT_API_KEY` and never writes it to an
+artifact.
 
 ```bash
 # Easiest: the [console] extra ships the pre-built UI as the zeroth-console

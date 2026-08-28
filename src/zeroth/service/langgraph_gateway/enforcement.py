@@ -36,13 +36,18 @@ from zeroth.service.langgraph_gateway.context import ReservedContextClaims, Rese
 
 
 class BudgetChecker(Protocol):
-    async def check_budget_status(self, tenant_id: str) -> object: ...
+    """Represent budget checker state and behavior."""
+
+    async def check_budget_status(self, tenant_id: str) -> object:
+        """Check budget status."""
+        ...
 
 
 class EnforcementBoundaryError(RuntimeError):
     """Safe stable boundary failure."""
 
     def __init__(self, code: str, *, status_code: int = 400, retryable: bool = False) -> None:
+        """Initialize the component with its validated dependencies."""
         self.code = code
         self.status_code = status_code
         self.retryable = retryable
@@ -66,11 +71,15 @@ _UNEXPECTED_FAILURE_METRIC_CODES = {
 
 
 class _EnforcementBackendError(RuntimeError):
+    """Represent enforcement backend error state and behavior."""
+
     def __init__(self, metric_code: str) -> None:
+        """Initialize the component with its validated dependencies."""
         self.metric_code = metric_code
 
 
 def _raise_unavailable(service: LangGraphEnforcementService, metric_code: str) -> None:
+    """Implement the raise unavailable boundary for this component."""
     service.metrics.increment("zeroth_langgraph_enforcement_failures_total", {"code": metric_code})
     raise EnforcementBoundaryError(
         "zeroth.enforcement_unavailable", status_code=503, retryable=True
@@ -78,8 +87,11 @@ def _raise_unavailable(service: LangGraphEnforcementService, metric_code: str) -
 
 
 def _meter_boundary_errors(operation: Callable[..., Any]) -> Callable[..., Any]:
+    """Implement the meter boundary errors boundary for this component."""
+
     @wraps(operation)
     async def counted(self: LangGraphEnforcementService, *args: Any, **kwargs: Any) -> Any:
+        """Implement the counted boundary for this component."""
         try:
             return await operation(self, *args, **kwargs)
         except EnforcementBoundaryError as exc:
@@ -116,6 +128,7 @@ class LangGraphEnforcementService:
         expected_inventory_fingerprint: str | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
+        """Initialize the component with its validated dependencies."""
         self.repository = repository
         self.codec = codec
         self.signer = signer
@@ -141,6 +154,7 @@ class LangGraphEnforcementService:
         policy_version: str | None = None,
         run_id: str | None = None,
     ) -> ReservedContextClaims:
+        """Implement the claims boundary for this component."""
         try:
             claims = self.codec.decode(
                 token, audience=self.audience, deployment_ref=self.deployment_ref
@@ -158,6 +172,7 @@ class LangGraphEnforcementService:
 
     @_meter_boundary_errors
     async def register_inventory(self, request: InventoryRegistrationV1) -> None:
+        """Implement the register inventory boundary for this component."""
         self._claims(
             request.context_token,
             tenant_id=request.tenant_id,
@@ -173,6 +188,7 @@ class LangGraphEnforcementService:
 
     @_meter_boundary_errors
     async def decide(self, request: DecisionRequestV1) -> DecisionResponseV1:
+        """Implement the decide boundary for this component."""
         claims = self._claims(
             request.context_token,
             tenant_id=request.tenant_id,
@@ -226,6 +242,7 @@ class LangGraphEnforcementService:
     async def _evaluate(
         self, request: DecisionRequestV1, claims: ReservedContextClaims
     ) -> tuple[ToolDecisionKind, str, str]:
+        """Implement the evaluate boundary for this component."""
         inventory = await self.repository.get_inventory(
             request.deployment_ref,
             self.expected_graph_version,
@@ -294,6 +311,7 @@ class LangGraphEnforcementService:
 
     @_meter_boundary_errors
     async def attest_run(self, request: RunAttestationV1) -> RunCapabilityEvidence:
+        """Implement the attest run boundary for this component."""
         claims = self._claims(
             request.context_token,
             tenant_id=request.tenant_id,
@@ -357,6 +375,7 @@ class LangGraphEnforcementService:
 
     @_meter_boundary_errors
     async def heartbeat(self, request: HeartbeatV1) -> None:
+        """Implement the heartbeat boundary for this component."""
         self._claims(
             request.context_token,
             tenant_id=request.tenant_id,
@@ -399,6 +418,7 @@ class LangGraphEnforcementService:
         self.metrics.increment("zeroth_langgraph_heartbeats_total")
 
     def _inventory_complete(self, inventory: Mapping[str, Any] | None, fingerprint: str) -> bool:
+        """Implement the inventory complete boundary for this component."""
         return bool(
             inventory
             and inventory["coverage"] == InventoryCoverage.COMPLETE.value
@@ -410,6 +430,7 @@ class LangGraphEnforcementService:
 def _matching_entry(
     inventory: Mapping[str, Any] | None, action: ActionDescriptorV1
 ) -> dict[str, Any] | None:
+    """Implement the matching entry boundary for this component."""
     if inventory is None:
         return None
     for entry in from_json_value(inventory["entries_json"]):

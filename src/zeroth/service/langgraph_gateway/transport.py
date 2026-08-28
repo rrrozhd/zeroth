@@ -55,11 +55,15 @@ class WebSocketClientError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class _WebSocketFrame:
+    """Represent web socket frame state and behavior."""
+
     value: WebSocketMessage
 
 
 @dataclass(frozen=True, slots=True)
 class _WebSocketClose:
+    """Represent web socket close state and behavior."""
+
     code: int
     reason: str
 
@@ -72,18 +76,21 @@ class _WebSocketByteBudget:
     """One shared byte budget across both directional application queues."""
 
     def __init__(self, limit: int, high_water_callback: Callable[[int], None]) -> None:
+        """Initialize the component with its validated dependencies."""
         self._limit = limit
         self._used = 0
         self._condition = asyncio.Condition()
         self._high_water_callback = high_water_callback
 
     async def reserve(self, size: int) -> None:
+        """Implement the reserve boundary for this component."""
         async with self._condition:
             await self._condition.wait_for(lambda: self._used + size <= self._limit)
             self._used += size
             self._high_water_callback(self._used)
 
     async def release(self, size: int) -> None:
+        """Release release."""
         async with self._condition:
             self._used -= size
             self._condition.notify_all()
@@ -99,13 +106,16 @@ class _UpstreamStreamingResponse(StreamingResponse):
         status_code: int,
         close_upstream: Callable[[], Awaitable[None]],
     ) -> None:
+        """Initialize the component with its validated dependencies."""
         super().__init__(content, status_code=status_code)
         self._close_upstream = close_upstream
 
     async def aclose(self) -> None:
+        """Implement the aclose boundary for this component."""
         await self._close_upstream()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Invoke the wrapped asynchronous boundary."""
         try:
             await super().__call__(scope, receive, send)
         finally:
@@ -125,6 +135,7 @@ class HTTPGatewayTransport:
         websocket_max_message_bytes: int | None = None,
         websocket_max_queued_bytes: int | None = None,
     ) -> None:
+        """Initialize the component with its validated dependencies."""
         if settings.upstream_url is None:
             raise ValueError("LangGraph gateway upstream_url is required")
         self._settings = settings
@@ -192,6 +203,7 @@ class HTTPGatewayTransport:
         return len(self._active_websocket_tasks)
 
     def _request_url(self, request: Request) -> httpx.URL:
+        """Implement the request url boundary for this component."""
         incoming_path = request.scope.get("raw_path")
         if incoming_path is None:
             incoming_path = quote(request.scope["path"], safe="/").encode("ascii")
@@ -203,6 +215,7 @@ class HTTPGatewayTransport:
         return self._upstream_url.copy_with(raw_path=raw_path)
 
     def _websocket_url(self, websocket: Any) -> str:
+        """Implement the websocket url boundary for this component."""
         incoming_path = websocket.scope.get("raw_path")
         if incoming_path is None:
             incoming_path = quote(websocket.scope["path"], safe="/").encode("ascii")
@@ -291,6 +304,7 @@ class HTTPGatewayTransport:
             await self._finish_websocket(task, upstream)
 
     async def _begin_websocket(self) -> asyncio.Task[Any]:
+        """Begin websocket."""
         task = asyncio.current_task()
         if task is None:
             raise RuntimeError("WebSocket gateway transport has no owning task")
@@ -301,6 +315,7 @@ class HTTPGatewayTransport:
         return task
 
     async def _set_active_upstream(self, upstream: ClientConnection) -> None:
+        """Implement the set active upstream boundary for this component."""
         async with self._lifecycle:
             self._active_websockets.add(upstream)
 
@@ -309,6 +324,7 @@ class HTTPGatewayTransport:
         task: asyncio.Task[Any],
         upstream: ClientConnection | None,
     ) -> None:
+        """Finish websocket."""
         async with self._lifecycle:
             self._active_websocket_tasks.discard(task)
             if upstream is not None:
@@ -324,6 +340,7 @@ class HTTPGatewayTransport:
         upstream: ClientConnection,
         transform: Callable[[WebSocketMessage], Awaitable[WebSocketMessage]],
     ) -> None:
+        """Implement the bridge websocket boundary for this component."""
         queue_item = tuple[_WebSocketFrame | _WebSocketClose, int]
         client_to_upstream: asyncio.Queue[queue_item] = asyncio.Queue(
             maxsize=self._websocket_queue_size
@@ -340,6 +357,7 @@ class HTTPGatewayTransport:
             queue: asyncio.Queue[queue_item],
             item: _WebSocketFrame | _WebSocketClose,
         ) -> None:
+            """Implement the enqueue boundary for this component."""
             size = _websocket_item_size(item)
             if size > self._websocket_max_message_bytes:
                 raise WebSocketClientError(4400, "zeroth.websocket_message_too_large")
@@ -354,6 +372,7 @@ class HTTPGatewayTransport:
             )
 
         async def read_client() -> None:
+            """Read client."""
             while True:
                 event = await websocket.receive()
                 event_type = event.get("type")
@@ -379,6 +398,7 @@ class HTTPGatewayTransport:
                 await enqueue(client_to_upstream, _WebSocketFrame(transformed))
 
         async def write_upstream() -> None:
+            """Write upstream."""
             while True:
                 item, size = await client_to_upstream.get()
                 try:
@@ -393,6 +413,7 @@ class HTTPGatewayTransport:
                     await byte_budget.release(size)
 
         async def read_upstream() -> None:
+            """Read upstream."""
             try:
                 while True:
                     await enqueue(upstream_to_client, _WebSocketFrame(await upstream.recv()))
@@ -410,6 +431,7 @@ class HTTPGatewayTransport:
                 await enqueue(upstream_to_client, close)
 
         async def write_client() -> None:
+            """Write client."""
             while True:
                 item, size = await upstream_to_client.get()
                 try:
@@ -433,6 +455,7 @@ class HTTPGatewayTransport:
             pass
 
     def _record_websocket_buffered_bytes(self, used: int) -> None:
+        """Record websocket buffered bytes."""
         self.websocket_max_buffered_bytes = max(
             self.websocket_max_buffered_bytes,
             used,
@@ -486,12 +509,14 @@ class HTTPGatewayTransport:
         return downstream_response
 
     async def _finish_send(self) -> bool:
+        """Finish send."""
         async with self._lifecycle:
             self._in_flight_sends -= 1
             self._lifecycle.notify_all()
             return self._closing
 
     async def _finish_send_shielded(self) -> bool:
+        """Finish send shielded."""
         finish_task = asyncio.create_task(self._finish_send())
         try:
             return await asyncio.shield(finish_task)
@@ -500,6 +525,7 @@ class HTTPGatewayTransport:
             raise
 
     async def _response_body(self, response: httpx.Response) -> AsyncIterator[bytes]:
+        """Implement the response body boundary for this component."""
         try:
             async for chunk in response.aiter_raw():
                 yield chunk
@@ -507,6 +533,7 @@ class HTTPGatewayTransport:
             await self._close_upstream_response(response)
 
     async def _close_upstream_response(self, response: httpx.Response) -> None:
+        """Close upstream response."""
         close_task = self._closing_responses.get(response)
         if close_task is None:
             if response.is_closed:
@@ -516,6 +543,7 @@ class HTTPGatewayTransport:
             self._closing_responses[response] = close_task
 
             def finished(task: asyncio.Task[None]) -> None:
+                """Implement the finished boundary for this component."""
                 self._closing_responses.pop(response, None)
                 self._open_responses.discard(response)
                 if not task.cancelled():
@@ -541,6 +569,7 @@ class HTTPGatewayTransport:
         await asyncio.shield(shutdown_task)
 
     async def _shutdown(self) -> None:
+        """Implement the shutdown boundary for this component."""
         async with self._lifecycle:
             while self._in_flight_sends:
                 await self._lifecycle.wait()
@@ -556,17 +585,21 @@ class HTTPGatewayTransport:
         await self._client.aclose()
 
     async def __aenter__(self) -> HTTPGatewayTransport:
+        """Enter the asynchronous transport context."""
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
+        """Close the asynchronous transport context."""
         await self.aclose()
 
 
 async def _identity_websocket_message(message: WebSocketMessage) -> WebSocketMessage:
+    """Implement the identity websocket message boundary for this component."""
     return message
 
 
 def _validated_subprotocols(headers: list[tuple[bytes, bytes]]) -> list[str]:
+    """Implement the validated subprotocols boundary for this component."""
     protocols: list[str] = []
     total_bytes = 0
     for name, value in headers:
@@ -593,6 +626,7 @@ def _validated_subprotocols(headers: list[tuple[bytes, bytes]]) -> list[str]:
 
 
 def _validated_correlation_id(correlation_id: str | None) -> bytes | None:
+    """Implement the validated correlation id boundary for this component."""
     if correlation_id is None:
         return None
     try:
@@ -609,6 +643,7 @@ def _validated_correlation_id(correlation_id: str | None) -> bytes | None:
 
 
 def _sendable_close_code(code: int) -> bool:
+    """Implement the sendable close code boundary for this component."""
     return 1000 <= code < 5000 and code not in {1004, 1005, 1006, 1015}
 
 
@@ -627,14 +662,17 @@ async def _close_websocket_pair(
 
 
 def _websocket_message_size(message: WebSocketMessage) -> int:
+    """Implement the websocket message size boundary for this component."""
     return len(message.encode("utf-8")) if isinstance(message, str) else len(message)
 
 
 def _websocket_item_size(item: _WebSocketFrame | _WebSocketClose) -> int:
+    """Implement the websocket item size boundary for this component."""
     return _websocket_message_size(item.value) if isinstance(item, _WebSocketFrame) else 0
 
 
 def _preserves_downstream_close(exc: BaseException) -> bool:
+    """Implement the preserves downstream close boundary for this component."""
     if getattr(exc, "preserve_downstream_close", False) is True:
         return True
     if isinstance(exc, BaseExceptionGroup):

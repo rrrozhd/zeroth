@@ -2,21 +2,44 @@
 
 ## Bottom line
 
-Candidate baseline `0dcbb86d` plus the audit-v3 compatibility correction in the
-current closeout is suitable for a controlled demo, but a full pilot is **not
-yet accepted**. The current evidence supports
-`demo_ready_not_full_campaign_accepted`: the requested technical closeout now
-includes fresh batch, approval/action, and loop runs; immutable rollback and
-roll-forward; eight-route Chromium and native Safari inspection; a complete
-backend run; migration rollback; API drift; live role isolation; signed audit;
-and authoritative accounting. Pilot acceptance remains blocked by human-owned
-credential rotation, operations ownership and recovery, elapsed cohort
-outcomes, the uncompleted fresh destructive-retention rehearsal, and production
-artifact identity.
+The current candidate is suitable for a controlled demo, but a full pilot is
+**not yet accepted**. The evidence supports
+`demo_ready_not_full_campaign_accepted`: technical closure now includes fresh
+batch, approval/action, and loop runs; immutable rollback and roll-forward;
+eight-route Chromium and native Safari inspection; a complete backend run;
+migration rollback; API drift; the complete 109-node release-candidate access
+matrix; a fresh disposable destructive-retention run; restart and exact-hash
+restore drills; signed audit; authoritative accounting; server-owned artifact
+identity configuration; and 84.1% source documentation coverage. Pilot
+acceptance remains blocked by human-owned credential rotation, assignment and
+signoff of an accountable operations owner, and elapsed real-user cohort
+outcomes.
 
 This document defines the smallest credible bar for a successful pilot. It does
 not relabel deferred full-product criteria as passes and does not claim
 production readiness.
+
+## Pilot finalization checkpoint — 2026-08-28
+
+Evidence root:
+`~/.local/share/zeroth/evaluations/evaluation-studio-v1/evidence/pilot-finalization-20260828-1`.
+Secret-bearing database snapshots remain outside it under
+`state-snapshots/pilot-finalization-20260828-1-retention-post-erasure`.
+
+| Gate | Status | Evidence and boundary |
+| --- | --- | --- |
+| Resource-level access control | **Pass** | The generated release-candidate catalog contained 109 nodes. All 109 passed against disposable loopback Redis; coverage and outcome verification report no missing, unbound, duplicate, skipped, or failed nodes. The matrix spans application resources, SQL/Redis/artifact/checkpoint persistence, workers/restarts, forged scope, identifier guessing, replay, concurrency, stale credentials, and revocation. |
+| Destructive retention | **Pass — disposable tenant** | The authenticated 1440×900 Chromium journey refused erasure of a held run, erased an eligible run and every eligible tenant run, removed their artifacts, retained held content, preserved verifiable signed audit chains, retained policy-defined economics, refreshed durable history, and passed axe WCAG 2.2 AA. No provider call or external action occurred. |
+| Restore and incident drill | **Pass — technical rehearsal** | The disposable service outage was detected, restart restored health and the held record, and restoring the external snapshot reproduced database SHA-256 `2180eac0c5e289d9aeeec840c0a0534156ad136ca0bbdb8b3994342151b9d4eb` plus held/erased state. This closes the mechanism, not accountable-owner signoff. |
+| Operations ownership | **Blocked — human-owned** | [PILOT_SIGNOFF.md](PILOT_SIGNOFF.md) records the technical rehearsal and leaves the real owner, escalation channel, coverage, witness, and signature explicitly unassigned. Automation cannot create accountability. |
+| Pilot cohort | **Blocked — elapsed evidence** | [PILOT_COHORT_SIGNOFF.md](PILOT_COHORT_SIGNOFF.md) defines the required cohort, outcomes, incidents, economics, feedback, and three-owner exit decision. No real-user cohort window has occurred, so no outcome is claimed. |
+| Server-owned artifact identity | **Configured, certification still separate** | `scripts/configure_dev_artifact_identity.py` refuses dirty Git, measures the full commit and Docker-owned `sha256` image ID, atomically writes both private process settings, and never accepts them from an API client. A trusted promotion receipt remains independently required for production readiness. |
+| Documentation coverage | **Pass** | `interrogate src/zeroth --fail-under 84` reports 84.1%, raised from 80.4% by documenting graph-token contracts, approval persistence, orchestration support, and gateway boundaries without changing exclusions. |
+| README and UI evidence | **Pass** | Eight fresh authenticated 1360×860 Chromium screenshots show the actual overview, Studio, MCP-tool workflow, Audit, Economics, Rightsizing, Retention, and Artifacts surfaces. The capture script consumes the key only from an environment variable. |
+
+The finalization does not waive the two remaining human gates. The pilot may be
+demonstrated under supervision, but it must not be called accepted until the
+owner and cohort records are signed with real identities and observations.
 
 ## Final-candidate technical closeout — 2026-08-28
 

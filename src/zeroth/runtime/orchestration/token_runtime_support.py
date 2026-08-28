@@ -59,6 +59,7 @@ class TokenRuntimeSupport:
     """Topology, join, fan-out, and compatibility support for the coordinator."""
 
     def _parallel_branches(self, graph, run, node, output, active):
+        """Implement the parallel branches boundary for this component."""
         if not active:
             raise FanOutValidationError("parallel fan-out has no active downstream edge")
         contexts = self.driver.parallel_runtime.parallel_executor.split_fan_out(
@@ -76,6 +77,7 @@ class TokenRuntimeSupport:
 
     @staticmethod
     def _fan_out(snapshot: TokenEngineSnapshot, **command: Any) -> TokenEngineSnapshot:
+        """Implement the fan out boundary for this component."""
         before_ids = {token.token_id for token in snapshot.queue}
         nested = bool(
             next(
@@ -102,6 +104,7 @@ class TokenRuntimeSupport:
         inbound_edge_id: str,
         payload: JsonValue,
     ) -> TokenEngineSnapshot:
+        """Implement the append detached boundary for this component."""
         revision = snapshot.revision + 1
         token = TokenEnvelope(
             token_id=_stable_id("tok", snapshot.run_id, "detached", snapshot.next_token_ordinal),
@@ -181,6 +184,7 @@ class TokenRuntimeSupport:
         edge_order: Mapping[str, int],
         merge_payloads: Callable[[list[JsonValue]], JsonValue],
     ) -> TokenEngineSnapshot:
+        """Close deferred join."""
         dispatch = _matching_dispatch(
             snapshot,
             dispatch_id=dispatch_id,
@@ -236,6 +240,7 @@ class TokenRuntimeSupport:
     def _deferred_join_waiters(
         snapshot: TokenEngineSnapshot, target_node_id: str
     ) -> tuple[DeferredJoinDelivery, ...]:
+        """Implement the deferred join waiters boundary for this component."""
         return tuple(
             delivery
             for delivery in snapshot.deferred_join_deliveries
@@ -251,6 +256,7 @@ class TokenRuntimeSupport:
         output: dict[str, Any],
         after: TokenEngineSnapshot,
     ) -> dict[str, Any]:
+        """Implement the merge closed fanout boundary for this component."""
         if not token.fork_lineage:
             return output
         fork_id = token.fork_lineage[-1].fork_id
@@ -297,6 +303,7 @@ class TokenRuntimeSupport:
         delivered: bool,
         precomputed_delivery: PayloadDelivery | None = None,
     ) -> TokenEngineSnapshot:
+        """Implement the route join boundary for this component."""
         dispatch = claim.dispatch
         routes = self._cohort_routes(graph, claim.snapshot, dispatch.token, edge.target_node_id)
         if delivered:
@@ -343,6 +350,7 @@ class TokenRuntimeSupport:
         return await self._close_join_if_ready(graph, run, committed, edge, target_tag)
 
     async def _close_join_if_ready(self, graph, run, committed, edge, target_tag):
+        """Close join if ready."""
         ready = next(
             (
                 join
@@ -365,6 +373,7 @@ class TokenRuntimeSupport:
             config = JoinConfig(merge_strategy="collect")
 
         def reducer(_config: Any, inputs: tuple[Any, ...]) -> JsonValue:
+            """Implement the reducer boundary for this component."""
             payloads = [item.payload for item in inputs]
             return cast(
                 JsonValue,
@@ -415,6 +424,7 @@ class TokenRuntimeSupport:
         token: Any,
         target_node_id: str,
     ) -> dict[str, str]:
+        """Implement the cohort routes boundary for this component."""
         fork_id = token.fork_lineage[-1].fork_id
         fork = next(item for item in snapshot.forks if item.fork_id == fork_id)
         routes = self._cohort_routes_if_reachable(graph, snapshot, fork, target_node_id)
@@ -431,6 +441,7 @@ class TokenRuntimeSupport:
         fork: Any,
         target_node_id: str,
     ) -> dict[str, str] | None:
+        """Implement the cohort routes if reachable boundary for this component."""
         target = target_node_id
         tokens = {item.token_id: item for item in snapshot.tokens}
         routes: dict[str, str] = {}
@@ -485,6 +496,7 @@ class TokenRuntimeSupport:
 
     @staticmethod
     def _reachable_inbound_edges(graph: Graph, source: str, target: str) -> list[str]:
+        """Implement the reachable inbound edges boundary for this component."""
         found: set[str] = set()
         pending = [source]
         visited: set[str] = set()
@@ -503,6 +515,7 @@ class TokenRuntimeSupport:
         return sorted(found)
 
     def _trace_resolution(self, run, edge, delivered, payload, token, *, tag=None) -> None:
+        """Implement the trace resolution boundary for this component."""
         observer = self.driver.orchestrator
         if observer is None or not hasattr(observer, "_record_forward_resolution"):
             return
@@ -518,6 +531,7 @@ class TokenRuntimeSupport:
         run.pending_node_ids[:] = pending
 
     def _trace_join_ready(self, run, node_id, payload, token, *, tag=None) -> None:
+        """Implement the trace join ready boundary for this component."""
         observer = self.driver.orchestrator
         if observer is None or not hasattr(observer, "_stash_join_payload"):
             return
@@ -532,10 +546,12 @@ class TokenRuntimeSupport:
 
     @staticmethod
     def _source_trace_tag(run: Run, token_id: str) -> _ts.TokenTag:
+        """Implement the source trace tag boundary for this component."""
         raw = run.metadata.get("token_trace_tags", {}).get(token_id, ())
         return tuple((str(header), int(index)) for header, index in raw)
 
     def _trace_suppressed_cascade(self, graph, run, node_id, token) -> None:
+        """Implement the trace suppressed cascade boundary for this component."""
         back_edges = self.driver._back_edge_ids(graph)
         scopes = self.driver._graph_scopes(graph)
         pending = [node_id]
@@ -557,6 +573,7 @@ class TokenRuntimeSupport:
                     pending.append(edge.target_node_id)
 
     async def _complete_run(self, run: Run) -> Run:
+        """Complete run."""
         run.status = RunStatus.COMPLETED
         run.current_node_ids = []
         run.current_step = None
@@ -575,6 +592,7 @@ class TokenRuntimeSupport:
         return persisted
 
     def _is_convergent(self, graph: Graph, node_id: str) -> bool:
+        """Implement the is convergent boundary for this component."""
         back_edges = self.driver._back_edge_ids(graph)
         return (
             sum(
@@ -589,6 +607,7 @@ class TokenRuntimeSupport:
 
     @staticmethod
     def _unreachable_inbound_sources(graph: Graph, target: str) -> list[str]:
+        """Implement the unreachable inbound sources boundary for this component."""
         entry = graph.entry_step
         if entry is None:
             return []
