@@ -38,6 +38,11 @@ uv run python scripts/configure_dev_artifact_identity.py \
 docker compose -f compose.dev.yml up -d --force-recreate backend backend-twin
 ```
 
+Both tenant services intentionally consume the same measured backend image.
+Do not give `backend-twin` an independent build target while sharing one
+identity setting; that would allow the two processes to report a digest that is
+true for only one of them.
+
 The configurator refuses a dirty tracked checkout, malformed Git commit, or
 non-`sha256` Docker identity. It preserves unrelated private settings and
 updates the pair atomically with mode `0600`. The API never accepts these
