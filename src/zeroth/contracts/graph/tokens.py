@@ -61,11 +61,15 @@ class TokenLifecycleState(StrEnum):
 
 
 class ForkLifecycleState(StrEnum):
+    """Represent fork lifecycle values used by the runtime."""
+
     OPEN = "open"
     CLOSED = "closed"
 
 
 class JoinLifecycleState(StrEnum):
+    """Represent join lifecycle values used by the runtime."""
+
     OPEN = "open"
     READY = "ready"
     REDUCING = "reducing"
@@ -74,6 +78,8 @@ class JoinLifecycleState(StrEnum):
 
 
 class LoopLifecycleState(StrEnum):
+    """Represent loop lifecycle values used by the runtime."""
+
     RUNNING = "running"
     STOPPING = "stopping"
     CANCELLED = "cancelled"
@@ -81,17 +87,23 @@ class LoopLifecycleState(StrEnum):
 
 
 class IterationFrameState(StrEnum):
+    """Represent iteration frame values used by the runtime."""
+
     ACTIVE = "active"
     BARRIER_READY = "barrier_ready"
     SETTLED = "settled"
 
 
 class DispatchLifecycleState(StrEnum):
+    """Represent dispatch lifecycle values used by the runtime."""
+
     EXECUTING = "executing"
     CANCELLATION_REQUESTED = "cancellation_requested"
 
 
 class ForkObligationOutcome(StrEnum):
+    """Represent fork obligation outcome state and behavior."""
+
     JOINED = "joined"
     EXITED = "exited"
     SUPPRESSED = "suppressed"
@@ -100,6 +112,8 @@ class ForkObligationOutcome(StrEnum):
 
 
 class JoinObligationOutcome(StrEnum):
+    """Represent join obligation outcome state and behavior."""
+
     DELIVERED = "delivered"
     SUPPRESSED = "suppressed"
     FAILED = "failed"
@@ -107,6 +121,8 @@ class JoinObligationOutcome(StrEnum):
 
 
 class IterationMemberState(StrEnum):
+    """Represent iteration member values used by the runtime."""
+
     ACTIVE = "active"
     INTERNAL_COMPLETION = "internal_completion"
     BACK_EDGE_CONTINUATION = "back_edge_continuation"
@@ -117,11 +133,15 @@ class IterationMemberState(StrEnum):
 
 
 class LoopExitResolutionOutcome(StrEnum):
+    """Represent loop exit resolution outcome state and behavior."""
+
     DELIVERED = "delivered"
     SUPPRESSED = "suppressed"
 
 
 class _FrozenContract(BaseModel):
+    """Represent frozen contract state and behavior."""
+
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
@@ -132,17 +152,20 @@ class _FrozenContract(BaseModel):
 
 
 def _require_canonical_provenance(tag: tuple[ProvenanceFrame, ...], field: str) -> None:
+    """Require canonical provenance."""
     headers = tuple(frame.loop_header_node_id for frame in tag)
     if headers != tuple(sorted(headers)) or len(headers) != len(set(headers)):
         raise ValueError(f"{field} must use unique loop headers in canonical sorted order")
 
 
 def _require_revision_window(created: int, updated: int) -> None:
+    """Require revision window."""
     if updated < created:
         raise ValueError("updated_revision must be greater than or equal to created_revision")
 
 
 def _freeze_json(value: JsonValue) -> JsonValue:
+    """Freeze json."""
     if isinstance(value, dict):
         frozen = MappingProxyType({key: _freeze_json(value[key]) for key in sorted(value)})
         return cast(JsonValue, frozen)
@@ -152,6 +175,7 @@ def _freeze_json(value: JsonValue) -> JsonValue:
 
 
 def _thaw_json(value: JsonValue) -> JsonValue:
+    """Thaw json."""
     if isinstance(value, Mapping):
         return {key: _thaw_json(item) for key, item in value.items()}
     if isinstance(value, tuple):
@@ -167,10 +191,12 @@ class PayloadDelivery(_FrozenContract):
     @field_validator("payload", mode="after")
     @classmethod
     def _freeze_payload(cls, value: JsonValue) -> JsonValue:
+        """Freeze payload."""
         return _freeze_json(value)
 
     @field_serializer("payload")
     def _serialize_payload(self, value: JsonValue) -> JsonValue:
+        """Serialize payload."""
         return _thaw_json(value)
 
 
@@ -187,6 +213,8 @@ class DeferredJoinDelivery(_FrozenContract):
 
 
 class ProvenanceFrame(_FrozenContract):
+    """Represent provenance frame state and behavior."""
+
     loop_header_node_id: NodeId
     iteration_index: IterationIndex
 
@@ -201,6 +229,7 @@ class ForkLineageFrame(_FrozenContract):
 
     @model_validator(mode="after")
     def _reject_self_parent(self) -> ForkLineageFrame:
+        """Reject invalid self parent."""
         if self.parent_fork_id == self.fork_id:
             raise ValueError("a fork lineage frame cannot parent itself")
         return self
@@ -217,6 +246,7 @@ class IterationMembership(_FrozenContract):
 
     @model_validator(mode="after")
     def _reject_self_parent(self) -> IterationMembership:
+        """Reject invalid self parent."""
         if self.parent_loop_instance_id == self.loop_instance_id:
             raise ValueError("an iteration membership cannot parent itself")
         return self
@@ -245,14 +275,17 @@ class TokenEnvelope(_FrozenContract):
     @field_validator("payload", mode="after")
     @classmethod
     def _freeze_payload(cls, value: JsonValue) -> JsonValue:
+        """Freeze payload."""
         return _freeze_json(value)
 
     @field_serializer("payload")
     def _serialize_payload(self, value: JsonValue) -> JsonValue:
+        """Serialize payload."""
         return _thaw_json(value)
 
     @model_validator(mode="after")
     def _validate_envelope(self) -> TokenEnvelope:
+        """Validate envelope."""
         if self.parent_token_id == self.token_id:
             raise ValueError("parent_token_id cannot refer to the token itself")
         if self.parent_token_id is not None and self.continuation_parent_token_ids:
@@ -325,11 +358,15 @@ class TokenEnvelope(_FrozenContract):
 
 
 class ForkChild(_FrozenContract):
+    """Represent fork child state and behavior."""
+
     token_id: TokenId
     creation_ordinal: CreationOrdinal
 
 
 class ForkObligation(_FrozenContract):
+    """Represent fork obligation state and behavior."""
+
     obligation_id: ObligationId
     fork_id: ForkId
     child_token_id: TokenId
@@ -341,6 +378,7 @@ class ForkObligation(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_settlement(self) -> ForkObligation:
+        """Validate settlement."""
         settled = self.outcome is not None
         if settled != (self.settled_revision is not None):
             raise ValueError("outcome and settled_revision must be recorded together")
@@ -356,6 +394,8 @@ class ForkObligation(_FrozenContract):
 
 
 class ForkInstance(_FrozenContract):
+    """Represent fork instance state and behavior."""
+
     fork_id: ForkId
     parent_token_id: TokenId
     parent_fork_id: ForkId | None = None
@@ -369,6 +409,7 @@ class ForkInstance(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_fork(self) -> ForkInstance:
+        """Validate fork."""
         if self.parent_fork_id == self.fork_id:
             raise ValueError("a fork cannot parent itself")
         _require_revision_window(self.created_revision, self.updated_revision)
@@ -417,6 +458,8 @@ class ForkInstance(_FrozenContract):
 
 
 class JoinObligation(_FrozenContract):
+    """Represent join obligation state and behavior."""
+
     obligation_id: ObligationId
     join_instance_id: JoinInstanceId
     fork_id: ForkId
@@ -435,6 +478,7 @@ class JoinObligation(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_settlement(self) -> JoinObligation:
+        """Validate settlement."""
         settled = self.outcome is not None
         if settled != (self.settled_revision is not None):
             raise ValueError("outcome and settled_revision must be recorded together")
@@ -467,6 +511,8 @@ class JoinObligation(_FrozenContract):
 
 
 class JoinInstance(_FrozenContract):
+    """Represent join instance state and behavior."""
+
     join_instance_id: JoinInstanceId
     fork_id: ForkId
     target_node_id: NodeId
@@ -492,10 +538,12 @@ class JoinInstance(_FrozenContract):
 
     @property
     def delivered_obligation_count(self) -> int:
+        """Implement the delivered obligation count boundary for this component."""
         return sum(item.outcome is JoinObligationOutcome.DELIVERED for item in self.obligations)
 
     @model_validator(mode="after")
     def _validate_join(self) -> JoinInstance:
+        """Validate join."""
         _require_revision_window(self.created_revision, self.updated_revision)
         _require_canonical_provenance(self.provenance_tag, "provenance_tag")
         loop_ids = tuple(item.loop_instance_id for item in self.iteration_memberships)
@@ -666,6 +714,7 @@ class CanonicalTokenOrder(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_lineage(self) -> CanonicalTokenOrder:
+        """Validate lineage."""
         fork_ids = tuple(frame.fork_id for frame in self.fork_lineage)
         if len(fork_ids) != len(set(fork_ids)):
             raise ValueError("canonical fork lineage cannot contain duplicate forks")
@@ -678,11 +727,14 @@ class CanonicalTokenOrder(_FrozenContract):
         return self
 
     def sort_key(self) -> tuple[object, ...]:
+        """Implement the sort key boundary for this component."""
         lineage = tuple((frame.fork_id, frame.child_ordinal) for frame in self.fork_lineage)
         return (self.iteration_index, lineage, self.child_ordinal, self.token_id)
 
 
 class IterationMember(_FrozenContract):
+    """Represent iteration member state and behavior."""
+
     token_id: TokenId
     state: IterationMemberState
     causal_edge_id: EdgeId | None = None
@@ -691,6 +743,7 @@ class IterationMember(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_state(self) -> IterationMember:
+        """Validate state."""
         active = self.state is IterationMemberState.ACTIVE
         if active == (self.settled_revision is not None):
             raise ValueError("ACTIVE members are unsettled; all other member states are settled")
@@ -706,6 +759,8 @@ class IterationMember(_FrozenContract):
 
 
 class IterationContinuationDelivery(_FrozenContract):
+    """Represent iteration continuation delivery state and behavior."""
+
     token_id: TokenId
     back_edge_id: EdgeId
     delivery: PayloadDelivery
@@ -714,12 +769,15 @@ class IterationContinuationDelivery(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_identity(self) -> IterationContinuationDelivery:
+        """Validate identity."""
         if self.canonical_order.token_id != self.token_id:
             raise ValueError("canonical_order token_id must match the continuation token")
         return self
 
 
 class IterationFrame(_FrozenContract):
+    """Represent iteration frame state and behavior."""
+
     iteration_frame_id: IterationFrameId
     loop_instance_id: LoopInstanceId
     iteration_index: IterationIndex
@@ -732,6 +790,7 @@ class IterationFrame(_FrozenContract):
 
     @property
     def active_member_token_ids(self) -> tuple[TokenId, ...]:
+        """Implement the active member token ids boundary for this component."""
         return tuple(
             member.token_id
             for member in self.members
@@ -740,6 +799,7 @@ class IterationFrame(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_frame(self) -> IterationFrame:
+        """Validate frame."""
         _require_revision_window(self.created_revision, self.updated_revision)
         member_ids = tuple(member.token_id for member in self.members)
         if len(member_ids) != len(set(member_ids)):
@@ -803,6 +863,8 @@ class IterationFrame(_FrozenContract):
 
 
 class LoopExitRecord(_FrozenContract):
+    """Represent loop exit record state and behavior."""
+
     exit_edge_id: EdgeId
     target_node_id: NodeId
     token_id: TokenId
@@ -815,6 +877,7 @@ class LoopExitRecord(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_record(self) -> LoopExitRecord:
+        """Validate record."""
         if self.canonical_order.token_id != self.token_id:
             raise ValueError("canonical_order token_id must match the loop-exit token")
         delivered = self.outcome is LoopExitResolutionOutcome.DELIVERED
@@ -850,6 +913,8 @@ class LoopExitRecord(_FrozenContract):
 
 
 class LoopExit(_FrozenContract):
+    """Represent loop exit state and behavior."""
+
     exit_edge_id: EdgeId
     target_node_id: NodeId
     records: tuple[LoopExitRecord, ...] = ()
@@ -858,6 +923,7 @@ class LoopExit(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_exit(self) -> LoopExit:
+        """Validate exit."""
         if any(item.exit_edge_id != self.exit_edge_id for item in self.records):
             raise ValueError("every loop-exit record must match its exit_edge_id")
         if any(item.target_node_id != self.target_node_id for item in self.records):
@@ -898,6 +964,7 @@ class LoopEnclosingOwner(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_nested_identity(self) -> LoopEnclosingOwner:
+        """Validate nested identity."""
         if (self.enclosing_loop_instance_id is None) != (self.iteration_frame_id is None):
             raise ValueError(
                 "nested enclosing identity requires both enclosing_loop_instance_id "
@@ -943,6 +1010,7 @@ class LoopInstance(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_loop(self) -> LoopInstance:
+        """Validate loop."""
         _require_revision_window(self.created_revision, self.updated_revision)
         _require_canonical_provenance(self.outer_provenance_tag, "outer_provenance_tag")
         nested_owner = self.enclosing_owner.enclosing_loop_instance_id is not None
@@ -1180,6 +1248,7 @@ class CancellationFence(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_fence(self) -> CancellationFence:
+        """Validate fence."""
         if self.generation == 0:
             if (
                 self.requested_revision is not None
@@ -1218,6 +1287,7 @@ class InFlightDispatch(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_dispatch(self) -> InFlightDispatch:
+        """Validate dispatch."""
         if self.token.scheduling_state is not SchedulingState.EXECUTING:
             raise ValueError("an in-flight dispatch token must be EXECUTING")
         if self.attempt != self.token.retry_attempt:
@@ -1326,6 +1396,7 @@ class OperationIdentity(_FrozenContract):
 
     @model_validator(mode="after")
     def _validate_operation_key(self) -> OperationIdentity:
+        """Validate operation key."""
         expected = derive_operation_key(
             run_id=self.run_id,
             idempotency_key=self.idempotency_key,

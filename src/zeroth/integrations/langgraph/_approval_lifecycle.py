@@ -103,6 +103,7 @@ class ApprovalDecision(StrEnum):
 
 
 def _mapping(value: object, label: str) -> Mapping[str, Any]:
+    """Normalize mapping."""
     if type(value) not in (dict, MappingProxyType):
         raise ToolGovernanceError(f"{label} must be a plain mapping")
     try:
@@ -113,16 +114,19 @@ def _mapping(value: object, label: str) -> Mapping[str, Any]:
 
 
 def _identifier(value: object, label: str) -> str:
+    """Validate identifier."""
     if type(value) is not str or not value.strip():
         raise ToolGovernanceError(f"{label} must be a non-blank string")
     return value.strip()
 
 
 def _dump(value: Mapping[str, Any]) -> str:
+    """Serialize dump."""
     return json.dumps(dict(value), sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def _request_payload(value: object) -> Mapping[str, Any]:
+    """Implement the request payload boundary for this component."""
     payload = _mapping(value, "approval request payload")
     if (
         frozenset(payload) != _REQUEST_FIELDS
@@ -145,6 +149,7 @@ def _request_payload(value: object) -> Mapping[str, Any]:
 
 @contextmanager
 def _translate_storage_errors() -> Iterator[None]:
+    """Implement the translate storage errors boundary for this component."""
     try:
         yield
     except sqlite3.Error as error:
@@ -163,6 +168,7 @@ class ApprovalIntent:
     version: int = _VERSION
 
     def __post_init__(self) -> None:
+        """Validate and freeze the constructed domain value."""
         if type(self.version) is not int or self.version != _VERSION:
             raise ToolGovernanceError("unsupported approval intent version")
         object.__setattr__(self, "payload", _mapping(self.payload, "approval payload"))
@@ -179,6 +185,7 @@ class ApprovalResolution:
     version: int = _VERSION
 
     def __post_init__(self) -> None:
+        """Validate and freeze the constructed domain value."""
         if (
             type(self.version) is not int
             or self.version != _VERSION
@@ -190,6 +197,7 @@ class ApprovalResolution:
             object.__setattr__(self, "arguments", _mapping(self.arguments, "edited arguments"))
 
     def to_payload(self) -> dict[str, Any]:
+        """Convert payload."""
         return {
             "version": self.version,
             "kind": _RESOLUTION_KIND,
@@ -200,6 +208,7 @@ class ApprovalResolution:
 
     @classmethod
     def from_payload(cls, value: object) -> ApprovalResolution:
+        """Construct payload."""
         if type(value) is not dict or value.get("kind") != _RESOLUTION_KIND:
             raise ToolGovernanceError("invalid approval resolution payload")
         try:
@@ -219,10 +228,12 @@ class _ApprovalDelivery:
     claim_token: str
 
     def to_payload(self) -> dict[str, Any]:
+        """Convert payload."""
         return {**self.resolution.to_payload(), "claim_token": self.claim_token}
 
     @classmethod
     def from_payload(cls, value: object) -> _ApprovalDelivery:
+        """Construct payload."""
         if type(value) is not dict:
             raise ToolGovernanceError("invalid approval delivery payload")
         return cls(
@@ -267,6 +278,7 @@ class SQLiteApprovalRepository:
         lease_seconds: float = 30,
         clock: Callable[[], float] = time.time,
     ) -> None:
+        """Initialize the component with its validated dependencies."""
         if str(path) in ("", ":memory:"):
             raise ApprovalRequiresThreadError("approval needs a durable lifecycle store")
         try:
@@ -326,11 +338,13 @@ class SQLiteApprovalRepository:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open connect."""
         with _translate_storage_errors(), sqlite3.connect(self._path, timeout=30) as connection:
             connection.row_factory = sqlite3.Row
             yield connection
 
     def _now(self) -> float:
+        """Return the current value."""
         try:
             value = self._clock()
         except Exception:
@@ -371,6 +385,7 @@ class SQLiteApprovalRepository:
 
     @staticmethod
     def _release_resume_lock(connection: sqlite3.Connection) -> None:
+        """Release resume lock."""
         with _translate_storage_errors():
             try:
                 connection.rollback()
@@ -379,11 +394,13 @@ class SQLiteApprovalRepository:
 
     @staticmethod
     def _persisted_deadline(value: object, label: str) -> float:
+        """Implement the persisted deadline boundary for this component."""
         if type(value) not in (int, float) or not math.isfinite(value):
             raise ToolGovernanceError(f"persisted {label} must be finite")
         return float(value)
 
     def _intent(self, data: str, deadline: object, *, compacted: bool = False) -> ApprovalIntent:
+        """Implement the intent boundary for this component."""
         value = json.loads(data)
         return ApprovalIntent(
             value["payload"],
@@ -393,6 +410,7 @@ class SQLiteApprovalRepository:
         )
 
     def _record(self, row: sqlite3.Row) -> ApprovalRecord:
+        """Record record."""
         try:
             resolution = row["resolution"]
             state = ApprovalState(row["state"])
@@ -426,6 +444,7 @@ class SQLiteApprovalRepository:
             raise ToolGovernanceError("persisted approval lifecycle record is invalid") from error
 
     def _validate_rows(self, connection: sqlite3.Connection, *, active_only: bool = False) -> None:
+        """Validate rows."""
         query = "SELECT * FROM langgraph_approval_lifecycle"
         parameters: tuple[str, ...] = ()
         if active_only:
@@ -438,6 +457,7 @@ class SQLiteApprovalRepository:
     def _compact_terminal_arguments(
         connection: sqlite3.Connection, approval_ref: str | None = None
     ) -> None:
+        """Compact terminal arguments."""
         scope = "state IN (?, ?, ?)"
         parameters: tuple[str, ...] = _TERMINAL
         if approval_ref is not None:
@@ -476,6 +496,7 @@ class SQLiteApprovalRepository:
 
     @staticmethod
     def _identity_values(identity: Mapping[str, Any]) -> tuple[Any, ...]:
+        """Implement the identity values boundary for this component."""
         if any(field not in identity for field in _IDENTITY_FIELDS):
             raise ToolGovernanceError("approval action identity is incomplete")
         return tuple(identity[field] for field in _IDENTITY_FIELDS)
@@ -483,6 +504,7 @@ class SQLiteApprovalRepository:
     def _fenced_row(
         self, connection: sqlite3.Connection, identity: tuple[Any, ...]
     ) -> sqlite3.Row | None:
+        """Implement the fenced row boundary for this component."""
         clauses = " AND ".join(
             f"json_extract(intent, '$.payload.{field}') IS ?" for field in _IDENTITY_FIELDS
         )
@@ -497,6 +519,7 @@ class SQLiteApprovalRepository:
         return None if not rows else rows[0]
 
     def get(self, approval_ref: str) -> ApprovalRecord:
+        """Retrieve get."""
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT * FROM langgraph_approval_lifecycle WHERE approval_ref = ?",
@@ -579,6 +602,7 @@ class SQLiteApprovalRepository:
         target: ApprovalState,
         accepted: bool,
     ) -> None:
+        """Implement the event boundary for this component."""
         connection.execute(
             "INSERT INTO langgraph_approval_events VALUES (NULL, ?, ?, ?, ?, ?)",
             (ref, None if source is None else source.value, target.value, accepted, self._now()),
@@ -592,6 +616,7 @@ class SQLiteApprovalRepository:
         intent: ApprovalIntent,
         encoded: str,
     ) -> ApprovalRecord:
+        """Implement the rearm locked boundary for this component."""
         connection.execute(
             "UPDATE langgraph_approval_lifecycle SET state = ?, intent = ?, resolution = NULL, "
             "checkpoint_id = NULL, interrupt_id = NULL, owner = NULL, lease_deadline = NULL, "
@@ -688,6 +713,7 @@ class SQLiteApprovalRepository:
     def _expire_locked(
         self, connection: sqlite3.Connection, ref: str, current: ApprovalRecord
     ) -> None:
+        """Expire locked."""
         connection.execute(
             "UPDATE langgraph_approval_lifecycle SET state = ?, owner = NULL, "
             "lease_deadline = NULL, claim_token = NULL, claim_consumed = 0 "
@@ -700,6 +726,7 @@ class SQLiteApprovalRepository:
     def _orphan_locked(
         self, connection: sqlite3.Connection, ref: str, current: ApprovalRecord
     ) -> None:
+        """Implement the orphan locked boundary for this component."""
         connection.execute(
             "UPDATE langgraph_approval_lifecycle SET state = ?, lease_deadline = NULL "
             "WHERE approval_ref = ?",
@@ -709,6 +736,7 @@ class SQLiteApprovalRepository:
         self._event(connection, ref, current.state, ApprovalState.ORPHANED, True)
 
     def ready(self, ref: str, checkpoint_id: str, interrupt_id: str) -> ApprovalRecord:
+        """Mark ready."""
         checkpoint_id = _identifier(checkpoint_id, "checkpoint id")
         interrupt_id = _identifier(interrupt_id, "interrupt id")
         with self._connect() as connection:
@@ -748,6 +776,7 @@ class SQLiteApprovalRepository:
         return self.get(ref)
 
     def decide(self, resolution: ApprovalResolution) -> ApprovalRecord:
+        """Implement the decide boundary for this component."""
         ref = resolution.approval_ref
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -782,6 +811,7 @@ class SQLiteApprovalRepository:
         return self.get(ref)
 
     def _claim(self, ref: str, *, owner: str) -> tuple[ApprovalRecord, bool]:
+        """Claim claim."""
         owner = _identifier(owner, "resume owner")
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -884,6 +914,7 @@ class SQLiteApprovalRepository:
         return self.get(ref)
 
     def terminal(self, ref: str, state: ApprovalState) -> ApprovalRecord:
+        """Move terminal."""
         if state not in (ApprovalState.EXPIRED, ApprovalState.ORPHANED):
             raise ToolGovernanceError("invalid terminal approval state")
         with self._connect() as connection:
@@ -911,6 +942,7 @@ class SQLiteApprovalRepository:
         return self.get(ref)
 
     def pending(self, limit: int = 100) -> tuple[ApprovalRecord, ...]:
+        """Implement the pending boundary for this component."""
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ToolGovernanceError("approval pending limit must be between 1 and 1000")
         marks = ",".join("?" for _ in _TERMINAL)
@@ -923,6 +955,7 @@ class SQLiteApprovalRepository:
         return tuple(self._record(row) for row in rows)
 
     def expire_due(self, limit: int = 100) -> tuple[ApprovalRecord, ...]:
+        """Expire due."""
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ToolGovernanceError("approval pending limit must be between 1 and 1000")
         marks = ",".join("?" for _ in _TERMINAL)
@@ -970,6 +1003,7 @@ class SQLiteApprovalRepository:
         return self.get(ref)
 
     def consume(self, value: object) -> _ApprovalDelivery:
+        """Consume consume."""
         delivery = _ApprovalDelivery.from_payload(value)
         ref = delivery.resolution.approval_ref
         with self._connect() as connection:
@@ -1000,6 +1034,7 @@ class SQLiteApprovalRepository:
 
 
 def _langgraph_command(resume: Mapping[str, Any]) -> Any:
+    """Implement the langgraph command boundary for this component."""
     from langgraph.types import Command
 
     return Command(resume=dict(resume))
@@ -1009,6 +1044,7 @@ class ApprovalCoordinator:
     """Confirm checkpoints and deliver decisions to their original threads."""
 
     def __init__(self, repository: ApprovalRepository) -> None:
+        """Initialize the component with its validated dependencies."""
         self._repository = repository
 
     @staticmethod
@@ -1017,6 +1053,7 @@ class ApprovalCoordinator:
         thread_id: str,
         checkpoint_id: str | None = None,
     ) -> dict[str, Any]:
+        """Implement the config boundary for this component."""
         if config is not None and not isinstance(config, Mapping):
             raise ApprovalRequiresThreadError("approval resume config must be a mapping")
         copied = dict(config or {})
@@ -1037,6 +1074,7 @@ class ApprovalCoordinator:
         durable_checkpointer: Any,
         config: Mapping[str, Any] | None,
     ) -> Any:
+        """Require durable graph."""
         if config is not None and not isinstance(config, Mapping):
             raise ApprovalRequiresThreadError("approval resume config must be a mapping")
         configurable = (config or {}).get("configurable", {})
@@ -1080,6 +1118,7 @@ class ApprovalCoordinator:
     def _snapshot_observation(
         record: ApprovalRecord, snapshot: Any
     ) -> tuple[str | None, str | None]:
+        """Implement the snapshot observation boundary for this component."""
         thread = _identifier(record.intent.payload.get("thread_id"), "thread id")
         config = getattr(snapshot, "config", None)
         configurable = config.get("configurable") if type(config) is dict else None
@@ -1112,6 +1151,7 @@ class ApprovalCoordinator:
         graph: Any,
         config: Mapping[str, Any] | None,
     ) -> tuple[str | None, str | None]:
+        """Implement the observed boundary for this component."""
         thread = _identifier(record.intent.payload.get("thread_id"), "thread id")
         try:
             snapshot = graph.get_state(self._config(config, thread))
@@ -1125,6 +1165,7 @@ class ApprovalCoordinator:
         graph: Any,
         config: Mapping[str, Any] | None,
     ) -> tuple[str | None, str | None]:
+        """Implement the aobserved boundary for this component."""
         thread = _identifier(record.intent.payload.get("thread_id"), "thread id")
         try:
             snapshot = await graph.aget_state(self._config(config, thread))
@@ -1135,6 +1176,7 @@ class ApprovalCoordinator:
     def _confirmed(
         self, ref: str, checkpoint: str | None, interrupt_id: str | None
     ) -> ApprovalRecord:
+        """Implement the confirmed boundary for this component."""
         if checkpoint is None or interrupt_id is None:
             self._repository.terminal(ref, ApprovalState.ORPHANED)
             raise ToolGovernanceError("approval interrupt is not present in the original thread")
@@ -1154,6 +1196,7 @@ class ApprovalCoordinator:
         config: Mapping[str, Any] | None,
         durable_checkpointer: Any,
     ) -> ApprovalRecord:
+        """Implement the confirm checkpoint boundary for this component."""
         graph = self._require_durable_graph(graph, durable_checkpointer, config)
         record = self._repository.get(ref)
         if (
@@ -1198,6 +1241,7 @@ class ApprovalCoordinator:
         return self._confirmed(ref, checkpoint, interrupt_id)
 
     def _claimed(self, ref: str, owner: str) -> tuple[ApprovalRecord, _ApprovalDelivery | None]:
+        """Implement the claimed boundary for this component."""
         claimed, acquired = self._repository._claim(ref, owner=owner)
         if not acquired:
             return claimed, None
@@ -1220,6 +1264,7 @@ class ApprovalCoordinator:
         config: Mapping[str, Any] | None,
         graph: Any,
     ) -> dict[str, Any]:
+        """Return resume config."""
         if checkpoint is None or interrupt_id != claimed.interrupt_id:
             assert claimed.claim_token is not None
             self._repository.fail(
@@ -1242,6 +1287,7 @@ class ApprovalCoordinator:
         return positioned
 
     def _completed(self, ref: str, claim_token: str) -> ApprovalRecord:
+        """Implement the completed boundary for this component."""
         current = self._repository.get(ref)
         if current.state is not ApprovalState.RESOLVED:
             self._repository.fail(ref, claim_token)
@@ -1257,6 +1303,7 @@ class ApprovalCoordinator:
         config: Mapping[str, Any] | None,
         durable_checkpointer: Any,
     ) -> ApprovalRecord:
+        """Implement the resume boundary for this component."""
         record = self._repository.get(ref)
         if record.state.value in _TERMINAL:
             return record

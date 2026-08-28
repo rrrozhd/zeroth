@@ -64,21 +64,36 @@ _GOVERNANCE_MODE_HEADER = "X-Zeroth-Governance"
 
 
 class GatewayEventSink(Protocol):
-    async def emit(self, event: GatewayEvent) -> None: ...
+    """Represent gateway event sink state and behavior."""
+
+    async def emit(self, event: GatewayEvent) -> None:
+        """Emit emit."""
+        ...
 
 
 class RouteClassifier(Protocol):
-    def __call__(self, method: str, path: str) -> EndpointRule | None: ...
+    """Represent route classifier state and behavior."""
+
+    def __call__(self, method: str, path: str) -> EndpointRule | None:
+        """Invoke the wrapped asynchronous boundary."""
+        ...
 
 
 class PrincipalResolver(Protocol):
-    def __call__(self, request: Request) -> AuthenticatedPrincipal: ...
+    """Represent principal resolver state and behavior."""
+
+    def __call__(self, request: Request) -> AuthenticatedPrincipal:
+        """Invoke the wrapped asynchronous boundary."""
+        ...
 
 
 class _TerminalEmissionState:
+    """Represent terminal emission values used by the runtime."""
+
     __slots__ = ("attempted",)
 
     def __init__(self) -> None:
+        """Initialize the component with its validated dependencies."""
         self.attempted = False
 
 
@@ -105,6 +120,7 @@ class GatewayProxy:
         max_observation_bytes: int = 65_536,
         event_sink_timeout_seconds: int | float = 0.1,
     ) -> None:
+        """Initialize the component with its validated dependencies."""
         if (
             isinstance(event_sink_timeout_seconds, bool)
             or not isinstance(event_sink_timeout_seconds, (int, float))
@@ -252,7 +268,10 @@ class GatewayProxy:
                     active_classifier = self._classifier
 
                     class CapturingClassifier:
+                        """Represent capturing classifier state and behavior."""
+
                         async def classify(self, value: object) -> str:
+                            """Implement the classify boundary for this component."""
                             nonlocal classification
                             classification = await active_classifier.classify(value)
                             return classification
@@ -460,6 +479,7 @@ class GatewayProxy:
             )
 
     async def _read_governed_json(self, request: Request) -> tuple[bytes, dict[str, Any]]:
+        """Read governed json."""
         limit = self._settings.max_governed_body_bytes
         declared = request.headers.get("content-length")
         if declared is not None:
@@ -516,6 +536,7 @@ class GatewayProxy:
         terminal_state: _TerminalEmissionState,
         governance_header: tuple[str, str] | None = None,
     ) -> StreamingResponse:
+        """Implement the forward boundary for this component."""
         response = await self._transport.forward(request, tenant_id=principal.tenant_id)
         try:
             response.headers[_CORRELATION_HEADER] = correlation_id
@@ -580,6 +601,7 @@ class GatewayProxy:
         terminal_state: _TerminalEmissionState,
         upstream_status_code: int,
     ) -> AsyncIterator[bytes]:
+        """Implement the observe body boundary for this component."""
         status: GatewayEventStatus | None = None
         try:
             async for chunk in body:
@@ -632,6 +654,7 @@ class GatewayProxy:
     async def _denial_response(
         self, *, code: str, status_code: int, reason: str, **event: Any
     ) -> JSONResponse:
+        """Implement the denial response boundary for this component."""
         return await self._caught_error(code, status_code, reason, retryable=False, **event)
 
     async def _caught_error(
@@ -652,6 +675,7 @@ class GatewayProxy:
         input_size_bytes: int | None = None,
         terminal_state: _TerminalEmissionState,
     ) -> JSONResponse:
+        """Implement the caught error boundary for this component."""
         if principal is not None:
             await self._emit_terminal(
                 principal=principal,
@@ -695,6 +719,7 @@ class GatewayProxy:
         governance_level: GovernanceLevel = GovernanceLevel.ADMISSION,
         terminal_state: _TerminalEmissionState,
     ) -> None:
+        """Emit terminal."""
         if self._event_sink is None or terminal_state.attempted:
             return
         terminal_state.attempted = True
@@ -742,6 +767,7 @@ class GatewayProxy:
             )
 
     def _compatibility_error(self, correlation_id: str) -> tuple[int, GatewayError] | None:
+        """Implement the compatibility error boundary for this component."""
         if self._compatibility.status == CompatibilityStatus.SUPPORTED:
             return None
         unavailable = self._compatibility.status == CompatibilityStatus.UNAVAILABLE
@@ -763,15 +789,18 @@ class GatewayProxy:
 
     @staticmethod
     def _error_response(error: GatewayError, status_code: int) -> JSONResponse:
+        """Implement the error response boundary for this component."""
         response = JSONResponse(error.model_dump(mode="json"), status_code=status_code)
         response.headers[_CORRELATION_HEADER] = error.correlation_id
         return response
 
     def _correlation_id(self, request: Request) -> str:
+        """Implement the correlation id boundary for this component."""
         existing = request.headers.get(_CORRELATION_HEADER)
         return existing if existing else self._correlation_factory()
 
     def _required_setting(self, name: str) -> str:
+        """Implement the required setting boundary for this component."""
         value = getattr(self._settings, name)
         if not isinstance(value, str) or not value:
             raise RuntimeError("gateway identity is not configured")
@@ -779,9 +808,11 @@ class GatewayProxy:
 
 
 def _request_with_body(request: Request, body: bytes) -> Request:
+    """Implement the request with body boundary for this component."""
     sent = False
 
     async def receive() -> dict[str, object]:
+        """Receive receive."""
         nonlocal sent
         if sent:
             return {"type": "http.disconnect"}
@@ -798,6 +829,7 @@ def _request_with_body(request: Request, body: bytes) -> Request:
 
 
 def _optional_identifier(value: object) -> str | None:
+    """Implement the optional identifier boundary for this component."""
     return value if isinstance(value, str) and value else None
 
 
@@ -823,6 +855,7 @@ def _path_identifiers(rule: EndpointRule | None, path: str) -> dict[str, str]:
 
 
 def _safe_admission_reason(code: str) -> str:
+    """Implement the safe admission reason boundary for this component."""
     if code == "zeroth.budget_denied":
         return "the configured budget denied this run"
     if code == "zeroth.budget_unavailable":

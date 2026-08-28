@@ -140,6 +140,7 @@ nav:
       - Embedded library: how-to/deployment/embedded-library.md
       - With Regulus: how-to/deployment/with-regulus.md
       - App certification: how-to/deployment/app-certification.md
+      - Pilot operations: operations/pilot-operations.md
       - Ingress guardrails: how-to/deployment/ingress-guardrails.md
       - LangGraph release deployment: how-to/deployment/langgraph-release.md
       - Release gates and evidence: how-to/deployment/release-gates.md
