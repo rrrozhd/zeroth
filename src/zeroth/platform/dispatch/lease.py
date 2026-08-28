@@ -14,7 +14,7 @@ executing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from uuid import uuid4
 
@@ -166,6 +166,10 @@ class _OrphanClaimResult:
 
     run_ids: tuple[str, ...]
     concurrency_saturated: bool
+    #: The lease generation this claim installed, per claimed run. The claim is
+    #: the only moment the value is known for certain, and a worker that has to
+    #: re-read it can be left holding a lease it cannot name if that read fails.
+    generations: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -548,6 +552,7 @@ class LeaseManager:
     ) -> _OrphanClaimResult:
         """Claim expired RUNNING runs and distinguish saturation from exhaustion."""
         claimed: list[str] = []
+        generations: dict[str, int] = {}
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
             if max_concurrency is not None:
@@ -630,7 +635,7 @@ class LeaseManager:
                       {exact_scope_sql}
                       AND status = ?
                       AND lease_expires_at < ?
-                    RETURNING run_id
+                    RETURNING run_id, lease_generation
                     """,
                     (
                         worker_id,
@@ -645,7 +650,8 @@ class LeaseManager:
                 )
                 if won is not None:
                     claimed.append(run_id)
-        return _OrphanClaimResult(tuple(claimed), False)
+                    generations[run_id] = int(won["lease_generation"])
+        return _OrphanClaimResult(tuple(claimed), False, generations)
 
     # ---------------------------------------------------------------------------
     # Lease maintenance

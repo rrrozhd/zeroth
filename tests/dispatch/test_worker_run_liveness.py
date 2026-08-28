@@ -131,7 +131,15 @@ async def _recovered_orphan(db, run_repo: RunRepository, worker: RunWorker) -> R
     assert await worker.lease_manager.claim_pending(DEPLOYMENT, CRASHED_WORKER) == run.run_id
     await run_repo.transition(run.run_id, RunStatus.RUNNING)
     await _expire_lease(db, run.run_id)
-    assert await worker.lease_manager.claim_orphaned(DEPLOYMENT, worker.worker_id) == [run.run_id]
+    claimed = await worker.lease_manager.claim_orphaned_result(
+        DEPLOYMENT, worker.worker_id
+    )
+    assert list(claimed.run_ids) == [run.run_id]
+    # _recover_orphans records the generation the claim installed before it
+    # dispatches, so a setup read that fails cannot leave the worker holding a
+    # lease it cannot name. Mirrored here, because this helper's contract is to
+    # reproduce the exact state _recover_orphans dispatches from.
+    worker._lease_generations[run.run_id] = claimed.generations[run.run_id]
     return run
 
 

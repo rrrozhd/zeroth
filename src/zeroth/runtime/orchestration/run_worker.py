@@ -307,6 +307,14 @@ class RunWorker:
                     await asyncio.sleep(max(0.01, self.poll_interval))
                     continue
                 run_id = result.run_ids[0]
+                # Remember the generation the claim installed. The setup window
+                # re-reads it, and if that read throws the worker would otherwise
+                # hold a lease it cannot name -- leaving the run claimable by
+                # neither predicate until natural expiry. Recorded here because
+                # the claim is the one moment the value is known for certain.
+                claimed_generation = result.generations.get(run_id)
+                if claimed_generation is not None:
+                    self._lease_generations[run_id] = claimed_generation
                 logger.info("worker %s recovering orphaned run %s", self.worker_id, run_id)
                 task = asyncio.create_task(
                     self._execute_leased_run(
@@ -505,6 +513,12 @@ class RunWorker:
         generation: int | None,
     ) -> None:
         """Expire owned recovery work, or retain natural expiry without a generation."""
+        if generation is None:
+            # The setup read failed before it could name the lease. Fall back to
+            # the generation recorded when this worker claimed the orphan, which
+            # keeps the hand-back FENCED: an exact generation still guards the
+            # write, so a lease another worker has since reclaimed is untouched.
+            generation = self._lease_generations.get(run_id)
         if generation is None:
             return
         try:

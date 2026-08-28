@@ -80,12 +80,21 @@ def _worker(
             self.available_slots.append(worker._semaphore._value)
             limit = scope.pop("claim_limit", None)
             if self.saturated:
-                return SimpleNamespace(run_ids=(), concurrency_saturated=True)
+                return SimpleNamespace(
+                    run_ids=(), concurrency_saturated=True, generations={}
+                )
             count = len(self.remaining) if limit is None else int(limit)
             claimed = self.remaining[:count]
             del self.remaining[:count]
             self.claimed.extend(claimed)
-            return SimpleNamespace(run_ids=tuple(claimed), concurrency_saturated=False)
+            # Mirrors _OrphanClaimResult: the claim reports the lease generation
+            # it installed, so a worker whose setup read fails can still name the
+            # lease it holds.
+            return SimpleNamespace(
+                run_ids=tuple(claimed),
+                concurrency_saturated=False,
+                generations={run_id: 1 for run_id in claimed},
+            )
 
         async def claim_orphaned(self, deployment_ref: str, worker_id: str, **scope: object):
             result = await self.claim_orphaned_result(deployment_ref, worker_id, **scope)

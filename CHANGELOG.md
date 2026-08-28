@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.6]
+
+### Fixed
+
+- **F-02: a setup failure during orphan recovery no longer strands the run.** `_execute_leased_run`
+  reads the lease generation as the first statement of its setup window. If that read throws, the
+  worker holds a lease it cannot name — `_hand_back_failed_recovery_setup` needs an exact generation
+  and returns early without one — so the run falls out of both claim predicates until natural expiry.
+  `claim_orphaned_result` now reports the generation its `UPDATE` installed (it was already computing
+  `lease_generation + 1`), the worker records it before dispatching, and the hand-back falls back to
+  it. The write stays **fenced** on an exact generation, so a lease another worker has since
+  reclaimed is untouched — no unfenced `clear_lease`, no read-then-write race.
+
 ## [0.25.5]
 
 ### Fixed
