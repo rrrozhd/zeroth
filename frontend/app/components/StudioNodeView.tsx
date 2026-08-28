@@ -44,6 +44,7 @@ export function StudioNodeView({ id, data, selected }: NodeProps) {
 
   const isLoop = d.studioType === "loop";
   const isIf = d.studioType === "if";
+  const isMcp = d.studioType === "mcp_tool";
   const maxRetries = Number(d.config?.max_retries ?? 3);
   const sub = isLoop
     ? `1 attempt + ${maxRetries} ${maxRetries === 1 ? "retry" : "retries"}`
@@ -62,7 +63,7 @@ export function StudioNodeView({ id, data, selected }: NodeProps) {
 
   return (
     <div
-      className={`studio-node-card relative${isLoop ? " is-loop" : ""}${isIf ? " is-if" : ""} ${run?.phase === "running" ? "z-pulse" : ""}`}
+      className={`studio-node-card relative${isLoop ? " is-loop" : ""}${isIf ? " is-if" : ""}${isMcp ? " is-mcp" : ""} ${run?.phase === "running" ? "z-pulse" : ""}`}
       data-evidence-id={`studio.node-content.${id}`}
       style={{
         borderColor,
@@ -76,7 +77,16 @@ export function StudioNodeView({ id, data, selected }: NodeProps) {
       </span>
       <span className="studio-node-copy">
         <strong className="studio-node-title">{d.label}</strong>
-        {sub && <span className="studio-node-subtitle">{sub}</span>}
+        {isMcp ? (
+          <>
+            <span className="studio-node-subtitle" title={`${d.config?.server_ref} / ${d.config?.tool_name}`}>
+              {String(d.config?.server_ref ?? "")} / {String(d.config?.tool_name ?? "")}
+            </span>
+            <span className="studio-mcp-assurance">
+              <span>◆ Pinned</span><span>↻ At least once</span>
+            </span>
+          </>
+        ) : sub && <span className="studio-node-subtitle">{sub}</span>}
       </span>
       {(isLoop || isIf) && (
         <span className="studio-control-port-labels" aria-hidden="true">

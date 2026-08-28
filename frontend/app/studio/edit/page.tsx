@@ -1640,6 +1640,8 @@ function Editor({ id }: { id: string }) {
         return {
           id: e.target,
           label: ((target?.data as { label?: string })?.label ?? e.target) || e.target,
+          studioType: (target?.data as { studioType?: string })?.studioType,
+          config: (target?.data as { config?: Cfg })?.config,
         };
       });
   }, [editing, edges, nodes]);
@@ -2543,7 +2545,7 @@ function NodeEditorDialog({
   contractNames: string[];
   onContractsChanged?: () => void | Promise<void>;
   /** Units attached to this node via tool edges (agent nodes only). */
-  toolTargets?: { id: string; label: string }[];
+  toolTargets?: { id: string; label: string; studioType?: string; config?: Cfg }[];
   onClose: () => void;
   onPatch: (patch: NodePatch) => void;
   onDelete: () => void;

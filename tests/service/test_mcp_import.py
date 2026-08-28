@@ -147,6 +147,7 @@ async def test_import_pins_every_tool_the_server_offers(sqlite_db) -> None:
     # The author never sees the command: only the ref travels into the graph.
     assert all(n.mcp_tool.server_ref == "echo" for n in nodes)
     assert all(sys.executable not in n.model_dump_json() for n in nodes)
+    assert {n.display.title for n in nodes} == {"Add", "Echo"}
 
 
 @pytest.mark.asyncio
