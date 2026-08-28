@@ -14,7 +14,11 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.json import load_typed_value, to_json_value
-from zeroth.platform.storage.scoping import persistence_operation, persistence_surface
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.service.certifications.models import (
     AppCertification,
     CertificationEvent,
@@ -41,8 +45,13 @@ def _scope(tenant_id: str, workspace_id: str | None):
     )
 
 
-@persistence_surface("service.app_certifications")
-@persistence_surface("service.app_certification_events")
+@persistence_surface(
+    "service.app_certifications", probe=named_isolation_probe("_drive_app_certifications")
+)
+@persistence_surface(
+    "service.app_certification_events",
+    probe=named_isolation_probe("_drive_app_certification_events"),
+)
 class CertificationRepository:
     """Persist certification state with an append-only event stream."""
 

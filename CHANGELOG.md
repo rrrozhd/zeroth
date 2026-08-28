@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.2]
+
+### Security
+
+- **Give app certifications real cross-tenant isolation coverage.**
+  `service.app_certifications` and `service.app_certification_events` declared persistence surfaces
+  but registered no executable probe, so the cross-tenant leak matrix reported "expected exactly one
+  executable probe … found 0" for seven resource/operation pairs and asserted nothing about them.
+  Both now drive the production repository. Verified load-bearing rather than decorative: with a leak
+  injected into `CertificationRepository.get` (reading the owner scope regardless of the caller's
+  tenant) the probes go red on four cases.
+
 ## [0.25.1.5]
 
 ### Fixed
