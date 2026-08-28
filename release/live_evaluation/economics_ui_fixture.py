@@ -19,9 +19,24 @@ from pathlib import Path
 from scripts.economics_ui_fixture_environment import (
     FIXTURE_DEPLOYMENT,
     FIXTURE_TENANT,
+    PRIMARY_STATE_ROOT,
+    UI_ACCESS_VALUE,
     assert_disposable_state_root,
     fixture_environment,
 )
+
+# Declared so the two names this module only re-exports are visibly part of its
+# surface rather than reading as unused imports. tests/live_evaluation imports the
+# whole fixture contract from here, and PRIMARY_STATE_ROOT and UI_ACCESS_VALUE are
+# defined in scripts.economics_ui_fixture_environment.
+__all__ = [
+    "FIXTURE_DEPLOYMENT",
+    "FIXTURE_TENANT",
+    "PRIMARY_STATE_ROOT",
+    "UI_ACCESS_VALUE",
+    "assert_disposable_state_root",
+    "fixture_environment",
+]
 
 FIXTURE_WORKFLOW = "economics-ui-fixture"
 FIXTURE_MODEL = "fixture/local-economics-model-v1"
