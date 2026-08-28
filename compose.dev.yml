@@ -2,6 +2,7 @@ name: zeroth-dev
 
 services:
   backend:
+    image: zeroth-dev-backend:latest
     build:
       context: .
       dockerfile: Dockerfile.dev
@@ -50,9 +51,7 @@ services:
       start_period: 20s
 
   backend-twin:
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
+    image: zeroth-dev-backend:latest
     restart: unless-stopped
     init: true
     working_dir: /workspace
