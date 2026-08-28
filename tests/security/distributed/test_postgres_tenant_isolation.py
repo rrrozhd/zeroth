@@ -12,7 +12,6 @@ from alembic.config import Config
 import pytest
 from sqlalchemy import create_engine, text
 
-from tests.conftest import requires_docker
 from tests.graph.test_models import build_graph
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.contracts.registry import ContractRegistry
@@ -81,7 +80,6 @@ def _audit(audit_id: str, *, tenant_id: str) -> NodeAuditRecord:
     )
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_contract_version_identity_is_tenant_local(
     security_postgres,
@@ -104,7 +102,6 @@ async def test_security_rc_postgres_contract_version_identity_is_tenant_local(
     assert (await tenant_b.get(name, 1)).json_schema == {"type": "integer"}
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_contract_registration_allocates_sequential_versions(
     security_postgres,
@@ -124,7 +121,6 @@ async def test_security_rc_postgres_contract_registration_allocates_sequential_v
     )
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_graph_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
@@ -137,7 +133,6 @@ async def test_security_rc_postgres_graph_scope_predicate(security_postgres) -> 
     assert await repository.get("unknown-graph", tenant_id="tenant-b") is None
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_run_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
@@ -150,7 +145,6 @@ async def test_security_rc_postgres_run_scope_predicate(security_postgres) -> No
     assert await owner.get(run_id) is not None
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_audit_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
@@ -163,7 +157,6 @@ async def test_security_rc_postgres_audit_scope_predicate(security_postgres) -> 
     } == {f"a-{unique}"}
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_same_id_tenant_race(security_postgres) -> None:
     database, unique = security_postgres
@@ -180,7 +173,6 @@ async def test_security_rc_postgres_same_id_tenant_race(security_postgres) -> No
     assert (await tenant_b.get(run_id)).thread_id == f"thread-b-{unique}"
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_container) -> None:
     dsn, unique = _connection_strings(postgres_container)
@@ -227,7 +219,6 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
         await restarted.close()
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_checkpoint_owner_scope(security_postgres) -> None:
     database, unique = security_postgres
@@ -252,7 +243,6 @@ async def test_security_rc_postgres_checkpoint_owner_scope(security_postgres) ->
     assert (await foreign_store.get(checkpoint_id)).run_id == foreign.run_id
 
 
-@requires_docker
 @pytest.mark.security_rc
 def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_container) -> None:
     database_url = postgres_container.get_connection_url().replace("psycopg2", "psycopg")
@@ -311,7 +301,6 @@ def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_cont
         command.upgrade(config, "head")
 
 
-@requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_approval_opposite_decision_race(security_postgres) -> None:
     database, unique = security_postgres
