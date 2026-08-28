@@ -109,6 +109,13 @@ export const FIELD_SPECS: Record<string, Field[]> = {
       hint: "Pinned from the server at import. The model sees this text, so it is screened before exposure.",
     },
     {
+      key: "input_schema",
+      label: "Pinned input schema",
+      kind: "code",
+      locked: true,
+      hint: "The exact JSON Schema exposed to the model. Re-import the MCP server to update it.",
+    },
+    {
       key: "schema_hash",
       label: "Schema pin",
       kind: "text",
@@ -350,6 +357,13 @@ export const DEFAULT_CONFIG: Record<string, Record<string, unknown>> = {
   subgraph: { graph_ref: "" },
 };
 
+export type ToolTarget = {
+  id: string;
+  label: string;
+  studioType?: string;
+  config?: Record<string, unknown>;
+};
+
 export function NodeInspector({
   studioType,
   label,
@@ -381,7 +395,7 @@ export function NodeInspector({
   /** Registered contract names from GET /api/studio/v1/contracts. */
   contractOptions?: string[];
   /** Units attached to this agent via tool edges (the bottom Tools handle). */
-  toolTargets?: { id: string; label: string }[];
+  toolTargets?: ToolTarget[];
   onLabelChange: (v: string) => void;
   onConfigChange: (next: Record<string, unknown>) => void;
   onContractRefChange?: (which: "input" | "output", ref: string | null) => void;
@@ -473,7 +487,11 @@ export function NodeInspector({
           return null;
         }
         const value = config[f.key];
-        const str = value === undefined || value === null ? "" : String(value);
+        const str = value === undefined || value === null
+          ? ""
+          : f.kind === "code" && typeof value === "object"
+            ? JSON.stringify(value, null, 2)
+            : String(value);
         const evidenceId = `studio.${studioType}.${f.key.replaceAll("_", "-")}`;
         // Dynamic selects degrade to a text input while their options haven't
         // loaded (or the API predates the endpoint) so the field stays editable.
@@ -505,6 +523,14 @@ export function NodeInspector({
                 />
                 <span className="text-xs text-muted">{value ? "On" : "Off"}</span>
               </span>
+            ) : f.kind === "code" && f.locked && typeof value === "object" ? (
+              <pre
+                data-evidence-id={evidenceId}
+                aria-label={f.label}
+                className="max-h-64 overflow-auto rounded-lg border border-border bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-100"
+              >
+                {str}
+              </pre>
             ) : f.kind === "code" ? (
               <CodeEditor
                 value={str}
@@ -718,7 +744,7 @@ function AgentToolBindings({
   inputCls,
   onChange,
 }: {
-  targets: { id: string; label: string }[];
+  targets: ToolTarget[];
   bindings: ToolBinding[];
   readOnly: boolean;
   inputCls: string;
@@ -767,6 +793,25 @@ function AgentToolBindings({
       {targets.map((t) => {
         const b = bindings.find((x) => x.target_node_id === t.id);
         const args = b?.arguments ?? [];
+        if (t.studioType === "mcp_tool") {
+          const server = String(t.config?.server_ref ?? "");
+          const tool = String(t.config?.tool_name ?? b?.name ?? "");
+          return (
+            <div key={t.id} className="space-y-2 rounded-lg border border-border p-2.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="truncate text-xs font-semibold">{t.label}</span>
+                <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
+                  Pinned MCP contract
+                </span>
+              </div>
+              <div className="font-mono text-xs text-muted">{server} / {tool}</div>
+              <p className="text-xs leading-relaxed text-muted">
+                Name, description, and arguments come from the imported schema. Re-import the
+                server to update this tool.
+              </p>
+            </div>
+          );
+        }
         return (
           <div key={t.id} className="space-y-2 rounded-lg border border-border p-2.5">
             <div className="flex items-baseline justify-between gap-2">

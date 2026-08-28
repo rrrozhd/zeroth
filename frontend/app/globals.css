@@ -931,6 +931,23 @@ body {
   background: color-mix(in srgb, var(--nt-loop) 5%, var(--bg-card));
 }
 
+.studio-node-card.is-mcp {
+  width: 15rem;
+  border-color: color-mix(in srgb, var(--nt-mcp) 55%, var(--hair-strong));
+  background: color-mix(in srgb, var(--nt-mcp) 4%, var(--bg-card));
+}
+
+.studio-mcp-assurance {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.2rem;
+  color: var(--text-faint);
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  line-height: 1.2;
+}
+
 .studio-node-card.is-loop .studio-node-title,
 .studio-node-card.is-if .studio-node-title {
   display: -webkit-box;

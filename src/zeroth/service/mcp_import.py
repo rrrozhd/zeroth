@@ -30,6 +30,7 @@ from typing import Any
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentToolBinding,
+    DisplayMetadata,
     Edge,
     GraphStatus,
     MCPToolNode,
@@ -222,6 +223,7 @@ async def import_mcp_tools(
             node_id = previous.node_id
             replaced_nodes[node_id] = previous.model_copy(
                 update={
+                    "display": previous.display.model_copy(update={"title": _display_name(name)}),
                     "mcp_tool": previous.mcp_tool.model_copy(
                         update={
                             "description": manifest.description,
@@ -238,6 +240,7 @@ async def import_mcp_tools(
                 MCPToolNode(
                     node_id=node_id,
                     graph_version_ref=agent.graph_version_ref,
+                    display=DisplayMetadata(title=_display_name(name)),
                     capability_bindings=list(_REQUIRED_REFS),
                     mcp_tool=MCPToolNodeData(
                         server_ref=server_ref,
@@ -301,6 +304,12 @@ async def import_mcp_tools(
     )
     await graph_repository.save(updated, tenant_id=tenant_id)
     return imported
+
+
+def _display_name(tool_name: str) -> str:
+    """Turn a protocol identifier into the concise canvas label."""
+    words = tool_name.replace("-", " ").replace("_", " ").split()
+    return " ".join(words).capitalize() or tool_name
 
 
 async def _discover(record: Any) -> list[_Discovered]:
