@@ -1018,6 +1018,7 @@ class BoundStructuredTable:
         where: dict[str, Any],
         returning: str,
         where_gte_database_now: tuple[str, ...] = (),
+        where_not_null: tuple[str, ...] = (),
         where_not_in: dict[str, tuple[Any, ...]] | None = None,
         increment: tuple[str, ...] = (),
     ) -> bool:
@@ -1031,6 +1032,7 @@ class BoundStructuredTable:
             definition,
             where,
             where_gte_database_now=where_gte_database_now,
+            where_not_null=where_not_null,
             where_not_in=where_not_in,
         )
         increments = tuple(_identifier(column) for column in increment)

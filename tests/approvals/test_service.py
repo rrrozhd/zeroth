@@ -156,14 +156,14 @@ async def test_resolution_wins_escalation_read_write_race(sqlite_db, monkeypatch
     original_resolve_pending = repository.resolve_pending
     resolution_committed = asyncio.Event()
 
-    async def resolution_first(record):
+    async def resolution_first(record, **kwargs):
         # The alert escalation now writes a still-PENDING row (latched via the
         # 'escalated' marker), not an ESCALATED one, so key the escalation write
         # off that marker rather than off status.
         if record.urgency_metadata.get("escalated"):
             await resolution_committed.wait()
-            return await original_resolve_pending(record)
-        resolved = await original_resolve_pending(record)
+            return await original_resolve_pending(record, **kwargs)
+        resolved = await original_resolve_pending(record, **kwargs)
         resolution_committed.set()
         return resolved
 

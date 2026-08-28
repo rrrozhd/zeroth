@@ -731,13 +731,28 @@ class ApprovalService:
         row and the checker does not re-escalate it every tick.
 
         ``ApprovalRepository.resolve_pending`` is a conditional write -- it updates
-        the row only while its stored status is still PENDING and publishes under a
-        write lock. Reusing it here (rather than an in-memory mutation followed by
-        an unconditional ``write``) closes the window between the read in
-        ``escalate`` and the write: a human resolution or a second SLA checker that
-        lands inside that window makes the update match zero rows and this returns
-        None instead of overwriting the newer state. The nulled ``sla_deadline``
-        only latches once resolve_pending's write set carries the column.
+        the row only while its stored row still matches, and publishes under a write
+        lock. Reusing it here (rather than an in-memory mutation followed by an
+        unconditional ``write``) closes the window between the read in ``escalate``
+        and the write, so a human resolution landing inside that window makes the
+        update match zero rows and this returns None instead of overwriting it.
+
+        Its ``status = PENDING`` predicate alone is NOT a fence for this caller,
+        though, and assuming it was is what let two concurrent alert escalations
+        both emit ``approval.escalated``. Every other resolve_pending caller moves
+        the row OUT of PENDING, so the loser of a race finds the status changed and
+        matches nothing; the alert latch deliberately keeps the row PENDING, so the
+        predicate holds for every racer at once and all of them win. The claim
+        therefore asks for ``require_sla_deadline``, adding ``sla_deadline IS NOT
+        NULL`` -- the column this latch is the sole clearer of. The first claim
+        nulls it and every later one matches zero rows, which is what makes
+        ``_emit_escalation_webhook`` fire exactly once per escalation.
+
+        A record whose deadline is ALREADY NULL is by that same definition already
+        latched, so it claims nothing and emits nothing even when the marker is
+        missing -- consistent with ``list_overdue``, which cannot return such a row.
+        The nulled ``sla_deadline`` only latches once resolve_pending's write set
+        carries the column.
         """
         if record.sla_deadline is not None:
             # Preserve the breached deadline for the escalation webhook/notice,
@@ -746,7 +761,7 @@ class ApprovalService:
         record.urgency_metadata["escalated"] = True
         record.sla_deadline = None
         record.updated_at = datetime.now(UTC)
-        return await self.repository.resolve_pending(record)
+        return await self.repository.resolve_pending(record, require_sla_deadline=True)
 
     async def _claim_escalation_with_delegate(
         self, record: ApprovalRecord, delegate: ApprovalRecord

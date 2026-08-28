@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.7.1]
+
+### Fixed
+
+- **Two concurrent SLA alert-escalations no longer both deliver `approval.escalated`.**
+  `ApprovalRepository.resolve_pending` fences its compare-and-set on `status = PENDING`, which is a
+  real fence for every caller that moves the row *out* of PENDING — the loser sees the new status and
+  matches nothing. The alert-escalation latch is the one caller that deliberately leaves the row
+  PENDING (an alert is a nudge, not a decision) and moves only `sla_deadline`, so the predicate held
+  for every racer at once and all of them won, emitted, and notified. `_claim_escalation` now asks for
+  `require_sla_deadline`, adding `sla_deadline IS NOT NULL` — the column that latch is the sole
+  clearer of — so the first claim nulls it and every later one matches zero rows. The loser still
+  re-reads and returns the winner's persisted record, so callers see the escalated state either way.
+  `ScopedTable.update_if_matches` grew a `where_not_null` passthrough to the predicate builder that
+  already supported it. The `_claim_escalation` docstring asserted the status predicate covered this
+  case; it did not, and now says so.
+
 ## [0.25.7]
 
 ### Fixed

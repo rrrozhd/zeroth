@@ -164,8 +164,21 @@ class ApprovalRepository:
         return ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
 
     @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
-    async def resolve_pending(self, record: ApprovalRecord) -> ApprovalRecord | None:
-        """Atomically publish ``record`` only while its exact scoped row is pending."""
+    async def resolve_pending(
+        self, record: ApprovalRecord, *, require_sla_deadline: bool = False
+    ) -> ApprovalRecord | None:
+        """Atomically publish ``record`` only while its exact scoped row is pending.
+
+        ``require_sla_deadline`` adds ``sla_deadline IS NOT NULL`` to the
+        compare-and-set. Callers that CHANGE the stored status are already fenced
+        by the ``status = PENDING`` predicate below: the loser of a race sees the
+        winner's new status and matches zero rows. The alert-escalation latch is
+        the exception -- it deliberately leaves the row PENDING and moves only the
+        deadline -- so for it the status predicate is satisfied by every racer and
+        provides no fence at all. Keying on the column the latch actually clears
+        restores the one-winner property for that caller without changing the
+        predicate for anybody else.
+        """
         async with self._approvals(record.tenant_id, record.workspace_id).transaction(
             write_lock=True
         ) as approvals:
@@ -187,6 +200,7 @@ class ApprovalRepository:
                     "deployment_ref": record.deployment_ref,
                     "graph_version_ref": record.graph_version_ref,
                 },
+                where_not_null=("sla_deadline",) if require_sla_deadline else (),
                 returning="approval_id",
             )
             row = (
