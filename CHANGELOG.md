@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.7.2]
+
+### Fixed
+
+- **The deployed acceptance contract expected a schema head three migrations stale.**
+  `release/acceptance/contracts/zeroth-deployed-v1.json` still pinned service head `027` and econ
+  head `20260812_07`; the live heads are `035` and `20260824_10`. The MCP migration renumber
+  (027 -> 035) updated the two sibling contracts and missed this one. It is not a fixture: both
+  `.github/workflows/deployed-acceptance.yml` and the `release-zeroth-core.yml` release job run the
+  acceptance CLI against a live deployment with `--contract .../zeroth-deployed-v1.json`, so the
+  stale pin would have failed the release gate against a service that was behaving correctly.
+  Nothing caught it locally because the only cross-contract equality test compares the
+  `gateway_http` scenario while these pins live in `migrations`, and the contract's own consumers
+  are `deployed_acceptance`-marked and therefore deselected by `addopts`.
+- Guard it so a renumber cannot reintroduce the drift: every shipped contract must pin the head
+  resolved from the migration chain itself (not a literal), and all shipped contracts must agree
+  with each other. Both new tests fail against the exact stale values they replace.
+
 ## [0.25.7.1]
 
 ### Fixed
