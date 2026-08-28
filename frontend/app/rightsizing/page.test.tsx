@@ -50,6 +50,8 @@ describe("measured Rightsizing fields", () => {
   it("exposes every measured experiment capability and bound", async () => {
     await act(async () => root.render(<RightsizingPage />));
 
+    expect(host.textContent).toContain("Advisory only");
+    expect(host.textContent).toContain("never changes a deployed model automatically");
     expect(host.textContent).toContain("Judge model");
     expect(host.textContent).toContain("Maximum candidates");
     expect(host.textContent).toContain("Minimum cases");
