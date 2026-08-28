@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.4.3]
+
+### Fixed
+
+- Resolve the audit-timeline scope contradiction in favour of the code. The ZER-32 isolation test
+  pinned `deployment_ref` in the timeline query; the composed-deployment test requires a child run's
+  chain to include provider records written under a **parent** deployment. Both cannot hold with a
+  single-ref filter. The isolation boundary for an audit read is tenant + workspace — enforced in the
+  query and again per record in `_visible_record` — and deployment authorises the request rather than
+  filtering the rows. The assertion now pins that boundary; `_assert_same_404` is untouched and still
+  fails when tenant scoping is removed.
+
 ## [0.25.4.2]
 
 ### Fixed
