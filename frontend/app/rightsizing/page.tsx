@@ -221,6 +221,25 @@ export default function RightsizingPage() {
         )}
       </header>
 
+      <div
+        role="note"
+        data-evidence-id="rightsizing.mode.advisory"
+        style={{
+          marginBottom: 18,
+          padding: "10px 12px",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: 8,
+          background: "var(--surface-raised)",
+          color: "var(--text-secondary)",
+          fontSize: 12.5,
+          lineHeight: 1.45,
+        }}
+      >
+        <strong style={{ color: "var(--text-primary)" }}>Advisory only.</strong>{" "}
+        Rightsizing measures and recommends candidates; it never changes a deployed model
+        automatically.
+      </div>
+
       {!connected ? (
         <ConnectNote />
       ) : (
