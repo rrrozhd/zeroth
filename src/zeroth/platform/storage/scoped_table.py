@@ -153,8 +153,12 @@ _DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
     }
 )
 _TASK9_RESOURCE_OPERATIONS = {
+    # Append-only timeline with no single-event read: CertificationRepository
+    # appends via create/grant_override and returns whole timelines via events().
+    # READ had no implementing method, so the leak matrix demanded a probe for an
+    # operation the resource does not offer.
     "app_certification_events": frozenset(
-        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+        {ResourceOperation.CREATE, ResourceOperation.ENUMERATE}
     ),
     "app_certifications": frozenset(
         {
@@ -241,7 +245,18 @@ _TASK9_RESOURCE_OPERATIONS = {
             ResourceOperation.DELETE,
         }
     ),
-    "template_dependency_references": frozenset(ResourceOperation),
+    # Derived rows, never edited in place: TemplateReferenceIndex.rebuild()
+    # deletes and re-inserts, and no method updates a reference. Declaring
+    # UPDATE made the leak matrix demand a probe for an operation that does
+    # not exist, which no repository could ever satisfy.
+    "template_dependency_references": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.DELETE,
+        }
+    ),
     "run_attestations": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
     "tool_inventory_registrations": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
     "quota_counters": frozenset(

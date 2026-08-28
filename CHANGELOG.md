@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.4]
+
+### Security
+
+- **The cross-tenant leak matrix is fully green: 17 failures to 0.** Template dependency references
+  now have an executable isolation probe, and two registry declarations that described operations no
+  repository implements are corrected: `template_dependency_references` dropped `UPDATE` (the index
+  rebuilds by delete-and-reinsert; nothing edits a reference in place) and `app_certification_events`
+  dropped `READ` (the timeline is appended to and enumerated; there is no single-event read). Each
+  demanded a probe for an operation that could not exist.
+- `CertificationRepository` owns two resources, so its append-only events surface now names its own
+  methods. Without that it inherited `grant_override`'s `UPDATE` and declared an operation the events
+  table does not have.
+
+Falsified as a set: with leaks injected into the template registry's scope context and
+`CertificationRepository.get`, eight probes go red; all 314 pass once reverted.
+
 ## [0.25.3]
 
 ### Security

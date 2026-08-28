@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pydantic import BaseModel
 
 from zeroth.contracts.graph import Graph, TokenEngineSnapshot, TokenEngineSnapshotState
+from zeroth.contracts.graph.models import AgentNode, AgentNodeData, TemplateReference
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.contracts.registry.registry import ContractRegistry
@@ -110,6 +111,7 @@ from zeroth.service.repositories.repository import (
     SQLiteRepoCheckoutRepository,
     SQLiteRepoRunRepository,
 )
+from zeroth.service.templates.dependencies import TemplateReferenceIndex
 from zeroth.service.templates.repository import DatabaseTemplateRegistry
 from zeroth.service.webhooks.models import (
     DeliveryStatus,
@@ -1815,7 +1817,15 @@ async def _drive_app_certifications(database: AsyncDatabase, operation: Resource
     assert owner_after is not None
     assert owner_after.tenant_id == "driver-owner"
     assert owner_after.override is None
-    assert await repository.get(owner.certification_id, "driver-foreign", None) is None
+    foreign_view = await repository.get(owner.certification_id, "driver-foreign", None)
+    if operation is O.CREATE:
+        # CREATE deliberately writes a foreign record under the SAME id, so the
+        # foreign scope is expected to see one -- it must just never be the
+        # owner's. A leak shows up here as tenant_id == "driver-owner".
+        assert foreign_view is not None
+        assert foreign_view.tenant_id == "driver-foreign"
+    else:
+        assert foreign_view is None
 
 
 async def _drive_app_certification_events(
@@ -1861,3 +1871,72 @@ async def _drive_prompt_templates(database: AsyncDatabase, operation: ResourceOp
     owner_after = await owner.get("driver-template", 1)
     assert owner_after.template_str == "owner body"
     assert [template.name for template in await owner.list()] == ["driver-template"]
+
+
+async def _drive_template_dependency_references(
+    database: AsyncDatabase, operation: ResourceOperation
+) -> None:
+    """Exercise the template dependency index through the tenant-isolation matrix."""
+    owner_templates = DatabaseTemplateRegistry(
+        database, tenant_id="driver-owner", workspace_id=None
+    )
+    await owner_templates.register("driver-template", 1, "owner body")
+    graphs = GraphRepository(database)
+    referencing = Graph(
+        graph_id="driver-template-graph",
+        name="driver",
+        tenant_id="driver-owner",
+        entry_step="driver-agent",
+        nodes=[
+            AgentNode(
+                node_id="driver-agent",
+                graph_version_ref="driver-template-graph@1",
+                input_contract_ref="contract://driver-in",
+                output_contract_ref="contract://driver-out",
+                agent=AgentNodeData(
+                    instruction="driver",
+                    model_provider="driver/model",
+                    template_ref=TemplateReference(name="driver-template", version=1),
+                ),
+            )
+        ],
+    )
+    saved = await graphs.create(referencing, tenant_id="driver-owner")
+    await graphs.publish(saved.graph_id, saved.version, tenant_id="driver-owner")
+
+    owner_index = TemplateReferenceIndex(database, tenant_id="driver-owner", workspace_id=None)
+    foreign_index = TemplateReferenceIndex(database, tenant_id="driver-foreign", workspace_id=None)
+    await owner_index.rebuild()
+    owner_conflict = await owner_index.find_conflict(
+        name="driver-template", version=1, is_latest=False
+    )
+    assert owner_conflict is not None
+
+    if operation in {O.CREATE, O.DELETE}:
+        # rebuild() deletes and re-derives references inside its OWN scope; a
+        # foreign rebuild must neither remove the owner's rows nor create any of
+        # its own from the owner's published graph.
+        await foreign_index.rebuild()
+        assert (
+            await foreign_index.find_conflict(
+                name="driver-template", version=1, is_latest=False
+            )
+            is None
+        )
+    else:
+        assert (
+            await foreign_index.find_conflict(
+                name="driver-template", version=1, is_latest=False
+            )
+            is None
+        )
+        assert (
+            await foreign_index.find_conflict(
+                name="driver-template", version=None, is_latest=True
+            )
+            is None
+        )
+    still_owned = await owner_index.find_conflict(
+        name="driver-template", version=1, is_latest=False
+    )
+    assert still_owned is not None

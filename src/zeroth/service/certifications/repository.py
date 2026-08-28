@@ -51,6 +51,12 @@ def _scope(tenant_id: str, workspace_id: str | None):
 @persistence_surface(
     "service.app_certification_events",
     probe=named_isolation_probe("_drive_app_certification_events"),
+    # One class owns two resources, so the events surface has to say which
+    # methods are its own. Without this it inherits grant_override's UPDATE, and
+    # the events table is append-only -- its registry definition is
+    # {CREATE, READ, ENUMERATE} -- so the surface declared an operation the
+    # resource does not have.
+    method_names=frozenset({"create", "events"}),
 )
 class CertificationRepository:
     """Persist certification state with an append-only event stream."""
