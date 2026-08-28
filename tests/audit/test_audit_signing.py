@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime
 
 from zeroth.governance.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
-from zeroth.governance.audit.verifier import _compute_record_digest, compute_chained_record
-from zeroth.platform.signing import EnvHmacSigner
+from zeroth.governance.audit.erasure_schema import pii_commitment_fields
+from zeroth.governance.audit.verifier import (
+    _DIGEST_EXCLUDED_FIELDS,
+    _compute_pii_commitments,
+    _compute_record_digest,
+    compute_chained_record,
+)
+from zeroth.platform.signing import EnvHmacSigner, sign_digest
 from zeroth.platform.storage.json import to_json_value
 
 
@@ -56,6 +64,50 @@ async def test_chain_records_signed_and_verify_true(sqlite_db) -> None:
     assert report.signature_verified is True
     assert report.unsigned_record_count == 0
     assert report.record_count == 2
+
+
+async def test_v3_chain_written_before_campaign_id_field_still_verifies(sqlite_db) -> None:
+    """A model-only additive field must not invalidate an older signed record."""
+    signer = EnvHmacSigner(key_id="k1", keys={"k1": b"secret"})
+    repo = AuditRepository.for_default_compatibility(sqlite_db, signer=signer)
+    await repo.write(_record(audit_id="a1", run_id="run-pre-campaign-field"))
+    stored = await repo.get("a1")
+
+    # Reproduce the exact v3 layout persisted before ``campaign_id`` existed:
+    # the field was absent, rather than present with a null value.
+    payload = stored.model_dump(mode="json")
+    payload["record_digest"] = None
+    for field in _DIGEST_EXCLUDED_FIELDS:
+        payload.pop(field, None)
+    payload.pop("campaign_id")
+    for field in pii_commitment_fields(3):
+        payload.pop(field, None)
+    payload["pii_commitments"] = _compute_pii_commitments(stored)
+    legacy_digest = hashlib.sha256(to_json_value(payload).encode()).hexdigest()
+    signature, key_id, algorithm = sign_digest(legacy_digest, signer)
+
+    historical = stored.model_dump(mode="json")
+    historical.pop("campaign_id")
+    historical.update(
+        {
+            "digest_version": 3,
+            "record_digest": legacy_digest,
+            "record_signature": signature,
+            "signing_key_id": key_id,
+            "signing_algorithm": algorithm,
+        }
+    )
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
+            "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
+            (json.dumps(historical, sort_keys=True, separators=(",", ":")), "a1"),
+        )
+
+    report = await AuditContinuityVerifier(repo, signer=signer).verify_run(
+        "run-pre-campaign-field"
+    )
+    assert report.verified is True
+    assert report.signature_verified is True
 
 
 async def test_unsigned_chain_is_three_state_none(sqlite_db) -> None:

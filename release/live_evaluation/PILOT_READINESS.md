@@ -2,19 +2,54 @@
 
 ## Bottom line
 
-Product candidate revision `e5c76f39` is suitable for a controlled demo, but a
-full pilot is **not yet accepted**. The current evidence
-supports `demo_ready_not_full_campaign_accepted`: the principal authoring,
-execution, approval, loop, batch, audit, Economics, Retention, Webhook,
-Artifacts, and bounded Rightsizing paths have direct evidence, while the
-remaining pilot blockers are operational cutover, credential rotation, two
-more live grounded-research repetitions, full pilot-scope authorization and
-recovery checks, security-dependency closure, and a final reconciled evidence
-seal.
+Candidate baseline `0dcbb86d` plus the audit-v3 compatibility correction in the
+current closeout is suitable for a controlled demo, but a full pilot is **not
+yet accepted**. The current evidence supports
+`demo_ready_not_full_campaign_accepted`: the requested technical closeout now
+includes fresh batch, approval/action, and loop runs; immutable rollback and
+roll-forward; eight-route Chromium and native Safari inspection; a complete
+backend run; migration rollback; API drift; live role isolation; signed audit;
+and authoritative accounting. Pilot acceptance remains blocked by human-owned
+credential rotation, operations ownership and recovery, elapsed cohort
+outcomes, the uncompleted fresh destructive-retention rehearsal, and production
+artifact identity.
 
 This document defines the smallest credible bar for a successful pilot. It does
 not relabel deferred full-product criteria as passes and does not claim
 production readiness.
+
+## Final-candidate technical closeout — 2026-08-28
+
+Evidence root:
+`~/.local/share/zeroth/evaluations/evaluation-studio-v1/evidence/pilot-closeout-20260828-1`.
+Database snapshots are deliberately outside that public evidence root under
+`state-snapshots/pilot-closeout-20260828-1`; only their hashes are disclosed.
+
+| Requested closeout | Status | Evidence and exact boundary |
+| --- | --- | --- |
+| Fresh post-freeze batch | **Pass** | Parent `c4fb535f1924446ab6928daa52977fe5` completed eight ordered, isolated children with concurrency four, signed audit, and `$0` provider spend. |
+| Fresh approval/action | **Pass** | Run `fa4494dbc7574a6387aaf2b0c81a39ce` completed after approval `b8b2a414a6e2403a9b9211435523e21a` with exactly one durable local-sink marker, one action audit, a valid signed chain, and no external action API. |
+| Fresh loop | **Pass** | Run `6b932602311e44ed9f316b16b7c46d75` exercised Repeat then Done at `max_retries=2`, used two retries, and completed with a valid signed chain and `$0` provider spend. |
+| Immutable rollback / roll-forward | **Pass** | Deployment version 6 served graph `@5`, then version 7 served graph `@6`; service restarts preserved the fresh run, signed audit, action marker, and complete version history. |
+| Eight-route Chromium | **Pass** | Studio, Runs, Approvals, Audit, Economics, Rightsizing, Retention, and Artifacts rendered at 1440×900 with no horizontal overflow or console error; Audit was recaptured after data load. |
+| Eight-route native Safari | **Pass** | The same routes rendered through actual macOS Safari at 1216×768. Audit displayed `chain intact · signatures valid`; Economics displayed `$0.0056` actual spend and a `$0.25` fail-closed ceiling. No route produced a loading terminal state or HTTP error. |
+| Full backend suite from zero | **Pass** | Final-candidate result: `12119 passed, 8 skipped, 465 deselected` in 889.08 seconds. The eight skips are optional-environment cases; the mandatory release security matrix separately passed 109/109 with zero skips. The audit compatibility correction also has 61 focused passing audit/retention/API tests. |
+| Migration rollback | **Pass** | A disposable SQLite database upgraded to head 035, downgraded to 034, and upgraded to 035 again with the expected table restored. Production data was not used. |
+| API/schema drift | **Pass** | `npm run check:api` completed with exit code 0 against the committed contract fixtures. |
+| Credential custody | **Blocked — human/external** | The provider credential exposed in chat cannot qualify as a pilot credential. A human owner must revoke it, install a new value outside Git, and prove old-value rejection without disclosing either value. |
+| Authorization and tenant isolation | **Partial** | Live operator/reviewer/admin identities resolve only in their tenant, and crossed admin credentials return scope-hiding 404s. The full final-candidate resource-by-resource browser matrix remains broader than this accelerated closeout. |
+| Retention and compliance | **Partial** | Current Safari and Chromium views show persisted policy, legal hold, prior erasure activity, and correct tenant scope. A new destructive rehearsal was intentionally not run against the retained campaign tenant; it requires a newly disposable fixture and recovery snapshot. |
+| Accounting | **Pass for the current campaign window** | Authoritative production spend is `$0.00556027` (`$0` measured, `$0.00556027` estimated), with zero active or ambiguous exposure. The synthetic `$0.01` control proof is explicitly excluded from provider spend and deployment attribution. |
+| Signed audit continuity | **Pass after compatibility remediation** | A historical v3 chain initially failed because adding nullable `campaign_id` changed the deserialized digest layout. A test-first compatibility rule now accepts only the historical absent-key form when campaign correlation is null. No audit row was rewritten. The six-record historical chain, four-record fresh chain, and all 170 records attributed to the served deployment verify with valid signatures. |
+| Operations owner / recovery | **Blocked — human-owned** | No named on-call owner has yet performed the restore and incident drill independently of the implementer. |
+| Cohort outcome | **Blocked — elapsed evidence** | No real pilot cohort period, adoption result, task-success review, support record, or owner signoff exists yet. Synthetic and operator testing cannot substitute for this gate. |
+
+Two repository-level release conditions also remain visible rather than waived:
+`/health` reports `production_ready=false` because
+`serving_artifact_identity_unavailable` requires a server-owned commit and image
+digest, and the documentation-coverage gate reports 80.4% against an 84%
+threshold. Neither affects the bounded local demo claim; both block a
+production-ready claim.
 
 ## Accelerated closure checkpoint — 2026-08-28
 

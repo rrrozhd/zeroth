@@ -224,7 +224,23 @@ class AuditContinuityVerifier:
                     error="previous digest mismatch",
                 )
             expected_digest = _compute_record_digest(record)
-            if record.record_digest != expected_digest:
+            digest_matches = record.record_digest == expected_digest
+            # ``campaign_id`` was added while v3 records were already in the
+            # field.  Pydantic supplies ``None`` when loading those historical
+            # JSON objects, but the original signed byte layout had no key at
+            # all.  Accept that one semantically equivalent v3 layout only when
+            # the campaign is null; non-null campaign correlation remains bound
+            # by the current digest and cannot fall back to the legacy layout.
+            if (
+                not digest_matches
+                and record.digest_version == 3
+                and record.campaign_id is None
+            ):
+                digest_matches = record.record_digest == _compute_record_digest(
+                    record,
+                    _omit_campaign_id=True,
+                )
+            if not digest_matches:
                 return AuditContinuityReport(
                     scope=scope,
                     verified=False,
@@ -352,7 +368,11 @@ def _erased_record_carrying_pii(record: NodeAuditRecord) -> str | None:
     return None
 
 
-def _compute_record_digest(record: NodeAuditRecord) -> str:
+def _compute_record_digest(
+    record: NodeAuditRecord,
+    *,
+    _omit_campaign_id: bool = False,
+) -> str:
     """Recompute a record's digest under the historical byte layout.
 
     ``record_digest`` is nulled in place, WS-D/WS-E fields are popped (see
@@ -368,6 +388,8 @@ def _compute_record_digest(record: NodeAuditRecord) -> str:
     # the exact pre-WS-E payload (grandfathered).
     for field in _DIGEST_EXCLUDED_FIELDS:
         payload.pop(field, None)
+    if _omit_campaign_id:
+        payload.pop("campaign_id", None)
     # WS-E commitment digests: substitute per-field commitment hashes for the
     # raw PII payload fields.
     #
