@@ -29,6 +29,8 @@ API/schema drift gates pass.
 | Exact matrix outcome verification | pass |
 | Recursive evidence secret scan | pass; 0 findings |
 | Rightsizing live DOM checkpoint | pass; advisory notice visible, 0 console errors |
+| Broad backend run (interrupted at 70%) | 8,520 pass, 3 fail, 5 skip; the three failures had one root cause |
+| Architecture/packaging rerun after cleanup | pass; 36 tests |
 
 The release-candidate security run used a disposable Redis 7.4.2 service bound
 only to `127.0.0.1:6381`. It was removed immediately after the run. The
@@ -36,7 +38,11 @@ persistent application Redis was not read or modified.
 
 ## Remaining blockers
 
-- The full backend suite is not represented as passing in this bundle.
+- The broad backend run exposed an untracked, file-empty
+  `src/zeroth/econ_plane` directory tree left behind by the rename to
+  `zeroth.econ.plane`. Namespace discovery made that retired package resolve.
+  The verified-empty residue was removed and all 36 affected architecture and
+  wheel tests pass, but the full suite was not rerun from zero in this bundle.
 - Migration rollback and API/schema drift gates are not represented here.
 - The final eight-route Chromium/native-Safari journey must be repeated after
   immutable candidate freeze.
