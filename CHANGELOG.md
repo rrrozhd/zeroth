@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.4.1]
+
+### Fixed
+
+- Record the eight newly-declared persistence methods in the exact metadata oracle. Declaring the
+  template registry's surface and the reference index's surface made their already-decorated methods
+  discoverable, and the oracle pins every method identity by hand.
+
 ## [0.25.4]
 
 ### Security

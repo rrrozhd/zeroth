@@ -269,6 +269,14 @@ zeroth.service.webhooks.repository|WebhookRepository|list_subscriptions|N
 zeroth.service.webhooks.repository|WebhookRepository|list_subscriptions_for_event|N
 zeroth.service.webhooks.repository|WebhookRepository|mark_delivered|U
 zeroth.service.webhooks.repository|WebhookRepository|mark_failed|RU
+zeroth.service.templates.dependencies|TemplateReferenceIndex|find_conflict|RN
+zeroth.service.templates.dependencies|TemplateReferenceIndex|rebuild|CRND
+zeroth.service.templates.dependencies|TemplateReferenceIndex|sync_deployment|CRND
+zeroth.service.templates.dependencies|TemplateReferenceIndex|sync_graph|CRND
+zeroth.service.templates.repository|DatabaseTemplateRegistry|delete|D
+zeroth.service.templates.repository|DatabaseTemplateRegistry|get|R
+zeroth.service.templates.repository|DatabaseTemplateRegistry|list|N
+zeroth.service.templates.repository|DatabaseTemplateRegistry|register|C
 """.splitlines()
 
 METHOD_METADATA_ORACLE = MappingProxyType(
@@ -330,7 +338,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 244
+    assert len(METHOD_METADATA_ORACLE) == 252
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 
