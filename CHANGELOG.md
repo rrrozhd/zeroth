@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.5]
+
+### Fixed
+
+- **Audit F3 (fan-out guard): an operator cancel during fan-out no longer raises out of the fan-in.**
+  The cancel writes the terminal state straight to the row, so by the time `_settle_fork_failure`
+  runs, its in-memory `Run` is stale and `fail_run`'s compare-and-set from that status misses,
+  surfacing as `ValueError: run ... no longer has status RUNNING`. Losing that race is not an error:
+  the run already reached the terminal state the settlement was about to give it. The settlement now
+  re-reads and reports the settled run — and only after the store confirms it really left `RUNNING`,
+  so a genuine CAS failure still raises.
+
 ## [0.25.4.3]
 
 ### Fixed

@@ -427,7 +427,21 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         """
         if isinstance(exc, SideEffectReconciliationExhaustedError):
             return await self.driver.pause_for_reconciliation(run, node.node_id, str(exc))
-        return await self.driver.fail_run(run, "parallel_execution_failed", str(exc))
+        try:
+            return await self.driver.fail_run(run, "parallel_execution_failed", str(exc))
+        except ValueError:
+            # An operator cancel lands directly on the row while the branches of a
+            # fan-out are still running, so by the time the fan-in settles, this
+            # in-memory run is stale and fail_run's compare-and-set from its status
+            # misses. Losing that race is not an error to propagate: the run has
+            # already reached the terminal state this settlement was going to give
+            # it. Re-read and report the settled run instead -- but only once the
+            # store confirms it really did leave RUNNING, so a genuine CAS failure
+            # still raises.
+            settled = await self.driver.run_repository.get(run.run_id)
+            if settled is None or settled.status is RunStatus.RUNNING:
+                raise
+            return settled
 
     async def _dispatch_or_settle_parallel_failure(
         self,
