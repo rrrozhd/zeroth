@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.7]
+
+### Fixed
+
+- **The whole test tree collects again.** `tests/app_certification/` and `tests/load_release/` both
+  contain `test_audit7_hardening.py` and `test_audit9_hardening.py`, and neither was a package, so
+  pytest resolved the duplicate basenames to one module and refused the second — taking the release
+  marker-integrity gates down with it, since they assert a clean whole-tree collection. Both are now
+  packages, matching the 35 test directories that already were.
+- Restore the two names `release/live_evaluation/economics_ui_fixture.py` re-exports from
+  `scripts.economics_ui_fixture_environment` (`PRIMARY_STATE_ROOT`, `UI_ACCESS_VALUE`). Its own test
+  imports them from it, so the module failed to import at all; an `__all__` now declares the
+  re-export surface.
+- Bootstrap reconciles the template dependency index only when the schema is current. `rebuild()`
+  rewrites `template_dependency_references`, which migration 032 introduced, so bootstrapping a
+  database behind that revision raised `no such table` and turned a deliberately stale-schema
+  candidate into a crash instead of the clean rejection the release gate is testing for.
+
 ## [0.25.6]
 
 ### Fixed

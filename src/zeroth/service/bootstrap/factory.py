@@ -82,6 +82,7 @@ from zeroth.platform.signing import (
     build_verification_provider_async,
 )
 from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ScopeContext
+from zeroth.platform.storage.schema_revision import read_async_schema_revision
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.runtime.agents.mcp import RegisteredMCPServerConfig
@@ -95,6 +96,7 @@ from zeroth.service.api.authentication import (
     ServiceAuthenticator,
 )
 from zeroth.service.api.authorization import RoleRegistry
+from zeroth.service.api.health import SERVICE_MIGRATIONS_PACKAGE
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap.admission import BoundAdmissionEvaluator
 from zeroth.service.bootstrap.container import (
@@ -255,7 +257,15 @@ async def bootstrap_scoped_service(
         validator=_graph_validator,
         template_reference_index=template_reference_index,
     )
-    await template_reference_index.rebuild()
+    # Reconcile the dependency index only against a schema that actually has it.
+    # rebuild() deletes and re-derives rows in template_dependency_references,
+    # which migration 032 introduced, so on a database still behind that revision
+    # it raised "no such table" and turned a stale-schema candidate into a
+    # bootstrap crash instead of the clean rejection the caller is looking for.
+    # A stale database has nothing worth reconciling anyway.
+    schema = await read_async_schema_revision(database, SERVICE_MIGRATIONS_PACKAGE)
+    if schema.state == "current":
+        await template_reference_index.rebuild()
     deployment_service = DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=deployment_repository,
