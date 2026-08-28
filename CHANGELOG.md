@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.3]
+
+### Security
+
+- **Give prompt templates real cross-tenant isolation coverage.** `DatabaseTemplateRegistry` carried
+  no persistence declaration at all, so `service.prompt_templates` generated four cross-tenant cases
+  with no executable probe behind them. Its create/read/enumerate/delete operations are now declared
+  and driven against the production registry. Falsified: with the registry's scope context pinned to
+  one tenant, all four probes go red.
+
 ## [0.25.2]
 
 ### Security

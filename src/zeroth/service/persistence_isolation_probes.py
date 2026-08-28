@@ -19,6 +19,7 @@ from zeroth.contracts.graph import Graph, TokenEngineSnapshot, TokenEngineSnapsh
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.contracts.registry.registry import ContractRegistry
+from zeroth.contracts.templates.errors import TemplateNotFoundError
 from zeroth.governance.approvals.models import ApprovalRecord, ApprovalStatus
 from zeroth.governance.approvals.repository import ApprovalRepository
 from zeroth.governance.attestations.heartbeat import Heartbeat, HeartbeatRepository
@@ -109,6 +110,7 @@ from zeroth.service.repositories.repository import (
     SQLiteRepoCheckoutRepository,
     SQLiteRepoRunRepository,
 )
+from zeroth.service.templates.repository import DatabaseTemplateRegistry
 from zeroth.service.webhooks.models import (
     DeliveryStatus,
     WebhookDelivery,
@@ -1834,3 +1836,28 @@ async def _drive_app_certification_events(
         assert await repository.events("f" * 32, "driver-foreign", None) == []
     owner_events = await repository.events(owner.certification_id, "driver-owner", None)
     assert [event.tenant_id for event in owner_events] == ["driver-owner"]
+
+
+async def _drive_prompt_templates(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise prompt template operations through the tenant-isolation matrix."""
+    owner = DatabaseTemplateRegistry(database, tenant_id="driver-owner", workspace_id=None)
+    foreign = DatabaseTemplateRegistry(database, tenant_id="driver-foreign", workspace_id=None)
+    await owner.register("driver-template", 1, "owner body")
+    if operation is O.CREATE:
+        # Collision-capable: the same (name, version) in another tenant is a
+        # different row, and registering it must not overwrite the owner's.
+        await foreign.register("driver-template", 1, "foreign body")
+        assert (await foreign.get("driver-template", 1)).template_str == "foreign body"
+    elif operation is O.READ:
+        with _raises(TemplateNotFoundError):
+            await foreign.get("driver-template", 1)
+        with _raises(TemplateNotFoundError):
+            await foreign.get("driver-template")
+    elif operation is O.ENUMERATE:
+        assert await foreign.list() == []
+    else:
+        with _raises(TemplateNotFoundError):
+            await foreign.delete("driver-template", 1)
+    owner_after = await owner.get("driver-template", 1)
+    assert owner_after.template_str == "owner body"
+    assert [template.name for template in await owner.list()] == ["driver-template"]
