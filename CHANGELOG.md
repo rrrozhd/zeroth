@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.7.3]
+
+### Fixed
+
+- **The Studio publish preflight answered with a weaker validator than publish enforces with.**
+  `studio_api.py` built a bare `GraphValidator()`. That is not a smaller validator but a
+  differently-shaped one: `graph_validation` returns early when `mcp_grants_resolver` is `None`,
+  and that return sits above the node loop, so all three `mcp_tool` rules — unknown server,
+  capability floor, capability ceiling — were skipped together. The mandatory preflight therefore
+  reported `ready: true` for a graph publish then rejected with 422 `invalid_capability_ref`,
+  telling the operator the opposite of what the gate would do. It also silently dropped the
+  contract registry the wired validator carries. Preflight now asks the repository for the
+  validator publish enforces with, via a new read-only `GraphRepository.validator` property.
+- Pinned behaviourally, because the existing AST anti-unwiring guard is scoped to publish paths
+  and cannot see an advisory one: two route-level tests assert preflight reports the ceiling
+  violation and that preflight and publish agree on the same graph. Both fail against a bare
+  `GraphValidator()` and pass against the wired one.
+
 ## [0.25.7.2]
 
 ### Fixed

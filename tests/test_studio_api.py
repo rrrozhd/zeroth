@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,9 +11,12 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from zeroth.contracts.graph.models import Capability, Graph
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.runtime.agents.mcp import MCP_REQUIRED_CAPABILITIES
+from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.api.studio_api import router as studio_router
 from zeroth.service.bootstrap.migrations import run_migrations
 
@@ -1319,3 +1323,101 @@ class TestAuthorization:
         assert client.get("/api/studio/v1/workflows").status_code == 403
         assert client.post("/api/studio/v1/workflows", json={"name": "x"}).status_code == 403
         assert client.get("/api/studio/v1/node-types").status_code == 403
+
+
+class TestPreflightAsksThePublishValidator:
+    """Preflight must answer with the validator publish will enforce with.
+
+    The route used to build a bare ``GraphValidator()``. That is not a smaller
+    validator, it is a differently-shaped one: ``graph_validation`` returns early
+    when ``mcp_grants_resolver`` is None, and that return sits ABOVE the node loop,
+    so all three mcp_tool rules -- unknown server, capability floor, capability
+    ceiling -- are skipped together. Preflight therefore reported ``ready: true``
+    for a graph that publish then rejected 422, telling the operator the opposite
+    of what the gate would do.
+
+    This is the same early-return shape as the defect that made the operator-owned
+    registry decorative once before, so it is pinned behaviourally: a bare
+    validator makes this test fail, which is exactly what the AST guard in
+    tests/graph/test_mcp_tool_node.py cannot see, since that guard is scoped to
+    publish paths and preflight is advisory.
+    """
+
+    @staticmethod
+    async def _grants(server_ref: str) -> set[Capability] | None:
+        """The operator grants exactly the floor for 'filesystem' -- nothing more."""
+        if server_ref == "filesystem":
+            return set(MCP_REQUIRED_CAPABILITIES)
+        return None
+
+    def _wired_repo(self) -> GraphRepository:
+        db_path = Path(tempfile.mkdtemp()) / "studio_mcp.db"
+        run_migrations(f"sqlite:///{db_path}")
+        return GraphRepository(
+            AsyncSQLiteDatabase(str(db_path)),
+            validator=GraphValidator(mcp_grants_resolver=self._grants),
+        )
+
+    @staticmethod
+    def _graph_over_the_ceiling(graph_id: str) -> Graph:
+        """An mcp_tool node declaring one capability beyond what the server grants."""
+        declared = sorted(capability.value for capability in MCP_REQUIRED_CAPABILITIES)
+        return Graph.model_validate(
+            {
+                "graph_id": graph_id,
+                "name": graph_id,
+                "version": 1,
+                "entry_step": "start",
+                "nodes": [
+                    {
+                        "node_id": "start",
+                        "graph_version_ref": f"{graph_id}:v1",
+                        "node_type": "entrypoint",
+                        "input_contract_ref": "contract://in",
+                        "output_contract_ref": "contract://out",
+                        "entrypoint": {},
+                    },
+                    {
+                        "node_id": "fs_read",
+                        "graph_version_ref": f"{graph_id}:v1",
+                        "node_type": "mcp_tool",
+                        # The floor, plus one capability the operator did not grant.
+                        "capability_bindings": [*declared, Capability.FILESYSTEM_READ.value],
+                        "mcp_tool": {
+                            "server_ref": "filesystem",
+                            "tool_name": "read_file",
+                            "description": "Read a file",
+                            "input_schema": {"type": "object"},
+                            "schema_hash": "a" * 64,
+                        },
+                    },
+                ],
+                "edges": [],
+            }
+        )
+
+    def test_preflight_reports_the_ceiling_violation_publish_would_reject(self) -> None:
+        repo = self._wired_repo()
+        graph = self._graph_over_the_ceiling("mcp-ceiling")
+        asyncio.run(repo.save(graph))
+
+        client = TestClient(_make_app(repo))
+        preflight = client.post("/api/studio/v1/workflows/mcp-ceiling/preflight")
+
+        assert preflight.status_code == 200, preflight.text
+        body = preflight.json()
+        assert body["ready"] is False, (
+            "preflight called the graph ready; publish rejects it for the MCP ceiling"
+        )
+        assert any(issue["code"] == "invalid_capability_ref" for issue in body["issues"]), (
+            f"no capability issue surfaced: {body['issues']}"
+        )
+
+    def test_preflight_and_publish_agree_on_the_same_graph(self) -> None:
+        """The property that matters: not-ready here means rejected there."""
+        repo = self._wired_repo()
+        asyncio.run(repo.save(self._graph_over_the_ceiling("mcp-agree")))
+
+        client = TestClient(_make_app(repo))
+        assert client.post("/api/studio/v1/workflows/mcp-agree/preflight").json()["ready"] is False
+        assert client.post("/api/studio/v1/workflows/mcp-agree/publish").status_code == 422
