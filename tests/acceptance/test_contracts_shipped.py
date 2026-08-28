@@ -65,3 +65,75 @@ def test_full_profile_still_demands_the_502_proof() -> None:
     raw["profile"] = "full"
     with pytest.raises(ValueError, match="upstream failure"):
         AcceptanceContract.model_validate(raw)
+
+
+def _live_head(script_location: str) -> str:
+    """The single head of a migration chain, as the running service would report it."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config("alembic.ini")
+    config.set_main_option("script_location", script_location)
+    heads = ScriptDirectory.from_config(config).get_heads()
+    assert len(heads) == 1, f"expected one head in {script_location}, got {heads}"
+    return heads[0]
+
+
+_SHIPPED = ("zeroth-v1.json", "zeroth-deployed-v1.json", "transport-conformance-v1.json")
+
+_CHAINS = {
+    "/health/ready": "src/zeroth/service/_migrations",
+    "/regulus/health": "src/zeroth/econ/plane/_migrations",
+}
+
+
+def _pinned_revisions(name: str) -> dict[str, dict]:
+    """Map each migrations-scenario path to the schema_revision it expects."""
+    steps = _load(name)["scenarios"]["migrations"]["steps"]
+    return {
+        step["path"]: step["expected_json"]["schema_revision"]
+        for step in steps
+        if "schema_revision" in (step.get("expected_json") or {})
+    }
+
+
+@pytest.mark.parametrize("name", _SHIPPED)
+def test_every_shipped_contract_pins_the_live_migration_heads(name: str) -> None:
+    """A shipped contract must expect the head the service will actually report.
+
+    These contracts are not merely fixtures: ``deployed-acceptance.yml`` and the
+    ``release-zeroth-core.yml`` release job both run the CLI against a live
+    deployment with ``--contract release/acceptance/contracts/<name>``. A stale pin
+    therefore does not fail here -- it fails the release, against a service that is
+    behaving correctly, at the one moment the gate is load-bearing.
+
+    That is exactly what happened: the MCP migration renumber (027 -> 035) updated
+    ``zeroth-v1.json`` and ``transport-conformance-v1.json`` and missed
+    ``zeroth-deployed-v1.json``, which kept ``027`` and an econ head three
+    migrations behind. Nothing caught it, because the only cross-contract equality
+    test compares the ``gateway_http`` scenario and these pins live in
+    ``migrations``. Resolving the head from the chain rather than hardcoding it
+    means the next renumber cannot reintroduce the drift.
+    """
+    pinned = _pinned_revisions(name)
+    assert set(pinned) == set(_CHAINS), f"{name} lost a migrations probe"
+    for path, revision in pinned.items():
+        head = _live_head(_CHAINS[path])
+        assert revision["head"] == head, (
+            f"{name} pins {path} head={revision['head']!r}, live chain head is {head!r}"
+        )
+        assert revision["applied"] == head, (
+            f"{name} pins {path} applied={revision['applied']!r}, live chain head is {head!r}"
+        )
+        assert revision["state"] == "current"
+
+
+def test_shipped_contracts_agree_on_the_migration_heads() -> None:
+    """No shipped profile may expect a different schema head than its siblings."""
+    revisions = {name: _pinned_revisions(name) for name in _SHIPPED}
+    reference = revisions[_SHIPPED[0]]
+    for name, pinned in revisions.items():
+        assert pinned == reference, (
+            f"{name} disagrees with {_SHIPPED[0]} on the migration heads: "
+            f"{pinned} != {reference}"
+        )

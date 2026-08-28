@@ -69,8 +69,8 @@
           "expected_status": 200,
           "expected_json": {
             "schema_revision": {
-              "applied": "027",
-              "head": "027",
+              "applied": "035",
+              "head": "035",
               "state": "current"
             }
           }
@@ -83,8 +83,8 @@
           "expected_status": 200,
           "expected_json": {
             "schema_revision": {
-              "applied": "20260812_07",
-              "head": "20260812_07",
+              "applied": "20260824_10",
+              "head": "20260824_10",
               "state": "current"
             }
           }
