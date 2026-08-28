@@ -359,11 +359,19 @@ async def test_audit_retrieve_api_foreign_run_matches_unknown(sqlite_db, monkeyp
             "/runs/unknown-run/timeline", headers=_headers("tenant-b-reviewer-key")
         )
     _assert_same_404(foreign, unknown)
+    # The isolation boundary for an audit read is tenant + workspace, and it is
+    # enforced twice: in this query and again per record in `_visible_record`.
+    # Deployment is deliberately NOT part of it -- a composed run's chain may
+    # carry provider records written under a PARENT deployment, and
+    # test_run_evidence_and_verification_include_composed_deployment_records
+    # asserts those must still appear. Pinning `deployment_ref` here described
+    # how the boundary used to be implemented rather than what it is; restoring
+    # it makes that composed test fail, which is how this was established.
     assert calls == [
         {
             "tenant_id": "tenant-a",
             "workspace_id": None,
             "workspace_scoped": True,
-            "deployment_ref": deployment.deployment_ref,
         }
     ]
+    assert deployment.deployment_ref  # the read is deployment-authorised, not deployment-filtered
