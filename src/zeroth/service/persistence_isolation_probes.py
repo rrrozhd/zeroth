@@ -77,6 +77,18 @@ from zeroth.platform.storage import (
 from zeroth.platform.storage.json import to_json_value
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
 from zeroth.runtime.runs import Run, RunStatus, Thread
+from zeroth.service.certifications.models import (
+    AppCertification,
+    CertificationOverride,
+    CertificationState,
+    OverrideScope,
+)
+from zeroth.service.certifications.receipt import (
+    PromotionReceiptPayload,
+    SignedPromotionReceipt,
+    receipt_digest,
+)
+from zeroth.service.certifications.repository import CertificationRepository
 from zeroth.service.deployments.models import Deployment
 from zeroth.service.deployments.repository import SQLiteDeploymentRepository
 from zeroth.service.github.repository import SQLiteGitHubRepository
@@ -1731,3 +1743,94 @@ async def _drive_repo_runs(database: AsyncDatabase, operation: ResourceOperation
         assert await repository.finish("driver-owner", owner.id, claimed.generation, exit_code=0)
         owner_row = await repository.get("driver-owner", owner.id)
         assert owner_row is not None and owner_row.state is RepoRunState.SUCCEEDED
+
+
+def _certification(tenant: str, certification_id: str = "0" * 32) -> AppCertification:
+    """Build certification data for the tenant-isolation probe."""
+    issued = datetime(2026, 1, 1, tzinfo=UTC)
+    payload = PromotionReceiptPayload(
+        certification_id=certification_id,
+        tenant_id=tenant,
+        app_name="driver-app",
+        app_commit="a" * 40,
+        zeroth_version="0.25.1",
+        image_reference="driver/image:tag",
+        image_digest="sha256:" + "b" * 64,
+        source_digest="sha256:" + "c" * 64,
+        evidence_digest="sha256:" + "d" * 64,
+        report_digest="sha256:" + "e" * 64,
+        environments=("test",),
+        issued_at=issued,
+        expires_at=issued + timedelta(days=30),
+    )
+    return AppCertification(
+        certification_id=certification_id,
+        tenant_id=tenant,
+        receipt=SignedPromotionReceipt(payload=payload, digest=receipt_digest(payload)),
+        state=CertificationState.TEST_DEPLOYABLE,
+        created_at=issued,
+        updated_at=issued,
+    )
+
+
+async def _drive_app_certifications(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise certification operations through the tenant-isolation matrix."""
+    repository = CertificationRepository(database)
+    owner = _certification("driver-owner")
+    await repository.create(owner, actor_id="driver-actor")
+    if operation is O.CREATE:
+        # Collision-capable: the same certification_id in another tenant is a
+        # different record, and must not disturb or expose the owner's.
+        foreign = _certification("driver-foreign")
+        await repository.create(foreign, actor_id="driver-actor")
+        assert [record.tenant_id for record in await repository.list("driver-foreign", None)] == [
+            "driver-foreign"
+        ]
+    elif operation is O.READ:
+        assert await repository.get(owner.certification_id, "driver-foreign", None) is None
+        assert await repository.get("f" * 32, "driver-foreign", None) is None
+        assert await repository.get_by_target("driver-target", "driver-foreign", None) is None
+    elif operation is O.ENUMERATE:
+        assert await repository.list("driver-foreign", None) == []
+    else:
+        override = CertificationOverride(
+            scopes=(OverrideScope.RECEIPT_EXPIRED,),
+            reason="driver override",
+            actor_id="driver-actor",
+            created_at=datetime(2026, 1, 2, tzinfo=UTC),
+            expires_at=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+        with _raises(KeyError):
+            await repository.grant_override(
+                owner.certification_id,
+                "driver-foreign",
+                None,
+                override,
+                actor_id="driver-actor",
+                at=datetime(2026, 1, 2, tzinfo=UTC),
+            )
+    owner_after = await repository.get(owner.certification_id, "driver-owner", None)
+    assert owner_after is not None
+    assert owner_after.tenant_id == "driver-owner"
+    assert owner_after.override is None
+    assert await repository.get(owner.certification_id, "driver-foreign", None) is None
+
+
+async def _drive_app_certification_events(
+    database: AsyncDatabase, operation: ResourceOperation
+) -> None:
+    """Exercise the certification timeline through the tenant-isolation matrix."""
+    repository = CertificationRepository(database)
+    owner = _certification("driver-owner")
+    await repository.create(owner, actor_id="driver-actor")
+    if operation is O.CREATE:
+        # Events are only ever appended alongside their certification, so a
+        # foreign create is the only way to append into a foreign scope.
+        await repository.create(_certification("driver-foreign"), actor_id="driver-actor")
+        foreign_events = await repository.events(owner.certification_id, "driver-foreign", None)
+        assert [event.tenant_id for event in foreign_events] == ["driver-foreign"]
+    else:
+        assert await repository.events(owner.certification_id, "driver-foreign", None) == []
+        assert await repository.events("f" * 32, "driver-foreign", None) == []
+    owner_events = await repository.events(owner.certification_id, "driver-owner", None)
+    assert [event.tenant_id for event in owner_events] == ["driver-owner"]
