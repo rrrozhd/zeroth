@@ -454,8 +454,11 @@
         "studio.*deploy*"
       ],
       "backend_operations": [
+        "GET /v1/certifications*",
         "GET /v1/deployments*",
-        "POST /v1/deployments*"
+        "POST /v1/certifications*",
+        "POST /v1/deployments*",
+        "PUT /v1/deployments/*/guardrails"
       ],
       "checkpoints": [
         "configured",
@@ -718,6 +721,14 @@
       "reason": "MCP server registry: operator-only, no console surface yet"
     },
     {
+      "operation": "GET /v1/guardrails",
+      "reason": "tenant-wide guardrail administration; no console surface"
+    },
+    {
+      "operation": "GET /v1/guardrails/history",
+      "reason": "tenant-wide guardrail administration; no console surface"
+    },
+    {
       "operation": "GET /v1/mcp/servers",
       "reason": "MCP server registry: operator-only, no console surface yet"
     },
@@ -760,6 +771,10 @@
     {
       "operation": "POST /v1/mcp/servers",
       "reason": "MCP server registry: operator-only, no console surface yet"
+    },
+    {
+      "operation": "PUT /v1/guardrails",
+      "reason": "tenant-wide guardrail administration; no console surface"
     },
     {
       "operation": "PUT /v1/mcp/servers/{ref}",

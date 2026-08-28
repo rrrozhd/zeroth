@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.4.2]
+
+### Fixed
+
+- Map the last ten unmapped operations in the product-validation catalog, split by what the console
+  actually calls. The seven `/v1/certifications` routes and `PUT /v1/deployments/{ref}/guardrails`
+  are consumed by the Deployments page, so they join that capability; `GET /v1/guardrails`,
+  `GET /v1/guardrails/history` and `PUT /v1/guardrails` appear only in the generated types file and
+  are called from no console route, so they are declared machine-only.
+
 ## [0.25.4.1]
 
 ### Fixed
