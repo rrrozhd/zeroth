@@ -82,8 +82,7 @@ See `Dockerfile` and `docker-compose.yml` for the image and multi-service paths.
 
 ---
 
-## Install
-
+## Install (Temporarily unavailable)
 Install the latest published release from [PyPI](https://pypi.org/project/zeroth-core/):
 
 ```bash
