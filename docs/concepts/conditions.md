@@ -2,13 +2,13 @@
 
 ## What it is
 
-A **condition** decides, at run time, which route a workflow takes. Studio authors new decisions as an explicit **If node** with named `True` and `False` ports. The condition is configured on the node, so the canvas does not rely on floating edge tags to explain its logic.
+A **condition** decides, at run time, which route a workflow takes. Studio authors new decisions as an explicit **If node** with named output ports. The node evaluates one expression to a JSON scalar (`string`, `number`, `boolean`, or `null`), compares the result against its configured cases using exact type-sensitive matching, and selects one required default route when no case matches. The condition is configured on the node, so the canvas does not rely on floating edge tags to explain its logic.
 
 The lower-level graph API also supports a `Condition` attached to an edge. That representation remains available for legacy and programmatic graphs during the compatibility window. The `zeroth.contracts.conditions` subsystem evaluates those edge rules, resolves which outgoing edge(s) win, and records the outcome on the run's audit trail.
 
 ## Why it exists
 
-Real workflows branch: "if the classifier returns `refund`, route to the refund agent; otherwise escalate." Embedding that logic inside agents couples control flow to prompts and makes it invisible to reviewers. Putting the decision in an explicit Studio If node makes the authored canvas self-documenting: reviewers can see the decision, its expression, and its named outcomes as one control-flow unit. For legacy or code-authored graphs, a declarative edge `Condition` provides the equivalent inspectable rule. Both representations feed the audit log so every branch taken is reconstructable after the fact.
+Real workflows branch: "if the classifier returns `refund`, route to the refund agent; if it returns `fraud`, route to review; otherwise escalate." Embedding that logic inside agents couples control flow to prompts and makes it invisible to reviewers. Putting the decision in an explicit Studio If node makes the authored canvas self-documenting: reviewers can see the decision, its expression, and all named outcomes as one control-flow unit. For legacy or code-authored graphs, a declarative edge `Condition` provides the equivalent inspectable rule. Both representations feed the audit log so every branch taken is reconstructable after the fact.
 
 ## Where it fits
 
@@ -17,7 +17,7 @@ Conditions sit between the [graph](graph.md) and the [orchestrator](orchestrator
 ## Key types
 
 - **`NextStepPlanner`** — the top-level planner the orchestrator calls at each branching step.
-- **`IfNode` / `IfNodeData`** — the first-class two-way control node authored in Studio.
+- **`IfNode` / `IfNodeData`** — the first-class scalar, multi-route control node authored in Studio. Existing If nodes without explicit routes retain their legacy `True`/`False` behavior.
 - **`ConditionEvaluator`** — evaluates a single `Condition.expression` against a `ConditionContext`.
 - **`BranchResolver`** — reduces multiple evaluated outcomes into a `BranchResolution` (which edges fire).
 - **`ConditionBinding` / `ConditionBinder`** — compile-time bridge that attaches `Condition` objects to edges before a run starts.

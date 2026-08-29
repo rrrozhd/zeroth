@@ -38,8 +38,22 @@ describe("console layout and accessibility regressions", () => {
     expect(page).toContain('className="overview-page"');
     expect(page).toContain('className="overview-deployment-row"');
     expect(css).toContain("container: overview-page / inline-size");
-    expect(css).toMatch(/@container overview-page[^}]+\.overview-content-grid/);
+    expect(css).toMatch(/@container overview-page[^}]+\.overview-checklist-list/);
     expect(css).toMatch(/\.overview-deployment-row\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
+
+  it("places Getting started below health as a horizontal strip before full-width operations", () => {
+    const page = source("./page.tsx");
+    const css = source("./globals.css");
+
+    expect(page).toMatch(
+      /<ChecklistCard items=\{checklist\} \/>[\s\S]*?<div className="overview-primary-column">/,
+    );
+    expect(page).toContain('className="overview-checklist-list"');
+    expect(css).toMatch(
+      /\.overview-checklist-list\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/,
+    );
+    expect(css).not.toContain("grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr)");
   });
 
   it("exposes the rightsizing comparison as a radiogroup and explains disabled submission", () => {

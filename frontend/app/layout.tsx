@@ -10,6 +10,10 @@ import { AppShell } from "@/app/components/AppShell";
 export const metadata: Metadata = {
   title: "Zeroth Console",
   description: "Operate and author Zeroth multi-agent apps",
+  icons: {
+    icon: "/console/zeroth-mark.png",
+    apple: "/console/zeroth-mark.png",
+  },
 };
 
 export default function RootLayout({

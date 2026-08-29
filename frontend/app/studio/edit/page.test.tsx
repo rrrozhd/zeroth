@@ -227,11 +227,17 @@ const advancedWorkflow = {
 let container: HTMLDivElement;
 let root: Root;
 
-async function mountEditor() {
+async function mountEditor(expectedNodeId = "worker") {
   await act(async () => {
     root.render(<StudioEditPage />);
   });
-  await waitFor(() => expect(button("node:worker")).toBeTruthy());
+  await waitFor(() => expect(button(`node:${expectedNodeId}`)).toBeTruthy());
+}
+
+async function openNodeEditor(nodeId = "worker") {
+  await act(async () => {
+    button(`node:${nodeId}`)?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  });
 }
 
 function button(label: string): HTMLButtonElement | undefined {
@@ -351,7 +357,7 @@ afterEach(async () => {
 describe("studio editor safety", () => {
   it("authors and restores nested context-window and thread settings", async () => {
     await mountEditor();
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
     await waitFor(() => expect(document.querySelector(
       '[data-evidence-id="studio.agent.context-window.enabled"]',
     )).toBeTruthy());
@@ -437,7 +443,7 @@ describe("studio editor safety", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await mountEditor();
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
     await waitFor(() => expect(document.querySelector(
       '[data-evidence-id="studio.agent.context-window.enabled"]',
     )).toBeTruthy());
@@ -456,7 +462,7 @@ describe("studio editor safety", () => {
 
   it("rejects invalid context-window bounds without persisting them", async () => {
     await mountEditor();
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
     await waitFor(() => expect(document.querySelector(
       '[data-evidence-id="studio.agent.context-window.enabled"]',
     )).toBeTruthy());
@@ -501,7 +507,7 @@ describe("studio editor safety", () => {
 
   it("removes disabled context-window settings and locks published controls", async () => {
     await mountEditor();
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
     await waitFor(() => expect(document.querySelector(
       '[data-evidence-id="studio.agent.context-window.enabled"]',
     )).toBeTruthy());
@@ -543,7 +549,7 @@ describe("studio editor safety", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await mountEditor();
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
     await waitFor(() => expect(document.querySelector(
       '[data-evidence-id="studio.agent.context-window.enabled"]',
     )).toBeTruthy());
@@ -589,7 +595,7 @@ describe("studio editor safety", () => {
     ]);
     await mountEditor();
 
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
 
     await waitFor(() => {
       const control = document.querySelector<HTMLSelectElement>(
@@ -700,7 +706,7 @@ describe("studio editor safety", () => {
     ]);
     await mountEditor();
 
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
 
     const controls = Array.from(
       document.querySelectorAll<HTMLElement>('[data-evidence-id^="studio.agent.template."]'),
@@ -729,7 +735,7 @@ describe("studio editor safety", () => {
     api.listTemplates.mockRejectedValue(new Error("403 forbidden"));
     await mountEditor();
 
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
 
     expect(document.body.textContent).toContain("Template library access is restricted for this role");
     const name = document.querySelector<HTMLInputElement>(
@@ -879,7 +885,7 @@ describe("studio editor safety", () => {
 
   it("does not open the Add node palette behind an active dialog", async () => {
     await mountEditor();
-    await act(async () => button("node:worker")?.click());
+    await openNodeEditor();
     expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeTruthy();
 
     await act(async () => {
@@ -932,7 +938,7 @@ describe("studio editor safety", () => {
     }
   });
 
-  it("opens centered node configuration from a single node click", async () => {
+  it("selects on one click and opens centered node configuration on double click", async () => {
     await mountEditor();
 
     expect(container.querySelector(".studio-inspector-panel")).toBeNull();
@@ -942,21 +948,103 @@ describe("studio editor safety", () => {
 
     await act(async () => button("node:worker")?.click());
 
+    expect(document.querySelector('[role="dialog"][aria-label="Edit Worker"]')).toBeNull();
+    expect(button("node:worker")?.getAttribute("aria-pressed")).toBe("true");
+
+    await act(async () => {
+      button("node:worker")?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+
     const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Edit Worker"]');
     expect(dialog).toBeTruthy();
     expect(dialog?.parentElement?.classList.contains("items-center")).toBe(true);
     expect(container.querySelector(".studio-inspector-panel")).toBeNull();
-    expect(button("node:worker")?.getAttribute("aria-pressed")).toBe("true");
 
     await act(async () => button("Done")?.click());
 
     expect(document.querySelector('[role="dialog"][aria-label="Edit Worker"]')).toBeNull();
   });
 
+  it("keeps non-mutating canvas shortcuts active for published workflows", async () => {
+    api.getWorkflow.mockResolvedValue({ ...workflow, status: "published" });
+    await mountEditor();
+
+    await act(async () => {
+      button("node:worker")?.click();
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "f",
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+
+    expect(flow.fitView).toHaveBeenCalledWith({ maxZoom: 1, padding: 0.18 });
+    expect(document.querySelector('[role="dialog"][aria-label="Edit Worker"]')).toBeNull();
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+    expect(document.querySelector('[role="dialog"][aria-label="Edit Worker"]')).toBeTruthy();
+  });
+
+  it("centers deploy in the viewport portal instead of the transformed canvas", async () => {
+    api.getWorkflow.mockResolvedValue({ ...workflow, status: "published" });
+    api.getHealth.mockResolvedValue({ deployment_ref: "demo" });
+    await mountEditor();
+
+    await act(async () => button("Deploy")?.click());
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Deploy workflow"]');
+    expect(dialog).toBeTruthy();
+    expect(dialog?.parentElement?.classList.contains("studio-dialog-backdrop")).toBe(true);
+    expect(dialog?.parentElement?.parentElement).toBe(document.body);
+  });
+
+  it("authors named non-boolean If routes in the node settings", async () => {
+    api.getWorkflow.mockResolvedValue({
+      ...workflow,
+      entry_step: "quality-gate",
+      nodes: [{
+        id: "quality-gate",
+        type: "if",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Quality gate",
+          config: {
+            expression: "payload.priority",
+            routes: [
+              { route_id: "critical", label: "Critical", match_value: "p0", is_default: false },
+              { route_id: "fallback", label: "Other", match_value: null, is_default: true },
+            ],
+          },
+        },
+      }],
+      edges: [],
+    });
+    await mountEditor("quality-gate");
+    await openNodeEditor("quality-gate");
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Edit Quality gate"]');
+    expect(dialog?.textContent).toContain("It may return a string, number, boolean, or null");
+    expect(dialog?.querySelectorAll('[data-evidence-id="studio.if.routes"] input[type="radio"]')).toHaveLength(2);
+
+    await act(async () => button("Add route")?.click());
+    expect(dialog?.querySelectorAll('[data-evidence-id="studio.if.routes"] input[type="radio"]')).toHaveLength(3);
+
+    await act(async () => button("Done")?.click());
+    await act(async () => button("Save")?.click());
+    await waitFor(() => expect(api.updateWorkflow).toHaveBeenCalled());
+    expect(api.updateWorkflow.mock.calls.at(-1)?.[1].nodes[0].data.config.routes).toHaveLength(3);
+  });
+
   it("recaptures Tab focus when Safari leaves it behind the node dialog", async () => {
     await mountEditor();
     const invokingNode = button("node:worker");
-    await act(async () => invokingNode?.click());
+    await act(async () => invokingNode?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
 
     const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Edit Worker"]');
     expect(dialog).toBeTruthy();

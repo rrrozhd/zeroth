@@ -280,6 +280,73 @@ def test_single_conditional_edge_compiles_as_a_branch() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "routes",
+    [
+        [{"route_id": "only", "label": "Only", "is_default": True}],
+        [
+            {"route_id": "same", "label": "First", "match_value": "a"},
+            {"route_id": "same", "label": "Fallback", "is_default": True},
+        ],
+        [
+            {"route_id": "a", "label": "A", "match_value": "a"},
+            {"route_id": "b", "label": "B", "match_value": "b"},
+        ],
+        [
+            {"route_id": "a", "label": "A", "is_default": True},
+            {"route_id": "b", "label": "B", "is_default": True},
+        ],
+        [
+            {"route_id": "a", "label": "A", "match_value": "same"},
+            {"route_id": "b", "label": "B", "match_value": "same"},
+            {"route_id": "fallback", "label": "Fallback", "is_default": True},
+        ],
+        [
+            {"route_id": "a", "label": "A", "match_value": {"nested": True}},
+            {"route_id": "fallback", "label": "Fallback", "is_default": True},
+        ],
+        [
+            {"route_id": "a", "label": "A", "match_value": "a"},
+            {
+                "route_id": "fallback",
+                "label": "Fallback",
+                "match_value": ["unused", "but", "invalid"],
+                "is_default": True,
+            },
+        ],
+        [
+            *[
+                {"route_id": f"case-{index}", "label": f"Case {index}", "match_value": index}
+                for index in range(12)
+            ],
+            {"route_id": "fallback", "label": "Fallback", "is_default": True},
+        ],
+    ],
+)
+def test_if_node_rejects_ambiguous_or_non_scalar_route_configuration(
+    routes: list[dict[str, object]],
+) -> None:
+    with pytest.raises(ValueError):
+        IfNodeData(expression="payload.kind", routes=routes)
+
+
+def test_if_node_route_matches_are_type_sensitive() -> None:
+    condition = IfNodeData(
+        expression="payload.value",
+        routes=[
+            {"route_id": "boolean", "label": "Boolean", "match_value": True},
+            {"route_id": "integer", "label": "Integer", "match_value": 1},
+            {"route_id": "fallback", "label": "Fallback", "is_default": True},
+        ],
+    )
+
+    assert [route.route_id for route in condition.routes] == [
+        "boolean",
+        "integer",
+        "fallback",
+    ]
+
+
 def test_graph_lifecycle_transitions() -> None:
     graph = build_graph()
 

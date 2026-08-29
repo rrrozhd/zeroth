@@ -121,14 +121,12 @@ export default function Overview() {
         </div>
       </Card>
 
-      {/* Primary operations stay together; onboarding remains secondary. */}
-      <div className="overview-content-grid">
+      {/* Setup is a compact progress strip; operations then read as one full-width list. */}
+      <div className="overview-content-stack">
+        <ChecklistCard items={checklist} />
         <div className="overview-primary-column">
           <DeploymentsCard dep={dep} rollingBack={rollingBack} onRollback={doRollback} />
           <RecentRunsCard runs={runs} onOpen={() => router.push("/runs")} />
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <ChecklistCard items={checklist} />
         </div>
       </div>
     </div>
@@ -280,7 +278,7 @@ function DeploymentsCard({
 function ChecklistCard({ items }: { items: { label: string; done: boolean }[] }) {
   return (
     <Card label="Getting started" pad={16}>
-      <div role="list" aria-label="Setup progress" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div role="list" aria-label="Setup progress" className="overview-checklist-list">
         {items.map((it) => (
           <div
             key={it.label}

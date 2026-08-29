@@ -878,8 +878,8 @@ class NodeDispatcher:
         run: Run,
         input_payload: Mapping[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Evaluate one expression and expose an explicit true/false route."""
-        matched = (
+        """Evaluate one expression and expose one deterministic named route."""
+        result = (
             ConditionEvaluator()
             .evaluate(
                 Condition(expression=node.condition.expression),
@@ -891,12 +891,27 @@ class NodeDispatcher:
                 condition_id=f"{node.node_id}:expression",
                 source_node_id=node.node_id,
             )
-            .matched
         )
-        route = "true" if matched else "false"
+        value = result.details["value"]
+        if node.condition.routes:
+            selected = next(
+                (
+                    candidate
+                    for candidate in node.condition.routes
+                    if not candidate.is_default
+                    and type(candidate.match_value) is type(value)
+                    and candidate.match_value == value
+                ),
+                next(candidate for candidate in node.condition.routes if candidate.is_default),
+            )
+            route = selected.route_id
+            decision = {"route": route, "value": value}
+        else:
+            route = "true" if result.matched else "false"
+            decision = {"route": route, "matched": result.matched}
         output = dict(input_payload)
         decision_states = dict(output.get("zeroth_if", {}))
-        decision_states[node.node_id] = {"route": route, "matched": matched}
+        decision_states[node.node_id] = decision
         output["zeroth_if"] = decision_states
         return output, {
             "execution_mode": "if_control",
@@ -905,7 +920,7 @@ class NodeDispatcher:
                 node.condition.expression.encode("utf-8")
             ).hexdigest(),
             "route": route,
-            "matched": matched,
+            **({"value": value} if node.condition.routes else {"matched": result.matched}),
             "cost_usd": 0.0,
             "estimated_cost_usd": 0.0,
             "cost_measurement": "measured",

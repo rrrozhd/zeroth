@@ -1164,14 +1164,14 @@ test.describe("incumbent dashboard live acceptance", () => {
     });
   });
 
-  test("Overview keeps operational cards inside their assigned columns", async ({ page }, testInfo) => {
+  test("Overview stacks full-width operations below the horizontal setup strip", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop-1440", "one intermediate-width geometry pass is sufficient");
     await page.setViewportSize({ width: 2054, height: 970 });
     await page.goto("/console/", { waitUntil: "networkidle" });
 
     const primary = page.locator(".overview-primary-column");
     const deployment = primary.locator(":scope > section").first();
-    const checklist = page.locator(".overview-content-grid > div").nth(1);
+    const checklist = page.locator(".overview-content-stack > section").first();
     const [primaryBox, deploymentBox, checklistBox] = await Promise.all([
       primary.boundingBox(),
       deployment.boundingBox(),
@@ -1182,7 +1182,9 @@ test.describe("incumbent dashboard live acceptance", () => {
     expect(deploymentBox).not.toBeNull();
     expect(checklistBox).not.toBeNull();
     expect(deploymentBox!.width).toBeLessThanOrEqual(primaryBox!.width + 1);
-    expect(deploymentBox!.x + deploymentBox!.width).toBeLessThanOrEqual(checklistBox!.x);
+    expect(Math.abs(deploymentBox!.x - checklistBox!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(deploymentBox!.width - checklistBox!.width)).toBeLessThanOrEqual(1);
+    expect(checklistBox!.y + checklistBox!.height).toBeLessThanOrEqual(deploymentBox!.y);
 
     for (const button of await deployment.getByRole("button", { name: "Rollback" }).all()) {
       const buttonBox = await button.boundingBox();

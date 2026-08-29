@@ -57,11 +57,11 @@ export const FIELD_SPECS: Record<string, Field[]> = {
   if: [
     {
       key: "expression",
-      label: "Condition",
+      label: "Result expression",
       kind: "textarea",
       required: true,
-      placeholder: "payload.score >= 0.8",
-      hint: "A match exits through True; otherwise the payload exits through False.",
+      placeholder: "payload.priority",
+      hint: "Evaluated once. It may return a string, number, boolean, or null; the first exact case match wins, otherwise Default is used.",
     },
   ],
   loop: [
@@ -341,7 +341,13 @@ json.dump(result, sys.stdout)
 export const DEFAULT_CONFIG: Record<string, Record<string, unknown>> = {
   agent: { instruction: "", model_provider: "" },
   entrypoint: {},
-  if: { expression: "" },
+  if: {
+    expression: "",
+    routes: [
+      { route_id: "true", label: "True", match_value: true, is_default: false },
+      { route_id: "false", label: "False / default", match_value: null, is_default: true },
+    ],
+  },
   loop: { until: "", max_retries: 3 },
   code: { inline_source: CODE_STARTER, execution_mode: "inline" },
   executable_unit: { manifest_ref: "", execution_mode: "native" },
@@ -617,6 +623,15 @@ export function NodeInspector({
         );
       })}
 
+      {studioType === "if" && (
+        <IfRouteEditor
+          routes={config.routes}
+          readOnly={readOnly}
+          inputClassName={inputCls}
+          onChange={(routes) => onConfigChange({ ...configRef.current, routes })}
+        />
+      )}
+
       {studioType === "agent" && (
         <AgentContextWindowControls
           value={config.context_window}
@@ -720,6 +735,157 @@ export function NodeInspector({
         </p>
       )}
     </div>
+  );
+}
+
+type IfRouteConfig = {
+  route_id: string;
+  label: string;
+  match_value?: unknown;
+  is_default?: boolean;
+};
+
+function ifRoutes(value: unknown): IfRouteConfig[] {
+  if (Array.isArray(value) && value.length > 0) {
+    return value.filter((route): route is IfRouteConfig => Boolean(
+      route && typeof route === "object" && typeof (route as IfRouteConfig).route_id === "string",
+    ));
+  }
+  return [
+    { route_id: "true", label: "True", match_value: true },
+    { route_id: "false", label: "False / default", is_default: true },
+  ];
+}
+
+function IfRouteEditor({
+  routes: value,
+  readOnly,
+  inputClassName,
+  onChange,
+}: {
+  routes: unknown;
+  readOnly?: boolean;
+  inputClassName: string;
+  onChange: (routes: IfRouteConfig[]) => void;
+}) {
+  const routes = ifRoutes(value);
+  const update = (index: number, patch: Partial<IfRouteConfig>) => {
+    onChange(routes.map((route, routeIndex) => routeIndex === index ? { ...route, ...patch } : route));
+  };
+  const setDefault = (index: number) => {
+    onChange(routes.map((route, routeIndex) => ({ ...route, is_default: routeIndex === index })));
+  };
+  const addRoute = () => {
+    if (routes.length >= 12) return;
+    let suffix = routes.length + 1;
+    while (routes.some((route) => route.route_id === `case-${suffix}`)) suffix += 1;
+    const fallbackIndex = routes.findIndex((route) => route.is_default);
+    const next = [...routes];
+    next.splice(fallbackIndex < 0 ? next.length : fallbackIndex, 0, {
+      route_id: `case-${suffix}`,
+      label: `Case ${suffix}`,
+      match_value: "value",
+      is_default: false,
+    });
+    onChange(next);
+  };
+  const removeRoute = (index: number) => {
+    const removedDefault = Boolean(routes[index]?.is_default);
+    const next = routes.filter((_, routeIndex) => routeIndex !== index);
+    if (removedDefault && next.length > 0) {
+      next[next.length - 1] = { ...next[next.length - 1], is_default: true };
+    }
+    onChange(next);
+  };
+
+  return (
+    <fieldset className="space-y-3 border-t border-border pt-4" data-evidence-id="studio.if.routes">
+      <div>
+        <legend className="text-sm font-medium">Output routes</legend>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          Cases use exact, type-sensitive JSON-scalar matches. Route IDs become stable canvas ports; one route must be the fallback.
+        </p>
+      </div>
+      {routes.map((route, index) => (
+        <div key={`${route.route_id}-${index}`} className="space-y-2 rounded-lg border border-border p-3">
+          <div className="grid grid-cols-2 gap-2">
+            <ConsoleField label="Port ID">
+              <input
+                aria-label={`Route ${index + 1} port ID`}
+                className={inputClassName}
+                value={route.route_id}
+                disabled={readOnly}
+                pattern="[A-Za-z0-9_-]{1,64}"
+                onChange={(event) => update(index, { route_id: event.target.value })}
+              />
+            </ConsoleField>
+            <ConsoleField label="Label">
+              <input
+                aria-label={`Route ${index + 1} label`}
+                className={inputClassName}
+                value={route.label}
+                disabled={readOnly}
+                onChange={(event) => update(index, { label: event.target.value })}
+              />
+            </ConsoleField>
+          </div>
+          <label className="flex items-center gap-2 text-xs font-medium">
+            <input
+              type="radio"
+              name="if-default-route"
+              checked={Boolean(route.is_default)}
+              disabled={readOnly}
+              onChange={() => setDefault(index)}
+            />
+            Default route
+          </label>
+          {!route.is_default && (
+            <ConsoleField label="Match value" hint='A JSON scalar, for example "critical", 3, true, or null.'>
+              <input
+                key={JSON.stringify(route.match_value)}
+                aria-label={`Route ${index + 1} match value`}
+                className={inputClassName}
+                defaultValue={JSON.stringify(route.match_value)}
+                disabled={readOnly}
+                onBlur={(event) => {
+                  try {
+                    const parsed = JSON.parse(event.target.value);
+                    if (parsed === null || ["string", "number", "boolean"].includes(typeof parsed)) {
+                      event.target.setCustomValidity("");
+                      update(index, { match_value: parsed });
+                    } else {
+                      event.target.setCustomValidity("Use a JSON string, number, boolean, or null.");
+                    }
+                  } catch {
+                    event.target.setCustomValidity("Enter a valid JSON scalar, such as \"critical\".");
+                  }
+                  event.target.reportValidity();
+                }}
+              />
+            </ConsoleField>
+          )}
+          {!readOnly && routes.length > 2 && (
+            <button
+              type="button"
+              className="text-xs font-medium text-danger hover:underline"
+              onClick={() => removeRoute(index)}
+            >
+              Remove route
+            </button>
+          )}
+        </div>
+      ))}
+      {!readOnly && (
+        <button
+          type="button"
+          className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:text-muted"
+          disabled={routes.length >= 12}
+          onClick={addRoute}
+        >
+          Add route
+        </button>
+      )}
+    </fieldset>
   );
 }
 

@@ -21,10 +21,11 @@ export function loopRouteCondition(nodeId: string, handleId: string | null | und
 }
 
 export function ifRouteCondition(nodeId: string, handleId: string | null | undefined) {
-  if (handleId !== "true" && handleId !== "false") return null;
+  if (!handleId || handleId === "input-data" || handleId === "tools" || handleId === "tool-input") return null;
   const safeNodeId = nodeId.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+  const safeRoute = handleId.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
   return {
-    expression: `payload.zeroth_if['${safeNodeId}'].route == '${handleId}'`,
+    expression: `payload.zeroth_if['${safeNodeId}'].route == '${safeRoute}'`,
     branch_rule: "expression" as const,
     allow_cycle_traversal: false,
     metadata: { if_route: handleId },

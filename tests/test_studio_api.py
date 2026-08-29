@@ -551,6 +551,43 @@ class TestStructuralAuthoring:
             "false",
         ]
 
+    def test_if_node_round_trips_named_scalar_routes(self) -> None:
+        repo = _make_repo()
+        client = TestClient(_make_app(repo))
+        wf_id = client.post("/api/studio/v1/workflows", json={"name": "router"}).json()["id"]
+        routes = [
+            {"route_id": "critical", "label": "Critical", "match_value": "p0"},
+            {"route_id": "normal", "label": "Normal", "match_value": "p1"},
+            {"route_id": "fallback", "label": "Other", "is_default": True},
+        ]
+
+        response = client.put(
+            f"/api/studio/v1/workflows/{wf_id}",
+            json={
+                "nodes": [{
+                    "id": "priority-gate",
+                    "type": "if",
+                    "position": {"x": 100, "y": 40},
+                    "data": {
+                        "label": "Priority gate",
+                        "config": {"expression": "payload.priority", "routes": routes},
+                    },
+                }],
+                "edges": [],
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        detail = client.get(f"/api/studio/v1/workflows/{wf_id}").json()
+        assert detail["nodes"][0]["data"]["config"] == {
+            "expression": "payload.priority",
+            "routes": [
+                {**routes[0], "is_default": False},
+                {**routes[1], "is_default": False},
+                {**routes[2], "match_value": None},
+            ],
+        }
+
     def test_if_draft_can_be_incomplete_and_server_normalizes_named_routes(self) -> None:
         client = TestClient(_make_app(_make_repo()))
         wf_id = client.post("/api/studio/v1/workflows", json={"name": "decision"}).json()["id"]

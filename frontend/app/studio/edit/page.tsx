@@ -231,8 +231,29 @@ type EdgeMappingOperation = NonNullable<
   NonNullable<StudioEdge["mapping"]>["operations"]
 >[number];
 
-function portsFor(type: string, types: NodeType[]): Port[] {
-  return (types.find((t) => t.type === type)?.ports ?? []) as Port[];
+function portsFor(type: string, types: NodeType[], config: Cfg = {}): Port[] {
+  const registered = (types.find((t) => t.type === type)?.ports ?? []) as Port[];
+  if (type !== "if" || !Array.isArray(config.routes) || config.routes.length === 0) {
+    return registered;
+  }
+  const input = registered.find((port) => port.direction === "input") ?? {
+    id: "input-data",
+    type: "data",
+    direction: "input",
+    label: "Input",
+  };
+  const outputs = config.routes.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const route = candidate as { route_id?: unknown; label?: unknown };
+    if (typeof route.route_id !== "string" || !route.route_id) return [];
+    return [{
+      id: route.route_id,
+      type: "data",
+      direction: "output",
+      label: typeof route.label === "string" && route.label ? route.label : route.route_id,
+    } satisfies Port];
+  });
+  return [input, ...outputs];
 }
 
 // Tool edges (agent Tools handle -> unit Tool handle) are a separate set of
@@ -354,7 +375,7 @@ function toRfNodes(detail: WorkflowDetail, types: NodeType[]): Node[] {
       data: {
         label: data.label || n.id,
         studioType,
-        ports: portsFor(studioType, types),
+        ports: portsFor(studioType, types, data.config ?? {}),
         config: data.config ?? {},
         // Node-level contract bindings must round-trip — dropping them here
         // would silently strip contracts from graphs authored in Python.
@@ -942,7 +963,7 @@ function Editor({ id }: { id: string }) {
           data: {
             label: t.label,
             studioType: t.type,
-            ports: t.ports,
+            ports: portsFor(t.type, palette, DEFAULT_CONFIG[t.type] ?? {}),
             config: { ...(DEFAULT_CONFIG[t.type] ?? {}) },
             inputContractRef: null,
             outputContractRef: null,
@@ -997,7 +1018,6 @@ function Editor({ id }: { id: string }) {
       setNodes((current) =>
         current.map((node) => ({ ...node, selected: node.id === selected.id })),
       );
-      setEditingId(selected.id);
     },
     [setNodes],
   );
@@ -1035,7 +1055,7 @@ function Editor({ id }: { id: string }) {
           data: {
             label: d.label ?? n.id,
             studioType: n.type,
-            ports: portsFor(n.type, palette),
+            ports: portsFor(n.type, palette, d.config ?? {}),
             config: d.config ?? {},
             inputContractRef: d.input_contract_ref ?? null,
             outputContractRef: d.output_contract_ref ?? null,
@@ -1092,10 +1112,20 @@ function Editor({ id }: { id: string }) {
   const patchNode = useCallback(
     (nodeId: string, patch: NodePatch) => {
       setNodes((ns) =>
-        ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n)),
+        ns.map((n) => {
+          if (n.id !== nodeId) return n;
+          const data = { ...n.data, ...patch } as Node["data"] & {
+            studioType: string;
+            config?: Cfg;
+          };
+          if (patch.config && data.studioType === "if") {
+            data.ports = portsFor("if", palette, patch.config);
+          }
+          return { ...n, data };
+        }),
       );
     },
-    [setNodes],
+    [palette, setNodes],
   );
 
   const deleteNode = useCallback(
@@ -1412,7 +1442,7 @@ function Editor({ id }: { id: string }) {
       data: {
         label: n.label ?? n.id,
         studioType: n.studioType,
-        ports: portsFor(n.studioType, palette),
+        ports: portsFor(n.studioType, palette, n.config ?? {}),
         config: { ...(n.config ?? {}) },
         inputContractRef: n.inputContractRef ?? null,
         outputContractRef: n.outputContractRef ?? null,
@@ -1466,6 +1496,33 @@ function Editor({ id }: { id: string }) {
       )
         return;
       if (
+        key === "f" &&
+        !primaryModifier &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.repeat &&
+        document.querySelector('[role="dialog"][aria-modal="true"]') === null
+      ) {
+        e.preventDefault();
+        void rf?.fitView({ maxZoom: 1, padding: 0.18 });
+        return;
+      }
+      if (
+        e.key === "Enter" &&
+        !primaryModifier &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.repeat &&
+        document.querySelector('[role="dialog"][aria-modal="true"]') === null
+      ) {
+        const selected = nodes.find((node) => node.selected);
+        if (selected) {
+          e.preventDefault();
+          setEditingId(selected.id);
+        }
+        return;
+      }
+      if (
         key === "a" &&
         !primaryModifier &&
         !e.shiftKey &&
@@ -1501,7 +1558,7 @@ function Editor({ id }: { id: string }) {
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [readOnly, undo, redo, copySelection, pasteClipboard, deleteSelection, saveNow, toggleNodeMenu]);
+  }, [readOnly, undo, redo, copySelection, pasteClipboard, deleteSelection, saveNow, toggleNodeMenu, nodes, rf]);
 
   async function clone() {
     setCloning(true);
@@ -1687,8 +1744,9 @@ function Editor({ id }: { id: string }) {
           isValidConnection={isValidConnection}
           onInit={setRf}
           onError={(code, message) => console.error("[rf-error]", code, message)}
-          // A single click is the configuration contract. Keep the explicit
-          // double-click handler for canvas-library and legacy compatibility.
+          // Single click owns selection; configuration is an explicit second
+          // action (double click or Enter) so authors can select, move, copy,
+          // and delete a node without opening a modal.
           onNodeDoubleClick={(_, node) => setEditingId(node.id)}
           onEdgeDoubleClick={(_, edge) => setEditingEdgeId(edge.id)}
           selectionOnDrag
@@ -3687,14 +3745,6 @@ function DeployDialog({
     };
   }, []);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   async function deploy() {
     if (!ref.trim()) return;
     setBusy(true);
@@ -3715,17 +3765,12 @@ function DeployDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-20"
-      onMouseDown={onClose}
+    <StudioDialog
+      ariaLabel="Deploy workflow"
+      onClose={onClose}
+      evidenceId="studio.deploy.dialog"
+      className="w-full max-w-md"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Deploy workflow"
-        className="w-full max-w-md rounded-lg border border-border bg-surface shadow-md shadow-black/[0.08]"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="text-sm font-semibold">Deploy published v{version}</div>
           <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
@@ -3792,8 +3837,7 @@ function DeployDialog({
             </>
           )}
         </footer>
-      </div>
-    </div>
+    </StudioDialog>
   );
 }
 

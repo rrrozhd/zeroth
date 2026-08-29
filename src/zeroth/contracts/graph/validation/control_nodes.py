@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 from zeroth.contracts.graph.models import Condition, Edge, Graph, IfNode, Node
@@ -12,16 +13,17 @@ from zeroth.contracts.graph.validation_errors import (
     ValidationSeverity,
 )
 
-IF_ROUTES = frozenset({"true", "false"})
+LEGACY_IF_ROUTES = frozenset({"true", "false"})
 
 
 def canonical_if_route_condition(node_id: str, route: str) -> Condition:
     """Return the hidden runtime predicate for one named If output."""
-    if route not in IF_ROUTES:
-        raise ValueError(f"unknown If route: {route}")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", route):
+        raise ValueError(f"invalid If route id: {route!r}")
     safe_node_id = node_id.replace("\\", "\\\\").replace("'", "\\'")
+    safe_route = route.replace("\\", "\\\\").replace("'", "\\'")
     return Condition(
-        expression=f"payload.zeroth_if['{safe_node_id}'].route == '{route}'",
+        expression=f"payload.zeroth_if['{safe_node_id}'].route == '{safe_route}'",
         branch_rule="expression",
         operand_refs=[],
         allow_cycle_traversal=False,
@@ -31,11 +33,23 @@ def canonical_if_route_condition(node_id: str, route: str) -> Condition:
 
 def canonicalize_if_route_edges(nodes: list[Node], edges: list[Edge]) -> list[Edge]:
     """Server-normalize Studio If routes rather than trusting browser predicates."""
-    if_ids = {node.node_id for node in nodes if isinstance(node, IfNode)}
+    if_routes = {
+        node.node_id: (
+            {route.route_id for route in node.condition.routes}
+            if node.condition.routes
+            else set(LEGACY_IF_ROUTES)
+        )
+        for node in nodes
+        if isinstance(node, IfNode)
+    }
     normalized: list[Edge] = []
     for edge in edges:
         route = edge.metadata.get("source_handle")
-        if edge.source_node_id in if_ids and edge.kind != "tool" and route in IF_ROUTES:
+        if (
+            edge.source_node_id in if_routes
+            and edge.kind != "tool"
+            and route in if_routes[edge.source_node_id]
+        ):
             edge = edge.model_copy(
                 update={"condition": canonical_if_route_condition(edge.source_node_id, route)}
             )
@@ -54,12 +68,17 @@ def validate_control_nodes(
             continue
         outgoing = [edge for edge in graph.edges if edge.source_node_id == node.node_id]
         active_data = [edge for edge in outgoing if edge.enabled and edge.kind != "tool"]
+        allowed_routes = (
+            {route.route_id for route in node.condition.routes}
+            if node.condition.routes
+            else set(LEGACY_IF_ROUTES)
+        )
         if not active_data:
             append_issue(
                 issues,
                 severity=ValidationSeverity.ERROR,
                 code=ValidationCode.INVALID_CONDITION,
-                message="If node must connect at least one True or False route",
+                message="If node must connect at least one configured route",
                 graph_id=graph.graph_id,
                 node_id=node.node_id,
                 path=("nodes", node.node_id, "condition"),
@@ -69,9 +88,9 @@ def validate_control_nodes(
         routes: list[str] = []
         for edge in active_data:
             route = edge.metadata.get("source_handle")
-            if route not in IF_ROUTES:
+            if route not in allowed_routes:
                 _append_route_issue(
-                    graph, node, edge, issues, "If edges must use the True or False output"
+                    graph, node, edge, issues, "If edges must use a configured output route"
                 )
                 continue
             routes.append(route)

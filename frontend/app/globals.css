@@ -195,6 +195,14 @@ body {
   transition: transform 160ms ease, visibility 160ms step-end;
 }
 
+.console-sidebar-brand-mark {
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  object-fit: contain;
+}
+
 .console-sidebar-frame.is-collapsed .console-sidebar {
   visibility: hidden;
   transform: translateX(-100%);
@@ -482,11 +490,15 @@ body {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.overview-content-grid {
+.overview-content-stack {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr);
-  align-items: start;
   gap: 10px;
+}
+
+.overview-checklist-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 20px;
 }
 
 .overview-primary-column {
@@ -519,8 +531,8 @@ body {
 }
 
 @container overview-page (max-width: 54rem) {
-  .overview-content-grid {
-    grid-template-columns: 1fr;
+  .overview-checklist-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -587,7 +599,7 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .overview-content-grid {
+  .overview-checklist-list {
     grid-template-columns: 1fr;
   }
 }

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import inspect
 import ipaddress
+import math
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
@@ -720,18 +722,80 @@ class LoopNode(NodeBase):
         )
 
 
+class _IfRoute(BaseModel):
+    """One named output selected by an exact JSON-scalar match or as fallback."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    route_id: str
+    label: str
+    match_value: Any = None
+    is_default: bool = False
+
+    @field_validator("route_id")
+    @classmethod
+    def validate_route_id(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+            raise ValueError("route_id must contain 1-64 letters, numbers, underscores, or hyphens")
+        return value
+
+    @field_validator("label")
+    @classmethod
+    def validate_label(cls, value: str) -> str:
+        if not value.strip() or len(value) > 80:
+            raise ValueError("route label must contain 1-80 characters")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_match_value(self) -> _IfRoute:
+        if isinstance(self.match_value, (dict, list)) or type(self.match_value) not in {
+            type(None),
+            bool,
+            int,
+            float,
+            str,
+        }:
+            raise ValueError("match_value must be a JSON scalar")
+        if type(self.match_value) is float and not math.isfinite(self.match_value):
+            raise ValueError("match_value must be finite")
+        return self
+
+
 class IfNodeData(BaseModel):
-    """Configuration for a deterministic two-way decision controller."""
+    """Configuration for a deterministic scalar decision controller."""
 
     model_config = ConfigDict(extra="forbid")
 
     # Draft graphs must persist while the author is still configuring the node.
     # Publish/preflight validation rejects blank, oversized, or unsafe values.
     expression: str = ""
+    # Empty preserves the original boolean True/False contract for existing
+    # graphs. New Studio nodes author explicit scalar routes with one fallback.
+    routes: list[_IfRoute] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_routes(self) -> IfNodeData:
+        if not self.routes:
+            return self
+        if not 2 <= len(self.routes) <= 12:
+            raise ValueError("If routes require between 2 and 12 outputs")
+        route_ids = [route.route_id for route in self.routes]
+        if len(route_ids) != len(set(route_ids)):
+            raise ValueError("If route ids must be unique")
+        if sum(route.is_default for route in self.routes) != 1:
+            raise ValueError("If routes require exactly one default route")
+        matches = [
+            (type(route.match_value).__name__, repr(route.match_value))
+            for route in self.routes
+            if not route.is_default
+        ]
+        if len(matches) != len(set(matches)):
+            raise ValueError("If route match values must be unique")
+        return self
 
 
 class IfNode(NodeBase):
-    """A zero-cost decision node with explicit true and false routes."""
+    """A zero-cost decision node with explicit named scalar routes."""
 
     node_type: Literal["if"] = "if"
     condition: IfNodeData
@@ -742,8 +806,21 @@ class IfNode(NodeBase):
             tool={
                 "kind": "if_control_ref",
                 "expression": self.condition.expression,
+                "routes": [route.model_dump(mode="json") for route in self.condition.routes],
             },
         )
+
+
+# ``routes`` is an additive Studio/runtime detail. Preserve the constructor
+# signature of the legacy public model while allowing the field to round-trip.
+_if_node_data_parameters = inspect.signature(IfNodeData).parameters
+IfNodeData.__signature__ = inspect.signature(IfNodeData).replace(
+    parameters=[
+        parameter
+        for name, parameter in _if_node_data_parameters.items()
+        if name != "routes"
+    ]
+)
 
 
 class EntrypointNode(NodeBase):
