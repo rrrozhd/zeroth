@@ -36,6 +36,7 @@ SOURCE = ROOT / "src/zeroth"
 #: Measured, not asserted: each entry is exactly what
 #: ``declared_fields - reported_parameters`` returns today.
 HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
+    "zeroth.contracts.graph.models:IfNodeData": ("routes",),
     "zeroth.econ.analytics.waste:EconReport": (
         "cost_measurement_complete",
         "estimated_cost_usd",

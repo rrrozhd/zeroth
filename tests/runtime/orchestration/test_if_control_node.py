@@ -29,6 +29,21 @@ def _node(expression: str = "payload.score >= 0.8") -> IfNode:
     )
 
 
+def _multi_route_node() -> IfNode:
+    return IfNode(
+        node_id="priority-gate",
+        graph_version_ref="priority:v1",
+        condition=IfNodeData(
+            expression="payload.priority",
+            routes=[
+                {"route_id": "critical", "label": "Critical", "match_value": "p0"},
+                {"route_id": "normal", "label": "Normal", "match_value": "p1"},
+                {"route_id": "fallback", "label": "Other", "is_default": True},
+            ],
+        ),
+    )
+
+
 def _run() -> Run:
     return Run(graph_version_ref="quality:v1", deployment_ref="quality-v1")
 
@@ -76,3 +91,26 @@ async def test_if_node_routes_without_invoking_an_external_runner(
         "estimated_cost_usd": 0.0,
         "cost_measurement": "measured",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("priority", "expected_route"),
+    [("p0", "critical"), ("p1", "normal"), ("p2", "fallback")],
+)
+async def test_if_node_routes_scalar_results_across_named_cases(
+    priority: str,
+    expected_route: str,
+) -> None:
+    output, audit = await _dispatcher().dispatch_inner(
+        _multi_route_node(),
+        _run(),
+        {"priority": priority},
+    )
+
+    assert output["zeroth_if"]["priority-gate"] == {
+        "route": expected_route,
+        "value": priority,
+    }
+    assert audit["route"] == expected_route
+    assert audit["value"] == priority

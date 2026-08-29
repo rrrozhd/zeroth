@@ -54,23 +54,15 @@ export function Sidebar({
         }}
       >
       {/* Brand */}
-      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "16px 16px 18px" }}>
-          <span
-            aria-hidden
-            style={{
-              display: "inline-grid",
-              width: 22,
-              height: 22,
-              placeItems: "center",
-              borderRadius: 6,
-              background: "var(--text-primary)",
-            }}
-          >
-            <svg viewBox="0 0 24 24" style={{ width: 13, height: 13 }}>
-              <circle cx="12" cy="12" r="7" fill="none" stroke="#f8f8fb" strokeWidth="2" />
-              <line x1="19.5" y1="4.5" x2="4.5" y2="19.5" stroke="#f8f8fb" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "13px 16px 16px" }}>
+          <img
+            aria-hidden="true"
+            className="console-sidebar-brand-mark"
+            src="/console/zeroth-mark.png"
+            width={28}
+            height={28}
+            alt=""
+          />
           <span
             style={{
               fontSize: 14,

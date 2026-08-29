@@ -1,4 +1,3 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none" role="img" aria-label="Zeroth mark">
-  <circle cx="50" cy="50" r="34" stroke="#3d5dd1" stroke-width="10"></circle>
-  <circle cx="50" cy="50" r="9" fill="#3ba3d7"></circle>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 651 576" role="img" aria-label="Zeroth mark">
+  <image href="zeroth-mark.png" width="651" height="576" />
 </svg>

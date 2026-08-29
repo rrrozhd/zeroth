@@ -238,7 +238,10 @@ def _get_graph_repository(request: Request) -> GraphRepository:
 def _node_config(node: Node) -> dict[str, Any]:
     """Extract a node's type-specific config as a plain dict for the editor."""
     _, field, _ = _NODE_BUILDERS[node.node_type]
-    return getattr(node, field).model_dump(mode="json")
+    config = getattr(node, field).model_dump(mode="json")
+    if isinstance(node, IfNode) and not node.condition.routes:
+        config.pop("routes", None)
+    return config
 
 
 # NodeBase governance fields the canvas doesn't author (yet): emitted to the

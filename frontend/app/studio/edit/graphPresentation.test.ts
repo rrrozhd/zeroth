@@ -115,6 +115,9 @@ describe("loop graph presentation", () => {
     expect(ifRouteCondition("quality-gate", "false")?.metadata).toEqual({
       if_route: "false",
     });
+    expect(ifRouteCondition("quality-gate", "critical")?.expression).toBe(
+      "payload.zeroth_if['quality-gate'].route == 'critical'",
+    );
     expect(ifRouteCondition("quality-gate", "input-data")).toBeNull();
   });
 
