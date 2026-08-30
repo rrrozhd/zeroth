@@ -15,7 +15,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="zeroth-check.yaml")
     parser.add_argument("--report-dir", default=".zeroth/check/reports")
     parser.add_argument("--fail-on", default="block,invalid")
-    parser.add_argument("--cli", default="zeroth-core")
+    parser.add_argument(
+        "--cli", default=shlex.join([sys.executable, "-m", "zeroth.service.cli"])
+    )
     return parser
 
 

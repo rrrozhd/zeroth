@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -8,6 +9,16 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).parents[3]
+
+
+def test_default_cli_is_bound_to_the_current_python_environment() -> None:
+    from scripts.zeroth_check_action import _parser
+
+    assert shlex.split(_parser().parse_args([]).cli) == [
+        sys.executable,
+        "-m",
+        "zeroth.service.cli",
+    ]
 
 
 def test_composite_action_has_no_write_permissions_and_one_summary_owner() -> None:

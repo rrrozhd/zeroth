@@ -43,15 +43,15 @@ Deployment readers can inspect deployment-effective settings, and deployment
 administrators can append deployment overrides:
 
 ```console
-curl -H "X-API-Key: $ZEROTH_API_KEY" \
+curl -H "X-API-Key: $API_KEY" \
   http://127.0.0.1:8000/v1/deployments/demo/guardrails
 
-curl -X PUT -H "X-API-Key: $ZEROTH_ADMIN_API_KEY" \
+curl -X PUT -H "X-API-Key: $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"rate_limit_capacity": 50, "rate_limit_burst": 10, "max_concurrency": 4}' \
   http://127.0.0.1:8000/v1/deployments/demo/guardrails
 
-curl -X PUT -H "X-API-Key: $ZEROTH_ADMIN_API_KEY" \
+curl -X PUT -H "X-API-Key: $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"reset_fields": ["max_concurrency"]}' \
   http://127.0.0.1:8000/v1/deployments/demo/guardrails

@@ -48,6 +48,9 @@ Service authentication settings.
 | `ZEROTH_SERVICE_API_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ | JSON **list** of credential objects: `[{"credential_id", "secret", "subject", "roles", "tenant_id"?, "workspace_id"?}]` |
 | `ZEROTH_SERVICE_BEARER_JSON` | `SecretStr \| None` | `None` | ✓ | JSON bearer/JWT verification config (issuer, audience, jwks) |
 | `ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON` | `list[str] \| None` | `None` |  | JSON array of unique credential identifiers rejected after successful authentication (static credential_id; bearer jti or SHA-256 fingerprint) |
+| `ZEROTH_AUTH__BROWSER_SESSION_SECRET` | `SecretStr \| None` | `None` | ✓ | Shared HMAC secret for short-lived browser sessions; required in production and must contain at least 32 UTF-8 bytes |
+| `ZEROTH_AUTH__BROWSER_SESSION_TTL_SECONDS` | `int` | `900` |  |  |
+| `ZEROTH_AUTH__ALLOW_EPHEMERAL_BROWSER_SESSION_SECRET_DEVELOPMENT` | `bool` | `False` |  |  |
 
 ## Regulus
 
@@ -60,7 +63,7 @@ Regulus backend connection settings.
 | `ZEROTH_REGULUS__API_KEY` | `SecretStr \| None` | `None` | ✓ |  |
 | `ZEROTH_REGULUS__BUDGET_CACHE_TTL` | `int` | `30` |  |  |
 | `ZEROTH_REGULUS__REQUEST_TIMEOUT` | `float` | `5.0` |  |  |
-| `ZEROTH_REGULUS__FAIL_CLOSED` | `bool` | `False` |  |  |
+| `ZEROTH_REGULUS__FAIL_CLOSED` | `bool` | `True` |  |  |
 | `ZEROTH_REGULUS__PER_RUN_CAP_USD` | `float \| None` | `None` |  |  |
 
 ## Memory
@@ -115,6 +118,15 @@ Sandbox execution backend configuration.
 | `ZEROTH_SANDBOX__SIDECAR_URL` | `str` | `"http://sandbox-sidecar:8001"` |  |  |
 | `ZEROTH_SANDBOX__DOCKER_CONTAINER_NAME` | `str` | `"zeroth-sandbox"` |  |  |
 | `ZEROTH_SANDBOX__DOCKER_BINARY` | `str` | `"docker"` |  |  |
+| `ZEROTH_SANDBOX__ALLOW_UNTRUSTED_LOCAL_DEVELOPMENT` | `bool` | `False` |  |  |
+| `ZEROTH_SANDBOX__ALLOW_UNISOLATED_MCP_DEVELOPMENT` | `bool` | `False` |  |  |
+| `ZEROTH_SANDBOX__MCP_ISOLATION_IMAGE` | `str \| None` | `None` |  |  |
+| `ZEROTH_SANDBOX__MCP_ISOLATION_NETWORK` | `str` | `"none"` |  |  |
+| `ZEROTH_SANDBOX__MCP_ISOLATION_ALLOWED_ENVIRONMENT_KEYS` | `tuple[str, Ellipsis]` | `()` |  |  |
+| `ZEROTH_SANDBOX__MCP_ISOLATION_RUN_AS_USER` | `str` | `"65534:65534"` |  |  |
+| `ZEROTH_SANDBOX__MCP_ISOLATION_CPUS` | `str` | `"1.0"` |  |  |
+| `ZEROTH_SANDBOX__MCP_ISOLATION_MEMORY` | `str` | `"256m"` |  |  |
+| `ZEROTH_SANDBOX__MCP_ISOLATION_PIDS_LIMIT` | `int` | `64` |  |  |
 
 ## Webhook
 
@@ -222,6 +234,7 @@ Secret-resolution backend configuration (WS-F).
 | `ZEROTH_SECRETS__VAULT_TOKEN` | `SecretStr \| None` | `None` | ✓ |  |
 | `ZEROTH_SECRETS__VAULT_CACHE_TTL` | `float` | `300.0` |  |  |
 | `ZEROTH_SECRETS__LLM_KEY_MAP` | `dict[str, str]` | `{}` |  |  |
+| `ZEROTH_SECRETS__LLM_BASE_URL_MAP` | `dict[str, str]` | `{}` |  |  |
 
 ## Provenance
 
@@ -235,6 +248,15 @@ Keyed provenance-signing configuration (WS-D).
 | `ZEROTH_PROVENANCE__SIGNING_KEY_ID` | `str` | `"dev-local"` |  |  |
 | `ZEROTH_PROVENANCE__PUBLIC_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ |  |
 | `ZEROTH_PROVENANCE__RETIRED_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ |  |
+
+## Certification
+
+Server-owned identity of the artifact served by this process.
+
+| Env Var | Type | Default | Secret | Description |
+| --- | --- | --- | --- | --- |
+| `ZEROTH_CERTIFICATION__SERVING_APP_COMMIT` | `str \| None` | `None` |  |  |
+| `ZEROTH_CERTIFICATION__SERVING_IMAGE_DIGEST` | `str \| None` | `None` |  |  |
 
 ## Policy
 
@@ -277,6 +299,7 @@ Configuration for the optional Agent Server-compatible gateway.
 | `ZEROTH_LANGGRAPH_GATEWAY__CONTEXT_TTL_SECONDS` | `int` | `300` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__MAX_GOVERNED_BODY_BYTES` | `int` | `1048576` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__UNKNOWN_ENDPOINT_MODE` | `Literal[deny, pass_ungoverned]` | `"deny"` |  |  |
+| `ZEROTH_LANGGRAPH_GATEWAY__REQUIRE_FULL_TOOL_ENFORCEMENT` | `bool` | `False` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__POLICY_BINDINGS` | `tuple[str, Ellipsis]` | `()` |  |  |
 | `ZEROTH_LANGGRAPH_GATEWAY__EXPECTED_TOOL_INVENTORY_FINGERPRINT` | `str \| None` | `None` |  | Server-owned canonical tool-inventory digest required for ENFORCED evidence; missing or mismatched values remain OBSERVED |
 | `ZEROTH_LANGGRAPH_GATEWAY__SUPPORTED_LANGGRAPH_VERSIONS` | `tuple[str, Ellipsis]` | `('1.2.9',)` |  |  |

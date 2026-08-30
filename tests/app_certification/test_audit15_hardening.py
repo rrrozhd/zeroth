@@ -290,9 +290,12 @@ def test_dependency_sandbox_kills_detached_descendant_and_caps_output(tmp_path: 
     docker = tmp_path / "docker"
     pid_file = tmp_path / "child.pid"
     marker = tmp_path / "descendant-survived"
+    gate = tmp_path / "release-descendant"
     cleanup = tmp_path / "cleanup"
     child_code = (
-        "import pathlib,time; time.sleep(.4); "
+        "import pathlib,time; "
+        f"gate=pathlib.Path({str(gate)!r}); "
+        "\nwhile not gate.exists(): time.sleep(.01)\n"
         f"pathlib.Path({str(marker)!r}).write_text('alive'); time.sleep(30)"
     )
     docker.write_text(
@@ -300,7 +303,7 @@ def test_dependency_sandbox_kills_detached_descendant_and_caps_output(tmp_path: 
         "import os, pathlib, signal, subprocess, sys, time\n"
         f"pid_file=pathlib.Path({str(pid_file)!r}); marker=pathlib.Path({str(marker)!r}); cleanup=pathlib.Path({str(cleanup)!r})\n"
         "if sys.argv[1] == 'run':\n"
-        f"    child=subprocess.Popen([sys.executable,'-c',{child_code!r}], start_new_session=True)\n"
+        f"    child=subprocess.Popen([sys.executable,'-c',{child_code!r}], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
         "    pid_file.write_text(str(child.pid)); os.write(1, b'x' * 16384); time.sleep(30)\n"
         "elif sys.argv[1:3] == ['rm', '-f']:\n"
         "    cleanup.write_text('called')\n"
@@ -318,11 +321,12 @@ def test_dependency_sandbox_kills_detached_descendant_and_caps_output(tmp_path: 
             docker=str(docker),
             container_name="fixture",
             log_path=log,
-            timeout=0.1,
+            timeout=1.0,
             output_limit=4096,
         )
 
-    time.sleep(0.6)
+    gate.write_text("release", encoding="utf-8")
+    time.sleep(0.2)
     assert cleanup.read_text(encoding="utf-8") == "called"
     assert log.stat().st_size <= 4096
     assert not marker.exists()

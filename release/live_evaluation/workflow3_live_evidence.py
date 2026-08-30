@@ -14,9 +14,11 @@ import urllib.request
 from pathlib import Path
 
 from .evidence import CorrelationIds, EvidenceStore
+from .runtime_paths import resolve_runtime_paths
 
-WORKTREE = Path("/Users/dondoe/.codex/worktrees/0327/zeroth")
-STATE_ROOT = Path("/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1")
+_RUNTIME_PATHS = resolve_runtime_paths()
+WORKTREE = _RUNTIME_PATHS.worktree
+STATE_ROOT = _RUNTIME_PATHS.state_root
 SOURCE_ROOT = STATE_ROOT / "evidence/workflow3-local-20260824-1"
 ROOT = STATE_ROOT / "evidence/workflow3-local-20260824-2"
 RUN_ID = "9bff839f22a24c51a47c5a7b0082147b"

@@ -30,12 +30,9 @@ jobs:
       contents: read
     env:
       CERTIFICATION_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-      HANDOFF_ROOT: ${{ runner.temp }}/app-certification-handoff-${{ github.run_id }}-${{ github.run_attempt }}
       CANDIDATE_BUILD_CONTAINER: app-cert-dependencies-${{ github.run_id }}-${{ github.run_attempt }}
-      CANDIDATE_BUILD_DISK: ${{ runner.temp }}/app-cert-dependencies-${{ github.run_id }}-${{ github.run_attempt }}.img
       CANDIDATE_BUILD_IMAGE: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
       CANDIDATE_BUILDER: app-cert-builder-${{ github.run_id }}-${{ github.run_attempt }}
-      CANDIDATE_BUILDER_DISK: ${{ runner.temp }}/app-cert-builder-${{ github.run_id }}-${{ github.run_attempt }}.img
       CANDIDATE_IMAGE_REFERENCE: app-cert-candidate:${{ github.run_id }}-${{ github.run_attempt }}
       RUNTIME_IMAGE_REFERENCE: app-cert-runtime:${{ github.run_id }}-${{ github.run_attempt }}
       WHEEL_INSPECT_CONTAINER: app-cert-wheel-inspect-${{ github.run_id }}-${{ github.run_attempt }}
@@ -49,8 +46,16 @@ jobs:
         id: handoff
         run: |
           set -euo pipefail
+          HANDOFF_ROOT="$RUNNER_TEMP/app-certification-handoff-$CERTIFICATION_RUN_ID"
+          CANDIDATE_BUILD_DISK="$RUNNER_TEMP/app-cert-dependencies-$CERTIFICATION_RUN_ID.img"
+          CANDIDATE_BUILDER_DISK="$RUNNER_TEMP/app-cert-builder-$CERTIFICATION_RUN_ID.img"
           [[ ! -e "$HANDOFF_ROOT" && ! -L "$HANDOFF_ROOT" ]]
           mkdir -m 700 "$HANDOFF_ROOT"
+          {
+            echo "HANDOFF_ROOT=$HANDOFF_ROOT"
+            echo "CANDIDATE_BUILD_DISK=$CANDIDATE_BUILD_DISK"
+            echo "CANDIDATE_BUILDER_DISK=$CANDIDATE_BUILDER_DISK"
+          } >> "$GITHUB_ENV"
       - name: Checkout application candidate
         id: app-checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

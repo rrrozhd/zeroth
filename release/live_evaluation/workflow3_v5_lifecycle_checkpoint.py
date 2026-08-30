@@ -15,9 +15,11 @@ from typing import Any
 import httpx
 
 from .evidence import AcceptanceCriterion, CorrelationIds, EvidenceStore
+from .runtime_paths import resolve_runtime_paths
 
-WORKTREE = Path("/Users/dondoe/.codex/worktrees/0327/zeroth")
-STATE_ROOT = Path("/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1")
+_RUNTIME_PATHS = resolve_runtime_paths()
+WORKTREE = _RUNTIME_PATHS.worktree
+STATE_ROOT = _RUNTIME_PATHS.state_root
 NATIVE_ROOT = STATE_ROOT / "evidence/native-safari-studio-20260824-1"
 ROOT = STATE_ROOT / "evidence/workflow3-v5-lifecycle-checkpoint-20260824-1"
 SERVICE_KEY_PATH = STATE_ROOT / "runtime-secrets/service-api-key"

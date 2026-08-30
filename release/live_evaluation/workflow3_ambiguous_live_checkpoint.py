@@ -22,9 +22,11 @@ import httpx
 
 from .action_runner import EVALUATION_ACTION_MANIFEST_SHA256
 from .evidence import AcceptanceCriterion, CorrelationIds, EvidenceStore
+from .runtime_paths import resolve_runtime_paths
 
-WORKTREE = Path("/Users/dondoe/.codex/worktrees/0327/zeroth")
-STATE_ROOT = Path("/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1")
+_RUNTIME_PATHS = resolve_runtime_paths()
+WORKTREE = _RUNTIME_PATHS.worktree
+STATE_ROOT = _RUNTIME_PATHS.state_root
 SERVICE_KEY_PATH = STATE_ROOT / "runtime-secrets/service-api-key"
 MAIN_DB = STATE_ROOT / "zeroth.db"
 SINK_DB = STATE_ROOT / "action-sink/actions.sqlite3"
