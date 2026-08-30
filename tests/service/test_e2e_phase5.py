@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from zeroth.integrations.memory.governed.models import MemoryScope
 from pydantic import BaseModel
@@ -58,6 +59,15 @@ from zeroth.governance.policy import (
 )
 
 from tests.conftest import content_capture
+
+
+@pytest.fixture(autouse=True)
+def _disable_unrelated_economic_control_plane(monkeypatch) -> None:
+    """Keep Phase 5 execution tests independent of shared cost measurements."""
+    from zeroth.platform.config.models import RegulusSettings
+    from zeroth.platform.config.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "regulus", RegulusSettings(enabled=False))
 
 
 class NumberInput(BaseModel):

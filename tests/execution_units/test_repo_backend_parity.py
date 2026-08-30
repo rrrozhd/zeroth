@@ -129,7 +129,10 @@ async def test_sidecar_request_preserves_the_local_run_semantics(tmp_path: Path)
 
     # -- (a) the LOCAL backend, for real, with the invocation captured --------
     local_manager = SandboxManager(
-        config=SandboxConfig(strictness_mode=SandboxStrictnessMode.PERMISSIVE)
+        config=SandboxConfig(
+            strictness_mode=SandboxStrictnessMode.PERMISSIVE,
+            allow_untrusted_local_development=True,
+        )
     )
     local_calls: list[dict[str, object]] = []
     original_run_locally = local_manager._run_locally

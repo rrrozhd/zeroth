@@ -62,8 +62,9 @@ provision a real tenant ID.
   `InstrumentationClient`. Handles auth, base URL, and fail-open semantics.
 - **`CostEstimator`** — Converts `(model, prompt_tokens, completion_tokens)`
   into USD using LiteLLM's pricing table.
-- **`BudgetEnforcer`** — Pre-execution check against Regulus'
-  `/dashboard/kpis` endpoint. TTL-cached, fail-open on Regulus outage.
+- **`BudgetEnforcer`** — Pre-execution check against Regulus' budget-status
+  endpoint. TTL-cached and fail-closed by default on outage or malformed data;
+  fail-open is an explicit compatibility setting.
 
 ## See also
 

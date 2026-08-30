@@ -12,13 +12,11 @@ Be precise about what that ceiling bounds, because the split above reads wider
 than it is. ``grants`` gates which *graphs may reference* this server: an
 ``mcp_tool`` node may not declare more than the row grants, checked at publish
 and again in ``MCPSessionPool`` before a process exists. It constrains the
-spawned process not at all. ``command``, ``args`` and ``env`` are handed to the
-transport verbatim -- no allowlist, no digest pin, no working directory, no
-rlimits, no uid drop, no sandbox -- so the server runs as the service user with
-that user's authority. ``MCP_ADMIN`` is therefore arbitrary code execution on
-this host. That is the deliberate shape of an admin-tier role rather than an
-oversight, and it is why the permission is separated below; hand it out with
-the same care as shell access.
+spawned process not at all; the operator-owned isolation profile does. Zeroth
+therefore refuses discovery and dispatch until a digest-pinned Docker profile is
+configured. The explicit development-only escape hatch restores the historical
+stdio behavior, where ``command``, ``args`` and ``env`` are handed to the host
+transport verbatim.
 
 Every route is gated on ``MCP_ADMIN``, which ``OPERATOR`` deliberately does not
 hold. Reusing ``CONNECTOR_ADMIN`` would have handed the registry to the same
@@ -36,7 +34,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.contracts.graph.models import Capability
 from zeroth.platform.primitives.error_vocabulary import safe_error_detail
-from zeroth.runtime.agents.mcp import MCPClientManager, MCPServerConfig, tool_schema_hash
+from zeroth.runtime.agents.mcp import (
+    MCPClientManager,
+    MCPServerConfig,
+    RegisteredMCPServerConfig,
+    tool_schema_hash,
+)
+from zeroth.runtime.agents.mcp_isolation import mcp_process_isolator_from_settings
 from zeroth.service.api.authorization import Permission, require_permission
 
 _REF_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
@@ -262,16 +266,32 @@ def register_mcp_server_routes(app: FastAPI | APIRouter) -> None:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"MCP server {ref!r} not found",
             )
-        manager = MCPClientManager(
-            [
-                MCPServerConfig(
-                    name=record.ref,
-                    command=record.command,
-                    args=list(record.args),
-                    env=dict(record.env) or None,
-                )
-            ]
+        from zeroth.platform.config.settings import get_settings
+
+        sandbox_settings = get_settings().sandbox
+        isolator = mcp_process_isolator_from_settings(sandbox_settings)
+        if isolator is None and not sandbox_settings.allow_unisolated_mcp_development:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "MCP discovery requires an isolated process adapter; "
+                    "unisolated execution is disabled"
+                ),
+            )
+        registered = RegisteredMCPServerConfig(
+            name=record.ref,
+            command=record.command,
+            args=list(record.args),
+            env=dict(record.env) or None,
+            grants=list(record.grants),
         )
+        transport = isolator.isolate(registered) if isolator is not None else MCPServerConfig(
+            name=registered.name,
+            command=registered.command,
+            args=registered.args,
+            env=registered.env,
+        )
+        manager = MCPClientManager([transport])
         started = time.perf_counter()
         try:
             manifests = await manager.start()

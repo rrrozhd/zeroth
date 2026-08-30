@@ -124,6 +124,23 @@ class AuthSettings(BaseModel):
         ),
         json_schema_extra={"env": "ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON"},
     )
+    browser_session_secret: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Shared HMAC secret for short-lived browser sessions; required in production "
+            "and must contain at least 32 UTF-8 bytes"
+        ),
+    )
+    browser_session_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    allow_ephemeral_browser_session_secret_development: bool = False
+
+    @model_validator(mode="after")
+    def validate_browser_session_secret(self) -> AuthSettings:
+        if self.browser_session_secret is not None and len(
+            self.browser_session_secret.get_secret_value().encode("utf-8")
+        ) < 32:
+            raise ValueError("browser_session_secret must contain at least 32 bytes")
+        return self
 
 
 class MemorySettings(BaseModel):
@@ -167,6 +184,33 @@ class SandboxSettings(BaseModel):
     sidecar_url: str = "http://sandbox-sidecar:8001"
     docker_container_name: str = "zeroth-sandbox"
     docker_binary: str = "docker"
+    allow_untrusted_local_development: bool = False
+    allow_unisolated_mcp_development: bool = False
+    mcp_isolation_image: str | None = None
+    mcp_isolation_network: str = "none"
+    mcp_isolation_allowed_environment_keys: tuple[str, ...] = ()
+    mcp_isolation_run_as_user: str = "65534:65534"
+    mcp_isolation_cpus: str = "1.0"
+    mcp_isolation_memory: str = "256m"
+    mcp_isolation_pids_limit: int = Field(default=64, gt=0)
+
+    @model_validator(mode="after")
+    def validate_mcp_isolation_profile(self) -> SandboxSettings:
+        """Reject mutable or malformed MCP isolation identities at config load."""
+        if self.mcp_isolation_image is not None and not re.fullmatch(
+            r"(?:[^\s@]+@sha256:|sha256:)[0-9a-f]{64}", self.mcp_isolation_image
+        ):
+            raise ValueError("mcp_isolation_image must be digest-pinned")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", self.mcp_isolation_network):
+            raise ValueError("mcp_isolation_network must be a Docker network name")
+        invalid_keys = [
+            key
+            for key in self.mcp_isolation_allowed_environment_keys
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+        ]
+        if invalid_keys:
+            raise ValueError("MCP isolation environment allowlist contains invalid names")
+        return self
 
 
 class WebhookSettings(BaseModel):
@@ -427,6 +471,7 @@ class LangGraphGatewaySettings(BaseModel):
     context_ttl_seconds: int = Field(default=300, gt=0)
     max_governed_body_bytes: int = Field(default=1_048_576, gt=0)
     unknown_endpoint_mode: Literal["deny", "pass_ungoverned"] = "deny"
+    require_full_tool_enforcement: bool = False
     policy_bindings: tuple[str, ...] = ()
     expected_tool_inventory_fingerprint: str | None = Field(
         default=None,
@@ -495,6 +540,11 @@ class LangGraphGatewaySettings(BaseModel):
     @model_validator(mode="after")
     def validate_enabled_configuration(self) -> LangGraphGatewaySettings:
         """Validate gateway identity and heartbeat timing relationships."""
+        if self.require_full_tool_enforcement:
+            raise ValueError(
+                "gateway-only mode cannot guarantee enforcement of internal tool calls; "
+                "deploy the in-process SDK middleware/tool wrappers for full enforcement"
+            )
         if self.enabled:
             missing = [
                 name
@@ -554,6 +604,28 @@ class ZerothSettings(BaseSettings):
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     langgraph_gateway: LangGraphGatewaySettings = Field(default_factory=LangGraphGatewaySettings)
     github: GitHubAppSettings = Field(default_factory=GitHubAppSettings)
+
+    @model_validator(mode="after")
+    def reject_development_execution_flags_in_production(self) -> ZerothSettings:
+        if self.deployment_mode == "production" and (
+            self.sandbox.allow_untrusted_local_development
+            or self.sandbox.allow_unisolated_mcp_development
+        ):
+            raise ValueError(
+                "development-only execution escape hatches are forbidden in production"
+            )
+        if self.deployment_mode == "production" and self.auth.browser_session_secret is None:
+            raise ValueError("production requires a shared browser_session_secret")
+        if (
+            self.deployment_mode == "production"
+            and self.auth.allow_ephemeral_browser_session_secret_development
+        ):
+            raise ValueError(
+                "development-only ephemeral browser session signing is forbidden in production"
+            )
+        if self.deployment_mode == "production" and not self.regulus.fail_closed:
+            raise ValueError("production requires fail-closed budget enforcement")
+        return self
 
     @classmethod
     def settings_customise_sources(

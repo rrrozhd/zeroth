@@ -32,14 +32,7 @@ from zeroth.service.app import create_app
 INVENTORY = Path(__file__).resolve().parents[2] / "release/security/public-route-inventory.json"
 LIVE_INVENTORY = Path(__file__).resolve().parents[2] / "release/security/live-route-inventory.json"
 HTTP_METHODS = frozenset({"DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"})
-REPOSITORY_INGRESS_TERMS = (
-    "github",
-    "repository",
-    "installation",
-    "checkout",
-    "/sources",
-    "/imports",
-)
+REPOSITORY_INGRESS_PREFIX = "/v1/repos"
 
 
 def _current_public_routes() -> list[dict[str, str]]:
@@ -60,16 +53,24 @@ def test_complete_public_openapi_inventory_matches_reviewed_snapshot() -> None:
     assert _current_public_routes() == json.loads(INVENTORY.read_text(encoding="utf-8"))
 
 
-def test_reviewed_public_inventory_has_no_repository_ingress_capability() -> None:
+def test_disabled_public_inventory_has_no_repository_ingress_capability() -> None:
     inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
-    searchable = "\n".join(
-        f"{route['method']} {route['path']} {route['operation_id']}" for route in inventory
-    ).lower()
-    assert all(term not in searchable for term in REPOSITORY_INGRESS_TERMS)
+    assert not any(route["path"].startswith(REPOSITORY_INGRESS_PREFIX) for route in inventory)
 
 
-def _bootstrap(*, gateway: bool, regulus: bool = False) -> SimpleNamespace:
+class _GitHubIntegration:
+    async def drop_installation_caches(self, _installation_id: int) -> None:
+        return None
+
+
+def _bootstrap(*, gateway: bool, regulus: bool = False, github: bool = False) -> SimpleNamespace:
     values = {"regulus_client": object() if regulus else None}
+    if github:
+        values.update(
+            github_integration_service=_GitHubIntegration(),
+            github_webhook_secret_resolver=object(),
+            repository_unit_service=object(),
+        )
     if gateway:
         values.update(
             langgraph_gateway_proxy=object(),
@@ -112,17 +113,18 @@ def _configured_live_inventory() -> dict[str, list[dict[str, object]]]:
         console = Path(directory)
         (console / "index.html").write_text("console", encoding="utf-8")
         configurations: dict[str, list[dict[str, object]]] = {}
-        for name, gateway, regulus, console_dir in (
-            ("default", False, False, "/__zeroth_no_console__"),
-            ("gateway", True, False, "/__zeroth_no_console__"),
-            ("console", False, False, str(console)),
-            ("gateway-console", True, False, str(console)),
-            ("regulus", False, True, "/__zeroth_no_console__"),
-            ("all-features", True, True, str(console)),
+        for name, gateway, regulus, github, console_dir in (
+            ("default", False, False, False, "/__zeroth_no_console__"),
+            ("gateway", True, False, False, "/__zeroth_no_console__"),
+            ("console", False, False, False, str(console)),
+            ("gateway-console", True, False, False, str(console)),
+            ("regulus", False, True, False, "/__zeroth_no_console__"),
+            ("github", False, False, True, "/__zeroth_no_console__"),
+            ("all-features", True, True, True, str(console)),
         ):
             with patch.dict(os.environ, {"ZEROTH_CONSOLE_DIR": console_dir}):
                 configurations[name] = _live_routes(
-                    create_app(_bootstrap(gateway=gateway, regulus=regulus))
+                    create_app(_bootstrap(gateway=gateway, regulus=regulus, github=github))
                 )
         return configurations
 
@@ -131,9 +133,17 @@ def test_complete_live_route_inventory_matches_all_reviewed_configurations() -> 
     assert _configured_live_inventory() == json.loads(LIVE_INVENTORY.read_text())
 
 
-def test_complete_live_route_inventory_has_no_repository_ingress() -> None:
-    searchable = json.dumps(json.loads(LIVE_INVENTORY.read_text())).lower()
-    assert all(term not in searchable for term in REPOSITORY_INGRESS_TERMS)
+def test_enabled_live_inventory_contains_repository_and_webhook_ingress() -> None:
+    inventory = json.loads(LIVE_INVENTORY.read_text())
+    enabled = inventory["github"]
+    paths = {item["path"] for item in enabled}
+    assert "/v1/repos/installations/{installation_id}/claim" in paths
+    assert "/v1/repos/{repository_id}/checkouts" in paths
+    assert "/v1/repos/checkouts/{checkout_id}/runs" in paths
+    assert "/integrations/github/webhook" in paths
+    disabled_paths = {item["path"] for item in inventory["default"]}
+    assert not any(path.startswith(REPOSITORY_INGRESS_PREFIX) for path in disabled_paths)
+    assert "/integrations/github/webhook" not in disabled_paths
 
 
 @pytest.mark.parametrize("hidden_kind", ["http", "websocket", "mount", "conditional"])

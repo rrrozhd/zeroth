@@ -110,9 +110,9 @@ docker compose -f compose.dev.yml logs -f backend
 docker compose -f compose.dev.yml down
 ```
 
-The stable API base is `http://127.0.0.1:8122`. The console stores that base
-and its service key in browser local storage per browser profile and origin, so
-ordinary container restarts and code amendments do not require reconnecting.
+The stable API base is `http://127.0.0.1:8122`. The console stores only that
+non-secret base and a session marker in browser local storage. It exchanges the
+service key for a short-lived secure HttpOnly cookie and never persists the key.
 Never use `down -v` as a reset shortcut; use an explicit state snapshot/reset
 procedure when a clean campaign is intended.
 
@@ -217,7 +217,7 @@ Zeroth enforces governance at multiple layers:
 
 - **Policy** — capability-based rules controlling what agents can do (network access, file writes, memory access, secret usage). Enforcement is **on by default and fail-closed**: a served node that invokes a tool or touches memory without declaring the matching capability is *denied* (agent tool calls and memory reads/writes are behaviorally gated, not merely audited); an agent-invoked executable unit runs under the calling agent's enforcement envelope, so the sandbox network/secret gate applies to it too. Behavioral **network and filesystem** isolation for executable units requires the Docker or sidecar backend — the local backend refuses network-bearing nodes under the strict/standard sandbox posture rather than running them unconstrained. Turn enforcement off (capabilities become advisory) with `ZEROTH_POLICY__ENFORCE_CAPABILITIES=false`.
 - **Guardrails** — rate limiting, quota enforcement, and dead-letter queues for failed operations
-- **Budgets** — per-tenant spend caps enforced through the bundled economic control plane. Enforcement requires the `regulus` extra (included in `[all]`): with it installed, the plane is mounted in-process at `/regulus` with no env flags required, so a default deploy reaches it over the app's own ASGI transport, not a separate host, and per-tenant caps trip with per-node cost attribution from the first run. A fresh deploy auto-generates a strong **ephemeral per-process signing secret** for the mount, so it boots with no configuration; set `ECP_JWT_SECRET` to a persistent value for **multi-worker or persistent deployments**. Prefer an external Regulus instead? Point at it with `ZEROTH_REGULUS__BASE_URL` (and skip the in-process mount). Turn the plane off entirely with `ZEROTH_REGULUS__ENABLED=false`. The pre-LLM tenant check **fails open by default** — a control-plane outage never blocks a run, it is logged at `WARNING` and the cap simply isn't enforced for that call; flip to **fail-closed** (deny on backend error) with `ZEROTH_REGULUS__FAIL_CLOSED=true`. The tenant check is eventually consistent: it sees spend recorded *before* the current call (spend-to-date), so a single run can overshoot within one cycle. For a tighter, control-plane-independent guard, set a per-run cumulative ceiling with `ZEROTH_REGULUS__PER_RUN_CAP_USD` (USD) — enforced locally from the run's own audit cost, so it works even with the control plane disabled, halting a run on the next node once its accumulated cost crosses the cap. On a bare install (`pip install zeroth-core`, no extra) there is no enforcement backend at all — the pre-LLM tenant check fails open and caps are **not** enforced until you install the extra or point at an external plane.
+- **Budgets** — per-tenant spend caps enforced through the bundled economic control plane. Enforcement requires the `regulus` extra (included in `[all]`): with it installed, the plane is mounted in-process at `/regulus` with no env flags required, so a default deploy reaches it over the app's own ASGI transport, not a separate host, and per-tenant caps trip with per-node cost attribution from the first run. A fresh deploy auto-generates a strong **ephemeral per-process signing secret** for the mount, so it boots with no configuration; set `ECP_JWT_SECRET` to a persistent value for **multi-worker or persistent deployments**. Prefer an external Regulus instead? Point at it with `ZEROTH_REGULUS__BASE_URL` (and skip the in-process mount). Turn the plane off entirely with `ZEROTH_REGULUS__ENABLED=false`. The pre-LLM tenant check **fails closed by default**: an unavailable, malformed, or incompletely measured authoritative response denies the run and logs at `WARNING`. Explicit `ZEROTH_REGULUS__FAIL_CLOSED=false` remains development/availability compatibility, but production rejects it. The tenant check is eventually consistent: it sees spend recorded *before* the current call (spend-to-date), so a single run can overshoot within one cycle. For a tighter, control-plane-independent guard, set a per-run cumulative ceiling with `ZEROTH_REGULUS__PER_RUN_CAP_USD` (USD) — enforced locally from the run's own audit cost, so it works even with the control plane disabled, halting a run on the next node once its accumulated cost crosses the cap. On a bare install (`pip install zeroth-core`, no extra), configure a reachable external control plane or explicitly disable Regulus; leaving it enabled without a backend denies admission rather than silently dropping caps.
 - **Audit** — per-node event tracking with secret redaction, timeline assembly, and evidence summaries
 - **Approvals** — human-in-the-loop gates with decision tracking
 - **Secrets** — resolved from secure providers and automatically redacted from logs
@@ -394,11 +394,12 @@ The console is built once and runs in **two modes from the same bundle**:
   `/console` on the same origin as the API. One deployment ships both API and
   UI; no CORS, no second host.
 - **Standalone** — host the static bundle anywhere and point it at a remote
-  API. Set the API base URL + key in the console's *Connect* bar; enable CORS
-  on the API (below).
+  API. Set the API base URL + key in the console's *Connect* bar; enable exact-
+  origin credentialed CORS on the API and a document CSP on the static host.
 
-The console reads its API base URL and `X-API-Key` from the browser at runtime
-(localStorage), so the same artifact works in both modes.
+The console exchanges the entered `X-API-Key` once for a short-lived
+`Secure`, `HttpOnly` session cookie. Only non-secret connection metadata is
+stored in `localStorage`, so the same artifact works in both modes.
 
 **What it covers:** deployment health; authoring and versioning; runs and exact
 cURL reproduction; approvals and governed actions; signed per-node audit;
@@ -446,6 +447,7 @@ export ZEROTH_CONSOLE_CORS_ORIGINS="http://localhost:3000"
 | ------- | ------- |
 | `ZEROTH_CONSOLE_DIR` | Explicit path to the built `out/` dir (default resolution: `frontend/out` in a checkout, then the installed `zeroth-console` package). |
 | `ZEROTH_CONSOLE_CORS_ORIGINS` | Comma-separated origins allowed to call the API cross-origin (standalone mode). Unset = no CORS (mounted mode). |
+| `ZEROTH_AUTH__BROWSER_SESSION_SECRET` | Shared browser-session HMAC secret (minimum 32 bytes; required in production and across workers). |
 
 If no build is present (Python-only install / CI with no Node), the mount is
 skipped silently and the API is unaffected. See [frontend/README.md](frontend/README.md)

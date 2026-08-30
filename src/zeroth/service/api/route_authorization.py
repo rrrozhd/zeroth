@@ -255,7 +255,11 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
     **_routes(Permission.METRICS_ADMIN, "run_rightsizing_experiment"),
 }
 
-PUBLIC_ROUTE_NAMES = frozenset({"health", "health_live", "health_ready"})
+# Browser-session exchange cannot require an existing session: the handler
+# authenticates the presented API key and validates Origin before issuing one.
+PUBLIC_ROUTE_NAMES = frozenset(
+    {"create_browser_session", "health", "health_live", "health_ready"}
+)
 PUBLIC_ROUTE_PATHS = frozenset({"/console"})
 
 # The mounted econ application owns a separate JWT authorization boundary.  The

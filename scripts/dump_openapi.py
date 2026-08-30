@@ -46,6 +46,7 @@ def generate_spec_text() -> str:
 
     os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
+    from zeroth.platform.config.settings import AuthSettings, get_settings
     from zeroth.service.app import create_app
 
     stub_bootstrap = SimpleNamespace(
@@ -61,7 +62,19 @@ def generate_spec_text() -> str:
         artifact_store=None,       # Phase 40
         template_registry=None,    # Phase 40
     )
-    app = create_app(stub_bootstrap)  # type: ignore[arg-type]
+    settings = get_settings()
+    original_auth = settings.auth
+    try:
+        # Offline schema generation has no requests or credential material, but
+        # create_app still constructs its signer. Select the explicit
+        # development-only path for this bounded operation and restore the
+        # caller's settings immediately afterward.
+        settings.auth = AuthSettings(
+            allow_ephemeral_browser_session_secret_development=True,
+        )
+        app = create_app(stub_bootstrap)  # type: ignore[arg-type]
+    finally:
+        settings.auth = original_auth
     return json.dumps(app.openapi(), indent=2, sort_keys=True) + "\n"
 
 

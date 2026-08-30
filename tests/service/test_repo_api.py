@@ -31,7 +31,7 @@ from tests.service.helpers import agent_graph, deploy_service
 from zeroth.contracts.repo_manifest import RepoUnitPolicy
 from zeroth.governance.identity import ServiceRole
 from zeroth.integrations.execution.integrity import AdmissionController
-from zeroth.integrations.execution.sandbox import SandboxManager
+from zeroth.integrations.execution.sandbox import SandboxConfig, SandboxManager
 from zeroth.integrations.github.app_jwt import AppJwtIssuer
 from zeroth.integrations.github.checkout import CheckoutService
 from zeroth.integrations.github.client import GitHubAppClient
@@ -118,6 +118,13 @@ def repo_auth_config() -> ServiceAuthConfig:
                 secret="reviewer-key",
                 subject="reviewer",
                 roles=[ServiceRole.REVIEWER],
+                tenant_id="default",
+            ),
+            StaticApiKeyCredential(
+                credential_id="admin",
+                secret="admin-key",
+                subject="admin",
+                roles=[ServiceRole.ADMIN],
                 tenant_id="default",
             ),
             StaticApiKeyCredential(
@@ -247,7 +254,9 @@ async def make_api_rig(
         github_repository=github_repository,
         audit_repository=audit_repository,
         policy=policy,
-        sandbox_manager=SandboxManager(),
+        sandbox_manager=SandboxManager(
+            config=SandboxConfig(allow_untrusted_local_development=True)
+        ),
         admission_controller=admission,
         deployment_ref=deployment_ref,
         tenant_id=tenant_id,
@@ -319,17 +328,20 @@ async def _repo_app(
 async def test_full_repo_api_flow(sqlite_db, tmp_path) -> None:
     app, service, rig = await _repo_app(sqlite_db, tmp_path, "flow")
     operator = _headers("operator-key")
+    admin = _headers("admin-key")
     try:
         with TestClient(app) as client:
+            denied = client.post("/v1/repos/installations/1/claim", headers=operator)
+            assert denied.status_code == 403
             # Claim re-verifies live and answers the installation summary.
-            claimed = client.post("/v1/repos/installations/1/claim", headers=operator)
+            claimed = client.post("/v1/repos/installations/1/claim", headers=admin)
             assert claimed.status_code == 200, claimed.text
             assert claimed.json()["installation_id"] == 1
             assert claimed.json()["status"] == "active"
             assert claimed.json()["account_login"] == "acme"
 
             # An unknown installation claims as a byte-stable 404.
-            missing = client.post("/v1/repos/installations/999/claim", headers=operator)
+            missing = client.post("/v1/repos/installations/999/claim", headers=admin)
             assert missing.status_code == 404
             assert missing.json() == {"detail": "installation not found"}
 

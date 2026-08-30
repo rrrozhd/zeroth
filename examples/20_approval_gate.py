@@ -191,7 +191,20 @@ async def seed_and_build_app():
         auth_config=demo_auth_config(),
         enable_durable_worker=True,
     )
-    return create_app(bootstrap)
+    # This example is an explicitly local, single-process development server.
+    # Opt into an ephemeral browser-session signer only for app construction;
+    # production settings reject this compatibility path.
+    from zeroth.platform.config.settings import AuthSettings, get_settings
+
+    settings = get_settings()
+    original_auth = settings.auth
+    settings.auth = AuthSettings(
+        allow_ephemeral_browser_session_secret_development=True,
+    )
+    try:
+        return create_app(bootstrap)
+    finally:
+        settings.auth = original_auth
 
 
 async def run_client(base_url: str) -> None:

@@ -10,21 +10,19 @@ What ``grants`` bounds, and what it does not
 --------------------------------------------
 ``grants`` gates **which graphs may reference this server**: an ``mcp_tool``
 node publishes only if its ``capability_bindings`` stay inside this list. It
-says nothing whatever about the process the server becomes. ``command``,
-``args`` and ``env`` are handed to the transport verbatim -- no command
-allowlist, no binary or image digest pin, no ``cwd``, no rlimits, no uid drop,
-no sandbox -- so a principal holding ``MCP_ADMIN`` can run arbitrary code as the
-service user. That is the deliberate shape of an admin-tier role, not an
-oversight; it is why ``OPERATOR`` does not hold ``MCP_ADMIN``. Read any
-"ceiling" in this module as a ceiling on *references*, never on the child
-process. The only real bound on that child is inherited: the MCP SDK spawns it
-with an environment allowlist rather than a copy of the service's own, pinned by
-``tests/integrations/test_mcp_server_registry.py``.
+says nothing whatever about the process the server becomes. The operator-owned,
+digest-pinned Docker profile supplies the real process boundary; secure defaults
+refuse discovery and dispatch when that profile is absent. The explicit
+development-only escape hatch hands ``command``, ``args`` and ``env`` to the
+legacy host transport and makes a principal holding ``MCP_ADMIN`` able to run
+arbitrary code as the service user; production rejects that flag. This is why
+``OPERATOR`` does not hold ``MCP_ADMIN``. Read any "ceiling" in this module as a
+ceiling on *references*, never on the child process.
 
 Two live qualifications on "the author cannot edit it":
 
-* The deprecated inline ``agent.mcp_servers`` path still publishes (a WARNING,
-  not an error, in ``GraphValidator.validate_agent_capabilities``). On that path
+* The deprecated inline ``agent.mcp_servers`` path is rejected by default (the
+  development-only flag downgrades it to a warning). On that path
   the author picks the binary, argv and env themselves and no row here bounds
   them. Until it is removed, this table is the operator-owned side for
   ``mcp_tool`` nodes only.

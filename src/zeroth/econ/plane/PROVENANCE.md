@@ -30,8 +30,9 @@ boot: `psycopg` (Postgres only), `kafka-python` (lazy), `prometheus-client` (laz
 - Its own JWT bearer auth (`zeroth.econ.plane.auth`). Tokens are minted via the open
   `POST /v1/auth/token` issuer signed with `ECP_JWT_SECRET` (set this in prod).
 
-The Zeroth ↔ control-plane wire stays HTTP (design decision D-12: budget enforcement
-fails open if the backend is unreachable).
+The Zeroth ↔ control-plane wire stays HTTP. Budget admission now fails closed if
+the backend is unreachable, malformed, or reports incomplete measurement;
+explicit fail-open remains development/availability compatibility only.
 
 ## Running standalone
 

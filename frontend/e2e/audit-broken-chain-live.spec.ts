@@ -33,28 +33,16 @@ test.describe("disposable broken audit-chain product surface", () => {
     const identityBody = await identity.json() as { tenant_id?: string };
     expect(identityBody.tenant_id).toBe(tenant);
 
-    // Establish the console origin before writing localStorage. Browser engines
-    // differ on whether an init script may touch storage in the initial opaque
-    // about:blank document, so this checkpoint makes the persisted connection
-    // state explicit before navigating to Audit.
-    await page.goto("/console/", { waitUntil: "domcontentloaded" });
-    await page.evaluate(({ base, evaluationTenant, key }) => {
-      window.localStorage.setItem("zeroth.apiBase", base);
-      window.localStorage.setItem("zeroth.apiKey", key);
-      window.localStorage.setItem("zeroth.env", "local-evaluation");
-      window.localStorage.setItem("zeroth.tenant", evaluationTenant);
-    }, { base: apiBase, evaluationTenant: tenant, key: apiKey! });
     const documentResponse = await page.goto("/console/audit/", { waitUntil: "domcontentloaded" });
     expect(documentResponse?.status()).toBe(200);
     await expect(page.locator("main")).toBeVisible();
     const verify = page.locator('[data-evidence-id="audit.verify-chain"]');
     if (!await verify.isVisible({ timeout: 10_000 }).catch(() => false)) {
       // A cold Next development compile can hydrate the prerendered disconnected
-      // state before the client observes persisted configuration. Prove storage
-      // is present, then exercise the real refresh-restoration path.
-      const keyLength = await page.evaluate(() =>
-        window.localStorage.getItem("zeroth.apiKey")?.length ?? 0);
-      expect(keyLength).toBeGreaterThan(0);
+      // state before the client observes persisted non-secret session metadata.
+      const sessionActive = await page.evaluate(() =>
+        window.localStorage.getItem("zeroth.sessionActive"));
+      expect(sessionActive).toBe("1");
       await page.reload({ waitUntil: "domcontentloaded" });
     }
     await expect(verify).toBeVisible({ timeout: 20_000 });

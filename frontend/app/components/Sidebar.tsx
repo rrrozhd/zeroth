@@ -10,7 +10,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV } from "./nav";
 import { VERSION } from "@/app/lib/version";
-import { getApiBase, getApiKey } from "@/app/lib/config";
+import { getApiBase } from "@/app/lib/config";
 import { useRegulus } from "./regulusContext";
 import { ConnectBar } from "./ConnectBar";
 import { StatusDot } from "./primitives";
@@ -31,12 +31,11 @@ export function Sidebar({
   const [connectOpen, setConnectOpen] = useState(false);
   // Read localStorage-derived connection info after mount so the static prerender
   // and first client render agree (no hydration mismatch).
-  const [conn, setConn] = useState<{ host: string; key: string }>({
+  const [conn, setConn] = useState<{ host: string }>({
     host: "127.0.0.1:8000",
-    key: "",
   });
   useEffect(() => {
-    setConn({ host: getApiBase() || "127.0.0.1:8000", key: getApiKey() });
+    setConn({ host: getApiBase() || "127.0.0.1:8000" });
   }, []);
 
   return (

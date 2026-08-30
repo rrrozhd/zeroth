@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { configurePage } from "./support/live-evaluation";
 
 const workflowId =
   process.env.ZEROTH_EVALUATION_IF_WORKFLOW_ID ??
@@ -8,18 +9,11 @@ const workflowId =
 test.beforeEach(async ({ page }) => {
   const apiKey = process.env.ZEROTH_EVALUATION_API_KEY;
   if (!apiKey) return;
-  await page.addInitScript(
-    ({ apiBase, key, tenant }) => {
-      window.localStorage.setItem("zeroth.apiBase", apiBase);
-      window.localStorage.setItem("zeroth.apiKey", key);
-      window.localStorage.setItem("zeroth.env", "local-evaluation");
-      window.localStorage.setItem("zeroth.tenant", tenant);
-    },
-    {
-      apiBase: process.env.ZEROTH_EVALUATION_API_BASE ?? "http://127.0.0.1:8122",
-      key: apiKey,
-      tenant: process.env.ZEROTH_EVALUATION_TENANT ?? "evaluation-studio-v1",
-    },
+  await configurePage(
+    page,
+    process.env.ZEROTH_EVALUATION_API_BASE ?? "http://127.0.0.1:8122",
+    process.env.ZEROTH_EVALUATION_TENANT ?? "evaluation-studio-v1",
+    apiKey,
   );
 });
 

@@ -23,7 +23,7 @@
 //   ManifestSummaryResponse: manifest_ref (name), kind (the categorical badge — a
 //     manifest has no lifecycle "status"), runtime (nullable), description (nullable).
 //
-// The API key lives only in localStorage (lib/config) — never logged, never in a URL.
+// Browser authentication uses a short-lived HttpOnly session cookie.
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -43,7 +43,7 @@ import {
   type ManifestSummary,
   type MetricsResponse,
 } from "@/app/lib/api";
-import { getApiBase, getApiKey, isConfigured } from "@/app/lib/config";
+import { getApiBase, isConfigured } from "@/app/lib/config";
 import { ManifestInspector } from "./ManifestInspector";
 
 // --------------------------------------------------------------------------
@@ -111,8 +111,8 @@ function readMetrics(data: unknown): MetricsView {
  *  `# TYPE …`) makes it throw a raw SyntaxError, NOT an ApiError. Network/HTTP
  *  failures come back as ApiError and are genuinely fatal (rethrow → error state);
  *  a non-ApiError means the body arrived but wasn't JSON, so refetch and read it
- *  as text. The API key is taken from lib/config and sent as a header — never
- *  logged, never placed in the URL. */
+ *  as text. Authentication uses the short-lived HttpOnly session cookie; the
+ *  exchanged API key is never persisted, logged, or placed in the URL. */
 async function loadMetrics(): Promise<MetricsResponse> {
   try {
     return await getMetrics();
@@ -124,11 +124,10 @@ async function loadMetrics(): Promise<MetricsResponse> {
 
 async function fetchMetricsText(): Promise<string> {
   const base = getApiBase();
-  const key = getApiKey();
   const headers: Record<string, string> = { Accept: "text/plain, */*" };
-  if (key) headers["X-API-Key"] = key;
   const res = await fetch(`${base}/v1/metrics`, {
     headers,
+    credentials: "include",
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new ApiError(res.status, res.statusText);

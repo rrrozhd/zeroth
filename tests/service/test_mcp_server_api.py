@@ -20,6 +20,7 @@ from tests.service.helpers import (
     reviewer_headers,
 )
 from zeroth.service.bootstrap import bootstrap_app
+from zeroth.platform.config.settings import SandboxSettings, get_settings
 
 DEPLOYMENT = "mcp-registry-test"
 SERVER = {
@@ -29,6 +30,7 @@ SERVER = {
     "env": {"API_KEY": "s3cret"},
     "grants": ["filesystem_read", "process_spawn", "external_api_call"],
 }
+_MCP_IMAGE = "registry.example/zeroth-mcp@sha256:" + "c" * 64
 
 
 async def _app(sqlite_db, suffix: str):
@@ -105,13 +107,65 @@ async def test_an_explicit_empty_env_still_clears(sqlite_db) -> None:
     assert stored.env == {}
 
 
-async def test_discovery_failure_answers_502_rather_than_raising(sqlite_db) -> None:
+async def test_discovery_refuses_unisolated_process_by_default(sqlite_db) -> None:
+    app, _ = await _app(sqlite_db, "discover-isolation")
+    with TestClient(app) as client:
+        client.post("/v1/mcp/servers", json=SERVER, headers=admin_headers())
+        with patch("zeroth.service.api.mcp_server_api.MCPClientManager.start") as start:
+            response = client.get(
+                "/v1/mcp/servers/filesystem/tools", headers=admin_headers()
+            )
+    assert response.status_code == 503
+    start.assert_not_called()
+
+
+async def test_discovery_uses_configured_isolation_profile(sqlite_db, monkeypatch) -> None:
+    monkeypatch.setattr(
+        get_settings(),
+        "sandbox",
+        SandboxSettings(
+            mcp_isolation_image=_MCP_IMAGE,
+            mcp_isolation_allowed_environment_keys=("API_KEY",),
+        ),
+    )
+    app, _ = await _app(sqlite_db, "discover-isolated")
+    observed = []
+
+    async def start(manager):  # noqa: ANN001
+        observed.extend(manager._configs)
+        return []
+
+    with TestClient(app) as client:
+        client.post("/v1/mcp/servers", json=SERVER, headers=admin_headers())
+        with patch("zeroth.service.api.mcp_server_api.MCPClientManager.start", new=start):
+            response = client.get(
+                "/v1/mcp/servers/filesystem/tools", headers=admin_headers()
+            )
+
+    assert response.status_code == 200, response.text
+    assert observed[0].command == "docker"
+    assert observed[0].args[-5:] == [
+        _MCP_IMAGE,
+        "npx",
+        "-y",
+        "@mcp/server-filesystem",
+        "/srv/data",
+    ]
+    assert "s3cret" not in " ".join(observed[0].args)
+
+
+async def test_discovery_failure_answers_502_rather_than_raising(sqlite_db, monkeypatch) -> None:
     """The one route that runs an operator-supplied process.
 
     Its error path used to call safe_error_detail with the wrong keyword, so
     every failure raised TypeError and surfaced as a 500 with a traceback --
     the sanitisation never ran at all.
     """
+    monkeypatch.setattr(
+        get_settings(),
+        "sandbox",
+        SandboxSettings(allow_unisolated_mcp_development=True),
+    )
     app, _ = await _app(sqlite_db, "discover-fails")
     with TestClient(app, raise_server_exceptions=False) as client:
         client.post("/v1/mcp/servers", json=SERVER, headers=admin_headers())

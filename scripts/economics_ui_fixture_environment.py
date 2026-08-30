@@ -61,6 +61,9 @@ def fixture_environment(
         "ECP_JWT_SECRET": "economics-ui-fixture-jwt-v1",
         "ECP_SERVICE_PRINCIPAL_TENANT_ID": FIXTURE_TENANT,
         "ZEROTH_SERVICE_API_KEYS_JSON": json.dumps(credentials, separators=(",", ":")),
+        "ZEROTH_AUTH__BROWSER_SESSION_SECRET": (
+            "economics-ui-fixture-browser-session-secret-v1-32-bytes"
+        ),
         "ZEROTH_SECRETS__BACKEND": "env",
         "ZEROTH_SECRETS__ALLOW_ENV_FALLBACK": "false",
         "ZEROTH_PROVENANCE__MODE": "off",

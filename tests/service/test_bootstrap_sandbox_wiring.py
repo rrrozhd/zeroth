@@ -11,10 +11,20 @@ manager to the runner end-to-end.
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 from zeroth.integrations.execution.sandbox import SandboxBackendMode, SandboxConfig
-from zeroth.platform.config.settings import SandboxSettings, get_settings
+from zeroth.platform.config.settings import (
+    AuthSettings,
+    SandboxSettings,
+    ZerothSettings,
+    get_settings,
+)
+from zeroth.service.api.authentication import ServiceAuthenticator
+from zeroth.service.app import create_app
 from zeroth.service.bootstrap.factory import _build_sandbox_manager
+
+_MCP_IMAGE = "registry.example/zeroth-mcp@sha256:" + "b" * 64
 
 
 def test_default_settings_produce_bare_sandbox_config() -> None:
@@ -54,6 +64,79 @@ def test_sidecar_without_secret_fails_closed(monkeypatch) -> None:
         _build_sandbox_manager(SandboxSettings(backend="sidecar"))
 
 
+@pytest.mark.parametrize(
+    "escape_hatch",
+    ["allow_untrusted_local_development", "allow_unisolated_mcp_development"],
+)
+def test_production_rejects_development_only_execution_escape_hatches(escape_hatch) -> None:
+    with pytest.raises(ValueError, match="development-only"):
+        ZerothSettings(
+            deployment_mode="production",
+            auth={"browser_session_secret": "s" * 32},
+            sandbox=SandboxSettings(**{escape_hatch: True}),
+        )
+
+
+def test_production_requires_shared_browser_session_secret() -> None:
+    with pytest.raises(ValueError, match="shared browser_session_secret"):
+        ZerothSettings(deployment_mode="production")
+
+
+def test_service_refuses_implicit_ephemeral_browser_session_signing(monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "auth", AuthSettings())
+    bootstrap = SimpleNamespace(
+        authenticator=ServiceAuthenticator(),
+        langgraph_gateway_compatibility=None,
+        langgraph_gateway_proxy=object(),
+        langgraph_gateway_websocket_handler=object(),
+        regulus_client=None,
+    )
+
+    with pytest.raises(RuntimeError, match="browser session secret"):
+        create_app(bootstrap)
+
+
+def test_production_rejects_ephemeral_browser_session_development_flag() -> None:
+    with pytest.raises(ValueError, match="development-only"):
+        ZerothSettings(
+            deployment_mode="production",
+            auth={
+                "browser_session_secret": "s" * 32,
+                "allow_ephemeral_browser_session_secret_development": True,
+            },
+        )
+
+
+def test_mcp_isolation_settings_require_a_digest_pinned_image() -> None:
+    with pytest.raises(ValueError, match="digest-pinned"):
+        SandboxSettings(mcp_isolation_image="registry.example/zeroth-mcp:latest")
+
+
+def test_mcp_isolation_settings_preserve_operator_owned_profile() -> None:
+    settings = SandboxSettings(
+        mcp_isolation_image=_MCP_IMAGE,
+        mcp_isolation_network="zeroth-mcp-egress",
+        mcp_isolation_allowed_environment_keys=("API_TOKEN",),
+    )
+
+    assert settings.mcp_isolation_image == _MCP_IMAGE
+    assert settings.mcp_isolation_network == "zeroth-mcp-egress"
+    assert settings.mcp_isolation_allowed_environment_keys == ("API_TOKEN",)
+
+
+def test_platform_budget_default_is_fail_closed() -> None:
+    assert ZerothSettings().regulus.fail_closed is True
+
+
+def test_production_rejects_fail_open_budget_configuration() -> None:
+    with pytest.raises(ValueError, match="fail-closed budget"):
+        ZerothSettings(
+            deployment_mode="production",
+            auth={"browser_session_secret": "s" * 32},
+            regulus={"fail_closed": False},
+        )
+
+
 @pytest.mark.asyncio
 async def test_factory_wires_configured_backend_into_runner(sqlite_db, monkeypatch) -> None:
     from tests.service.helpers import agent_graph, deploy_service
@@ -69,3 +152,26 @@ async def test_factory_wires_configured_backend_into_runner(sqlite_db, monkeypat
     assert runner.sandbox_manager._config.docker.container_name == "wired-check"
     # (The injected-runner seam is preserved by the `executable_unit_runner or ...`
     # precedence and covered by tests/runtime/orchestration/test_characterization.py.)
+
+
+@pytest.mark.asyncio
+async def test_factory_wires_digest_pinned_mcp_isolator_into_orchestrator(
+    sqlite_db, monkeypatch
+) -> None:
+    from tests.service.helpers import agent_graph, deploy_service
+
+    monkeypatch.setattr(
+        get_settings(),
+        "sandbox",
+        SandboxSettings(
+            mcp_isolation_image=_MCP_IMAGE,
+            mcp_isolation_network="zeroth-mcp-egress",
+        ),
+    )
+
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="mcp-isolation-wiring"))
+
+    isolator = service.orchestrator.mcp_process_isolator
+    assert isolator is not None
+    assert isolator.config.image == _MCP_IMAGE
+    assert isolator.config.network == "zeroth-mcp-egress"

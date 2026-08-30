@@ -19,11 +19,12 @@ def test_security_gate_guide_assigns_every_trigger_responsibility() -> None:
     assert "skipped" in GUIDE
 
 
-def test_security_docs_make_repository_ingress_absence_an_explicit_invalidatable_proof() -> None:
+def test_security_docs_bind_enabled_repository_ingress_to_behavioral_proofs() -> None:
     combined = f"{GUIDE}\n{POLICY}".lower()
 
-    assert "repository installation" in combined
+    assert "repository" in combined
+    assert "installation" in combined
     assert "checkout" in combined
-    assert "absent" in combined
-    assert "invalidates" in combined
+    assert "tenant" in combined
+    assert "webhook" in combined
     assert "trusted materializer" in combined

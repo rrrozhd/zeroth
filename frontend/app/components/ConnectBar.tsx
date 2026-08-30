@@ -3,18 +3,17 @@
 // Connect bar: a modal editor for the runtime connection settings — API base
 // URL, API key, environment label, and tenant. Opened from the sidebar footer.
 //
-// Security: the API key is persisted to localStorage only (via setConfig). It is
-// never logged and never placed in a URL or query string.
+// Security: the API key exists only in component memory while it is exchanged
+// for a short-lived HttpOnly session cookie.
 
 import { useState } from "react";
 import {
   getApiBase,
-  getApiKey,
   getEnv,
   getTenant,
-  setConfig,
   setEnvTenant,
 } from "@/app/lib/config";
+import { createBrowserSession } from "@/app/lib/api";
 import { Button } from "./primitives";
 
 const ENVS = ["local", "staging", "production"] as const;
@@ -44,15 +43,21 @@ export function ConnectBar({ onClose }: { onClose: () => void }) {
   // Seeded from the current config on open. Reading during the static prerender
   // is safe — config.ts guards `window` and returns the defaults.
   const [base, setBase] = useState(() => getApiBase());
-  const [key, setKey] = useState(() => getApiKey());
+  const [key, setKey] = useState("");
+  const [error, setError] = useState("");
   const [env, setEnv] = useState(() => getEnv());
   const [tenant, setTenant] = useState(() => getTenant());
 
-  function save() {
-    setConfig(base, key);
-    setEnvTenant(env, tenant);
-    // Lazy refresh: reload so every data view re-fetches against the new config.
-    location.reload();
+  async function save() {
+    setError("");
+    try {
+      await createBrowserSession(base, key);
+      setEnvTenant(env, tenant);
+      // Lazy refresh: reload so every data view re-fetches against the new session.
+      location.reload();
+    } catch {
+      setError("Could not create a secure session. Check the API address and key.");
+    }
   }
 
   return (
@@ -95,6 +100,8 @@ export function ConnectBar({ onClose }: { onClose: () => void }) {
         >
           Connect
         </div>
+
+        {error ? <p role="alert">{error}</p> : null}
 
         <div style={{ marginBottom: 14 }}>
           <label style={labelStyle} htmlFor="cb-base">

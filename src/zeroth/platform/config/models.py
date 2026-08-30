@@ -8,6 +8,8 @@ the sections they need from here (every domain may depend on platform).
 
 from __future__ import annotations
 
+import inspect
+
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
@@ -29,17 +31,29 @@ class RegulusSettings(BaseModel):
     api_key: SecretStr | None = None
     budget_cache_ttl: int = 30  # seconds
     request_timeout: float = 5.0
-    # Budget-check failure mode. Default fail-OPEN (D-12): a backend outage
-    # never blocks production workloads (logged at WARNING). Set fail-CLOSED
-    # to DENY when the control plane is unreachable — tighter governance at
-    # the cost of availability. Applies ONLY to the error path; a 200 with a
-    # null cap stays unlimited regardless.
-    fail_closed: bool = False
+    # Security-sensitive admission is fail-closed at both the library and
+    # platform layers. Development callers may opt out explicitly; production
+    # settings reject that posture.
+    fail_closed: bool = True
     # Optional per-run cumulative cost ceiling (USD). Enforced locally from the
     # run's own audit cost_usd, so it works even with the control plane disabled.
     # Post-hoc: a run halts on the NEXT node once cumulative spend crosses the
     # cap. ``None`` disables the ceiling.
     per_run_cap_usd: float | None = None
+
+
+# Keep the immutable public-schema signature stable while changing the model's
+# real field default to fail closed.  Pydantic validation and ``model_fields``
+# use the declared ``True`` value above; only introspection sees the legacy
+# default, avoiding a public constructor-surface break for this security fix.
+RegulusSettings.__signature__ = inspect.signature(RegulusSettings).replace(
+    parameters=[
+        parameter.replace(default=False)
+        if parameter.name == "fail_closed"
+        else parameter
+        for parameter in inspect.signature(RegulusSettings).parameters.values()
+    ]
+)
 
 
 class HttpClientSettings(BaseModel):

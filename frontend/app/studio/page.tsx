@@ -5,7 +5,7 @@
 // the data flow is unchanged: graphs come from `listWorkflows`, a row opens the
 // canvas at `/studio/edit?id=…`, "Start from scratch" creates a draft via
 // `createWorkflow`, and each template instantiates an editable draft via
-// `instantiateTemplate`. The API key lives only in localStorage — never logged,
+// `instantiateTemplate`. Authentication uses an HttpOnly cookie — never logged,
 // never placed in a URL (rows carry the workflow id alone).
 
 import Link from "next/link";

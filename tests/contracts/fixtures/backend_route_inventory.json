@@ -75,6 +75,16 @@
   },
   {
     "kind": "APIRoute",
+    "path": "/v1/auth/session",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_browser_session",
+    "permission": null,
+    "disposition": "public"
+  },
+  {
+    "kind": "APIRoute",
     "path": "/api/studio/v1/workflows",
     "methods": [
       "GET"

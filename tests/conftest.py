@@ -33,7 +33,18 @@ os.environ.setdefault(
 )
 
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
+from zeroth.platform.config.settings import AuthSettings, get_settings  # noqa: E402
 from zeroth.service.bootstrap.migrations import run_migrations  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _shared_browser_session_secret_for_test_apps(monkeypatch):
+    """Make test application signing explicit and stable across app instances."""
+    monkeypatch.setattr(
+        get_settings(),
+        "auth",
+        AuthSettings(browser_session_secret="test-browser-session-secret-32-bytes"),
+    )
 
 
 @pytest.fixture

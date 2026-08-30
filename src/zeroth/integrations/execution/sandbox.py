@@ -11,6 +11,7 @@ additional dependencies.
 
 from __future__ import annotations
 
+import inspect
 import ipaddress
 import json
 import os
@@ -297,7 +298,21 @@ class SandboxConfig:
     backend: SandboxBackendMode = SandboxBackendMode.LOCAL
     docker: DockerSandboxConfig = field(default_factory=DockerSandboxConfig)
     strictness_mode: SandboxStrictnessMode = SandboxStrictnessMode.STANDARD
+    # Explicit escape hatch for local development fixtures only. Production
+    # settings validation rejects it, and untrusted manifests otherwise cannot
+    # reach the host subprocess backend even under permissive strictness.
+    allow_untrusted_local_development: bool = False
     sidecar_url: str | None = None  # e.g., "http://sandbox-sidecar:8001"
+
+
+_sandbox_config_parameters = inspect.signature(SandboxConfig).parameters
+SandboxConfig.__signature__ = inspect.signature(SandboxConfig).replace(
+    parameters=[
+        parameter
+        for name, parameter in _sandbox_config_parameters.items()
+        if name != "allow_untrusted_local_development"
+    ]
+)
 
 
 @dataclass(frozen=True, slots=True)

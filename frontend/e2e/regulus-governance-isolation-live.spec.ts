@@ -123,7 +123,7 @@ for (const fixture of fixtures) {
     // can replace the document while a long WebKit matrix is in flight.
     await page.evaluate(({ apiBase, tenant }) => {
       window.localStorage.setItem("zeroth.apiBase", apiBase);
-      window.localStorage.setItem("zeroth.apiKey", "deterministic-ui-credential");
+      window.localStorage.setItem("zeroth.sessionActive", "1");
       window.localStorage.setItem("zeroth.env", "local-evaluation");
       window.localStorage.setItem("zeroth.tenant", tenant);
     }, { apiBase: fixture.apiBase, tenant: fixture.tenant });

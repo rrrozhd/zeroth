@@ -395,8 +395,11 @@ def test_vendor_dd_seeded_service_reaches_health_readiness(tmp_path: Path) -> No
         "ZEROTH_REGULUS__BASE_URL": f"http://127.0.0.1:{port}/regulus/v1",
         "ZEROTH_WEBHOOK__ENABLED": "false",
         "ZEROTH_APPROVAL_SLA__ENABLED": "false",
-        "ZEROTH_REDIS__MODE": "disabled",
-        "ECP_DATABASE_URL": f"sqlite:///{tmp_path / 'econ.sqlite'}",
+            "ZEROTH_REDIS__MODE": "disabled",
+            "ZEROTH_AUTH__BROWSER_SESSION_SECRET": (
+                "test-vendor-dd-browser-session-secret-32-bytes"
+            ),
+            "ECP_DATABASE_URL": f"sqlite:///{tmp_path / 'econ.sqlite'}",
         "ECP_CONNECTOR_SPOOL_ROOT": str(tmp_path / "connector-spool"),
     }
     seeded = subprocess.run(

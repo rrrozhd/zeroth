@@ -52,6 +52,7 @@ def test_fixture_environment_is_isolated_provider_free_and_deterministic(
     assert not any(name.startswith("OPENAI_") for name in environment)
     assert environment["ZEROTH_CONSOLE_CORS_ORIGINS"] == "http://127.0.0.1:3000"
     assert environment["ZEROTH_AUTO_AGENT_RUNNERS"] == "false"
+    assert len(environment["ZEROTH_AUTH__BROWSER_SESSION_SECRET"].encode()) >= 32
     credentials = json.loads(environment["ZEROTH_SERVICE_API_KEYS_JSON"])
     assert credentials == [
         {

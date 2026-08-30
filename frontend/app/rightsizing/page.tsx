@@ -15,8 +15,9 @@
 // top-down: see what's expensive -> price alternatives -> measure equivalence.
 //
 // Correctness-mode experiments need human-labeled runs; attachQualityVerdict()
-// is the labeling affordance, surfaced only in that mode. The API key lives in
-// localStorage (lib/config) — it is never logged and never placed in a URL.
+// is the labeling affordance, surfaced only in that mode. Authentication uses
+// the short-lived HttpOnly session cookie; the exchanged API key is never
+// persisted, logged, or placed in a URL.
 
 import { useEffect, useRef, useState } from "react";
 import {

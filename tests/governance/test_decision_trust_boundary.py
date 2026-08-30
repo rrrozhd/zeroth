@@ -6,12 +6,10 @@ lived in the difference between the two.
 
 * **R6** -- a budget *outage* cannot become an allow. The audit's finding was
   that the existing R6 tests only covered the path where the checker
-  ``raise``s; the real :class:`~zeroth.econ.analytics.budget.BudgetEnforcer`
-  defaults to fail-*open* and answers an outage with ``allowed=True`` and
-  ``failure_mode="fail_open"``, which ``admit`` faithfully preserves and the
-  service converted into ALLOW. So the test here drives the real enforcer with
-  a transport that fails, never a fake reporting ``degraded=True`` -- a fake
-  would prove nothing about the posture that actually ships.
+  ``raise``s; explicit legacy fail-*open* mode answers an outage with
+  ``allowed=True`` and ``failure_mode="fail_open"``. The service must still
+  convert that compatibility input into DENY. So the test drives the real
+  enforcer with a failing transport, never a cooperative fake.
 """
 
 from __future__ import annotations
@@ -132,17 +130,18 @@ def make_service(database: Any, *, budget_checker: Any = None) -> ToolDecisionSe
 async def test_a_fail_open_budget_outage_denies_rather_than_allowing(
     sqlite_db: Any,
 ) -> None:
-    """R6: the real fail-open enforcer's outage posture is refused here.
+    """R6: an explicit compatibility fail-open outage is refused here.
 
-    The enforcer is constructed as production constructs it -- ``fail_closed``
-    left at its shipped default of ``False`` -- so this asserts against the
-    posture that actually runs. Its outage answer is ``allowed=True,
-    degraded=True, failure_mode="fail_open"``; a service reading only
-    ``allowed`` returns ALLOW, which is the audited defect.
+    Production and direct construction now default fail closed. This explicitly
+    selects the retained development/compatibility posture and proves that the
+    downstream trust boundary still refuses its permissive degraded result.
     """
-    enforcer = BudgetEnforcer(_transport=_unreachable_budget_backend)
+    enforcer = BudgetEnforcer(
+        fail_closed=False,
+        _transport=_unreachable_budget_backend,
+    )
     outage = await enforcer.check_budget_status("tenant-alpha")
-    assert outage.allowed is True, "the shipped enforcer must still fail open"
+    assert outage.allowed is True
     assert outage.failure_mode == "fail_open"
 
     service = make_service(sqlite_db, budget_checker=enforcer)

@@ -161,9 +161,27 @@ async def test_validation_rejects_mcp_agent_missing_capabilities(
 
 
 @pytest.mark.asyncio
-async def test_validation_accepts_mcp_agent_with_both_capabilities() -> None:
+async def test_validation_rejects_inline_mcp_even_with_both_capabilities() -> None:
     report = await GraphValidator().validate(
         _mcp_graph(agent_caps=["process_spawn", "external_api_call"])
     )
-    codes = [issue.code for issue in report.issues]
-    assert ValidationCode.MISSING_MCP_CAPABILITY not in codes
+    issue = next(
+        issue
+        for issue in report.issues
+        if issue.code == ValidationCode.DEPRECATED_MCP_SERVERS
+    )
+    assert issue.severity.value == "error"
+    assert "register" in issue.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_explicit_development_compatibility_allows_inline_mcp_with_warning() -> None:
+    report = await GraphValidator(allow_development_inline_mcp=True).validate(
+        _mcp_graph(agent_caps=["process_spawn", "external_api_call"])
+    )
+    issue = next(
+        issue
+        for issue in report.issues
+        if issue.code == ValidationCode.DEPRECATED_MCP_SERVERS
+    )
+    assert issue.severity.value == "warning"

@@ -43,6 +43,13 @@ GITHUB_FIELDS = (
 def _reset_settings(monkeypatch) -> None:
     import zeroth.platform.config.settings as settings_module
 
+    # This module deliberately discards the singleton after the suite-level
+    # explicit test secret is installed. Keep the reconstructed app equally
+    # explicit instead of falling back to development-only ephemeral signing.
+    monkeypatch.setenv(
+        "ZEROTH_AUTH__BROWSER_SESSION_SECRET",
+        "test-github-browser-session-secret-32-bytes",
+    )
     monkeypatch.setattr(settings_module, "_settings_singleton", None)
 
 

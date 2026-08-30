@@ -3,10 +3,10 @@
 // Types come from app/lib/api-types.ts, generated from the platform's
 // /openapi.json via `npm run gen:api` (openapi-typescript), so request/response
 // shapes cannot drift from the backend. The thin apiFetch wrapper adds the
-// runtime API base + X-API-Key from lib/config.ts.
+// runtime API base plus the browser's short-lived HttpOnly session cookie.
 
 import type { components, operations } from "./api-types";
-import { getApiBase, getApiKey } from "./config";
+import { getApiBase, isConfigured, setConfig } from "./config";
 
 type S = components["schemas"];
 
@@ -358,17 +358,15 @@ const GET_TRANSPORT_RETRY_BACKOFF_MS = 100;
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const base = getApiBase();
-  const key = getApiKey();
   // Every console data route is protected. Reject before `fetch` so eager
   // client effects cannot create misleading "unauthenticated" audit events
   // while the user is still configuring the connection.
-  if (!key) {
+  if (!isConfigured()) {
     throw new ApiError(0, "Connect to the API before loading protected data.");
   }
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body) headers.set("Content-Type", "application/json");
-  if (key) headers.set("X-API-Key", key);
 
   // Reuse one signal across both attempts so a recovery attempt cannot double
   // the request's overall deadline. Caller-owned cancellation remains
@@ -380,6 +378,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       ...init,
       signal,
       headers,
+      credentials: "include",
     });
 
   let res: Response | null = null;
@@ -439,6 +438,21 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return (await res.json()) as T;
 }
 
+/** Exchange an API key held only in component memory for an HttpOnly session. */
+export async function createBrowserSession(base: string, apiKey: string): Promise<void> {
+  const normalizedBase = base.trim().replace(/\/+$/, "");
+  const response = await fetch(`${normalizedBase}/v1/auth/session`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "X-API-Key": apiKey.trim(), Accept: "application/json" },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, "Could not create a secure browser session.");
+  }
+  setConfig(normalizedBase, "");
+}
+
 // ---- Health (also used to discover the deployment_ref) ----
 
 export function getHealth(): Promise<HealthResponse> {
@@ -465,14 +479,14 @@ export async function deploymentRef(): Promise<string> {
 // ---- Artifacts ----
 
 export async function getArtifact(artifactId: string): Promise<RetrievedArtifact> {
-  const key = getApiKey();
-  if (!key) {
+  if (!isConfigured()) {
     throw new ApiError(0, "Connect to the API before loading protected data.");
   }
   const response = await fetch(
     `${getApiBase()}/v1/artifacts/${encodeURIComponent(artifactId)}`,
     {
-      headers: { Accept: "*/*", "X-API-Key": key },
+      headers: { Accept: "*/*" },
+      credentials: "include",
       signal: AbortSignal.timeout(20_000),
     },
   );

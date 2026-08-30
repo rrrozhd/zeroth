@@ -20,7 +20,7 @@
 //     by subscription_id to get each subscription's dead-letter count N.
 //
 // Every mutation (create/update/delete connector, test, add/delete subscription,
-// replay DLQ) fires a toast and refetches. The API key lives only in localStorage
+// replay DLQ) fires a toast and refetches. Authentication uses an HttpOnly cookie
 // (lib/config) — never logged, never in a URL. Nothing here crashes when the API is
 // unconfigured or unreachable: useLoad turns failures into an inline error state.
 

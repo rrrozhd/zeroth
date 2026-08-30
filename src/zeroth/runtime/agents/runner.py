@@ -1251,6 +1251,11 @@ class AgentRunner:
         """
         if not self.config.mcp_servers:
             return
+        if not self.config.allow_development_inline_mcp:
+            raise RuntimeError(
+                "inline MCP servers are disabled; register and import pinned MCP tools "
+                "or explicitly enable local-development compatibility"
+            )
         if effective_capabilities is not None:
             require_capabilities(
                 MCP_REQUIRED_CAPABILITIES,

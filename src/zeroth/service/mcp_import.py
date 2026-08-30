@@ -42,8 +42,10 @@ from zeroth.runtime.agents.mcp import (
     MCPClientManager,
     MCPServerConfig,
     MCPTimeoutError,
+    RegisteredMCPServerConfig,
     tool_schema_hash,
 )
+from zeroth.runtime.agents.mcp_isolation import mcp_process_isolator_from_settings
 from zeroth.runtime.agents.models import ToolOutputSafetyConfig
 from zeroth.runtime.agents.sanitization import (
     ToolDeclarationSafetyError,
@@ -320,16 +322,28 @@ async def _discover(record: Any) -> list[_Discovered]:
     that connects but never answers are the three most likely first runs, and
     each of them used to reach the operator as a raw traceback.
     """
-    manager = MCPClientManager(
-        [
-            MCPServerConfig(
-                name=record.ref,
-                command=record.command,
-                args=list(record.args),
-                env=dict(record.env) or None,
-            )
-        ]
+    from zeroth.platform.config.settings import get_settings
+
+    sandbox_settings = get_settings().sandbox
+    isolator = mcp_process_isolator_from_settings(sandbox_settings)
+    if isolator is None and not sandbox_settings.allow_unisolated_mcp_development:
+        raise MCPImportError(
+            "MCP import requires an isolated process adapter; unisolated execution is disabled"
+        )
+    registered = RegisteredMCPServerConfig(
+        name=record.ref,
+        command=record.command,
+        args=list(record.args),
+        env=dict(record.env) or None,
+        grants=list(record.grants),
     )
+    transport = isolator.isolate(registered) if isolator is not None else MCPServerConfig(
+        name=registered.name,
+        command=registered.command,
+        args=registered.args,
+        env=registered.env,
+    )
+    manager = MCPClientManager([transport])
     try:
         manifests = await manager.start()
     except MCPTimeoutError as exc:
@@ -338,9 +352,14 @@ async def _discover(record: Any) -> list[_Discovered]:
             f"Check that {record.command!r} speaks MCP over stdio"
         ) from exc
     except OSError as exc:
+        remediation = (
+            "Check the configured isolation runtime and registered container command"
+            if isolator is not None
+            else "Check that the development-only command exists on PATH"
+        )
         raise MCPImportError(
             f"MCP server {record.ref!r} could not be started: {record.command!r}: {exc}. "
-            "The registered command must be an executable on this host's PATH"
+            f"{remediation}"
         ) from exc
     except Exception as exc:  # noqa: BLE001 - any discovery failure is an import failure
         raise MCPImportError(

@@ -17,12 +17,31 @@ Three consequences run through the rest of this page:
 3. What a call *guarantees* is weaker than an executable unit's — deliberately,
    and visibly in the audit trail.
 
-The workflow is **register → import → publish → run**.
+The workflow is **configure isolation → register → import → publish → run**.
+Zeroth runs registered stdio servers in an operator-owned Docker image pinned by
+digest. Without that setting, discovery and dispatch refuse before spawning.
+For local migration and transport tests only,
+`ZEROTH_SANDBOX__ALLOW_UNISOLATED_MCP_DEVELOPMENT=true` restores legacy host
+execution; production configuration rejects that flag.
 
 ## Install
 
-Nothing extra. The `mcp` client is a core dependency of `zeroth-core`, not an
-optional extra. What you do need is a service bootstrapped the normal way
+The `mcp` client is a core dependency of `zeroth-core`, not an optional extra.
+Build and scan an image containing the approved MCP servers, record its digest,
+and configure the isolation profile before bootstrapping the service:
+
+```bash
+export ZEROTH_SANDBOX__MCP_ISOLATION_IMAGE='registry.example/zeroth-mcp@sha256:<64-hex-digest>'
+export ZEROTH_SANDBOX__MCP_ISOLATION_NETWORK='none'
+export ZEROTH_SANDBOX__MCP_ISOLATION_ALLOWED_ENVIRONMENT_KEYS='["APP_TOKEN"]'
+```
+
+The adapter supplies a read-only root, no host mounts, numeric UID/GID
+`65534:65534`, all capabilities dropped, `no-new-privileges`, bounded
+CPU/memory/PIDs, a no-exec `/tmp`, and the selected network. A registration may
+provide only allowlisted environment keys and cannot override Docker-control
+environment, image, user, limits, mounts, or network. You also need a service
+bootstrapped the normal way
 (`bootstrap_service` wires the registry, the publish-time grants resolver and the
 run-scoped session pool together) and an API key holding `mcp:admin` for the two
 registry steps.
@@ -45,9 +64,9 @@ curl -s -X POST http://localhost:8000/v1/mcp/servers \
       }'
 ```
 
-Registering does not spawn anything. Listing the server's tools is the one route
-that runs the operator's command, and it is why the whole route set is
-admin-tier:
+Registering does not spawn anything. Listing tools starts the registered command
+inside the pinned image and is therefore admin-tier. Without the isolation image
+setting, it returns `503` rather than falling back to the host:
 
 ```bash
 curl -s http://localhost:8000/v1/mcp/servers/docs-search/tools \
@@ -161,7 +180,8 @@ still standing if the tool gate is ever bypassed.
 
 ## 4. Run
 
-Nothing extra to wire. The run owns its MCP sessions:
+With the isolation image configured, the run owns its isolated sessions. Without
+it, dispatch fails before spawn with `MCPIsolationRequiredError`:
 
 - one process per distinct `server_ref` per run, spawned on the first tool call
   that needs it, so two agents referencing the same server share one process;
@@ -194,17 +214,19 @@ on the server's side — see
 ## What `grants` does not do
 
 `grants` is a capability **assertion**, not a sandbox. It decides which graphs
-may *reference* a server. It does not confine the process that server runs in:
+may *reference* a server. The operator-owned Docker profile confines the
+process; the registration does not control that profile. Important limits:
 
-- `command`, `args` and `env` are unbounded — any binary on the host, any
-  arguments, any environment;
-- the server runs as the service user, with that user's filesystem, network and
-  credentials;
-- once it is running, nothing in the registry limits what it does.
+- the command and arguments still select code already present in the pinned
+  image;
+- image provenance and vulnerability scanning remain operator duties;
+- `network=none` is the safe default, while a named Docker network is not an
+  egress destination allowlist—pair it with host/firewall policy;
+- the Docker daemon remains a high-consequence host dependency.
 
-So `mcp:admin` is effectively **code execution as the service user**. Hand it
-out the way you would hand out shell access on that host, not the way you would
-hand out a workflow permission.
+In explicit unisolated development mode, command, arguments, and environment
+return to the host transport, so `mcp:admin` is effectively **code execution as
+the service user**. Never enable that mode in a shared or production service.
 
 That is also the security argument for where the permission sits. `MCP_ADMIN` is
 admin-tier and `OPERATOR` deliberately does not hold it, even though `OPERATOR`
@@ -222,9 +244,9 @@ that none of them pairs `mcp:admin` with `workflow:admin`.
 ## The deprecated inline path
 
 `AgentNodeData.mcp_servers` — servers written directly onto an agent node —
-predates `mcp_tool` nodes and still works. Publishing a graph that uses it emits
-a **warning**, not an error. The one thing the inline declaration itself can
-raise as an error is an agent missing `process_spawn` or `external_api_call`.
+predates `mcp_tool` nodes. Publishing and runtime now reject it by default. An
+explicit development compatibility flag downgrades validation to a warning and
+permits the legacy host process solely for migration/testing.
 
 Be exact about what that means while the path exists. On it, the author picks the
 binary, the argv and the environment; there is no registry row, so **there is no
@@ -263,8 +285,9 @@ against the draft, then delete the inline entry.
    capability denial, ceiling, a spawn that never handshook, schema drift.
    Anything that fails once the call has reached the server is unresolvable
    from this side.
-6. **Leaving an inline `mcp_servers` entry in place after migrating.** It keeps
-   publishing on a warning and keeps the un-ceilinged path open.
+6. **Leaving an inline `mcp_servers` entry in place after migrating.** Secure
+   defaults reject it; the development escape hatch reopens the un-ceilinged
+   path.
 
 ## Reference cross-link
 

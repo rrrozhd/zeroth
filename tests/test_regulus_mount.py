@@ -13,7 +13,8 @@ These tests assert the two things the design hinges on:
 * **Self-auth + persistence:** the real self-auth provider authenticates through
   the gate *and* econ_plane, and an ingested execution actually persists.
 
-Plus the fail-open boundary (D-12): a bad econ token -> budget still allows.
+The explicit compatibility fail-open boundary is also exercised: a bad econ
+token allows only when the test opts into ``fail_closed=False``.
 
 Skips cleanly when the ``regulus`` extra (econ_plane + python-jose) is absent.
 """
@@ -374,8 +375,7 @@ def test_minted_service_token_is_admin_and_decodable() -> None:
 
 @pytest.mark.asyncio
 async def test_budget_fails_open_on_bad_token_but_sends_headers() -> None:
-    """Decision-2 wiring is present (headers attached) AND the D-12 fail-open
-    boundary still holds when econ rejects the token (401)."""
+    """Headers are attached and explicit compatibility mode survives a 401."""
     seen: dict[str, str] = {}
 
     def handler(request):  # httpx.MockTransport handler
@@ -388,6 +388,7 @@ async def test_budget_fails_open_on_bad_token_but_sends_headers() -> None:
     enforcer = BudgetEnforcer(
         "http://regulus.test/v1",
         headers_provider=provider,
+        fail_closed=False,
         _transport=handler,
     )
     allowed, spend, cap = await enforcer.check_budget("tenant_default")
@@ -553,7 +554,7 @@ async def test_enforcer_degrades_when_budget_measurement_fields_are_omitted(payl
         return httpx.Response(200, json=payload)
 
     status = await BudgetEnforcer(
-        "http://regulus.test/v1", _transport=handler
+        "http://regulus.test/v1", fail_closed=False, _transport=handler
     ).check_budget_status("acme")
 
     assert status.allowed is True
@@ -813,7 +814,7 @@ async def test_non_default_tenant_budget_without_monkeypatch(monkeypatch) -> Non
     ``service_principal_tenant_id`` LEFT at its 'default' config value, a budget
     check for a NON-default tenant must still authenticate (per-tenant Bearer) and
     trip the cap. Pre-fix the self-auth token always claimed 'default', so the
-    check 403s on ``require_claimed_tenant`` and silently fails open (allowed=True).
+    check 403s on ``require_claimed_tenant`` and degrades instead of reading the cap.
     """
     from zeroth.econ.plane.config import settings as ecp_settings
     from zeroth.econ.plane.main import app as econ_plane_app

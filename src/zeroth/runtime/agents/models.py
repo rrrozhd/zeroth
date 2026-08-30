@@ -7,6 +7,7 @@ validate the data you put into them.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
@@ -162,6 +163,10 @@ class AgentConfig(BaseModel):
     execution_placement: ExecutionPlacement = "local_only"
     requires_approval: bool = False
     mcp_servers: list[MCPServerConfig] = Field(default_factory=list)
+    # Deprecated author-defined processes are denied unless a library caller
+    # explicitly opts into local-development compatibility. Service-built
+    # runners never derive this value from graph content.
+    allow_development_inline_mcp: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     model_params: ModelParams | None = None
 
@@ -171,6 +176,16 @@ class AgentConfig(BaseModel):
         if self.tool_attachments:
             return [attachment.alias for attachment in self.tool_attachments]
         return list(self.allowed_tools)
+
+
+_agent_config_parameters = inspect.signature(AgentConfig).parameters
+AgentConfig.__signature__ = inspect.signature(AgentConfig).replace(
+    parameters=[
+        parameter
+        for name, parameter in _agent_config_parameters.items()
+        if name != "allow_development_inline_mcp"
+    ]
+)
 
 
 class PromptMessage(BaseModel):

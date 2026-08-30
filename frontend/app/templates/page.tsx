@@ -11,10 +11,10 @@
 // row. getTemplate(name) is intentionally unused: it takes only a name (can't
 // target a specific version) and would refetch data the list already carries.
 //
-// Every mutation (create, delete-version) toasts and refetches. The API key lives
-// only in localStorage (lib/config) — never logged, never placed in a URL. Nothing
-// here crashes when the API is unconfigured or unreachable: useLoad turns failures
-// into an inline error state.
+// Every mutation (create, delete-version) toasts and refetches. Authentication is
+// carried by the short-lived HttpOnly session cookie; the exchanged API key is
+// never persisted. Nothing here crashes when the API is unconfigured or
+// unreachable: useLoad turns failures into an inline error state.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {

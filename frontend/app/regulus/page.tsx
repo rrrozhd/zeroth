@@ -7,9 +7,9 @@
 // panel owns its own useLoad, so the screen degrades panel-by-panel — Skeleton on
 // first paint, an inline error + Retry on a real failure, and a plain "no data
 // yet" on an empty (but successful) response. A fresh econ DB returns real,
-// all-zero payloads: those render as zeros, never as errors. The API key is
-// attached only inside lib/api's apiFetch (X-API-Key header) — never logged, never
-// placed in a URL.
+// all-zero payloads: those render as zeros, never as errors. Authentication uses
+// the short-lived HttpOnly session cookie; the exchanged API key is never
+// persisted, logged, or placed in a URL.
 //
 // Layout (top → bottom):
 //   - KPI row      — 5 stat tiles from rgKpis(): spend, value, net margin,

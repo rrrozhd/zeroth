@@ -35,14 +35,17 @@ from zeroth.runtime.agents.mcp import (
     MCP_REQUIRED_CAPABILITIES,
     MCPClientManager,
     MCPSchemaDriftError,
+    MCPServerConfig,
     RegisteredMCPServerConfig,
     tool_schema_hash,
 )
+from zeroth.runtime.agents.mcp_isolation import MCPProcessIsolator
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "MCPCeilingExceededError",
+    "MCPIsolationRequiredError",
     "MCPServerResolver",
     "MCPSessionPool",
     "MCPToolDispatchError",
@@ -76,6 +79,17 @@ class UnknownMCPServerError(RuntimeError):
 
     def __init__(self, server_ref: str) -> None:
         super().__init__(f"unknown MCP server {server_ref!r}")
+        self.server_ref = server_ref
+
+
+class MCPIsolationRequiredError(RuntimeError):
+    """A registered server had no trusted isolated execution adapter."""
+
+    def __init__(self, server_ref: str) -> None:
+        super().__init__(
+            f"MCP server {server_ref!r} cannot execute without an isolated, "
+            "identity-pinned process adapter"
+        )
         self.server_ref = server_ref
 
 
@@ -133,8 +147,18 @@ class _SessionOwner:
 class MCPSessionPool:
     """Lazily spawns and shares MCP sessions for the lifetime of one run."""
 
-    def __init__(self, resolver: MCPServerResolver) -> None:
+    def __init__(
+        self,
+        resolver: MCPServerResolver,
+        *,
+        allow_development_unisolated_processes: bool = False,
+        process_isolator: MCPProcessIsolator | None = None,
+    ) -> None:
         self._resolver = resolver
+        self._allow_development_unisolated_processes = (
+            allow_development_unisolated_processes
+        )
+        self._process_isolator = process_isolator
         self._managers: dict[str, MCPClientManager] = {}
         #: Registrations resolved this run, so the ceiling is read once.
         self._configs: dict[str, RegisteredMCPServerConfig] = {}
@@ -166,6 +190,8 @@ class MCPSessionPool:
             declared_capabilities=declared_capabilities,
             effective_capabilities=effective_capabilities,
         )
+        if self._process_isolator is None and not self._allow_development_unisolated_processes:
+            raise MCPIsolationRequiredError(server_ref)
         await self._session_for(config)
         self._require_pin(server_ref, tool_name, pinned_hash)
         manager = self._managers[server_ref]
@@ -289,8 +315,13 @@ class MCPSessionPool:
                 return
             ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
             closing = asyncio.Event()
+            transport_config = (
+                self._process_isolator.isolate(config)
+                if self._process_isolator is not None
+                else config
+            )
             owner = _SessionOwner(
-                task=asyncio.create_task(self._own_session(config, ready, closing)),
+                task=asyncio.create_task(self._own_session(transport_config, ready, closing)),
                 closing=closing,
             )
             self._owners[server_ref] = owner
@@ -306,7 +337,7 @@ class MCPSessionPool:
 
     async def _own_session(
         self,
-        config: RegisteredMCPServerConfig,
+        config: MCPServerConfig,
         ready: asyncio.Future[None],
         closing: asyncio.Event,
     ) -> None:

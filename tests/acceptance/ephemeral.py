@@ -237,6 +237,13 @@ class EphemeralCandidate:
                 # it outlives the session and trips the residue guard on whichever
                 # unrelated test runs next.
                 "ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR": str(self._artifacts_dir),
+                # Candidate apps reset the settings singleton and rebuild in a
+                # background thread, so the suite-level in-memory test setting
+                # cannot supply their signer. Use an explicit synthetic shared
+                # secret, exactly as a real multi-worker deployment must.
+                "ZEROTH_AUTH__BROWSER_SESSION_SECRET": (
+                    "test-ephemeral-candidate-browser-session-secret-32-bytes"
+                ),
                 # Same reasoning for the econ plane, which binds its database URL when
                 # its module is first imported — and enabling the gateway is what
                 # imports it, via the budget enforcer.

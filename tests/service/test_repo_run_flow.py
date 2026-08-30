@@ -32,7 +32,7 @@ from tests.github.repo_fixtures import (
 from zeroth.contracts.repo_manifest import RepoManifestValidationCode, RepoUnitPolicy
 from zeroth.governance.audit import AuditRepository
 from zeroth.integrations.execution.integrity import AdmissionController
-from zeroth.integrations.execution.sandbox import SandboxManager
+from zeroth.integrations.execution.sandbox import SandboxConfig, SandboxManager
 from zeroth.integrations.github.app_jwt import AppJwtIssuer
 from zeroth.integrations.github.checkout import CheckoutService
 from zeroth.integrations.github.client import GitHubAppClient
@@ -254,7 +254,9 @@ async def make_rig(
         github_repository=github_repository,
         audit_repository=audit_repository,
         policy=policy,
-        sandbox_manager=SandboxManager(),
+        sandbox_manager=SandboxManager(
+            config=SandboxConfig(allow_untrusted_local_development=True)
+        ),
         admission_controller=admission,
         deployment_ref="repo-flow-tests",
         tenant_id="default",

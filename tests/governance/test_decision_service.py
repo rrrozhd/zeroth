@@ -299,7 +299,7 @@ async def test_a_raising_policy_evaluator_denies(sqlite_db: Any) -> None:
 
 
 async def test_an_unreachable_budget_backend_denies(sqlite_db: Any) -> None:
-    """R6: the budget enforcer is fail-open, so the admission layer must not be.
+    """R6: an upstream budget failure cannot become an admission allow.
 
     Pins the term as well as the verdict: an outage is not an overspend, so
     recording it as ``budget_exceeded`` would assert a fact nobody established.

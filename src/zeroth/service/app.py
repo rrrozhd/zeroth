@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import secrets
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from zeroth.platform.observability.correlation import (
     get_correlation_id,
@@ -21,7 +22,12 @@ from zeroth.platform.observability.correlation import (
 from zeroth.service.api.approval_api import register_approval_routes
 from zeroth.service.api.artifact_api import register_artifact_routes
 from zeroth.service.api.audit_api import register_audit_routes
-from zeroth.service.api.authentication import AuthenticationError, record_service_denial
+from zeroth.service.api.authentication import (
+    AuthenticationError,
+    BrowserSessionSigner,
+    ServiceAuthenticator,
+    record_service_denial,
+)
 from zeroth.service.api.certification_api import register_certification_routes
 from zeroth.service.api.console_ui import console_cors_origins, mount_console
 from zeroth.service.api.contracts_api import register_contract_routes
@@ -58,11 +64,13 @@ _PUBLIC_HEALTH_PATHS = frozenset({"/health", "/health/live", "/health/ready"})
 # when the owning integration is disabled the route is never registered and
 # the path falls through to an ordinary 404.
 _HMAC_AUTH_PATHS = frozenset({"/integrations/github/webhook"})
+_BROWSER_SESSION_PATH = "/v1/auth/session"
+_BROWSER_SESSION_COOKIE = "__Host-zeroth_session"
 _SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; "
         "img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
-        "script-src 'self' 'unsafe-inline'; connect-src 'self' http: https: ws: wss:"
+        "script-src 'self' 'unsafe-inline'; connect-src 'self'"
     ),
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
@@ -96,6 +104,27 @@ def create_app(
         lifespan=service_lifespan,
     )
     app.state.bootstrap = bootstrap
+    from zeroth.platform.config.settings import get_settings
+
+    auth_settings = get_settings().auth
+    configured_session_secret = (
+        auth_settings.browser_session_secret.get_secret_value().encode("utf-8")
+        if auth_settings.browser_session_secret is not None
+        else None
+    )
+    if configured_session_secret is None:
+        if not auth_settings.allow_ephemeral_browser_session_secret_development:
+            raise RuntimeError(
+                "browser session secret is required; configure "
+                "ZEROTH_AUTH__BROWSER_SESSION_SECRET or explicitly enable the "
+                "development-only ephemeral signing flag"
+            )
+        configured_session_secret = secrets.token_bytes(32)
+    app.state.browser_session_signer = BrowserSessionSigner(
+        getattr(bootstrap, "authenticator", ServiceAuthenticator()),
+        secret=configured_session_secret,
+        ttl_seconds=auth_settings.browser_session_ttl_seconds,
+    )
 
     # Regulus backend URL for cost API queries (per D-16).
     regulus_client = getattr(bootstrap, "regulus_client", None)
@@ -149,7 +178,12 @@ def create_app(
         # Valid configured CORS preflights are answered by the outermost
         # CORSMiddleware before they reach this authentication boundary.
         path = request.url.path
-        if path in _PUBLIC_HEALTH_PATHS or path == "/console" or path.startswith("/console/"):
+        if (
+            path in _PUBLIC_HEALTH_PATHS
+            or path == _BROWSER_SESSION_PATH
+            or path == "/console"
+            or path.startswith("/console/")
+        ):
             cid = request.headers.get("X-Correlation-ID") or new_correlation_id()
             set_correlation_id(cid)
             response = await call_next(request)
@@ -183,9 +217,20 @@ def create_app(
         set_correlation_id(cid)
         bootstrap = app.state.bootstrap
         try:
-            request.state.principal = await asyncio.to_thread(
-                bootstrap.authenticator.authenticate_headers, request.headers
-            )
+            session_token = request.cookies.get(_BROWSER_SESSION_COOKIE)
+            if session_token:
+                if request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+                    origin = request.headers.get("Origin")
+                    request_origin = f"{request.url.scheme}://{request.url.netloc}"
+                    if origin not in {request_origin, *console_cors_origins()}:
+                        return JSONResponse(status_code=403, content={"detail": "origin denied"})
+                request.state.principal = await asyncio.to_thread(
+                    app.state.browser_session_signer.authenticate, session_token
+                )
+            else:
+                request.state.principal = await asyncio.to_thread(
+                    bootstrap.authenticator.authenticate_headers, request.headers
+                )
         except AuthenticationError as exc:
             logger.info("authentication failed: %s", exc)
             await record_service_denial(
@@ -225,6 +270,32 @@ def create_app(
             production_ready=certification.production_ready,
             certification=certification,
         )
+
+    @app.post(_BROWSER_SESSION_PATH, include_in_schema=False)
+    async def create_browser_session(request: Request) -> Response:
+        """Exchange a header credential for a short-lived HttpOnly cookie."""
+        origin = request.headers.get("Origin")
+        request_origin = f"{request.url.scheme}://{request.url.netloc}"
+        if origin is not None and origin not in {request_origin, *console_cors_origins()}:
+            return JSONResponse(status_code=403, content={"detail": "origin denied"})
+        try:
+            token = await asyncio.to_thread(
+                app.state.browser_session_signer.issue, request.headers
+            )
+        except AuthenticationError as exc:
+            return JSONResponse(status_code=401, content={"detail": str(exc)})
+        response = Response(status_code=204)
+        response.set_cookie(
+            _BROWSER_SESSION_COOKIE,
+            token,
+            max_age=app.state.browser_session_signer.ttl_seconds,
+            secure=True,
+            httponly=True,
+            samesite="none",
+            path="/",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     # Primary: versioned routes under /v1/ (per D-06)
     v1_router = APIRouter(prefix="/v1", tags=["v1"])
@@ -361,7 +432,7 @@ def create_app(
                 "Accept",
                 "X-Correlation-ID",
             ],
-            allow_credentials=False,
+            allow_credentials=True,
         )
 
     # Registered last so every API, auth, CORS, and mounted-console response

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import inspect
@@ -86,6 +87,71 @@ _open_remote_jwks = build_opener(_HTTPOnlyRedirectHandler()).open
 
 class AuthenticationError(RuntimeError):
     """Raised when a request cannot be authenticated."""
+
+
+class BrowserSessionSigner:
+    """Issue and verify short-lived, integrity-protected browser sessions."""
+
+    def __init__(
+        self,
+        authenticator: ServiceAuthenticator,
+        *,
+        secret: bytes,
+        ttl_seconds: int = 900,
+    ) -> None:
+        self._authenticator = authenticator
+        if len(secret) < 32:
+            raise ValueError("browser session secret must contain at least 32 bytes")
+        self._secret = secret
+        self._ttl_seconds = ttl_seconds
+
+    def issue(self, headers: Mapping[str, str]) -> str:
+        """Exchange existing header authentication for a signed session token."""
+        principal = self._authenticator.authenticate_headers(headers)
+        if not principal.credential_id:
+            raise AuthenticationError("browser sessions require a revocable credential")
+        payload = {
+            "exp": int(time.time()) + self._ttl_seconds,
+            "principal": principal.model_dump(mode="json"),
+        }
+        encoded = self._encode(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())
+        signature = self._encode(hmac.new(self._secret, encoded.encode(), hashlib.sha256).digest())
+        return f"{encoded}.{signature}"
+
+    @property
+    def ttl_seconds(self) -> int:
+        """Cookie lifetime kept identical to the signed token lifetime."""
+        return self._ttl_seconds
+
+    def authenticate(self, token: str) -> AuthenticatedPrincipal:
+        """Verify signature, expiry, shape, and current credential status."""
+        try:
+            encoded, supplied = token.split(".", 1)
+            expected = self._encode(
+                hmac.new(self._secret, encoded.encode(), hashlib.sha256).digest()
+            )
+            if not hmac.compare_digest(expected, supplied):
+                raise AuthenticationError("authentication required")
+            payload = json.loads(self._decode(encoded))
+            if int(payload["exp"]) <= int(time.time()):
+                raise AuthenticationError("authentication required")
+            principal = AuthenticatedPrincipal.model_validate(payload["principal"])
+            if not principal.credential_id:
+                raise AuthenticationError("authentication required")
+            self._authenticator._require_active_credential(principal.credential_id)
+            return principal
+        except AuthenticationError:
+            raise
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise AuthenticationError("authentication required") from exc
+
+    @staticmethod
+    def _encode(value: bytes) -> str:
+        return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+    @staticmethod
+    def _decode(value: str) -> bytes:
+        return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
 class CredentialStatusProvider(Protocol):

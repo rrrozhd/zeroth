@@ -8,8 +8,9 @@
 // state expose Approve / Reject — both MUTATE the Regulus control plane through
 // the console proxy, so each is gated behind a window.confirm, carries an
 // optional decision reason, toasts on success, and refetches so the list and
-// any sidebar counters catch up. The API key lives only in localStorage and is
-// attached as an X-API-Key header inside lib/api — never logged, never in a URL.
+// any sidebar counters catch up. Authentication uses the short-lived HttpOnly
+// session cookie; the exchanged API key is never persisted, logged, or placed
+// in a URL.
 
 import { useEffect, useState } from "react";
 import {

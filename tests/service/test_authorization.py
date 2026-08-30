@@ -52,6 +52,16 @@ def test_evaluation_administration_is_reserved_for_platform_admin() -> None:
     assert Permission.EVALUATION_ADMIN in ROLE_PERMISSIONS[ServiceRole.PLATFORM_ADMIN]
 
 
+def test_repository_installation_claim_is_reserved_for_admin_roles() -> None:
+    from zeroth.governance.identity import ServiceRole
+    from zeroth.service.api.authorization import ROLE_PERMISSIONS, Permission
+
+    assert Permission.REPOSITORY_ADMIN not in ROLE_PERMISSIONS[ServiceRole.OPERATOR]
+    assert Permission.REPOSITORY_ADMIN not in ROLE_PERMISSIONS[ServiceRole.REVIEWER]
+    assert Permission.REPOSITORY_ADMIN in ROLE_PERMISSIONS[ServiceRole.ADMIN]
+    assert Permission.REPOSITORY_ADMIN in ROLE_PERMISSIONS[ServiceRole.PLATFORM_ADMIN]
+
+
 def test_trusted_static_configuration_can_deliver_platform_admin() -> None:
     from zeroth.governance.identity import ServiceRole
     from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator

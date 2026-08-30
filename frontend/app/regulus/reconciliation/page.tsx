@@ -28,8 +28,8 @@
 // renders the raw wire value and captions the unit rather than inventing a transform.
 // Only real wire fields are rendered; the full payload is always in the CodeBlock.
 //
-// The API key lives only in lib/config and is sent as a header by apiFetch — never
-// logged, never placed in a URL.
+// Authentication uses the short-lived HttpOnly session cookie; the exchanged
+// API key is never persisted, logged, or placed in a URL.
 
 import { useEffect, useMemo, useState } from "react";
 import {
