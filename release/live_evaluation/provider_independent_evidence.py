@@ -18,11 +18,11 @@ import subprocess
 from pathlib import Path
 
 from .evidence import AcceptanceCriterion, CorrelationIds, EvidenceStore
+from .runtime_paths import resolve_runtime_paths
 
-WORKTREE = Path(__file__).resolve().parents[2]
-STATE_ROOT = Path(
-    "/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1"
-)
+_RUNTIME_PATHS = resolve_runtime_paths()
+WORKTREE = _RUNTIME_PATHS.worktree
+STATE_ROOT = _RUNTIME_PATHS.state_root
 DASHBOARD_ROOT = STATE_ROOT / "evidence/ui-dashboard-20260824-rerun"
 GRAPH_ROOT = STATE_ROOT / "evidence/ui-graphs-20260824"
 

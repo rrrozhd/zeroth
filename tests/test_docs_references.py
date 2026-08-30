@@ -181,7 +181,10 @@ def test_only_settings_and_runtime_environment_access_are_valid() -> None:
         "ZEROTH_ACCEPTANCE_OPERATOR_KEY",
         "ZEROTH_ACCEPTANCE_REVIEWER_KEY",
         "ZEROTH_CONSOLE_DIR",
+        "ZEROTH_LOAD_POSTGRES_INSTANCE_ID",
+        "ZEROTH_LOAD_REDIS_STARTED_AT",
         "ZEROTH_OUTPUT_FILE",
+        "ZEROTH_SCREENSHOT_API_KEY",
         "ZEROTH_SECRET__{}__{}",
         "ZEROTH_SERVICE_ROLES_JSON",
     } <= valid

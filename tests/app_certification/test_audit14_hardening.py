@@ -213,6 +213,8 @@ def test_committed_reserved_symlink_cannot_block_report_or_upload(tmp_path: Path
 
     assert result.returncode == 0, result.stderr
     assert json.loads((handoff / "report.json").read_text())["status"] == "failed"
-    assert job["env"]["HANDOFF_ROOT"].startswith("${{ runner.temp }}")
+    handoff_step = next(step for step in job["steps"] if step.get("id") == "handoff")
+    assert "HANDOFF_ROOT=\"$RUNNER_TEMP/" in handoff_step["run"]
+    assert "HANDOFF_ROOT=$HANDOFF_ROOT" in handoff_step["run"]
     assert '--root "$HANDOFF_ROOT"' in finalizer["run"]
     assert upload["with"]["path"] == "${{ env.HANDOFF_ROOT }}"

@@ -21,3 +21,12 @@ invalid retain exits 20 and 30 after the summary is written.
 
 Upload the report directory as a normal workflow artifact if longer retention is needed. Never
 upload `.zeroth/check/recordings`.
+
+The `Zeroth Check consumer fixture` job in the repository's existing CI workflow continuously
+exercises this exact composite action against `apps/check_payment` with read-only permissions.
+Treat that job as the release gate before exposing a new Action revision to consumers.
+
+Marketplace publication is not required for a pilot. An external consumer can pin a reviewed
+revision directly using `uses: OWNER/zeroth@FULL_COMMIT_SHA`. Prefer the full immutable commit over
+a moving branch or major-version tag until the pilot has established compatibility and support
+expectations.

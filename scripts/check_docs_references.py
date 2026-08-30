@@ -92,7 +92,13 @@ def valid_environment_variables(repo_root: Path) -> set[str]:
 
     add_model(ZerothSettings)
     for path in sorted((repo_root / ".github" / "workflows").glob("*.yml")):
-        names.update(re.findall(r"(?m)^\s+(ZEROTH_[A-Z0-9_]+):", path.read_text(encoding="utf-8")))
+        names.update(ENV_RE.findall(path.read_text(encoding="utf-8")))
+    for path in sorted((repo_root / "frontend" / "scripts").glob("*.mjs")):
+        source = path.read_text(encoding="utf-8")
+        names.update(
+            match.group(1)
+            for match in re.finditer(r"process\.env\.(ZEROTH_[A-Z0-9_]+)", source)
+        )
     for path in sorted((repo_root / "src" / "zeroth").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         assignments = {

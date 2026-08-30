@@ -34,6 +34,36 @@ jobs:
           uv run pytest -v --no-header -ra
           uv run interrogate src/zeroth
 
+  zeroth-check-action:
+    name: Zeroth Check consumer fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout consumer and action source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Run the real composite action against the reference consumer
+        uses: ./
+        with:
+          config: apps/check_payment/zeroth-check.yaml
+          report-dir: .zeroth/check/reports
+          fail-on: block,invalid
+      - name: Preserve sanitized reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: zeroth-check-consumer-reports
+          path: .zeroth/check/reports
+          if-no-files-found: error
+          retention-days: 7
+
   security-regression:
     name: Security regression — PR-critical
     if: github.event_name == 'pull_request'

@@ -15,10 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from .evidence import AcceptanceCriterion, EvidenceStore
+from .runtime_paths import resolve_runtime_paths
 
-STATE_ROOT = Path(
-    "/Users/dondoe/.local/share/zeroth/evaluations/evaluation-studio-v1"
-)
+STATE_ROOT = resolve_runtime_paths().state_root
 ROOT = STATE_ROOT / "evidence/health-graph-stop-checkpoint-20260824-1"
 SOURCE_ROOTS = {
     "workflow1": STATE_ROOT / "evidence/workflow1-local-20260824-1",
