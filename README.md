@@ -8,8 +8,6 @@
 <p align="center">
   <a href="https://rrrozhd.github.io/zeroth/"><img alt="Documentation" src="https://img.shields.io/badge/docs-live-4f46e5"></a>
   <a href="https://github.com/rrrozhd/zeroth/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rrrozhd/zeroth/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://pypi.org/project/zeroth-core/"><img alt="PyPI" src="https://img.shields.io/pypi/v/zeroth-core"></a>
-  <a href="https://pypi.org/project/zeroth-core/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/zeroth-core"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
 </p>
 
@@ -118,7 +116,7 @@ procedure when a clean campaign is intended.
 
 ---
 
-## Install
+## Install (PyPI temporarily unavailable)
 
 Install from a source checkout — the documented, current path:
 
