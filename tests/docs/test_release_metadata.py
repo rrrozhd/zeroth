@@ -45,6 +45,11 @@ def test_frontend_version_tracks_project_version() -> None:
     assert f'export const VERSION = "{expected_version}";' in frontend
 
 
+def test_service_image_writes_default_artifacts_to_data_volume() -> None:
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR=/data/artifacts" in dockerfile
+
+
 def test_langgraph_release_version_tracks_project_version() -> None:
     expected_version = project_version()
     guide = (REPO_ROOT / "docs/how-to/deployment/langgraph-release.md").read_text(encoding="utf-8")

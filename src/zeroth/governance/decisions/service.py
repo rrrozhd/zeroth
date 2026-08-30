@@ -24,8 +24,7 @@ than a fall-through to allow.
    that would otherwise have allowed.
 
 **Why admission is reused, and what reusing it does *not* buy.**
-:class:`~zeroth.econ.analytics.budget.BudgetEnforcer` is deliberately fail-*open*
--- a budget-observability outage must not stop production runs.
+:class:`~zeroth.econ.analytics.budget.BudgetEnforcer` is fail-closed by default.
 The admission combiner reached through
 :class:`~zeroth.governance.decisions.admission.AdmissionEvaluator` converts a
 budget checker that *raises* into a refusal (``zeroth.budget_unavailable``), and
@@ -37,11 +36,10 @@ the admission path itself is unchanged and unduplicated.
 But it converts only the raising path. An enforcer that catches its own
 transport error and returns ``allowed=True, degraded=True,
 failure_mode="fail_open"`` -- which is exactly what the shipped
-``fail_closed=False`` default does -- flows through the combiner as a *permitted*
-admission. Reusing the combiner therefore does not by itself make this path
-fail closed, and an earlier revision of this module was wrong to imply it did:
-the fail-closed-ness lived in the raising branch only. ``_evaluate`` refuses a
-degraded budget check explicitly, and
+explicit ``fail_closed=False`` compatibility mode does -- flows through the
+combiner as a *permitted* admission. Reusing the combiner therefore does not by
+itself close that opt-out. ``_evaluate`` refuses a degraded budget check as
+defense in depth, and
 ``tests/governance/test_decision_trust_boundary.py`` pins it against the real
 enforcer rather than a cooperative double.
 
@@ -299,11 +297,10 @@ class ToolDecisionService:
             )
         if admission.budget_check_degraded:
             # An *allow* carrying a degraded budget check is the fail-open
-            # posture, not a verdict. ``BudgetEnforcer`` ships with
-            # ``fail_closed=False`` (econ/analytics/budget.py:170-176) and
-            # answers an outage with ``allowed=True, failure_mode="fail_open"``
-            # so that a budget-observability outage cannot stop production
-            # runs. The combiner faithfully preserves that answer, which is
+            # posture, not a verdict. Explicit compatibility configuration can
+            # make ``BudgetEnforcer`` answer an outage with
+            # ``allowed=True, failure_mode="fail_open"``. The combiner
+            # faithfully preserves that answer, which is
             # correct for run creation and wrong here: this service exists to
             # refuse what it cannot justify, and "the cap is unknown" is not a
             # justification. Checked after the refusal branch above so a

@@ -26,7 +26,7 @@ from zeroth.integrations.execution.runner import (
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
 )
-from zeroth.integrations.execution.sandbox import SandboxManager
+from zeroth.integrations.execution.sandbox import SandboxConfig, SandboxManager
 
 
 class DemoInput(BaseModel):
@@ -131,7 +131,11 @@ async def test_declared_local_cost_survives_wrapped_command_failure(tmp_path: Pa
 @pytest.mark.asyncio
 async def test_inline_code_failure_is_measured_zero_provider_cost() -> None:
     """A local Studio code crash must not make strict budgets indeterminate."""
-    runner = ExecutableUnitRunner()
+    runner = ExecutableUnitRunner(
+        sandbox_manager=SandboxManager(
+            config=SandboxConfig(allow_untrusted_local_development=True)
+        )
+    )
 
     with pytest.raises(ExecutableUnitExecutionError) as exc_info:
         await runner.run_inline_source(

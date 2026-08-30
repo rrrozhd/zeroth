@@ -1,7 +1,7 @@
 """Tests for budget enforcement: BudgetEnforcer and BudgetExceededError.
 
-Covers under-budget, over-budget, TTL cache hits, fail-open on
-Regulus unavailability, and BudgetExceededError attributes.
+Covers under-budget, over-budget, TTL cache hits, fail-closed defaults,
+explicit fail-open compatibility, and BudgetExceededError attributes.
 Also integration tests for AgentRunner with budget_enforcer.
 """
 
@@ -270,6 +270,7 @@ async def test_check_budget_fail_open_connection_error():
         "http://regulus.test/v1",
         cache_ttl=30,
         timeout=5.0,
+        fail_closed=False,
         _transport=error_handler,
     )
     allowed, spend, cap = await enforcer.check_budget("tenant-1")
@@ -290,6 +291,7 @@ async def test_check_budget_fail_open_is_logged(caplog):
         "http://regulus.test/v1",
         cache_ttl=30,
         timeout=5.0,
+        fail_closed=False,
         _transport=error_handler,
     )
     with caplog.at_level(logging.WARNING, logger="zeroth.econ.analytics.budget"):
@@ -312,6 +314,7 @@ async def test_check_budget_fail_open_timeout():
         "http://regulus.test/v1",
         cache_ttl=30,
         timeout=5.0,
+        fail_closed=False,
         _transport=timeout_handler,
     )
     allowed, spend, cap = await enforcer.check_budget("tenant-1")
@@ -337,8 +340,7 @@ def test_budget_exceeded_error_attributes():
 
 @pytest.mark.asyncio
 async def test_budget_fail_closed_denies_on_backend_error(caplog):
-    """fail_closed=True denies (False, 0.0, 0.0) + WARNING on backend error;
-    the default (fail_closed=False) still fails open (allowed=True)."""
+    """The default denies; fail-open remains an explicit compatibility mode."""
     import logging
 
     def error_handler(request: httpx.Request) -> httpx.Response:
@@ -357,15 +359,32 @@ async def test_budget_fail_closed_denies_on_backend_error(caplog):
     assert cap == 0.0
     assert any("tenant-closed" in r.message and "CLOSED" in r.message for r in caplog.records)
 
-    # Fail-open (default): ALLOW.
+    # Explicit compatibility mode: ALLOW.
     open_ = BudgetEnforcer(
         "http://regulus.test/v1",
+        fail_closed=False,
         _transport=error_handler,
     )
     allowed, spend, cap = await open_.check_budget("tenant-open")
     assert allowed is True
     assert spend == 0.0
     assert cap == float("inf")
+
+
+@pytest.mark.asyncio
+async def test_budget_enforcer_direct_default_denies_backend_failure() -> None:
+    def error_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Connection refused")
+
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1",
+        _transport=error_handler,
+    )
+
+    status = await enforcer.check_budget_status("tenant-default-closed")
+
+    assert status.allowed is False
+    assert status.failure_mode == "fail_closed"
 
 
 @pytest.mark.asyncio
@@ -526,7 +545,9 @@ async def test_incomplete_measurement_enforces_floor_not_poison():
     handler = _mock_transport(
         json_data={"measurement_complete": False, "total_cost_usd": 12.0, "budget_cap_usd": 20.0}
     )
-    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1", fail_closed=False, _transport=handler
+    )
     status = await enforcer.check_budget_status("t")
     assert status.allowed is True  # floor 12 < cap 20 -> allow (fail-open, D-12)
     assert status.degraded is True
@@ -540,7 +561,9 @@ async def test_incomplete_measurement_denies_when_floor_over_cap():
     handler = _mock_transport(
         json_data={"measurement_complete": False, "total_cost_usd": 25.0, "budget_cap_usd": 20.0}
     )
-    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1", fail_closed=False, _transport=handler
+    )
     status = await enforcer.check_budget_status("t")
     assert status.allowed is False  # floor already over cap -> deny in both modes
     assert status.spend_usd == 25.0
@@ -560,7 +583,9 @@ async def test_incomplete_measurement_fail_closed_denies_under_floor():
 async def test_omitted_measurement_field_still_degrades_as_outage():
     # A payload with NO completeness signal is malformed -> outage/degrade, unchanged.
     handler = _mock_transport(json_data={"total_cost_usd": 12.0, "budget_cap_usd": 20.0})
-    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    enforcer = BudgetEnforcer(
+        "http://regulus.test/v1", fail_closed=False, _transport=handler
+    )
     status = await enforcer.check_budget_status("t")
     assert status.degraded is True
     assert status.failure_mode == "fail_open"  # outage path, not the floor path

@@ -199,11 +199,10 @@ EXPECTED: dict[str, list[tuple[str, str, str, tuple[str, ...], str | None, str |
         ),
     ],
     "mcp_capability": [
-        # The deprecation warning fires first and is independent of the grant
-        # check: an inline mcp_servers entry is superseded whether or not the
-        # agent happens to hold the capabilities it needs.
+        # Inline author-controlled process definitions are a hard error by
+        # default; development compatibility must be selected explicitly.
         (
-            "warning",
+            "error",
             "deprecated_mcp_servers",
             "agent 'agent' declares inline mcp_servers, which is deprecated: the server's command is author-controlled and its tools are unpinned. Register the server with an operator (POST /v1/mcp/servers) and import its tools with `zeroth-core mcp-import`",
             ("nodes", "agent", "agent", "mcp_servers"),

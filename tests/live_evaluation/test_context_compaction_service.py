@@ -32,6 +32,9 @@ def test_context_checkpoint_service_leaves_no_writable_repo_residue(tmp_path: Pa
     ):
         env.pop(name, None)
     env["ZEROTH_CONTEXT_CHECKPOINT_API_KEY"] = "local-checkpoint-credential-for-test-only"
+    env["ZEROTH_AUTH__BROWSER_SESSION_SECRET"] = (
+        "test-context-checkpoint-browser-session-secret-32-bytes"
+    )
     process = subprocess.Popen(
         [
             sys.executable,

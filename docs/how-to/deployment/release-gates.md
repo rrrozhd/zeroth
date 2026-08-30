@@ -115,14 +115,15 @@ run, so the evidence itself carries a signature rather than only the image it
 describes.
 
 The operator must treat the security matrix as reviewed scope, not as a broad
-claim that every future endpoint is already covered. In particular, repository
-installations and repository checkouts are currently **absent** public ingress.
-The matrix proves that the reviewed public route inventory exposes no such
-ingress and that project execution fails closed without a trusted materializer.
-Adding a repository-installation endpoint, checkout path, GitHub App ingress,
-or trusted materializer invalidates this absence proof. The feature must not be
-promoted until the inventory, matrix cases, tenant-isolation tests, and release
-evidence are updated to cover its real read/write/execute lifecycle.
+claim that every future endpoint is already covered. GitHub repository
+installation, webhook, checkout, and repository-run ingress are enabled when
+the GitHub App is configured. The matrix therefore binds behavioral proofs for
+admin-only installation claiming, tenant/workspace isolation, authenticated and
+replay-safe webhooks, malicious ref/tree rejection, checkout containment, token
+redaction, trusted materializer boundaries, revocation, and recovery. Enabling
+another repository provider or changing this lifecycle invalidates the evidence
+until the inventory, matrix cases, isolation tests, and release records cover
+the new read/write/execute surface.
 
 ## Load and recovery profile
 

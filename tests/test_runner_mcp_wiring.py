@@ -51,6 +51,9 @@ def _make_config(**overrides) -> AgentConfig:
         "model_name": "test-model",
         "input_model": SimpleInput,
         "output_model": SimpleOutput,
+        # This module characterizes the legacy transport. Individual security
+        # tests below remove the explicit development-only compatibility flag.
+        "allow_development_inline_mcp": True,
     }
     defaults.update(overrides)
     return AgentConfig(**defaults)
@@ -96,6 +99,19 @@ class TestAgentConfigMCPServers:
 
 
 class TestAgentRunnerMCPWiring:
+    @pytest.mark.asyncio
+    async def test_inline_mcp_runtime_is_denied_without_development_flag(self):
+        config = _make_config(
+            mcp_servers=[MCPServerConfig(name="test", command="echo", args=[])],
+            allow_development_inline_mcp=False,
+        )
+        runner = AgentRunner(config, AsyncMock())
+
+        with pytest.raises(RuntimeError, match="inline MCP servers are disabled"):
+            await runner._start_mcp_servers(None)
+
+        assert runner._mcp_manager is None
+
     def test_no_mcp_manager_without_servers(self):
         config = _make_config()
         provider = AsyncMock()

@@ -45,6 +45,9 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "cost_measurement_complete",
         "estimated_cost_usd",
     ),
+    "zeroth.integrations.execution.sandbox:SandboxConfig": (
+        "allow_untrusted_local_development",
+    ),
     "zeroth.econ.analytics.client:RegulusClient": ("_asgi_app",),
     "zeroth.econ.instrumentation.client:InstrumentationClient": ("_asgi_app",),
     "zeroth.econ.instrumentation.schemas:ExecutionEvent": (
@@ -156,6 +159,9 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "estimated_cost_usd",
         "usage_measurement",
     ),
+    "zeroth.runtime.agents.models:AgentConfig": (
+        "allow_development_inline_mcp",
+    ),
     "zeroth.runtime.context.models:CompactionResult": (
         "cost_measurement",
         "cost_usd",
@@ -178,7 +184,9 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     "zeroth.runtime.orchestration.orchestrator:RuntimeOrchestrator": (
         "_mcp_pools",
         "_token_snapshot_store",
+        "allow_development_unisolated_mcp_processes",
         "cost_instrumentation",
+        "mcp_process_isolator",
         "mcp_server_resolver",
         "operation_store",
     ),
@@ -288,6 +296,14 @@ SIGNATURE_ANNOTATION_OVERRIDES: dict[str, tuple[str, ...]] = {
     "zeroth.platform.artifacts.models:ArtifactStoreSettings": ("backend",),
 }
 
+#: Constructor fields whose runtime default changed while the immutable legacy
+#: signature continues to report the prior default. Values are
+#: ``(real_runtime_default, reported_compatibility_default)``.
+SIGNATURE_DEFAULT_OVERRIDES: dict[str, dict[str, tuple[Any, Any]]] = {
+    "zeroth.econ.analytics.budget:BudgetEnforcer": {"fail_closed": (True, False)},
+    "zeroth.platform.config.models:RegulusSettings": {"fail_closed": (True, False)},
+}
+
 
 def _resolve(reference: str) -> Any:
     module, _, name = reference.partition(":")
@@ -312,6 +328,14 @@ def declared_fields(target: Any) -> set[str]:
 def hidden_fields(target: Any) -> set[str]:
     """Fields the class accepts but does not report in its signature."""
     return declared_fields(target) - set(inspect.signature(target).parameters)
+
+
+def real_default(target: Any, field: str) -> Any:
+    """Read a constructor default without being shadowed by ``__signature__``."""
+    model_fields = getattr(target, "model_fields", None)
+    if model_fields is not None:
+        return model_fields[field].default
+    return inspect.signature(target.__init__).parameters[field].default
 
 
 def test_service_bootstrap_records_internal_template_dependency_checker() -> None:
@@ -343,6 +367,20 @@ def test_the_recorded_annotation_overrides_match_real_fields(reference: str) -> 
             inspect.signature(target).parameters[field].annotation
             != target.model_fields[field].annotation
         )
+
+
+@pytest.mark.parametrize("reference", sorted(SIGNATURE_DEFAULT_OVERRIDES))
+def test_the_recorded_default_overrides_match_runtime_and_reported_values(
+    reference: str,
+) -> None:
+    target = _resolve(reference)
+    for field, (runtime_default, reported_default) in SIGNATURE_DEFAULT_OVERRIDES[
+        reference
+    ].items():
+        assert field in declared_fields(target)
+        assert real_default(target, field) == runtime_default
+        assert inspect.signature(target).parameters[field].default == reported_default
+        assert runtime_default != reported_default
 
 
 def _module_reference(path: Path) -> str:
@@ -462,7 +500,9 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
         site
         for site in class_signature_assignments()
         if _recorded_reference(site)
-        not in HIDDEN_CONSTRUCTOR_FIELDS | SIGNATURE_ANNOTATION_OVERRIDES
+        not in HIDDEN_CONSTRUCTOR_FIELDS
+        | SIGNATURE_ANNOTATION_OVERRIDES
+        | SIGNATURE_DEFAULT_OVERRIDES
     )
 
     assert unrecorded == [], (
@@ -475,7 +515,12 @@ def test_the_record_names_no_class_that_stopped_hiding() -> None:
     """The other direction: a recorded entry whose assignment is gone must go too."""
     assigning = {_recorded_reference(site) for site in class_signature_assignments()}
     stale = sorted(
-        (set(HIDDEN_CONSTRUCTOR_FIELDS) | set(SIGNATURE_ANNOTATION_OVERRIDES)) - assigning
+        (
+            set(HIDDEN_CONSTRUCTOR_FIELDS)
+            | set(SIGNATURE_ANNOTATION_OVERRIDES)
+            | set(SIGNATURE_DEFAULT_OVERRIDES)
+        )
+        - assigning
     )
 
     assert stale == [], f"recorded but no longer assigning __signature__: {stale}"

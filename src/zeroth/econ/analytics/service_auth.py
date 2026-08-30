@@ -13,8 +13,8 @@ econ_plane protects its data endpoints with its own JWT (HS256, signed with
 
 The Bearer is minted **per call** with a short TTL (via a provider callable, not
 a frozen string) so a long-lived Zeroth process never silently goes stale. A
-missing/expired/invalid token simply yields ``401`` from econ_plane, which the
-callers treat as fail-open (decision D-12): budget allows, cost reads unavailable.
+missing/expired/invalid token yields ``401`` from econ_plane. Budget admission
+fails closed by default; telemetry delivery and cost reads degrade independently.
 """
 
 from __future__ import annotations
@@ -41,7 +41,8 @@ def mint_econ_service_token(tenant_id: str | None = None) -> str | None:
     ``require_claimed_tenant`` and silently degrades.
 
     Returns ``None`` (rather than raising) when the ``regulus`` extra is not
-    installed or token signing fails, so callers degrade to the fail-open path.
+    installed or token signing fails, so callers enter their configured
+    degradation path (budget checks deny by default).
     """
     try:
         from jose import jwt
@@ -64,7 +65,7 @@ def mint_econ_service_token(tenant_id: str | None = None) -> str | None:
     }
     try:
         return jwt.encode(claims, ecp_settings.jwt_secret, algorithm=ecp_settings.jwt_algorithm)
-    except Exception:  # noqa: BLE001 - signing failure -> fail-open
+    except Exception:  # noqa: BLE001 - callers apply their configured failure policy
         return None
 
 
@@ -74,7 +75,8 @@ def make_self_auth_headers_provider(api_key: str | None) -> HeadersProvider:
     ``api_key`` is Zeroth's own service API key (used as ``X-API-Key`` to pass
     the gated ``/regulus`` mount). It may be ``None`` -- e.g. no Zeroth service
     keys are configured -- in which case only the Bearer is attached and the
-    request falls to the fail-open path if the mount is gated.
+    request fails authentication if the mount is gated; budget admission then
+    denies by default.
     """
 
     def provider(tenant_id: str | None = None) -> dict[str, str]:

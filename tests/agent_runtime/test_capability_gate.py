@@ -205,6 +205,7 @@ def _mcp_config() -> AgentConfig:
         input_model=DemoInput,
         output_model=DemoOutput,
         mcp_servers=[MCPServerConfig(name="files", command="mcp-files")],
+        allow_development_inline_mcp=True,
     )
 
 

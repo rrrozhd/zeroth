@@ -116,7 +116,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-1440", "authoring assertions run once at the canonical desktop viewport");
   await page.addInitScript(() => {
     window.localStorage.setItem("zeroth.apiBase", "");
-    window.localStorage.setItem("zeroth.apiKey", "deterministic-browser-fixture");
+    window.localStorage.setItem("zeroth.sessionActive", "1");
     window.localStorage.setItem("zeroth.tenant", "evaluation-studio-v1");
   });
 });

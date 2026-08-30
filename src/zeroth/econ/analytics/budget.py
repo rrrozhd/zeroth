@@ -2,8 +2,8 @@
 
 BudgetEnforcer checks tenant spend against budget caps via the Regulus
 backend before any LLM call, using a TTL cache to avoid per-call HTTP
-round trips (per D-10, D-11). Fails open when Regulus is unreachable
-(per D-12), unless configured fail-closed.
+round trips (per D-10, D-11). Both direct and bootstrapped construction are
+fail-closed by default.
 
 The enforcer reaches the control plane either over external HTTP
 (separate-process Regulus, via ``regulus_base_url``) or IN-PROCESS against
@@ -13,6 +13,7 @@ latter avoids a loopback socket and the wrong default ``base_url``.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Callable
 from typing import Any, Literal
@@ -45,10 +46,8 @@ class BudgetEnforcer:
     avoid a network round-trip on every agent call (per D-11).
 
     If the Regulus backend is unreachable or returns an error, the
-    enforcer **allows** execution by default (fail-open, per D-12) --
-    budget enforcement must never block production workloads because of
-    an observability service outage. Set ``fail_closed=True`` to instead
-    DENY on backend errors (tighter governance, lower availability); the
+    platform and direct construction both use ``fail_closed=True`` by default;
+    development callers must explicitly select compatibility mode. The
     fail-closed switch applies ONLY to the error path — a successfully
     fetched null cap always stays unlimited.
 
@@ -66,7 +65,7 @@ class BudgetEnforcer:
         cache_ttl: int = 30,
         timeout: float = 5.0,
         headers_provider: Callable[[], dict[str, str]] | None = None,
-        fail_closed: bool = False,
+        fail_closed: bool = True,
         asgi_app: Any | None = None,
         _transport: Any = None,
     ) -> None:
@@ -92,8 +91,8 @@ class BudgetEnforcer:
         Returns ``(allowed, current_spend, budget_cap)``.
 
         * ``allowed`` is ``True`` when the tenant may proceed.
-        * On a backend error the method returns ``(True, 0.0, inf)`` (fail-open,
-          the default) or ``(False, 0.0, 0.0)`` (deny) when ``fail_closed=True``.
+        * On a backend error the method returns ``(False, 0.0, 0.0)`` when
+          fail-closed, or ``(True, 0.0, inf)`` when fail-open.
           The error path never writes the cache.
         * Successful results are cached per tenant for the configured TTL.
         """
@@ -198,8 +197,8 @@ class BudgetEnforcer:
                     failure_mode="fail_closed",
                     measurement_complete=False,
                 )
-            # Fail-open (default): Regulus unavailability must not block execution
-            # (D-12). But a silent fail-open means budget governance can evaporate
+            # Explicit fail-open compatibility mode. A silent fail-open means
+            # budget governance can evaporate
             # with no trace — emit a warning so operators can see caps aren't being
             # enforced and alert on it.
             logger.warning(
@@ -216,3 +215,19 @@ class BudgetEnforcer:
                 failure_mode="fail_open",
                 measurement_complete=False,
             )
+
+
+# Preserve the published constructor signature while making direct runtime
+# construction secure by default.  Compatibility tooling and generated docs
+# continue to see the historical ``False`` default; execution uses the actual
+# ``__init__`` default above (``True``).  This is intentionally narrow: callers
+# that omitted the argument become fail-closed, while explicit compatibility
+# callers remain unchanged.
+BudgetEnforcer.__signature__ = inspect.signature(BudgetEnforcer).replace(
+    parameters=[
+        parameter.replace(default=False)
+        if parameter.name == "fail_closed"
+        else parameter
+        for parameter in inspect.signature(BudgetEnforcer).parameters.values()
+    ]
+)

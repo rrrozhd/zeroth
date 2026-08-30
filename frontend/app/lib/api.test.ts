@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   apiFetch,
+  createBrowserSession,
   deploymentRef,
   getArtifact,
   getManifest,
@@ -24,6 +25,23 @@ describe("apiFetch authentication admission", () => {
     });
 
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("exchanges the API key once without persisting it in Web Storage", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await createBrowserSession("http://127.0.0.1:8122", "browser-only-secret");
+
+    expect(window.localStorage.getItem("zeroth.apiKey")).toBeNull();
+    expect(JSON.stringify(window.localStorage)).not.toContain("browser-only-secret");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:8122/v1/auth/session",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        headers: expect.objectContaining({ "X-API-Key": "browser-only-secret" }),
+      }),
+    );
   });
 });
 
@@ -181,9 +199,11 @@ describe("getArtifact", () => {
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:8122/v1/artifacts/run%2Fpath%2Freport.txt",
       expect.objectContaining({
-        headers: expect.objectContaining({ "X-API-Key": "test-service-key" }),
+        credentials: "include",
       }),
     );
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(new Headers(request?.headers).has("X-API-Key")).toBe(false);
   });
 
   it("fails locally when the console is not connected", async () => {

@@ -386,16 +386,62 @@
       ]
     },
     {
-      "id": "absent-repository-installations-and-checkouts",
+      "id": "registered-mcp-docker-isolation",
       "tiers": [
+        "pr-critical",
         "release-candidate"
       ],
-      "coverage": "absent-fail-closed",
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/runtime/test_mcp_process_isolation.py::test_isolation_requires_an_image_pinned_by_digest",
+        "tests/runtime/test_mcp_process_isolation.py::test_isolation_accepts_a_local_immutable_image_id",
+        "tests/runtime/test_mcp_process_isolation.py::test_isolator_builds_a_hardened_argv_without_environment_values",
+        "tests/runtime/test_mcp_process_isolation.py::test_isolator_rejects_unapproved_environment_before_docker",
+        "tests/runtime/test_mcp_process_isolation.py::test_isolation_forbids_environment_that_can_retarget_docker[DOCKER_HOST]",
+        "tests/runtime/test_mcp_process_isolation.py::test_isolation_forbids_environment_that_can_retarget_docker[DOCKER_CONTEXT]",
+        "tests/runtime/test_mcp_process_isolation.py::test_isolation_forbids_environment_that_can_retarget_docker[HTTP_PROXY]",
+        "tests/runtime/test_mcp_process_isolation.py::test_isolation_forbids_environment_that_can_retarget_docker[HTTPS_PROXY]",
+        "tests/runtime/test_mcp_process_isolation.py::test_isolation_forbids_environment_that_can_retarget_docker[NO_PROXY]",
+        "tests/runtime/test_mcp_process_isolation.py::test_pool_dispatches_through_isolated_config_without_development_escape_hatch"
+      ]
+    },
+    {
+      "id": "enabled-repository-ingress-boundaries",
+      "tiers": [
+        "pr-critical",
+        "release-candidate"
+      ],
+      "coverage": "behavioral",
       "test_nodes": [
         "tests/security/test_absent_repository_ingress.py::test_complete_public_openapi_inventory_matches_reviewed_snapshot",
-        "tests/security/test_absent_repository_ingress.py::test_project_manifest_refuses_before_build_without_trusted_materializer"
-      ],
-      "refusal_test": "tests/security/test_absent_repository_ingress.py::test_project_manifest_refuses_before_build_without_trusted_materializer"
+        "tests/security/test_absent_repository_ingress.py::test_complete_live_route_inventory_matches_all_reviewed_configurations",
+        "tests/security/test_absent_repository_ingress.py::test_enabled_live_inventory_contains_repository_and_webhook_ingress",
+        "tests/service/test_authorization.py::test_repository_installation_claim_is_reserved_for_admin_roles",
+        "tests/security/test_repo_api_isolation.py::test_repository_id_routes_foreign_matches_unknown",
+        "tests/security/test_repo_api_isolation.py::test_checkout_routes_foreign_id_matches_unknown",
+        "tests/security/test_repo_api_isolation.py::test_run_routes_foreign_id_matches_unknown",
+        "tests/security/test_repo_api_isolation.py::test_installation_enumeration_foreign_matches_unknown",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry0-None]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry1-tree_traversal]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry2-tree_submodule]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry3-tree_dotgit]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry4-tree_dotgit]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry5-tree_traversal]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry6-tree_traversal]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry7-tree_traversal]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry8-tree_traversal]",
+        "tests/github/test_tree_policy.py::test_synthetic_hostile_entries[entry9-tree_traversal]",
+        "tests/github/test_checkout_pipeline.py::test_cancellation_mid_fetch_cleans_destination_and_scratch",
+        "tests/github/test_checkout_pipeline.py::test_local_materializer_refuses_symlinks",
+        "tests/service/test_github_webhook_receiver.py::test_bad_or_missing_signature_is_generic_401_with_no_state_change[None]",
+        "tests/service/test_github_webhook_receiver.py::test_bad_or_missing_signature_is_generic_401_with_no_state_change[sha256=deadbeef]",
+        "tests/service/test_github_webhook_receiver.py::test_bad_or_missing_signature_is_generic_401_with_no_state_change[garbage]",
+        "tests/service/test_github_webhook_receiver.py::test_duplicate_delivery_guid_is_a_202_no_op",
+        "tests/service/test_github_webhook_receiver.py::test_deleted_cascades_revocation_and_calls_on_revoked",
+        "tests/security/test_repo_token_observability.py::test_minted_token_and_basic_credential_absent_from_all_surfaces",
+        "tests/service/test_repo_run_flow.py::test_revocation_between_staging_and_run_fails_closed",
+        "tests/service/test_repo_run_flow.py::test_manifest_digest_drift_is_refused_by_admission"
+      ]
     }
   ],
   "claims": {
@@ -409,8 +455,8 @@
       "approvals": "tests/security/test_api_surface_isolation.py::test_approval_enumerate_api_foreign_matches_unknown",
       "connectors": "tests/security/test_api_surface_isolation.py::test_connector_enumerate_api_foreign_matches_unknown_tenant",
       "manifests": "tests/service/test_tenant_isolation.py::test_cross_tenant_permission_only_manifest_read_is_hidden_and_audited",
-      "repository-installations": "tests/security/test_absent_repository_ingress.py::test_complete_public_openapi_inventory_matches_reviewed_snapshot",
-      "checkouts": "tests/security/test_absent_repository_ingress.py::test_project_manifest_refuses_before_build_without_trusted_materializer",
+      "repository-installations": "tests/security/test_repo_api_isolation.py::test_installation_enumeration_foreign_matches_unknown",
+      "checkouts": "tests/security/test_repo_api_isolation.py::test_checkout_routes_foreign_id_matches_unknown",
       "caches": "tests/security/test_surface_isolation.py::test_cache_same_manifest_isolated_by_enforced_tenant_identity",
       "rate-limit-buckets": "tests/service/test_guardrails_api.py::test_run_api_token_bucket_identity_resists_delimiter_collision",
       "execution-results": "tests/security/test_api_surface_isolation.py::test_execution_result_api_foreign_id_matches_unknown"

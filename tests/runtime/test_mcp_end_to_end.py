@@ -223,8 +223,16 @@ class _RecordingPool(MCPSessionPool):
     test.
     """
 
-    def __init__(self, resolver: Any) -> None:
-        super().__init__(resolver)
+    def __init__(
+        self,
+        resolver: Any,
+        *,
+        allow_development_unisolated_processes: bool = False,
+    ) -> None:
+        super().__init__(
+            resolver,
+            allow_development_unisolated_processes=allow_development_unisolated_processes,
+        )
         self.calls: list[dict[str, Any]] = []
 
     async def call(self, **kwargs: Any) -> Any:
@@ -268,8 +276,16 @@ async def _run(
     provider = DeterministicProviderAdapter(responses)
     runners = await build_agent_runners(graph, contract_registry, provider=provider)
 
-    def build_pool(resolver: Any) -> _RecordingPool:
-        pool = pool_class(resolver)
+    def build_pool(
+        resolver: Any,
+        *,
+        allow_development_unisolated_processes: bool = False,
+        process_isolator: Any = None,
+    ) -> _RecordingPool:
+        pool = pool_class(
+            resolver,
+            allow_development_unisolated_processes=allow_development_unisolated_processes,
+        )
         pools.append(pool)
         return pool
 
@@ -282,6 +298,7 @@ async def _run(
         mcp_server_resolver=(
             _resolver(_SPAWN if grants is None else grants) if wire_resolver else None
         ),
+        allow_development_unisolated_mcp_processes=True,
     )
     with patch(
         "zeroth.runtime.orchestration.orchestrator.MCPSessionPool",

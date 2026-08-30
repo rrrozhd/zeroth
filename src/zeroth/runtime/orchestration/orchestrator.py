@@ -33,6 +33,7 @@ from zeroth.platform.dispatch.operations import SideEffectOperationStore
 from zeroth.platform.observability import start_span
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.agents import AgentRunner, RepositoryThreadResolver
+from zeroth.runtime.agents.mcp_isolation import MCPProcessIsolator
 from zeroth.runtime.agents.mcp_pool import MCPSessionPool
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
@@ -144,6 +145,8 @@ class RuntimeOrchestrator:
     # pool ownership entirely -- an mcp_tool call then fails closed downstream
     # rather than silently running ungoverned.
     mcp_server_resolver: Any | None = None
+    allow_development_unisolated_mcp_processes: bool = False
+    mcp_process_isolator: MCPProcessIsolator | None = None
     _mcp_pools: dict = field(default_factory=dict, init=False, repr=False)
     _token_snapshot_store: TokenSnapshotStore | None = field(default=None, init=False, repr=False)
 
@@ -276,7 +279,13 @@ class RuntimeOrchestrator:
         """
         if self.mcp_server_resolver is None:
             return await self._driver.drive(graph, run, step_tracker=step_tracker)
-        pool = MCPSessionPool(self.mcp_server_resolver)
+        pool = MCPSessionPool(
+            self.mcp_server_resolver,
+            allow_development_unisolated_processes=(
+                self.allow_development_unisolated_mcp_processes
+            ),
+            process_isolator=self.mcp_process_isolator,
+        )
         self._mcp_pools[run.run_id] = pool
         try:
             return await self._driver.drive(graph, run, step_tracker=step_tracker)
@@ -675,6 +684,8 @@ RuntimeOrchestrator.__signature__ = inspect.signature(RuntimeOrchestrator).repla
             # and wiring an optional resolver is not a change to the capability
             # that fixture names.
             "mcp_server_resolver",
+            "allow_development_unisolated_mcp_processes",
+            "mcp_process_isolator",
         }
     ]
 )

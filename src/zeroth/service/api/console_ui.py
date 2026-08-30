@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
@@ -62,7 +63,24 @@ def console_cors_origins() -> list[str]:
     raw = os.environ.get(_ENV_CORS, "").strip()
     if not raw:
         return []
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    for origin in origins:
+        try:
+            parsed = urlsplit(origin)
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("console CORS origin must be an exact HTTP(S) origin") from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("console CORS origin must be an exact HTTP(S) origin")
+    return origins
 
 
 def mount_console(app: FastAPI, *, directory: Path | None = None) -> bool:

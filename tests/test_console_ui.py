@@ -94,6 +94,16 @@ def test_console_cors_origins_parsing(monkeypatch) -> None:
     assert console_cors_origins() == []
 
 
+@pytest.mark.parametrize(
+    "origin",
+    ["*", "https://user:secret@example.test", "https://example.test/path", "null"],
+)
+def test_console_cors_origins_reject_unsafe_values(monkeypatch, origin: str) -> None:
+    monkeypatch.setenv("ZEROTH_CONSOLE_CORS_ORIGINS", origin)
+    with pytest.raises(ValueError, match="console CORS origin"):
+        console_cors_origins()
+
+
 def test_mount_console_false_without_build(monkeypatch, tmp_path: Path) -> None:
     from fastapi import FastAPI
 

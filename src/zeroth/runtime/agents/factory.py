@@ -227,6 +227,7 @@ async def build_agent_runners(
     llm_key_map: dict[str, str] | None = None,
     llm_base_url_map: dict[str, str] | None = None,
     thread_state_store: ThreadStateStore | None = None,
+    allow_development_inline_mcp: bool = False,
 ) -> dict[str, AgentRunner]:
     """Build one AgentRunner per agent node, keyed by node_id.
 
@@ -308,6 +309,7 @@ async def build_agent_runners(
             tool_output_safety=safety,
             memory_refs=list(data.memory_refs),
             mcp_servers=_author_mcp_servers(node.node_id, data.mcp_servers),
+            allow_development_inline_mcp=allow_development_inline_mcp,
             prompt_config=prompt_config,
             retry_policy=RetryPolicy(**data.retry_policy) if data.retry_policy else RetryPolicy(),
             timeout_seconds=float(data.timeout_seconds) if data.timeout_seconds else None,

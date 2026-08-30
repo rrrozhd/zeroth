@@ -34,12 +34,17 @@ await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext({ viewport: { width: 1360, height: 860 } });
-  await context.addInitScript(({ base, key, scope }) => {
+  const session = await context.request.post(`${apiBase.replace(/\/+$/, "")}/v1/auth/session`, {
+    headers: { "X-API-Key": apiKey },
+  });
+  if (session.status() !== 204) throw new Error(`browser session exchange returned ${session.status()}`);
+  await context.addInitScript(({ base, scope }) => {
     localStorage.setItem("zeroth.apiBase", base);
-    localStorage.setItem("zeroth.apiKey", key);
+    localStorage.removeItem("zeroth.apiKey");
+    localStorage.setItem("zeroth.sessionActive", "1");
     localStorage.setItem("zeroth.env", "pilot-local");
     localStorage.setItem("zeroth.tenant", scope);
-  }, { base: apiBase, key: apiKey, scope: tenant });
+  }, { base: apiBase, scope: tenant });
   const page = await context.newPage();
   for (const [name, path] of surfaces) {
     const response = await page.goto(`${baseUrl}${path}`, { waitUntil: "networkidle" });

@@ -137,7 +137,10 @@ async function visibleApproval(
 }
 
 async function setBrowserKey(page: Page, key: string): Promise<void> {
-  await page.evaluate((value) => window.localStorage.setItem("zeroth.apiKey", value), key);
+  const session = await page.request.post(`${apiBase.replace(/\/+$/, "")}/v1/auth/session`, {
+    headers: { "X-API-Key": key },
+  });
+  expect(session.status()).toBe(204);
 }
 
 async function submitFromStudio(

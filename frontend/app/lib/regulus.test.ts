@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./config", () => ({ getApiBase: () => "https://zeroth.test", getApiKey: () => "key" }));
+vi.mock("./config", () => ({
+  getApiBase: () => "https://zeroth.test",
+  isConfigured: () => true,
+}));
 const api = vi.hoisted(() => ({
   getIdentity: vi.fn().mockResolvedValue({ roles: ["admin"] }),
 }));
@@ -36,7 +39,7 @@ describe("detectRegulus", () => {
       await expect(detectRegulus()).resolves.toBe(expected);
       expect(fetch).toHaveBeenCalledWith(
         "https://zeroth.test/v1/econ/regulus/dashboard/kpis",
-        expect.objectContaining({ headers: { "X-API-Key": "key" } }),
+        expect.objectContaining({ credentials: "include" }),
       );
     },
   );
@@ -65,7 +68,7 @@ describe("detectRegulus", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "https://zeroth.test/v1/econ/regulus/dashboard/kpis",
-      expect.objectContaining({ headers: { "X-API-Key": "key" } }),
+      expect.objectContaining({ credentials: "include" }),
     );
   });
 

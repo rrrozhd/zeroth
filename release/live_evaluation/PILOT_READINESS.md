@@ -19,6 +19,54 @@ This document defines the smallest credible bar for a successful pilot. It does
 not relabel deferred full-product criteria as passes and does not claim
 production readiness.
 
+## Post-audit security hardening checkpoint — 2026-08-29
+
+Status: **source verification complete; immutable package/image sealing follows
+this commit, with no production-readiness claim**.
+
+The source candidate based on local `main` commit `38e915ba` now changes the
+enabled-surface assumptions that older evidence below recorded. Browser API
+keys are exchange-only and replaced by short-lived Secure/HttpOnly sessions;
+cookie mutations enforce exact Origins, CORS origins are exact, and API
+`connect-src` is same-origin. Production requires shared signing material.
+GitHub installation claiming is admin-only, and the enabled repository ingress
+matrix covers tenant isolation, hostile refs/trees, webhook authentication and
+replay, checkout containment, token redaction, and restart recovery. Budget
+admission defaults fail closed. Untrusted inline/repository units refuse the
+local subprocess backend.
+
+Inline author-defined servers are rejected. Registered discovery/dispatch
+preserve the authoring UX and use an operator-owned, digest-pinned Docker
+profile with non-root/read-only/no-capability/resource/environment/network
+restrictions; without the image setting they refuse before spawn. The host
+transport survives only behind a development flag that production rejects.
+Gateway-only admission likewise cannot promise internal tool-call governance;
+configuration fails if full enforcement is requested there.
+
+Current reviewable evidence includes focused red/green security tests, 164
+sandbox/executable-unit tests, a clean 251-test repository/GitHub matrix, 1,110
+API-surface/signature contract tests, 395 frontend tests, a successful static
+production build and API drift check, zero known npm or Python dependency-audit
+findings, and a clean full backend run of 12,215 passed, 8 skipped, and 465
+deselected in 907.97 seconds. The PR-critical and release-candidate security
+tiers passed 134/134 and 145/145 respectively against disposable
+Redis/PostgreSQL dependencies; independent coverage and outcome verification
+found no missing, unbound, duplicate, skipped, or failed bound node. A
+disposable SQLite database upgraded to migration head 035, downgraded to 034,
+and upgraded to 035 again. These are source-tree facts, not immutable promotion
+or deployed-environment evidence. The package/image identity seal must be
+measured from the resulting clean commit before this checkpoint can replace any
+historical final-candidate claim below.
+
+Residual risks: MCP image provenance, scanning, Docker-daemon security, and
+external egress policy remain operator responsibilities; a standalone console
+must use the provided exact-origin CSP image or equivalently reviewed hosting;
+GitHub ingress remains a high-consequence optional surface; and explicit
+fail-open budget mode still exists for compatibility. The simpler and safer
+pilot configuration leaves MCP network disabled and repository ingress off
+unless needed, uses Docker/sidecar for untrusted code, keeps budgets fail
+closed, and deploys SDK-level tool governance.
+
 ## Pilot finalization checkpoint — 2026-08-28
 
 Evidence root:

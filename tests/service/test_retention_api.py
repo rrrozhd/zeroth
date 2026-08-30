@@ -17,7 +17,7 @@ from tests.service.helpers import (
 )
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.identity import ServiceRole
-from zeroth.runtime.runs import Run
+from zeroth.runtime.runs import Run, RunStatus
 from zeroth.service.bootstrap import bootstrap_app
 
 
@@ -45,6 +45,7 @@ async def _seed_run(service, deployment, run_id: str, ssn: str, n: int = 2) -> N
         graph_version_ref=deployment.graph_version_ref,
         deployment_ref=deployment.deployment_ref,
         tenant_id="default",
+        status=RunStatus.COMPLETED,
         final_output={"answer": ssn},
     )
     await service.run_repository.put(run)

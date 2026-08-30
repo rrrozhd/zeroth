@@ -28,6 +28,7 @@ from zeroth.runtime.agents.mcp import (
 )
 from zeroth.runtime.agents.mcp_pool import (
     MCPCeilingExceededError,
+    MCPIsolationRequiredError,
     MCPSessionPool,
     MCPToolDispatchError,
     UnknownMCPServerError,
@@ -94,7 +95,7 @@ async def make_pool():
     pools: list[MCPSessionPool] = []
 
     def build(resolver) -> MCPSessionPool:
-        pool = MCPSessionPool(resolver)
+        pool = MCPSessionPool(resolver, allow_development_unisolated_processes=True)
         pools.append(pool)
         return pool
 
@@ -103,6 +104,15 @@ async def make_pool():
     for pool in pools:
         with contextlib.suppress(Exception):
             await pool.stop()
+
+
+@pytest.mark.asyncio
+async def test_registered_server_refuses_unisolated_process_before_spawn() -> None:
+    pool = MCPSessionPool(_resolver)
+    with patch("zeroth.runtime.agents.mcp.MCPClientManager.start", new=AsyncMock()) as start:
+        with pytest.raises(MCPIsolationRequiredError):
+            await _call(pool)
+    start.assert_not_awaited()
 
 
 async def _call(

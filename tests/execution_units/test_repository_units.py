@@ -45,6 +45,12 @@ from zeroth.integrations.execution.runner import (
     ExecutableUnitExecutionError,
     ExecutableUnitRunner,
 )
+from zeroth.integrations.execution.sandbox import (
+    SandboxConfig,
+    SandboxManager,
+    SandboxPolicyViolationError,
+    SandboxStrictnessMode,
+)
 from zeroth.integrations.execution.validator import (
     ExecutableUnitValidator,
     ValidationCode,
@@ -442,8 +448,23 @@ async def test_runner_materializes_into_checkout_before_running_read_only(
     materializer = _StagedTreeMaterializer(_staged_tree(tmp_path))
     # Permissive up front (rather than only via the enforcement override) so the
     # runner reuses this exact manager instance and the spy observes the call.
-    manager = SandboxManager(
+    denied_manager = SandboxManager(
         config=SandboxConfig(strictness_mode=SandboxStrictnessMode.PERMISSIVE)
+    )
+    denied_runner = ExecutableUnitRunner(sandbox_manager=denied_manager)
+    denied_runner.checkout_materializer = materializer
+    with pytest.raises(SandboxPolicyViolationError, match="untrusted code.*local backend"):
+        await denied_runner.run_binding(
+            binding,
+            {"word": "hello"},
+            enforcement_context={"sandbox_strictness_mode": "permissive"},
+        )
+
+    manager = SandboxManager(
+        config=SandboxConfig(
+            strictness_mode=SandboxStrictnessMode.PERMISSIVE,
+            allow_untrusted_local_development=True,
+        )
     )
     runner = ExecutableUnitRunner(sandbox_manager=manager)
     runner.checkout_materializer = materializer
@@ -479,7 +500,15 @@ async def test_admission_passes_a_registered_digest_and_denies_a_mutated_manifes
     controller = AdmissionController()
     # admit() resolves trusted digests by the manifest's unit_id.
     controller.register_trusted_digest(manifest.unit_id, compute_manifest_digest(manifest))
-    runner = ExecutableUnitRunner(admission_controller=controller)
+    runner = ExecutableUnitRunner(
+        admission_controller=controller,
+        sandbox_manager=SandboxManager(
+            config=SandboxConfig(
+                strictness_mode=SandboxStrictnessMode.PERMISSIVE,
+                allow_untrusted_local_development=True,
+            )
+        ),
+    )
     runner.checkout_materializer = _StagedTreeMaterializer(_staged_tree(tmp_path))
 
     permissive = {"sandbox_strictness_mode": "permissive"}

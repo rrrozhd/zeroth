@@ -33,8 +33,8 @@
 //   Every scalar access is guarded (finite-number / typeof) so a shape drift renders
 //   "—" instead of throwing — and the full JSON payload is always shown below.
 //
-// The API key is applied only inside lib/api's apiFetch (X-API-Key header) — never
-// logged, never placed in a URL.
+// Authentication uses the short-lived HttpOnly session cookie; the exchanged
+// API key is never persisted, logged, or placed in a URL.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {

@@ -371,8 +371,16 @@ class _RecordingPool(MCPSessionPool):
     seam actually passed, not to replace the thing that consumes them.
     """
 
-    def __init__(self, resolver):
-        super().__init__(resolver)
+    def __init__(
+        self,
+        resolver,
+        *,
+        allow_development_unisolated_processes: bool = False,
+    ):
+        super().__init__(
+            resolver,
+            allow_development_unisolated_processes=allow_development_unisolated_processes,
+        )
         self.calls: list[dict[str, Any]] = []
 
     async def call(self, **kwargs):
@@ -392,8 +400,16 @@ async def _run_pinned_graph(sqlite_db, responses, *, pool_holder: list[_Recordin
     provider = DeterministicProviderAdapter(responses)
     runners = await build_agent_runners(graph, contract_registry, provider=provider)
 
-    def build_pool(resolver):
-        pool = _RecordingPool(resolver)
+    def build_pool(
+        resolver,
+        *,
+        allow_development_unisolated_processes: bool = False,
+        process_isolator=None,
+    ):
+        pool = _RecordingPool(
+            resolver,
+            allow_development_unisolated_processes=allow_development_unisolated_processes,
+        )
         pool_holder.append(pool)
         return pool
 
@@ -403,6 +419,7 @@ async def _run_pinned_graph(sqlite_db, responses, *, pool_holder: list[_Recordin
         agent_runners=runners,
         executable_unit_runner=MagicMock(),
         mcp_server_resolver=_resolve_echo,
+        allow_development_unisolated_mcp_processes=True,
     )
     with patch(
         "zeroth.runtime.orchestration.orchestrator.MCPSessionPool",

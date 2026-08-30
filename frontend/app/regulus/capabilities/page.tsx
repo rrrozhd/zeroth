@@ -21,8 +21,8 @@
 // pretty-printed JSON in a CodeBlock rather than being narrowed to a fabricated
 // shape. Everything else renders only real, generated fields.
 //
-// The API key lives only in lib/config and is attached by apiFetch as a header —
-// never logged, never placed in a URL.
+// Authentication uses the short-lived HttpOnly session cookie; the exchanged
+// API key is never persisted, logged, or placed in a URL.
 
 import { useEffect, useMemo, useState } from "react";
 import {

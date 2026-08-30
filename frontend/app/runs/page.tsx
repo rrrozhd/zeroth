@@ -8,7 +8,7 @@
 //
 // Every read happens client-side and degrades gracefully: an unconfigured or
 // unreachable API surfaces as an inline error (with Retry) or an empty state,
-// never a crash. The API key lives only in localStorage (lib/config) — it is
+// never a crash. Authentication uses an HttpOnly session cookie — it is
 // never logged and never placed in a URL; the Invoke cURL block shows a
 // redacted `$ZEROTH_API_KEY` placeholder, not the real secret.
 //

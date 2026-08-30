@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
 
 import { sanitizeUrl, summarizeRequest, summarizeResponse } from "./support/sanitized-network";
-import { coverCriteria } from "./support/live-evaluation";
+import { configurePage, coverCriteria } from "./support/live-evaluation";
 
 const incidentLoopWorkflowId =
   process.env.ZEROTH_EVALUATION_INCIDENT_LOOP_WORKFLOW_ID ??
@@ -49,18 +49,11 @@ function digest(value: string) {
 test.beforeEach(async ({ page }) => {
   const apiKey = process.env.ZEROTH_EVALUATION_API_KEY;
   if (!apiKey) return;
-  await page.addInitScript(
-    ({ apiBase, key, tenant }) => {
-      window.localStorage.setItem("zeroth.apiBase", apiBase);
-      window.localStorage.setItem("zeroth.apiKey", key);
-      window.localStorage.setItem("zeroth.env", "local-evaluation");
-      window.localStorage.setItem("zeroth.tenant", tenant);
-    },
-    {
-      apiBase: process.env.ZEROTH_EVALUATION_API_BASE ?? "http://127.0.0.1:8120",
-      key: apiKey,
-      tenant: process.env.ZEROTH_EVALUATION_TENANT ?? "evaluation-studio-v1",
-    },
+  await configurePage(
+    page,
+    process.env.ZEROTH_EVALUATION_API_BASE ?? "http://127.0.0.1:8120",
+    process.env.ZEROTH_EVALUATION_TENANT ?? "evaluation-studio-v1",
+    apiKey,
   );
 });
 

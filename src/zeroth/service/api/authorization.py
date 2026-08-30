@@ -92,11 +92,11 @@ ROLE_PERMISSIONS: dict[ServiceRole, set[Permission]] = {
         # tier as starting a run (RUN_CREATE): it is the running system talking
         # about itself, not an operator changing what is governed.
         Permission.ENFORCEMENT_REPORT,
-        # ZER-37: repository units are part of the operator authoring loop --
-        # claim the installation, stage checkouts, run declared scripts.
+        # Repository checkouts and declared-script runs stay in the operator
+        # authoring loop. Claiming an external installation is a tenant trust
+        # decision and remains admin-only.
         Permission.REPOSITORY_READ,
         Permission.REPOSITORY_RUN,
-        Permission.REPOSITORY_ADMIN,
     },
     ServiceRole.REVIEWER: {
         Permission.DEPLOYMENT_READ,

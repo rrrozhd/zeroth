@@ -16,6 +16,7 @@ def test_regulus_settings_defaults():
     assert s.base_url == "http://localhost:8000/v1"
     assert s.budget_cache_ttl == 30
     assert s.request_timeout == 5.0
+    assert s.fail_closed is True
 
 
 def test_regulus_settings_accessible_via_zeroth_settings():

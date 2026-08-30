@@ -12,7 +12,7 @@
 // Each detail panel owns its loading/empty/error state via its own `useLoad`,
 // so one panel 404-ing (e.g. no attestation yet) never blanks the others and
 // never crashes the screen. Every mutation (rollback, create, verify) toasts.
-// The API key lives only in localStorage (lib/config) — never logged, never in
+// Authentication uses an HttpOnly session cookie — never logged, never in
 // a URL.
 //
 // ROLLBACK TARGET: the rollback endpoint pins a new version to an earlier GRAPH

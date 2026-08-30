@@ -717,6 +717,7 @@ def test_valid_cors_preflight_is_handled_before_authentication_and_gateway(
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "https://console.example"
+    assert response.headers["access-control-allow-credentials"] == "true"
     assert "X-Tenant-ID" in response.headers["access-control-allow-headers"]
     assert proxy_calls == 0
 

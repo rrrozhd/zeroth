@@ -30,6 +30,7 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
 # ZEROTH_REDIS__MODE (and ZEROTH_REDIS__HOST) when composing with Redis.
 ENV ZEROTH_DATABASE__BACKEND=sqlite \
     ZEROTH_DATABASE__SQLITE_PATH=/data/zeroth.db \
+    ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR=/data/artifacts \
     ZEROTH_REDIS__MODE=disabled \
     PORT=8000
 

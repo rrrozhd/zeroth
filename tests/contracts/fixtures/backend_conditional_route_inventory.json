@@ -1,7 +1,7 @@
 {
   "console": [
     {
-      "index": 153,
+      "index": 154,
       "kind": "APIRoute",
       "path": "/console",
       "methods": [
@@ -12,7 +12,7 @@
       "disposition": "public"
     },
     {
-      "index": 154,
+      "index": 155,
       "kind": "Mount",
       "path": "/console",
       "methods": [],

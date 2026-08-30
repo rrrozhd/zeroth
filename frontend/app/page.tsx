@@ -5,7 +5,7 @@
 // Every read happens client-side in an effect (see `useLoad`) and degrades
 // gracefully: an unconfigured or unreachable API surfaces as an inline error
 // (with Retry) or an empty state, never a crash or a thrown boundary. The API
-// key lives only in localStorage (via lib/config) — it is never logged and
+// key is exchanged for an HttpOnly session cookie — it is never logged and
 // never placed in a URL.
 
 import { useEffect, useState } from "react";

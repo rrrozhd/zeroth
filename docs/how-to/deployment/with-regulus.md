@@ -17,7 +17,7 @@ same in-repo source.
 
 - Tracking LLM spend per node / run / tenant
 - Feeding the cost dashboard (`/v1/.../cost`) and the console cost page
-- Budget-cap checks at fan-out (fail-open by design — see below)
+- Budget-cap checks at fan-out (fail-closed by default — see below)
 
 ## Install
 
@@ -73,7 +73,8 @@ ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1
 ```
 
 If the `regulus` extra is not installed, the mount is skipped with a warning and
-Zeroth still boots (econ simply stays disabled / fail-open).
+Zeroth still boots, but budget admission fails closed by default while the
+economics backend is unavailable; telemetry delivery remains best effort.
 
 ## Topology B — separate process
 
@@ -115,9 +116,11 @@ curl -s http://localhost:8000/health                 # -> {"status":"ok"}
 
 ## Behavior & gotchas
 
-- **Fail-open (decision D-12).** If Regulus is unreachable *or rejects the
-  request*, budget enforcement **allows** the run and cost reads return
-  unavailable — Regulus never blocks execution. This is deliberate.
+- **Budget admission is fail-closed by default.** If Regulus is unreachable,
+  rejects the request, or returns malformed/incomplete measurements, the run is
+  denied. `ZEROTH_REGULUS__FAIL_CLOSED=false` explicitly chooses legacy
+  fail-open compatibility; do not use it where caps are required. Cost-event
+  delivery and dashboard reads may still degrade independently.
 - **Self-auth (how cost events flow).** econ_plane protects its ingest and KPI
   endpoints with its own JWT, and the in-process mount also sits behind Zeroth's
   API-key gate. Zeroth's self-calls (SDK ingest, budget, cost) carry **both**: a
@@ -126,7 +129,8 @@ curl -s http://localhost:8000/health                 # -> {"status":"ok"}
   `ECP_JWT_SECRET` is set and at least one Zeroth service key
   (`ZEROTH_SERVICE_API_KEYS_JSON`) is configured. With no Zeroth service key the
   self-calls carry only the Bearer; in the gated in-process topology that yields
-  `401` → fail-open (events drop), so configure a service key for in-process use.
+  `401`; events drop and budget admission denies by default, so configure a
+  service key for in-process use.
   (`ZEROTH_REGULUS__API_KEY` remains unused — the bundled flow does not need it.)
 - **Trusted tenant claims.** The internal JWT takes its subject, roles,
   tenant, and optional workspace only from the `ECP_SERVICE_PRINCIPAL_*`

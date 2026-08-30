@@ -239,10 +239,15 @@ export async function assertMinimumTargets(page: Page, testInfo: TestInfo): Prom
 }
 
 export async function configurePage(page: Page, apiBase: string, tenant: string, apiKey: string) {
-  await page.addInitScript(({ base, evaluationTenant, key }) => {
+  const session = await page.request.post(`${apiBase.replace(/\/+$/, "")}/v1/auth/session`, {
+    headers: { "X-API-Key": apiKey },
+  });
+  expect(session.status(), "browser session exchange must succeed").toBe(204);
+  await page.addInitScript(({ base, evaluationTenant }) => {
     window.localStorage.setItem("zeroth.apiBase", base);
-    window.localStorage.setItem("zeroth.apiKey", key);
+    window.localStorage.removeItem("zeroth.apiKey");
+    window.localStorage.setItem("zeroth.sessionActive", "1");
     window.localStorage.setItem("zeroth.env", "local-evaluation");
     window.localStorage.setItem("zeroth.tenant", evaluationTenant);
-  }, { base: apiBase, evaluationTenant: tenant, key: apiKey });
+  }, { base: apiBase, evaluationTenant: tenant });
 }

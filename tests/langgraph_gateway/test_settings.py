@@ -174,6 +174,14 @@ def test_unknown_routes_default_to_deny():
     assert settings.unknown_endpoint_mode == "deny"
 
 
+def test_gateway_only_mode_rejects_a_full_tool_enforcement_requirement():
+    with pytest.raises(ValidationError, match="gateway-only.*internal tool calls"):
+        LangGraphGatewaySettings(
+            **VALID_ENABLED,
+            require_full_tool_enforcement=True,
+        )
+
+
 def test_expected_inventory_fingerprint_requires_canonical_sha256():
     with pytest.raises(ValidationError):
         LangGraphGatewaySettings(expected_tool_inventory_fingerprint="sha256:not-a-digest")

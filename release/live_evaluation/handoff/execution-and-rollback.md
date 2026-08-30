@@ -9,6 +9,24 @@ history, repository files, screenshots, or evidence command output.
 
 ## Execution preflight
 
+Before starting any service, verify the security-mode configuration:
+
+- production has `ZEROTH_AUTH__BROWSER_SESSION_SECRET` supplied by the external
+  secret provider (at least 32 bytes and shared by every worker);
+- `ZEROTH_SANDBOX__ALLOW_UNTRUSTED_LOCAL_DEVELOPMENT` and
+  `ZEROTH_SANDBOX__ALLOW_UNISOLATED_MCP_DEVELOPMENT` are unset/false;
+- MCP, when enabled, has a scanned image pinned by digest, `network=none` unless
+  required, and external firewall policy for any permitted egress;
+- untrusted repository/inline execution selects Docker or sidecar;
+- budget `fail_closed` remains true; and
+- gateway-only deployments do not set `require_full_tool_enforcement`; use the
+  in-process SDK enforcement path when that guarantee is required.
+
+If the console is standalone, configure one exact
+`ZEROTH_CONSOLE_CORS_ORIGINS` origin, HTTPS, credentialed requests, and a static-
+host document CSP whose `connect-src` names only the Zeroth API. Mounted mode
+uses same-origin CSP and needs no CORS.
+
 1. Confirm the persistent services and exact served graph:
 
    ```sh
@@ -108,6 +126,16 @@ serving; a restart is required after selecting a version.
   operator resolutions remain authoritative.
 - Preserve all evidence roots. A bad or partial attempt is superseded by a new
   append-only root; it is never edited or deleted.
+- Rolling back browser-session support reintroduces browser-readable persistent
+  credentials and is not an acceptable security rollback. Roll forward or stop
+  the console instead. If signing material is rotated, expect all current
+  sessions to expire and require a fresh exchange.
+- Do not recover an MCP outage by enabling the unisolated development flag in a
+  pilot/production environment. Keep registered tool nodes intact and fix or
+  roll back the pinned isolation image/profile; unset the image to fail closed.
+- If repository ingress must be disabled during recovery, remove/disable GitHub
+  App configuration and stop its worker after preserving checkout/run/audit
+  records. Do not delete installation claims or staged evidence as a shortcut.
 
 ## Verification and evidence recovery
 

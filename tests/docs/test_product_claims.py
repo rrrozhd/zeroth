@@ -35,9 +35,10 @@ def test_readme_ties_budget_enforcement_to_regulus_extra() -> None:
     )
 
 
-def test_readme_documents_fail_open_default() -> None:
+def test_readme_documents_fail_closed_default() -> None:
     readme = _read("README.md")
-    assert "fails open by default" in readme
+    assert "fails closed by default" in readme
+    assert "production rejects it" in readme
 
 
 def test_project_md_reflects_current_architecture() -> None:

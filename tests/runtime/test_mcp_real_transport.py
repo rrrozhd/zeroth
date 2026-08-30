@@ -56,6 +56,11 @@ def _resolver(*, drift: bool = False, grants: list[Capability] | None = None):
     return resolve
 
 
+def _development_pool(resolver) -> MCPSessionPool:
+    """Real transport coverage intentionally exercises the local dev escape hatch."""
+    return MCPSessionPool(resolver, allow_development_unisolated_processes=True)
+
+
 def _pid_recording_args(pid_dir: Path, body: str) -> list[str]:
     """Run *body* in a child that first writes its own pid into *pid_dir*.
 
@@ -203,7 +208,7 @@ async def _call(
 @pytest.mark.asyncio
 async def test_a_real_server_is_spawned_and_answers() -> None:
     """The transport itself: spawn, handshake, list, call, shut down."""
-    pool = MCPSessionPool(_resolver())
+    pool = _development_pool(_resolver())
     try:
         assert await _call(pool) == "hi"
         assert await _call(pool, tool="add", arguments={"a": 2, "b": 40}) == "42"
@@ -215,7 +220,7 @@ async def test_a_real_server_is_spawned_and_answers() -> None:
 async def test_two_nodes_really_do_share_one_process(spawn_counter) -> None:
     """Pooling, proved against real processes rather than a stand-in."""
     pin = await _pin_for("echo")
-    pool = MCPSessionPool(_resolver())
+    pool = _development_pool(_resolver())
     with spawn_counter() as starts:
         try:
             await _call(pool, agent_node_id="agent_a", tool_node_id="mcp_a", pin=pin)
@@ -250,7 +255,7 @@ async def test_racing_branches_really_do_share_one_process(pid_dir, spawn_counte
             grants=list(_SPAWN),
         )
 
-    pool = MCPSessionPool(resolve)
+    pool = _development_pool(resolve)
     with spawn_counter() as starts:
         try:
             results = await asyncio.gather(
@@ -272,7 +277,7 @@ async def test_racing_branches_really_do_share_one_process(pid_dir, spawn_counte
 @pytest.mark.asyncio
 async def test_a_denied_node_leaves_no_process_behind() -> None:
     """The gate has to beat the spawn, not merely precede the call."""
-    pool = MCPSessionPool(_resolver())
+    pool = _development_pool(_resolver())
     try:
         with pytest.raises(CapabilityDeniedError):
             await _call(pool, caps={Capability.PROCESS_SPAWN}, pin="unused")
@@ -283,7 +288,7 @@ async def test_a_denied_node_leaves_no_process_behind() -> None:
 
 @pytest.mark.asyncio
 async def test_a_node_above_the_operators_ceiling_never_spawns() -> None:
-    pool = MCPSessionPool(_resolver(grants=[Capability.PROCESS_SPAWN]))
+    pool = _development_pool(_resolver(grants=[Capability.PROCESS_SPAWN]))
     try:
         with pytest.raises(MCPCeilingExceededError):
             await _call(pool, pin="unused")
@@ -305,7 +310,7 @@ async def test_a_server_that_really_changed_is_refused() -> None:
     drifted = await _pin_for("echo", drift=True)
     assert pinned_at_import != drifted, "fixture did not actually drift"
 
-    pool = MCPSessionPool(_resolver(drift=True))
+    pool = _development_pool(_resolver(drift=True))
     try:
         with pytest.raises(MCPSchemaDriftError) as excinfo:
             await _call(pool, pin=pinned_at_import)
@@ -327,7 +332,7 @@ async def test_an_unchanged_server_never_reads_as_drift() -> None:
     second = await _pin_for("echo")
     assert first == second
 
-    pool = MCPSessionPool(_resolver())
+    pool = _development_pool(_resolver())
     try:
         assert await _call(pool, pin=first) == "hi"
     finally:
@@ -358,7 +363,7 @@ async def test_stop_reaps_the_child_process(pid_dir, stop_spy) -> None:
             grants=list(_SPAWN),
         )
 
-    pool = MCPSessionPool(resolve)
+    pool = _development_pool(resolve)
     with stop_spy() as stops:
         await _call(pool, pin=pin)
         started = [int(entry.name) for entry in pid_dir.iterdir()]
@@ -418,7 +423,7 @@ class TestAFailedHandshakeCleansUpAfterItself:
     @pytest.mark.asyncio
     async def test_a_child_that_outlives_its_handshake_is_still_reaped(self, pid_dir) -> None:
         """The orphan, observed as a pid rather than inferred from a dict."""
-        pool = MCPSessionPool(
+        pool = _development_pool(
             self._resolver_for(_pid_recording_args(pid_dir, _SURVIVES_A_FAILED_HANDSHAKE))
         )
         failure = await self._attempt(pool)
@@ -444,7 +449,7 @@ class TestAFailedHandshakeCleansUpAfterItself:
         wrong: an ordinary ``asyncio.sleep`` raised ``CancelledError`` at 0.0s.
         Three failures then a plain sleep is the whole reproduction.
         """
-        pool = MCPSessionPool(self._resolver_for(["-c", "raise SystemExit(1)"]))
+        pool = _development_pool(self._resolver_for(["-c", "raise SystemExit(1)"]))
         for _ in range(3):
             failure = await self._attempt(pool)
             assert failure is not None

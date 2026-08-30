@@ -15,6 +15,8 @@ from pydantic import ValidationError
 from tests.test_studio_publish_deploy import _make_env, _register_contracts
 from zeroth.integrations.execution import (
     ExecutableUnitRunner,
+    SandboxConfig,
+    SandboxManager,
     build_inline_binding,
     build_inline_manifest,
     inline_source_digest,
@@ -72,7 +74,11 @@ def test_node_data_requires_exactly_one_code_source() -> None:
 
 @pytest.mark.asyncio
 async def test_inline_unit_executes_authored_source() -> None:
-    runner = ExecutableUnitRunner()
+    runner = ExecutableUnitRunner(
+        sandbox_manager=SandboxManager(
+            config=SandboxConfig(allow_untrusted_local_development=True)
+        )
+    )
     binding = build_inline_binding("transform", TRANSFORM_SOURCE)
 
     result = await runner.run_binding(binding, {"question": "what is zeroth"})
@@ -85,7 +91,11 @@ async def test_inline_unit_executes_authored_source() -> None:
 
 @pytest.mark.asyncio
 async def test_inline_unit_failure_surfaces_stderr() -> None:
-    runner = ExecutableUnitRunner()
+    runner = ExecutableUnitRunner(
+        sandbox_manager=SandboxManager(
+            config=SandboxConfig(allow_untrusted_local_development=True)
+        )
+    )
     binding = build_inline_binding("boom", "raise RuntimeError('kaput')")
 
     with pytest.raises(Exception, match="kaput"):

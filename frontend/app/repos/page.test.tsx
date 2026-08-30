@@ -200,7 +200,7 @@ function refInput(): HTMLInputElement {
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
-  window.localStorage.setItem("zeroth.apiKey", "operator-key");
+  window.localStorage.setItem("zeroth.sessionActive", "1");
   api.listRepoInstallations.mockResolvedValue([INSTALLATION]);
   api.listInstallationRepositories.mockResolvedValue([REPOSITORY]);
   api.claimRepoInstallation.mockResolvedValue(INSTALLATION);

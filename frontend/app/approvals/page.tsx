@@ -5,7 +5,7 @@
 // One card per approval (handoff README §4). Reads happen client-side via
 // `useLoad` and degrade to inline error / empty states, never a thrown boundary.
 // Resolving flips the card optimistically, toasts, and refetches so the sidebar
-// badge and the run both catch up. The API key lives only in localStorage — it
+// badge and the run both catch up. Authentication uses an HttpOnly cookie — it
 // is never logged and never placed in a URL.
 
 import { useEffect, useState } from "react";

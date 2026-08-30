@@ -1,14 +1,16 @@
 // Runtime configuration for the Zeroth Console.
 //
-// Under `output: "export"` nothing is baked at build time, so the API base URL,
-// API key, environment label, and tenant are read from localStorage at runtime.
+// Under `output: "export"` nothing is baked at build time. The API base URL and
+// other non-secret connection metadata are read from localStorage. API keys
+// are exchanged for short-lived HttpOnly sessions and never persisted here.
 // This lets one identical bundle work in both deploy modes:
 //   - Mounted by the Zeroth app  -> base is empty -> requests go same-origin
 //     (e.g. `/v1/runs`, `/api/studio/v1/...` on the host serving /console).
 //   - Standalone host            -> base is an explicit origin + CORS on the API.
 
 const BASE_KEY = "zeroth.apiBase";
-const KEY_KEY = "zeroth.apiKey";
+const LEGACY_KEY_KEY = "zeroth.apiKey";
+const SESSION_KEY = "zeroth.sessionActive";
 const ENV_KEY = "zeroth.env"; // "local" | "staging" | "production"
 const TENANT_KEY = "zeroth.tenant";
 
@@ -29,20 +31,20 @@ export function getApiBase(): string {
   return read(BASE_KEY) ?? "";
 }
 
-export function getApiKey(): string {
-  return read(KEY_KEY) ?? "";
-}
-
 export function setConfig(base: string, key: string): void {
   // Strip trailing slashes so `${base}${path}` never doubles up.
   write(BASE_KEY, base.trim().replace(/\/+$/, ""));
-  write(KEY_KEY, key.trim());
+  void key;
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(LEGACY_KEY_KEY);
+  }
+  write(SESSION_KEY, "1");
 }
 
 /** A key is required for every /v1 and /api/studio call; the base is optional
  *  (empty == same-origin, the mounted-mode default). */
 export function isConfigured(): boolean {
-  return getApiKey().length > 0;
+  return read(SESSION_KEY) === "1";
 }
 
 /** Deployment-environment label shown in the Topbar (defaults to "local"). */

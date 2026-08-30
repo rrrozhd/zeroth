@@ -98,12 +98,15 @@ class GraphValidator:
         mapping_validator: MappingValidator | None = None,
         contract_registry: ContractRegistry | None = None,
         mcp_grants_resolver: MCPGrantsResolver | None = None,
+        *,
+        allow_development_inline_mcp: bool = False,
     ):
         self._contract_registry = contract_registry
         # Resolves an ``mcp_tool`` node's server_ref to the operator-declared
         # ceiling. Optional for the same reason contract_registry is: callers
         # doing contract-only validation have no deployment to resolve against.
         self._mcp_grants_resolver = mcp_grants_resolver
+        self._allow_development_inline_mcp = allow_development_inline_mcp
         # ``self`` is the CapabilityChecks implementation, so the governance
         # rules below run at their original positions inside the contract
         # validators rather than as a separate pass afterwards.
@@ -341,11 +344,15 @@ class GraphValidator:
             # the binary, argv and env themselves, with no operator-owned row to
             # bound it -- the exact gap the registry exists to close -- and the
             # tools it reaches are discovered at run time, so nothing about them
-            # is knowable here. Warned rather than rejected: existing graphs
-            # keep working until the removal in a later high-tier bump.
+            # is knowable here. Rejected by default; explicit local-development
+            # compatibility may temporarily retain the historical warning.
             append_issue(
                 issues,
-                severity=ValidationSeverity.WARNING,
+                severity=(
+                    ValidationSeverity.WARNING
+                    if self._allow_development_inline_mcp
+                    else ValidationSeverity.ERROR
+                ),
                 code=ValidationCode.DEPRECATED_MCP_SERVERS,
                 message=(
                     f"agent {node.node_id!r} declares inline mcp_servers, which is "

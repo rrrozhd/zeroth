@@ -86,6 +86,7 @@ from zeroth.platform.storage.schema_revision import read_async_schema_revision
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.runtime.agents.mcp import RegisteredMCPServerConfig
+from zeroth.runtime.agents.mcp_isolation import mcp_process_isolator_from_settings
 from zeroth.runtime.agents.provider import ProviderAdapter
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
@@ -191,7 +192,12 @@ def _build_sandbox_manager(cfg: SandboxSettings) -> SandboxManager:
     if backend is SandboxBackendMode.SIDECAR:
         sidecar_url = cfg.sidecar_url
         sidecar_client = SandboxSidecarClient(cfg.sidecar_url)
-    config = SandboxConfig(backend=backend, docker=docker, sidecar_url=sidecar_url)
+    config = SandboxConfig(
+        backend=backend,
+        docker=docker,
+        sidecar_url=sidecar_url,
+        allow_untrusted_local_development=cfg.allow_untrusted_local_development,
+    )
     return SandboxManager(config=config, sidecar_client=sidecar_client)
 
 
@@ -350,6 +356,10 @@ async def bootstrap_scoped_service(
         approval_service=approval_service,
         operation_store=operation_store,
         mcp_server_resolver=_resolve_mcp_server,
+        allow_development_unisolated_mcp_processes=(
+            settings.sandbox.allow_unisolated_mcp_development
+        ),
+        mcp_process_isolator=mcp_process_isolator_from_settings(settings.sandbox),
     ).use_token_snapshot_store(run_repository)
     resolved_auth_config = auth_config or ServiceAuthConfig.from_env()
     authenticator = ServiceAuthenticator(
@@ -415,8 +425,8 @@ async def bootstrap_scoped_service(
     # READ path (BudgetEnforcer), AND the gateway-only fallback enforcer must all
     # dispatch straight into the mounted ASGI app; otherwise writes POST to a
     # refused socket (spend stays 0, caps never trip) and reads/gateway checks hit
-    # an unauthenticated external socket and silently fail open. Degrades
-    # gracefully when no Zeroth key exists (Bearer only -> 401 -> fail-open).
+    # an unauthenticated external socket. Budget admission now fails closed;
+    # telemetry delivery still degrades when no Zeroth key exists.
     # See econ.service_auth.
     from zeroth.econ.analytics.service_auth import make_self_auth_headers_provider
 
@@ -450,8 +460,8 @@ async def bootstrap_scoped_service(
 
             # Prefer the bundled in-process mount: a default bundled deploy points
             # base_url at the EXTERNAL localhost:8000 topology, so without this the
-            # enforcer would hit a refused socket and silently fail-open — the cap
-            # never trips. When econ_plane is importable, dispatch straight to the
+            # enforcer would hit a refused socket and deny every run. When
+            # econ_plane is importable, dispatch straight to the
             # mounted ASGI app (guarded exactly like the /regulus mount in app.py);
             # otherwise fall back to the external-HTTP base_url path unchanged.
             budget_enforcer = BudgetEnforcer(
@@ -1441,6 +1451,9 @@ async def build_runners_for_deployment(
             llm_key_map=llm_key_map,
             llm_base_url_map=llm_base_url_map,
             thread_state_store=thread_state_store,
+            allow_development_inline_mcp=(
+                get_settings().sandbox.allow_unisolated_mcp_development
+            ),
         )
         for authored_id, runner in local_runners.items():
             key = (

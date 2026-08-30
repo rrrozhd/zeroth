@@ -28,7 +28,7 @@
 //     checkpoints_deleted, econ_events_deleted? }.
 //
 // Every mutation (save policy, place/release hold, execute erasure) fires a toast.
-// The API key lives only in localStorage (lib/config) — never logged, never in a
+// Authentication uses an HttpOnly session cookie — never logged, never in a
 // URL. Nothing here crashes when the API is unconfigured or unreachable: useLoad
 // turns failures into an inline error state, and the mutating cards gate on a
 // configured key.

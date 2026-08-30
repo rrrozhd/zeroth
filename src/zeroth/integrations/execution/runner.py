@@ -45,9 +45,11 @@ from zeroth.integrations.execution.models import (
     WrappedCommandUnitManifest,
 )
 from zeroth.integrations.execution.sandbox import (
+    SandboxBackendMode,
     SandboxEnvironment,
     SandboxExecutionResult,
     SandboxManager,
+    SandboxPolicyViolationError,
     SandboxStrictnessMode,
 )
 from zeroth.integrations.sandbox.models import DEFAULT_EXECUTION_TIMEOUT_SECONDS
@@ -572,6 +574,7 @@ class ExecutableUnitRunner:
                 sandbox_strictness_mode=sandbox_strictness_mode,
                 read_only_paths=read_only_paths,
                 capture_output_file=capture_output_file,
+                untrusted_code=isinstance(manifest, (InlineUnitManifest, RepositoryUnitManifest)),
             )
             if sandbox_result.returncode != 0 and manifest.output_mode.value != "exit_code_only":
                 command_output = sandbox_result.stderr or sandbox_result.stdout
@@ -682,9 +685,21 @@ class ExecutableUnitRunner:
         sandbox_strictness_mode: SandboxStrictnessMode | None = None,
         read_only_paths: Sequence[str] = (),
         capture_output_file: str | None = None,
+        untrusted_code: bool = False,
     ) -> SandboxExecutionResult:
         """Run a command through the sandbox manager with optional policy overrides."""
         sandbox_manager = self._sandbox_manager_with_strictness(sandbox_strictness_mode)
+        if untrusted_code and hasattr(sandbox_manager, "_resolve_backend"):
+            backend = sandbox_manager._resolve_backend(resource_constraints)  # noqa: SLF001
+            config = getattr(sandbox_manager, "_config", None)
+            if (
+                backend is SandboxBackendMode.LOCAL
+                and not bool(getattr(config, "allow_untrusted_local_development", False))
+            ):
+                raise SandboxPolicyViolationError(
+                    "untrusted code cannot run on the local backend; configure an isolated "
+                    "docker/sidecar backend or the explicit local-development escape hatch"
+                )
         if hasattr(sandbox_manager, "_resolve_backend") and hasattr(
             sandbox_manager,
             "_run_locally",
