@@ -72,6 +72,8 @@ jobs:
           uv sync --all-groups --all-extras
           uv run pytest -v --no-header -ra \
             --splits 4 --group ${{ matrix.group }} \
+            --durations-path .test_durations \
+            --splitting-algorithm least_duration \
             --timeout=300 --timeout-method=thread
 
   zeroth-check-action:
