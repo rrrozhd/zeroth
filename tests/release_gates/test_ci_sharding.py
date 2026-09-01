@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -10,6 +11,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github/workflows/ci.yml"
 PYPROJECT_PATH = ROOT / "pyproject.toml"
+DURATIONS_PATH = ROOT / ".test_durations"
 
 
 def _workflow() -> dict:
@@ -31,6 +33,8 @@ def test_ci_partitions_the_full_suite_across_four_bounded_runners() -> None:
     scripts = "\n".join(step.get("run", "") for step in test_job["steps"])
     assert "uv run pytest -v --no-header -ra" in scripts
     assert "--splits 4 --group ${{ matrix.group }}" in scripts
+    assert "--durations-path .test_durations" in scripts
+    assert "--splitting-algorithm least_duration" in scripts
     assert "--timeout=300 --timeout-method=thread" in scripts
 
 
@@ -57,3 +61,15 @@ def test_ci_sharding_plugins_are_declared_as_dev_dependencies() -> None:
 
     assert '"pytest-split>=0.9"' in pyproject
     assert '"pytest-timeout>=2.3"' in pyproject
+
+
+def test_ci_duration_baseline_is_substantial_and_well_formed() -> None:
+    durations = json.loads(DURATIONS_PATH.read_text(encoding="utf-8"))
+
+    assert len(durations) >= 10_000
+    assert all(nodeid.startswith("tests/") for nodeid in durations)
+    assert all(
+        isinstance(duration, (int, float)) and duration >= 0
+        for duration in durations.values()
+    )
+    assert max(durations.values()) > 1

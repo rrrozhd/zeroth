@@ -18,6 +18,15 @@ uv run ruff check src tests           # lint
 uv run ruff format src                # format
 ```
 
+CI balances its four pytest runners with the tracked `.test_durations` baseline.
+Refresh it after adding or materially changing slow tests, then commit the updated
+file with the test change:
+
+```bash
+uv run pytest -q --store-durations --clean-durations \
+  --durations-path .test_durations
+```
+
 If you only need the base runtime (no optional backends), drop
 `--all-extras --all-groups` from the `uv sync` invocation.
 
