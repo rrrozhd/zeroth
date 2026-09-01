@@ -1,15 +1,50 @@
-# zeroth-sdk protocol prototype
+# zeroth-sdk
 
-This source tree preserves the proposed lean client and instrumentation
-boundary for Zeroth's economic debugger.
+The lean Python client and instrumentation boundary for Zeroth's economic
+debugger. It records workflow execution and outcome evidence, retrieves
+economic analytics, compares workflow versions, and requests bounded model
+backtests without installing the Zeroth runtime or web console.
 
-> **Release blocked:** do not publish or recommend this package yet. Its client
-> routes now have authenticated server implementations, retrieval methods, and
-> client-to-server tests. The remaining block is operational: no production
-> hosted endpoint, managed provider credentials, or supported release exists.
-> WorkOS activation and Paddle commerce are implemented but have not completed
-> a real sandbox/production transaction. The `0.0.0.dev0` version and
-> `tool.zeroth.release.publish = false` marker encode that hold.
+## Installation status
+
+No SDK release is currently available on either index. The commands below are
+the supported install paths after their corresponding release has been
+published.
+
+From PyPI, after the production release gate is opened:
+
+```bash
+python -m pip install zeroth-sdk
+```
+
+From TestPyPI, for the current pinned development candidate:
+
+```bash
+python -m pip install \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  zeroth-sdk==0.0.0.dev0
+```
+
+The explicit version prevents this validation command from silently selecting
+a different SDK release. PyPI remains the fallback index for the SDK's public
+runtime dependencies.
+
+## Publishing status
+
+PyPI and TestPyPI use credential-free Trusted Publishing from
+`.github/workflows/release-zeroth-sdk.yml`. The manual workflow builds one
+sdist/wheel pair, checks its metadata, smoke-installs the wheel, and promotes
+that same artifact through the registry-specific `testpypi` or `pypi` GitHub
+environment. No long-lived registry token is stored in the repository.
+
+Production publishing remains intentionally blocked. The client routes have
+authenticated server implementations, retrieval methods, and client-to-server
+tests, but there is no supported production hosted endpoint, managed provider
+credential path, or completed WorkOS/Paddle production transaction. The
+`0.0.0.dev0` version and `tool.zeroth.release.publish = false` marker encode
+that hold. A PyPI run fails closed until that marker is deliberately changed;
+the `pypi` environment also requires approval from `rrrozhd`.
 
 The SDK contains only public wire contracts, HTTP client operations, and the
 instrumentation namespace. It does not ship the Zeroth runtime, service,
