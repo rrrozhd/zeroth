@@ -34,6 +34,7 @@ from tests.conftest import requires_docker
 from zeroth.econ.plane import database as database_module
 from zeroth.econ.plane.auth import models as auth_models  # noqa: F401
 from zeroth.econ.plane.capabilities import models as capability_models  # noqa: F401
+from zeroth.econ.plane.cloud import models as cloud_models  # noqa: F401
 from zeroth.econ.plane.connectors import models as connector_models  # noqa: F401
 from zeroth.econ.plane.costing import models as costing_models  # noqa: F401
 from zeroth.econ.plane.counterfactual import (
@@ -84,6 +85,18 @@ _PRE_MEASUREMENT_EXECUTION_EVENTS = (
     "tool_cost_usd NUMERIC(12, 4) NOT NULL, "
     "compute_cost_usd NUMERIC(12, 4) NOT NULL, "
     "CONSTRAINT uq_execution_events_execution_id UNIQUE (execution_id))"
+)
+
+_PRE_BILLING_SYNC_SUBSCRIPTIONS = (
+    "CREATE TABLE cloud_subscriptions ("
+    "tenant_id VARCHAR(128) PRIMARY KEY, "
+    "plan VARCHAR(32) NOT NULL, "
+    "status VARCHAR(32) NOT NULL, "
+    "period_start DATETIME NOT NULL, "
+    "period_end DATETIME NOT NULL, "
+    "external_customer_id VARCHAR(128), "
+    "external_subscription_id VARCHAR(128), "
+    "updated_at DATETIME NOT NULL)"
 )
 
 
@@ -147,6 +160,7 @@ def test_sqlite_converges_instead_of_refusing(tmp_path: Path, monkeypatch) -> No
     try:
         with engine.begin() as connection:
             connection.execute(text(_LEGACY_POLICY_ACTIONS))
+            connection.execute(text(_PRE_BILLING_SYNC_SUBSCRIPTIONS))
             assert database_module._missing_chain_owned_columns(connection) != ()
         Base.metadata.create_all(bind=engine)
 
@@ -154,6 +168,12 @@ def test_sqlite_converges_instead_of_refusing(tmp_path: Path, monkeypatch) -> No
 
         with engine.connect() as connection:
             assert database_module._missing_chain_owned_columns(connection) == ()
+            subscription_columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("cloud_subscriptions")
+            }
+            assert "billing_provider" in subscription_columns
+            assert "last_billing_event_at" in subscription_columns
     finally:
         engine.dispose()
 
@@ -206,7 +226,7 @@ def test_non_sqlite_startup_refuses_a_schema_the_chain_has_not_reached(
             "execution_events.usage_measurement (revision 20260812_04)",
             "policy_actions.enforcement_action_id (revision 20260812_06)",
             "'20260811_04'",  # applied
-            "'20260824_10'",  # shipped head
+            "'20260901_16'",  # shipped head
             "behind",
             "alembic upgrade head",
             "postgresql",

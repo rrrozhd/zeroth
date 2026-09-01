@@ -72,9 +72,20 @@ _CHAIN_OWNED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("execution_events", "cleanup_status", "20260822_08"),
     ("execution_events", "deployment_ref", "20260823_09"),
     ("execution_events", "evidence_kind", "20260823_09"),
+    ("execution_events", "workflow_id", "20260830_11"),
+    ("execution_events", "workflow_version", "20260830_11"),
+    ("execution_events", "run_id", "20260830_11"),
+    ("execution_events", "step_id", "20260830_11"),
+    ("execution_events", "attempt", "20260830_11"),
+    ("execution_events", "subject_id", "20260830_11"),
+    ("execution_events", "dimensions", "20260830_11"),
     ("cost_reservations", "deployment_ref", "20260823_09"),
     ("cost_reservations", "evidence_kind", "20260823_09"),
     ("policy_actions", "enforcement_action_id", "20260812_06"),
+    ("cloud_subscriptions", "billing_provider", "20260901_16"),
+    ("cloud_subscriptions", "external_price_id", "20260901_16"),
+    ("cloud_subscriptions", "last_billing_event_id", "20260901_16"),
+    ("cloud_subscriptions", "last_billing_event_at", "20260901_16"),
 )
 
 
@@ -206,6 +217,18 @@ def _ensure_sqlite_compat() -> None:
         ensure_col("connector_delivery_log", "tenant_id", "tenant_id VARCHAR(128)")
 
         ensure_col("users", "workspace_id", "workspace_id VARCHAR(128)")
+        ensure_col("cloud_subscriptions", "billing_provider", "billing_provider VARCHAR(32)")
+        ensure_col("cloud_subscriptions", "external_price_id", "external_price_id VARCHAR(128)")
+        ensure_col(
+            "cloud_subscriptions",
+            "last_billing_event_id",
+            "last_billing_event_id VARCHAR(128)",
+        )
+        ensure_col(
+            "cloud_subscriptions",
+            "last_billing_event_at",
+            "last_billing_event_at DATETIME",
+        )
         if conn.execute(
             text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'")
         ).first():
@@ -313,6 +336,10 @@ def _ensure_sqlite_compat() -> None:
                 conn,
                 "20260824_10_execution_cost_precision.py",
             ).upgrade()
+        _load_compat_migration(
+            conn,
+            "20260830_11_economic_debugger_spine.py",
+        ).upgrade()
         ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")

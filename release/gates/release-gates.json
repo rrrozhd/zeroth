@@ -112,12 +112,17 @@
       "id": "remote-acceptance",
       "order": 8,
       "phase": "final",
-      "title": "Remote acceptance",
-      "description": "The candidate is installed from the published index and its exact deployed image passes the tenant-isolated black-box acceptance suite.",
-      "binds": ["commit", "package", "image"],
+      "title": "Economic debugger acceptance",
+      "description": "The exact candidate is installed from the published index as a headless package, emits a bounded economic diagnostic, and closes a seeded provider statement to workflow outcomes.",
+      "binds": ["commit", "package"],
       "record": "release/evidence/remote-acceptance.json",
-      "requires": ["index-install", "example-run", "deployed-suite"],
-      "kinds": ["deployment"],
+      "requires": [
+        "index-install",
+        "headless-install",
+        "diagnostic-artifact",
+        "provider-reconciliation"
+      ],
+      "kinds": ["economic-acceptance"],
       "triggers": ["release-candidate"]
     },
     {
@@ -164,10 +169,15 @@
       "producer": "ci",
       "description": "Readiness, gateway, configuration-refusal and shutdown probes against a running deployment."
     },
+    "economic-acceptance": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "Candidate-bound installed-package evidence for the headless diagnostic and provider-bill reconciliation path."
+    },
     "ui": {
       "applicable": true,
       "producer": "ci",
-      "description": "Console unit suite results. The console ships as the zeroth-console dist, so its tests are release evidence."
+      "description": "Open-source console unit-suite evidence from the shared repository. The console is not installed or published by the headless zeroth-core release."
     },
     "sbom": {
       "applicable": true,

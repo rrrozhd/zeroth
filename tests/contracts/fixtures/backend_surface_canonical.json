@@ -3820,6 +3820,76 @@
     },
     {
       "evidence": [
+        "schema_model:zeroth.econ.plane.debugger.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.debugger.schemas",
+      "name": "BreakagePoint",
+      "signature": "(*, workflow_id: str, workflow_version: str, step_id: str, failed_runs: int, measured_failure_exposure_usd: float, estimated_failure_exposure_usd: float, measured_repeated_attempt_cost_usd: float, estimated_repeated_attempt_cost_usd: float, attribution: str = 'failed_run_exposure_not_step_causality') -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.debugger.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.debugger.schemas",
+      "name": "CohortPoint",
+      "signature": "(*, cohort: str, runs: int, successful_runs: int, failed_runs: int, measured_cost_usd: float, estimated_cost_usd: float, measured_cost_per_successful_outcome_usd: float | None, estimated_cost_per_successful_outcome_usd: float | None, incomplete_events: int) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.debugger.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.debugger.schemas",
+      "name": "DiagnosticAction",
+      "signature": "(*, code: Literal['repair_evidence', 'define_outcome_success', 'instrument_outcomes', 'investigate_retry_policy', 'inspect_failed_runs', 'retain_current_configuration'], rationale: str, supported_claim: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.debugger.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.debugger.schemas",
+      "name": "EconomicDiagnosticReport",
+      "signature": "(*, workflow_id: str, window_start: datetime.datetime | None, window_end: datetime.datetime | None, cohort_dimension: str | None, claim_scope: Literal['observed_economic_exposure'] = 'observed_economic_exposure', decision_state: Literal['insufficient_evidence', 'economic_risk_observed', 'stable_observation'], data_quality: Literal['incomplete', 'estimated_only', 'measured_only', 'mixed_cost_evidence'], event_count: int, runs: int, successful_runs: int, failed_runs: int, unresolved_runs: int, undefined_outcome_versions: list[str], outcome_coverage: float, measured_events: int, estimated_events: int, unmeasured_events: int, incomplete_events: int, measured_cost_usd: float, estimated_cost_usd: float, measured_failure_exposure_usd: float, estimated_failure_exposure_usd: float, measured_cost_per_successful_outcome_usd: float | None, estimated_cost_per_successful_outcome_usd: float | None, top_failure_exposure: zeroth.econ.plane.debugger.schemas.BreakagePoint | None, highest_failure_rate_cohort: zeroth.econ.plane.debugger.schemas.CohortPoint | None, recommended_action: zeroth.econ.plane.debugger.schemas.DiagnosticAction, limitations: list[str]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.debugger.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.debugger.schemas",
+      "name": "OutcomeDefinitionCreate",
+      "signature": "(*, workflow_id: str, workflow_version: str, outcome_type: str, operator: Literal['equals', 'not_equals', 'greater_than_or_equal', 'less_than_or_equal'], target: bool | float | str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.debugger.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.debugger.schemas",
+      "name": "OutcomeDefinitionOut",
+      "signature": "(*, workflow_id: str, workflow_version: str, outcome_type: str, operator: Literal['equals', 'not_equals', 'greater_than_or_equal', 'less_than_or_equal'], target: bool | float | str, definition_digest: str, created_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.debugger.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.debugger.schemas",
+      "name": "TimelinePoint",
+      "signature": "(*, period_start: datetime.datetime, workflow_id: str, workflow_version: str, runs: int, successful_runs: int, failed_runs: int, measured_cost_usd: float, estimated_cost_usd: float, measured_failure_exposure_usd: float, estimated_failure_exposure_usd: float, measured_cost_per_successful_outcome_usd: float | None, estimated_cost_per_successful_outcome_usd: float | None, incomplete_events: int) -> None"
+    },
+    {
+      "evidence": [
         "schema_model:zeroth.econ.plane.instrumentation.schemas"
       ],
       "kind": "class",
@@ -3925,6 +3995,66 @@
       "module": "zeroth.econ.plane.reconciliation.schemas",
       "name": "GroundTruthImportRequest",
       "signature": "(*, rows: list[zeroth.econ.plane.reconciliation.schemas.GroundTruthCostIn]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.reconciliation.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reconciliation.schemas",
+      "name": "ProviderBillAllocation",
+      "signature": "(*, bucket_id: str, model: str | None, provider_dimensions: dict[str, str], workflow_id: str, workflow_version: str, outcome_status: Literal['success', 'failure', 'unresolved'], billed_cost_usd: decimal.Decimal, telemetry_cost_usd: decimal.Decimal, run_count: int, event_count: int) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.reconciliation.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reconciliation.schemas",
+      "name": "ProviderBillImportRequest",
+      "signature": "(*, statement_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=192), _PydanticGeneralMetadata(pattern='^[A-Za-z0-9][A-Za-z0-9._:-]*$')], provider: Annotated[str, MinLen(min_length=1), MaxLen(max_length=64), _PydanticGeneralMetadata(pattern='^[a-z0-9][a-z0-9._-]*$')], period_start: datetime.datetime, period_end: datetime.datetime, currency: Literal['USD'] = 'USD', billed_total_usd: Annotated[decimal.Decimal, Gt(gt=0), _PydanticGeneralMetadata(max_digits=18, decimal_places=8)], source_kind: Literal['cost_api', 'csv_export', 'invoice_export', 'manual'], buckets: Annotated[list[zeroth.econ.plane.reconciliation.schemas.ProviderCostBucketIn], MinLen(min_length=1), MaxLen(max_length=10000)]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.reconciliation.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reconciliation.schemas",
+      "name": "ProviderBillOut",
+      "signature": "(*, statement_id: str, provider: str, period_start: datetime.datetime, period_end: datetime.datetime, currency: Literal['USD'], billed_total_usd: decimal.Decimal, source_kind: Literal['cost_api', 'csv_export', 'invoice_export', 'manual'], bucket_count: int, statement_digest: str, imported_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.reconciliation.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reconciliation.schemas",
+      "name": "ProviderBillReport",
+      "signature": "(*, statement_id: str, provider: str, statement_digest: str, period_start: datetime.datetime, period_end: datetime.datetime, currency: Literal['USD'], reconciliation_state: Literal['reconciled', 'allocated_with_variance', 'outcomes_unresolved', 'unreconciled'], billed_total_usd: decimal.Decimal, allocated_billed_usd: decimal.Decimal, unreconciled_billed_usd: decimal.Decimal, telemetry_measured_usd: decimal.Decimal, telemetry_variance_usd: decimal.Decimal, unbilled_telemetry_usd: decimal.Decimal, outcome_unresolved_usd: decimal.Decimal, matched_buckets: int, unmatched_buckets: list[zeroth.econ.plane.reconciliation.schemas.UnmatchedProviderBucket], allocations: list[zeroth.econ.plane.reconciliation.schemas.ProviderBillAllocation], allocation_method: Literal['measured_cost_proportional'], limitations: list[str]) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.reconciliation.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reconciliation.schemas",
+      "name": "ProviderCostBucketIn",
+      "signature": "(*, bucket_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=192)], period_start: datetime.datetime, period_end: datetime.datetime, amount_usd: Annotated[decimal.Decimal, Gt(gt=0), _PydanticGeneralMetadata(max_digits=18, decimal_places=8)], model: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, provider_dimensions: dict[str, str] = <factory>) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.reconciliation.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reconciliation.schemas",
+      "name": "UnmatchedProviderBucket",
+      "signature": "(*, bucket_id: str, reason: Literal['no_measured_telemetry', 'ambiguous_bucket_scope']) -> None"
     },
     {
       "evidence": [
@@ -12807,6 +12937,102 @@
       "module": "zeroth.service.webhooks.service",
       "name": "WebhookService",
       "signature": "(repository: 'WebhookRepository', default_max_retries: 'int' = 5) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.cloud.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.cloud.schemas",
+      "name": "SdkExecutionEvent",
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], workflow_version: Annotated[str, MinLen(min_length=1)] = 'unversioned', run_id: Annotated[str, MinLen(min_length=1)], step: Annotated[str, MinLen(min_length=1)], attempt: Annotated[int, Ge(ge=1)] = 1, event_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, recorded_at: datetime.datetime = <factory>, model_version: Annotated[str, MinLen(min_length=1)] = 'unknown', cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = Decimal('0'), cost_measurement: Literal['measured', 'estimated', 'unmeasured'] = 'measured', latency_ms: Annotated[int, Ge(ge=0)] = 0, subject_id: str | None = None, dimensions: dict[str, str | int | float | bool] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.cloud.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.cloud.schemas",
+      "name": "SdkOutcomeEvent",
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], workflow_version: Annotated[str, MinLen(min_length=1)] = 'unversioned', run_id: Annotated[str, MinLen(min_length=1)], accepted: bool, outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', occurred_at: datetime.datetime = <factory>, provenance: Literal['measured', 'inferred', 'mixed'] = 'measured', value_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, score: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, subject_id: str | None = None, dimensions: dict[str, str | int | float | bool] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "DecisionScheduleCreate",
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], baseline_version: Annotated[str, MinLen(min_length=1)], candidate_version: Annotated[str, MinLen(min_length=1)], outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', policy: zeroth.econ.decisioning.DecisionPolicy = <factory>, interval_minutes: Annotated[int, Ge(ge=60), Le(le=43200)] = 1440) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "DecisionScheduleOut",
+      "signature": "(*, schedule_id: str, workflow: str, baseline_version: str, candidate_version: str, outcome_type: str, policy: zeroth.econ.decisioning.DecisionPolicy, interval_minutes: int, active: bool, next_run_at: datetime.datetime, last_run_at: datetime.datetime | None, last_decision_id: str | None, last_error: str | None, created_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "VersionComparisonRequest",
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], baseline_version: Annotated[str, MinLen(min_length=1)], candidate_version: Annotated[str, MinLen(min_length=1)], outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', policy: zeroth.econ.decisioning.DecisionPolicy = <factory>) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.backtesting.schemas",
+      "name": "BacktestCase",
+      "signature": "(*, id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], input: Annotated[dict[str, Any], MinLen(min_length=1)], expected: Annotated[dict[str, Any], MinLen(min_length=1)]) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.backtesting.schemas",
+      "name": "BacktestComputation",
+      "signature": "(*, incumbent_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_error_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, savings_pct: float | None = None, provider_calls: Annotated[int, Ge(ge=0)] = 0, reasons: list[str] = <factory>) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.backtesting.schemas",
+      "name": "BacktestCreate",
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], baseline_version: Annotated[str | None, MinLen(min_length=1)] = None, node_id: Annotated[str | None, MinLen(min_length=1)] = None, incumbent_model: Annotated[str | None, MinLen(min_length=1)] = None, instruction: Annotated[str | None, MinLen(min_length=1)] = None, candidate: Annotated[dict[str, Any], MinLen(min_length=1)], cases: Annotated[list[zeroth.econ.plane.backtesting.schemas.BacktestCase], MaxLen(max_length=25)] = <factory>, constraints: zeroth.econ.plane.backtesting.schemas.EconomicConstraints) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.backtesting.schemas",
+      "name": "EconomicBacktest",
+      "signature": "(*, backtest_id: str, request_digest: str, workflow: str, baseline_version: str | None, node_id: str | None, incumbent_model: str | None, candidate_model: str | None, verdict: Literal['pass', 'fail', 'abstain'], recommended_action: Literal['approve_candidate', 'keep_incumbent', 'collect_evidence'], cases: Annotated[int, Ge(ge=0), Le(le=25)], provider_call_credits: Annotated[int, Ge(ge=0)], incumbent_success_rate: float | None = None, candidate_success_rate: float | None = None, candidate_error_rate: float | None = None, savings_pct: float | None = None, constraints: zeroth.econ.plane.backtesting.schemas.EconomicConstraints, reasons: list[str] = <factory>, evaluated_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.backtesting.schemas",
+      "name": "EconomicConstraints",
+      "signature": "(*, min_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, max_cost_per_outcome_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, max_critical_error_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.billing.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.billing.schemas",
+      "name": "BillingSubscriptionEvent",
+      "signature": "(*, provider: Annotated[str, MinLen(min_length=1), MaxLen(max_length=32)], event_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], tenant_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], external_customer_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], external_subscription_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], external_price_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], plan: Literal['trial', 'solo', 'team', 'scale'], status: Literal['trialing', 'active', 'past_due', 'paused', 'canceled'], period_start: datetime.datetime, period_end: datetime.datetime, occurred_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.billing.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.billing.schemas",
+      "name": "BillingSyncResult",
+      "signature": "(*, disposition: Literal['applied', 'duplicate', 'ignored_stale'], provider: str, event_id: str, tenant_id: str) -> None"
     }
   ]
 }

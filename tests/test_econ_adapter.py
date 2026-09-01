@@ -67,6 +67,9 @@ async def test_adapter_enriches_response_with_cost(
         run_id="run-1",
         tenant_id="tenant-1",
         deployment_ref="deploy-1",
+        workflow_version="graph@7",
+        subject_id="customer-42",
+        dimensions={"plan": "enterprise", "region": "us-east"},
     )
     result = await adapter.ainvoke(provider_request)
     assert result.cost_usd is None
@@ -74,6 +77,14 @@ async def test_adapter_enriches_response_with_cost(
     assert result.estimated_cost_usd > 0
     assert result.cost_event_id is not None
     assert len(result.cost_event_id) > 0
+    event = mock_regulus_client.track_execution.call_args.args[0]
+    assert event.workflow_id == "deploy-1"
+    assert event.workflow_version == "graph@7"
+    assert event.run_id == "run-1"
+    assert event.step_id == "test-node"
+    assert event.attempt == 1
+    assert event.subject_id == "customer-42"
+    assert event.dimensions == {"plan": "enterprise", "region": "us-east"}
 
 
 async def test_adapter_reserves_before_each_concurrent_workflow_provider_call(token_usage):

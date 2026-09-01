@@ -45,6 +45,7 @@ REQUIRED_KINDS = frozenset(
         "source-receipt",
         "security",
         "deployment",
+        "economic-acceptance",
         "ui",
         "sbom",
         "provenance",

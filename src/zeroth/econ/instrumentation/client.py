@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any, Optional
+from typing import Any, Optional, Self
 from uuid import NAMESPACE_URL, uuid4, uuid5
 import threading
 import warnings
@@ -45,6 +45,33 @@ class InstrumentationClient:
         )
         self.transport.start()
 
+    @classmethod
+    def authenticated(
+        cls,
+        *,
+        bearer_token: str,
+        base_url: str = "http://localhost:8000/v1",
+        timeout: float = 5.0,
+        enabled: bool = True,
+        buffer_max_events: int = 1000,
+        flush_interval_ms: int = 500,
+    ) -> Self:
+        """Create a client with a static bearer token kept out of config and repr."""
+        if not bearer_token.strip():
+            raise ValueError("bearer_token must not be blank")
+
+        def headers() -> dict[str, str]:
+            return {"Authorization": f"Bearer {bearer_token}"}
+
+        return cls(
+            base_url=base_url,
+            timeout=timeout,
+            enabled=enabled,
+            buffer_max_events=buffer_max_events,
+            flush_interval_ms=flush_interval_ms,
+            headers_provider=headers,
+        )
+
     def track_execution(self, event: ExecutionEvent) -> None:
         self.transport.enqueue_execution(event)
 
@@ -54,6 +81,20 @@ class InstrumentationClient:
 
     def track_outcome(self, outcome: OutcomeEvent) -> None:
         self.transport.enqueue_outcome(outcome)
+
+    def track_outcome_confirmed(self, outcome: OutcomeEvent) -> None:
+        """Persist one terminal outcome synchronously or raise on rejected delivery."""
+        self.transport.deliver_outcome_confirmed(outcome)
+
+    def close(self) -> None:
+        """Stop this client's background delivery worker."""
+        self.transport.stop()
+
+    def __enter__(self) -> InstrumentationClient:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
 
 _instrumentation_client_parameters = inspect.signature(InstrumentationClient).parameters

@@ -28,7 +28,12 @@ Auto-generated from docstrings via [mkdocstrings](https://mkdocstrings.github.io
 ### Platform
 - [Secrets](python-api/secrets.md) — `zeroth.platform.secrets`
 - [Dispatch](python-api/dispatch.md) — `zeroth.platform.dispatch`
-- [Economics](python-api/econ.md) — `zeroth.econ.analytics`
+- [SDK protocol prototype](python-api/sdk.md) — preserved and release-blocked,
+  `zeroth.sdk` and `zeroth.protocol`
+- [Economic debugger analytics](python-api/optimization.md) — local façade,
+  `zeroth.optimization`
+- [Economics internals](python-api/econ.md) — preserved implementation surface,
+  `zeroth.econ.analytics`
 - [Service](python-api/service.md) — `zeroth.service`
 - [Webhooks](python-api/webhooks.md) — `zeroth.service.webhooks`
 

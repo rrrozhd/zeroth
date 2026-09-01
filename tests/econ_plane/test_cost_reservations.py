@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -371,7 +372,7 @@ def test_budget_status_reports_real_spend_exposure_and_synthetic_proofs_separate
                 tenant_id="tenant-a",
                 execution_id="legacy-real-call",
                 join_key="run-real",
-                timestamp=__import__("datetime").datetime.now(),
+                timestamp=datetime.now(UTC).replace(tzinfo=None),
                 capability_id="capability",
                 implementation_id="implementation",
                 model_version="model",

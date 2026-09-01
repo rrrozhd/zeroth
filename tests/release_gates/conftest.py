@@ -80,6 +80,7 @@ KIND_BODIES = {
     "provenance": '{"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3"}\n',
     "security": '{"verified": true}\n',
     "deployment": "readiness ok\ngateway ok\n",
+    "economic-acceptance": "{}\n",
     "manual-signoff": "Accepted by an operator.\n",
 }
 
@@ -97,61 +98,31 @@ def write_record(root: Path, gate: dict, candidate: dict, **overrides) -> Path:
         relative = f"release/evidence/{gate['id']}-{kind}.{suffix}"
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         body = evidence_body(kind)
-        if gate["id"] == "remote-acceptance" and kind == "deployment":
+        if gate["id"] == "remote-acceptance" and kind == "economic-acceptance":
             from gates.identity import identity_digest
 
-            scenarios = [
-                "readiness",
-                "authentication",
-                "rbac",
-                "migrations",
-                "workflow_lifecycle",
-                "deployment",
-                "runs",
-                "approvals",
-                "audit",
-                "artifacts",
-                "retention",
-                "gateway_http",
-                "gateway_websocket",
-                "compatibility",
-                "executable_unit_failures",
-                "restart_recovery",
-                "shutdown",
-            ]
             body = json.dumps(
                 {
                     "schema_version": 1,
                     "status": "passed",
-                    "target_origin": "https://acceptance.example.test",
-                    "tenant_id": "acceptance-release",
-                    "namespace": "acceptance-release-01234567",
-                    "deployment_ref": "candidate",
                     "candidate_digest": identity_digest(candidate),
-                    "image_identity": candidate["image"],
-                    "observed_compatibility": {
-                        "status": "supported",
-                        "detected_agent_server": "0.11.1",
+                    "package": {
+                        "name": "zeroth-core",
+                        "version": candidate["package"]["version"],
+                        "artifact_digest": next(iter(candidate["package"]["artifacts"].values())),
                     },
-                    "observed_deployment": {
-                        "deployment_ref": "candidate",
-                        "deployment_version": 1,
-                        "graph_version_ref": "graph@1",
+                    "excluded_distributions": {
+                        "zeroth-console": "absent",
+                        "zeroth-sdk": "absent",
                     },
-                    "started_at": "2026-08-08T12:00:00Z",
-                    "finished_at": "2026-08-08T12:01:00Z",
-                    "scenarios": [
-                        {"name": name, "status": "passed", "detail": "passed", "observations": []}
-                        for name in scenarios
-                    ],
-                    "cleanup": [
-                        {
-                            "name": "cleanup-1",
-                            "status": "passed",
-                            "detail": "passed",
-                            "observations": [],
-                        }
-                    ],
+                    "diagnostic": {
+                        "claim_scope": "observed_economic_exposure",
+                        "decision_state": "economic_risk_observed",
+                    },
+                    "reconciliation": {
+                        "reconciliation_state": "reconciled",
+                        "unreconciled_billed_usd": "0.00",
+                    },
                 }
             )
         (root / relative).write_text(body, encoding="utf-8")

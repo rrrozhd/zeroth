@@ -41,11 +41,11 @@ def test_the_guide_explains_every_refusal_reason():
         assert f"`{status}`" in TEXT, f"the guide does not explain a {status} verdict"
 
 
-def test_the_guide_states_where_the_manual_signoff_lives():
-    assert "release/signoff/" in TEXT
-    # The path the release workflow actually reads must be the documented one.
+def test_the_guide_documents_the_run_bound_manual_signoff():
+    assert "Promote zeroth-core" in TEXT
+    assert "PROMOTE_ZEROTH_CORE" in TEXT
     workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/release-zeroth-core.yml").read_text(encoding="utf-8")
+        (ROOT / ".github/workflows/promote-zeroth-core.yml").read_text(encoding="utf-8")
     )
     scripts = "\n".join(
         step.get("run", "")
@@ -54,7 +54,10 @@ def test_the_guide_states_where_the_manual_signoff_lives():
         for step in job.get("steps", [])
         if isinstance(step, dict)
     )
-    assert "release/signoff/" in scripts
+    assert "Candidate-run-id:" in scripts
+    assert "Candidate-digest:" in scripts
+    assert "github.actor" in str(workflow)
+    assert "release/signoff/" not in scripts
 
 
 def test_the_guide_is_published_in_the_navigation():

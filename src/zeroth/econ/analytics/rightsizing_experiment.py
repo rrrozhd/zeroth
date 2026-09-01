@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -638,3 +640,103 @@ async def run_experiment(
         )
 
     return report
+
+
+@dataclass(frozen=True)
+class HostedBacktestCase:
+    """One ephemeral labeled case at the economic-domain boundary."""
+
+    id: str
+    input: dict[str, Any]
+    expected: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class HostedBacktestRequest:
+    """Provider-independent input for one bounded model substitution."""
+
+    workflow: str
+    node_id: str | None
+    incumbent_model: str
+    candidate_model: str
+    instruction: str
+    cases: tuple[HostedBacktestCase, ...]
+
+
+@dataclass(frozen=True)
+class HostedBacktestResult:
+    """Credential-free measured output returned to the hosting adapter."""
+
+    incumbent_success_rate: float | None = None
+    candidate_success_rate: float | None = None
+    candidate_error_rate: float | None = None
+    savings_pct: float | None = None
+    provider_calls: int = 0
+    reasons: list[str] = field(default_factory=list)
+
+
+class HostedModelBacktest:
+    """Run correctness replays using service-managed provider credentials."""
+
+    def __init__(self, provider: ProviderAdapter | None = None) -> None:
+        self._provider = provider
+
+    async def execute(self, request: HostedBacktestRequest) -> HostedBacktestResult:
+        from zeroth.econ.analytics.rightsizing import describe
+
+        incumbent = describe(request.incumbent_model)
+        candidate = describe(request.candidate_model)
+        if incumbent is None or candidate is None:
+            return HostedBacktestResult(
+                reasons=["pricing is unavailable for the incumbent or candidate model"]
+            )
+        dataset = EvalDataset(
+            name=f"hosted:{request.workflow}:{request.node_id or 'node'}",
+            cases=[
+                EvalCase(id=case.id, input=case.input, expected=case.expected)
+                for case in request.cases
+            ],
+        )
+        provider = self._provider
+        if provider is None:
+            from zeroth.runtime.agents.provider import LiteLLMProviderAdapter
+
+            provider = LiteLLMProviderAdapter()
+        report = await run_experiment(
+            incumbent=incumbent,
+            candidates=[candidate],
+            dataset=dataset,
+            instruction=request.instruction,
+            replay_provider=provider,
+            judge_provider=provider,
+            judge_model=request.incumbent_model,
+            mean_input_tokens=1000,
+            mean_output_tokens=300,
+            node_id=request.node_id,
+            min_cases=5,
+            mode="correctness",
+        )
+        incumbent_outcome = next((item for item in report.outcomes if item.is_incumbent), None)
+        candidate_outcome = next((item for item in report.outcomes if not item.is_incumbent), None)
+        provider_calls = sum(item.cases_evaluated * 2 for item in report.outcomes)
+        execution_inconclusive = candidate_outcome is None or (
+            candidate_outcome.cases_evaluated > 0
+            and candidate_outcome.cases_errored == candidate_outcome.cases_evaluated
+        )
+        reasons = (
+            [report.note or "experiment was inconclusive"] if execution_inconclusive else []
+        )
+        return HostedBacktestResult(
+            incumbent_success_rate=(
+                incumbent_outcome.equivalence_rate if incumbent_outcome is not None else None
+            ),
+            candidate_success_rate=(
+                candidate_outcome.equivalence_rate if candidate_outcome is not None else None
+            ),
+            candidate_error_rate=(
+                candidate_outcome.error_rate if candidate_outcome is not None else None
+            ),
+            savings_pct=candidate_outcome.savings_pct if candidate_outcome is not None else None,
+            provider_calls=provider_calls,
+            reasons=reasons,
+        )

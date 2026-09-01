@@ -20,11 +20,10 @@ from .conftest import ROOT
 
 WORKFLOWS = ROOT / ".github/workflows"
 RELEASE_WORKFLOW = WORKFLOWS / "release-zeroth-core.yml"
+PROMOTION_WORKFLOW = WORKFLOWS / "promote-zeroth-core.yml"
 GATES_WORKFLOW = WORKFLOWS / "release-gates.yml"
 CI_WORKFLOW = WORKFLOWS / "ci.yml"
-
-#: Jobs that make the candidate available to someone else.
-PROMOTION_JOBS = ("publish-testpypi", "publish-pypi")
+EVIDENCE_WORKFLOWS = (RELEASE_WORKFLOW, GATES_WORKFLOW, PROMOTION_WORKFLOW)
 
 #: Workflows that ran on pull requests before this change. Fast PR checks are
 #: preserved by keeping this set exactly as it was.
@@ -104,32 +103,36 @@ def _scripts(path: Path) -> dict[str, str]:
 
 
 def test_privileged_release_jobs_pin_external_actions() -> None:
-    workflow = _load(RELEASE_WORKFLOW)
-    source = RELEASE_WORKFLOW.read_text(encoding="utf-8")
-    privileged_jobs = {
-        name: job
-        for name, job in workflow["jobs"].items()
-        if "write" in (job.get("permissions", workflow["permissions"])).values()
-    }
-
-    assert privileged_jobs
-    for job_name, job in privileged_jobs.items():
-        for step in _steps(job):
-            uses = str(step.get("uses", ""))
-            if not uses or uses.startswith("./"):
-                continue
-            action, _, ref = uses.partition("@")
-            assert re.fullmatch(r"[0-9a-f]{40}", ref), (
-                f"{job_name}: {action} is not pinned to a 40-hex commit"
-            )
-            assert action in PRIVILEGED_ACTION_REFS, f"{job_name}: unreviewed action {action}"
-            expected_ref, version = PRIVILEGED_ACTION_REFS[action]
-            assert ref == expected_ref
-            assert re.search(
-                rf"^\s*uses:\s*{re.escape(action)}@{ref}\s+#\s+{re.escape(version)}\s*$",
-                source,
-                re.MULTILINE,
-            ), f"{job_name}: {action} pin has no {version} version comment"
+    found = 0
+    for path in (RELEASE_WORKFLOW, PROMOTION_WORKFLOW):
+        workflow = _load(path)
+        source = path.read_text(encoding="utf-8")
+        privileged_jobs = {
+            name: job
+            for name, job in workflow["jobs"].items()
+            if "write" in (job.get("permissions", workflow["permissions"])).values()
+        }
+        found += len(privileged_jobs)
+        for job_name, job in privileged_jobs.items():
+            for step in _steps(job):
+                uses = str(step.get("uses", ""))
+                if not uses or uses.startswith("./"):
+                    continue
+                action, _, ref = uses.partition("@")
+                assert re.fullmatch(r"[0-9a-f]{40}", ref), (
+                    f"{path.name}:{job_name}: {action} is not pinned to a 40-hex commit"
+                )
+                assert action in PRIVILEGED_ACTION_REFS, (
+                    f"{path.name}:{job_name}: unreviewed action {action}"
+                )
+                expected_ref, version = PRIVILEGED_ACTION_REFS[action]
+                assert ref == expected_ref
+                assert re.search(
+                    rf"^\s*uses:\s*{re.escape(action)}@{ref}\s+#\s+{re.escape(version)}\s*$",
+                    source,
+                    re.MULTILINE,
+                ), f"{path.name}:{job_name}: {action} pin has no {version} version comment"
+    assert found
 
 
 # --------------------------------------------------------------------------
@@ -137,29 +140,29 @@ def test_privileged_release_jobs_pin_external_actions() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_promotion_jobs_depend_on_the_evidence_gate():
+def test_testpypi_publication_depends_on_the_candidate_evidence_gate():
     jobs = _jobs(RELEASE_WORKFLOW)
 
-    for name in PROMOTION_JOBS:
-        assert name in jobs, f"{name} is not a job in the release workflow"
-        ancestors = _ancestors(jobs, name)
-        gates = {job for job in ancestors if job.startswith("evidence-gate")}
-        assert gates, f"{name} can run without any evidence gate: depends on {sorted(ancestors)}"
-
-
-def test_pypi_promotion_depends_on_the_final_gate_not_only_the_candidate_one():
-    jobs = _jobs(RELEASE_WORKFLOW)
-
-    assert "evidence-gate-final" in _ancestors(jobs, "publish-pypi")
-    # TestPyPI is reached earlier, so it is gated on the candidate phase.
     assert "evidence-gate" in _ancestors(jobs, "publish-testpypi")
+
+
+def test_pypi_promotion_is_a_separate_manual_final_validation_workflow():
+    release_jobs = _jobs(RELEASE_WORKFLOW)
+    promotion = _load(PROMOTION_WORKFLOW)
+    job = promotion["jobs"]["promote"]
+    script = _scripts(PROMOTION_WORKFLOW)["promote"]
+
+    assert "publish-pypi" not in release_jobs
+    assert set(promotion["on"]) == {"workflow_dispatch"}
+    assert job["environment"] == "pypi"
+    assert "--phase final" in script
+    assert "pypa/gh-action-pypi-publish" in str(job["steps"])
 
 
 @pytest.mark.parametrize(
     ("promotion_job", "gate_job", "phase"),
     [
         ("publish-testpypi", "evidence-gate", "candidate"),
-        ("publish-pypi", "evidence-gate-final", "final"),
     ],
 )
 def test_the_gate_a_promotion_depends_on_really_runs_the_validator(promotion_job, gate_job, phase):
@@ -180,11 +183,11 @@ def test_the_gate_a_promotion_depends_on_really_runs_the_validator(promotion_job
     assert "--trigger" not in script
 
 
-def test_the_final_gate_seals_the_evidence_it_validated():
-    script = _scripts(RELEASE_WORKFLOW)["evidence-gate-final"]
+def test_the_manual_promotion_seals_the_evidence_it_validated():
+    script = _scripts(PROMOTION_WORKFLOW)["promote"]
     attests = [
         step
-        for step in _steps(_jobs(RELEASE_WORKFLOW)["evidence-gate-final"])
+        for step in _steps(_jobs(PROMOTION_WORKFLOW)["promote"])
         if str(step.get("uses", "")).startswith("actions/attest")
     ]
 
@@ -193,7 +196,7 @@ def test_the_final_gate_seals_the_evidence_it_validated():
     assert "evidence-manifest.json" in str(attests[0]["with"]["subject-path"])
 
 
-def test_the_gate_jobs_publish_a_verdict_even_when_a_producer_failed():
+def test_candidate_assembly_runs_even_when_a_producer_failed():
     """Otherwise the verdict disappears exactly when it is most needed.
 
     ``if: always()`` alone is not enough: it keeps the job alive, but a
@@ -202,7 +205,7 @@ def test_the_gate_jobs_publish_a_verdict_even_when_a_producer_failed():
     """
     jobs = _jobs(RELEASE_WORKFLOW)
 
-    for name in ("evidence-gate", "evidence-gate-final"):
+    for name in ("evidence-gate", "assemble-promotion-candidate"):
         assert jobs[name].get("if") == "always()", f"{name} is skipped when a producer fails"
         downloads = [
             step
@@ -250,7 +253,7 @@ def test_every_needs_edge_names_a_job_that_exists():
 def test_the_evidence_gate_depends_on_every_job_that_produces_a_record():
     """A gate that does not wait for a producer would validate a torn evidence set."""
     jobs = _jobs(RELEASE_WORKFLOW)
-    ancestors = _ancestors(jobs, "evidence-gate-final")
+    ancestors = _ancestors(jobs, "assemble-promotion-candidate")
 
     for producer in ("source-gates", "container-evidence", "smoke-from-testpypi"):
         assert producer in ancestors, f"the final gate does not wait for {producer}"
@@ -280,7 +283,7 @@ def _record_script(gate_id: str) -> tuple[str, str]:
     """Return the (workflow, job) shell that emits ``gate_id``'s record."""
     matches = [
         (path.name, name, script)
-        for path in (RELEASE_WORKFLOW, GATES_WORKFLOW)
+        for path in EVIDENCE_WORKFLOWS
         for name, script in _scripts(path).items()
         if f"--gate {gate_id} " in script or script.rstrip().endswith(f"--gate {gate_id}")
     ]
@@ -319,9 +322,11 @@ def test_manual_evidence_has_no_ci_producer_and_blocks_until_supplied(manifest):
 
     for kind in applicable_kinds(manifest, "manual"):
         assert f"--kind {kind}=" in script
-    # The signoff is read from the repository, never synthesised as passed.
-    assert "release/signoff/" in script
-    assert "SIGNOFF_STATUS=failed" in script
+    promotion = _load(PROMOTION_WORKFLOW)
+    assert set(promotion["on"]) == {"workflow_dispatch"}
+    assert "PROMOTE_ZEROTH_CORE" in script
+    assert "${{ github.actor }}" in PROMOTION_WORKFLOW.read_text(encoding="utf-8")
+    assert "Candidate-digest:" in script
 
 
 def _cited_kind_paths(script: str) -> list[str]:
@@ -379,27 +384,20 @@ def test_every_cited_evidence_file_reaches_the_validating_job(gate_id):
     """
     where, script = _record_script(gate_id)
     workflow_name, job_name = where.split(":", 1)
-    workflow = RELEASE_WORKFLOW if workflow_name == RELEASE_WORKFLOW.name else GATES_WORKFLOW
+    workflow = next(path for path in EVIDENCE_WORKFLOWS if path.name == workflow_name)
     uploaded = _uploaded_paths(workflow, job_name)
 
     cited = _cited_kind_paths(script)
     assert cited, f"{gate_id} cites no evidence file"
 
     for candidate_path in cited:
-        if "$" in candidate_path:
-            # A shell variable: the operator-supplied signoff, resolved from
-            # the checkout at release time. Assert the script derives it from
-            # the documented location rather than from anywhere it likes.
-            name = candidate_path.strip("${}")
-            assert re.search(rf"{name}=release/signoff/", script), (
-                f"{where} cites ${{{name}}}, which is not derived from release/signoff/"
-            )
-            continue
         committed = (ROOT / candidate_path).exists() and _tracked(candidate_path)
         # A gate emitted inside the validating job never travels as an
         # artifact: the file is already on that runner. It still has to be
         # created there rather than assumed to exist.
-        created_here = job_name.startswith("evidence-gate") and candidate_path in script
+        created_here = candidate_path in script and (
+            job_name.startswith("evidence-gate") or workflow == PROMOTION_WORKFLOW
+        )
         assert committed or created_here or _is_covered(candidate_path, uploaded), (
             f"{where} cites {candidate_path}, which is neither committed, created in "
             f"this job, nor uploaded with the record (uploads: {uploaded})"
@@ -427,7 +425,7 @@ def test_an_artifacts_paths_share_one_root(manifest):
     match. ``langgraph-container-evidence`` deliberately mixes roots and is
     downloaded by nobody, so it is none of this test's business.
     """
-    for path in (RELEASE_WORKFLOW, GATES_WORKFLOW):
+    for path in EVIDENCE_WORKFLOWS:
         for job_name in _jobs(path):
             for step in _steps(_jobs(path)[job_name]):
                 if not str(step.get("uses", "")).startswith("actions/upload-artifact"):
@@ -449,7 +447,7 @@ def test_an_artifacts_paths_share_one_root(manifest):
 def test_each_gate_job_uploads_its_evidence(manifest):
     uploads = {
         f"{path.name}:{name}"
-        for path in (RELEASE_WORKFLOW, GATES_WORKFLOW)
+        for path in EVIDENCE_WORKFLOWS
         for name, job in _jobs(path).items()
         for step in _steps(job)
         if str(step.get("uses", "")).startswith("actions/upload-artifact")
@@ -463,7 +461,7 @@ def test_each_gate_job_uploads_its_evidence(manifest):
 def test_no_two_jobs_upload_the_same_artifact_name():
     """The release run executes both workflows, so artifact names share one namespace."""
     names: dict[str, str] = {}
-    for path in (RELEASE_WORKFLOW, GATES_WORKFLOW):
+    for path in EVIDENCE_WORKFLOWS:
         for job_name, job in _jobs(path).items():
             for step in _steps(job):
                 if not str(step.get("uses", "")).startswith("actions/upload-artifact"):

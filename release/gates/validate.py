@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -63,33 +64,11 @@ EVIDENCE_SHAPES = {
     "sbom": "json",
     "provenance": "json",
     "security": "json",
+    "economic-acceptance": "json",
 }
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
-
-DEPLOYED_ACCEPTANCE_SCENARIOS = frozenset(
-    {
-        "readiness",
-        "authentication",
-        "rbac",
-        "migrations",
-        "workflow_lifecycle",
-        "deployment",
-        "runs",
-        "approvals",
-        "audit",
-        "artifacts",
-        "retention",
-        "gateway_http",
-        "gateway_websocket",
-        "compatibility",
-        "executable_unit_failures",
-        "restart_recovery",
-        "shutdown",
-    }
-)
-
 
 def _all_digests(values: Any) -> bool:
     return (
@@ -97,6 +76,13 @@ def _all_digests(values: Any) -> bool:
         and bool(values)
         and all(isinstance(item, str) and _DIGEST.match(item) for item in values.values())
     )
+
+
+def _decimal_zero(value: object) -> bool:
+    try:
+        return not isinstance(value, bool) and Decimal(str(value)) == 0
+    except (InvalidOperation, ValueError):
+        return False
 
 
 def _commit_reason(value: Any) -> str:
@@ -302,103 +288,59 @@ def _binding_result(
     return None
 
 
-def _identity_result(
-    gate: dict[str, Any], report: dict[str, Any], candidate: dict[str, Any]
-) -> GateResult | None:
-    """Tie the report to its candidate record, then to what actually answered.
-
-    The digest and image checks compare the report against the identity artifact it was
-    produced from, so they establish provenance — this report belongs to this candidate
-    record — and not what was running at the URL. A binding to the serving *image*
-    additionally needs a platform receipt naming the digest it deployed; until one
-    exists this is the strongest available, and a gate that overstates what it proves is
-    worse than one that proves less, because the first is trusted.
-    """
-    if report.get("candidate_digest") != identity_digest(candidate):
-        return GateResult(
-            gate["id"],
-            MISMATCHED,
-            "deployed acceptance candidate digest belongs to a different build",
-        )
-    if canonical(report.get("image_identity")) != canonical(candidate.get("image")):
-        return GateResult(
-            gate["id"],
-            MISMATCHED,
-            "deployed acceptance image identity belongs to a different build",
-        )
-    observed = report.get("observed_deployment")
-    if not isinstance(observed, dict) or not observed.get("deployment_ref"):
-        return GateResult(
-            gate["id"], PARTIAL, "report records nothing the deployment said about itself"
-        )
-    if observed.get("deployment_ref") != report.get("deployment_ref"):
-        return GateResult(
-            gate["id"],
-            MISMATCHED,
-            "the deployment served a different reference than the suite targeted: "
-            f"{observed.get('deployment_ref')!r} vs {report.get('deployment_ref')!r}",
-        )
-    return None
-
-
-def _deployed_acceptance_result(
+def _economic_acceptance_result(
     gate: dict[str, Any],
     record: dict[str, Any],
     candidate: dict[str, Any],
     root: Path,
 ) -> GateResult | None:
-    """Validate the semantic contents of ZER-35's deployment evidence."""
+    """Validate the semantic contents of the installed economic product proof."""
     if gate["id"] != "remote-acceptance":
         return None
-    relative = record["kinds"].get("deployment")
+    relative = record["kinds"].get("economic-acceptance")
     try:
         report = json.loads((root / str(relative)).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        return GateResult(gate["id"], PARTIAL, f"deployed acceptance report is unreadable: {error}")
+        return GateResult(gate["id"], PARTIAL, f"economic acceptance report is unreadable: {error}")
     if not isinstance(report, dict) or report.get("schema_version") != 1:
-        return GateResult(gate["id"], PARTIAL, "deployed acceptance report schema is invalid")
-    identity = _identity_result(gate, report, candidate)
-    if identity is not None:
-        return identity
-    tenant = report.get("tenant_id")
-    namespace = report.get("namespace")
-    if not isinstance(tenant, str) or not tenant.startswith("acceptance-"):
-        return GateResult(gate["id"], PARTIAL, "report does not name a dedicated acceptance tenant")
-    if not isinstance(namespace, str) or not namespace.startswith(f"{tenant}-"):
-        return GateResult(gate["id"], PARTIAL, "report namespace is not owned by its tenant")
-    scenarios = report.get("scenarios")
-    if not isinstance(scenarios, list):
-        return GateResult(gate["id"], PARTIAL, "report scenarios must be a list")
-    names = {item.get("name") for item in scenarios if isinstance(item, dict) and item.get("name")}
-    if len(scenarios) != len(DEPLOYED_ACCEPTANCE_SCENARIOS) or names != (
-        DEPLOYED_ACCEPTANCE_SCENARIOS
-    ):
-        missing = sorted(DEPLOYED_ACCEPTANCE_SCENARIOS - names)
+        return GateResult(gate["id"], PARTIAL, "economic acceptance report schema is invalid")
+    if report.get("candidate_digest") != identity_digest(candidate):
         return GateResult(
             gate["id"],
-            PARTIAL,
-            "report does not contain exactly the required scenarios; "
-            f"missing: {', '.join(missing)}",
+            MISMATCHED,
+            "economic acceptance candidate digest belongs to a different build",
         )
-    failed_scenarios = sorted(
-        str(item.get("name"))
-        for item in scenarios
-        if not isinstance(item, dict) or item.get("status") != PASSED
-    )
-    if failed_scenarios:
-        return GateResult(
-            gate["id"], FAILED, f"deployed scenarios failed: {', '.join(failed_scenarios)}"
-        )
-    cleanup = report.get("cleanup")
-    if not isinstance(cleanup, list) or not cleanup:
-        return GateResult(gate["id"], PARTIAL, "report contains no cleanup evidence")
-    if any(not isinstance(item, dict) or item.get("status") != PASSED for item in cleanup):
-        return GateResult(gate["id"], FAILED, "deployed acceptance cleanup failed")
-    compatibility = report.get("observed_compatibility")
-    if not isinstance(compatibility, dict) or compatibility.get("status") != "supported":
-        return GateResult(gate["id"], FAILED, "Agent Server compatibility is unsupported")
+    package = report.get("package")
+    expected_digests = set(candidate["package"]["artifacts"].values())
+    if (
+        not isinstance(package, dict)
+        or package.get("name") != "zeroth-core"
+        or package.get("version") != candidate["package"]["version"]
+    ):
+        return GateResult(gate["id"], MISMATCHED, "installed package identity is incorrect")
+    if package.get("artifact_digest") not in expected_digests:
+        return GateResult(gate["id"], MISMATCHED, "installed package artifact is not the candidate")
+    excluded = report.get("excluded_distributions")
+    if not isinstance(excluded, dict) or set(excluded) != {"zeroth-console", "zeroth-sdk"}:
+        return GateResult(gate["id"], PARTIAL, "headless distribution exclusions are incomplete")
+    if any(value != "absent" for value in excluded.values()):
+        return GateResult(gate["id"], FAILED, "headless install contains the UI or standalone SDK")
+    diagnostic = report.get("diagnostic")
+    if not isinstance(diagnostic, dict) or diagnostic.get("claim_scope") != (
+        "observed_economic_exposure"
+    ):
+        return GateResult(gate["id"], FAILED, "diagnostic evidence is absent or overclaims")
+    if diagnostic.get("decision_state") != "economic_risk_observed":
+        return GateResult(gate["id"], FAILED, "diagnostic did not expose the seeded economic risk")
+    reconciliation = report.get("reconciliation")
+    if not isinstance(reconciliation, dict) or reconciliation.get(
+        "reconciliation_state"
+    ) != "reconciled":
+        return GateResult(gate["id"], FAILED, "provider reconciliation did not close")
+    if not _decimal_zero(reconciliation.get("unreconciled_billed_usd")):
+        return GateResult(gate["id"], FAILED, "provider reconciliation retained billed variance")
     if report.get("status") != PASSED:
-        return GateResult(gate["id"], FAILED, f"deployed report status is {report.get('status')!r}")
+        return GateResult(gate["id"], FAILED, f"economic report status is {report.get('status')!r}")
     return None
 
 
@@ -432,9 +374,9 @@ def validate_gate(
     if bound is not None:
         return bound
 
-    deployed = _deployed_acceptance_result(gate, record, candidate, evidence_root)
-    if deployed is not None:
-        return deployed
+    economic = _economic_acceptance_result(gate, record, candidate, evidence_root)
+    if economic is not None:
+        return economic
 
     if record["status"] != PASSED:
         return GateResult(gate["id"], FAILED, f"record status is {record['status']!r}")

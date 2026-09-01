@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import ClassVar
 
-from sqlalchemy import DateTime, Index, Numeric, String, UniqueConstraint, text
+from sqlalchemy import DateTime, Index, Integer, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +30,13 @@ class ExecutionEvent(Base):
             "capability_id",
         ),
         Index("ix_execution_events_tenant_join_key", "tenant_id", "join_key"),
+        Index(
+            "ix_execution_events_tenant_workflow_time",
+            "tenant_id",
+            "workflow_id",
+            "timestamp",
+        ),
+        Index("ix_execution_events_tenant_subject", "tenant_id", "subject_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -40,6 +47,13 @@ class ExecutionEvent(Base):
     evidence_kind: Mapped[str] = mapped_column(String(32), default="legacy_unknown")
     provider_request_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     cleanup_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    workflow_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
+    workflow_version: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    step_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    subject_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
+    dimensions: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     execution_id: Mapped[str] = mapped_column(String(128), index=True)
     join_key: Mapped[str] = mapped_column(String(128), index=True, default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)

@@ -6,9 +6,32 @@ from decimal import Decimal
 from typing import Any, Literal, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
 
 from zeroth.econ.measurement import MeasurementState
+
+DimensionValue = Union[StrictStr, StrictInt, StrictFloat, StrictBool]
+
+
+def validate_dimensions(value: dict[str, DimensionValue]) -> dict[str, DimensionValue]:
+    """Keep analytic dimensions typed, bounded, and safe to index."""
+    if len(value) > 16:
+        raise ValueError("dimensions may contain at most 16 entries")
+    for key, item in value.items():
+        if not key or len(key) > 64 or not key.replace("_", "").replace("-", "").replace(".", "").isalnum():
+            raise ValueError("dimension keys must be 1-64 letters, digits, '.', '_' or '-'")
+        if isinstance(item, str) and len(item) > 256:
+            raise ValueError("dimension string values may contain at most 256 characters")
+    return value
 
 
 class ExecutionEvent(BaseModel):
@@ -21,6 +44,13 @@ class ExecutionEvent(BaseModel):
     evidence_kind: Literal["production", "synthetic_control", "legacy_unknown"] = "production"
     provider_request_id: str | None = None
     cleanup_status: str | None = None
+    workflow_id: str | None = None
+    workflow_version: str | None = None
+    run_id: str | None = None
+    step_id: str | None = None
+    attempt: int = Field(default=1, ge=1, le=1000)
+    subject_id: str | None = None
+    dimensions: dict[str, DimensionValue] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     capability_id: str
     implementation_id: str
@@ -33,6 +63,8 @@ class ExecutionEvent(BaseModel):
     latency_ms: int = 0
     compute_time_ms: int = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    _bounded_dimensions = field_validator("dimensions")(validate_dimensions)
 
     @model_validator(mode="after")
     def _measurement_values_agree(self) -> ExecutionEvent:
@@ -71,6 +103,13 @@ ExecutionEvent.__signature__ = _execution_event_signature.replace(
             "cleanup_status",
             "cost_measurement",
             "usage_measurement",
+            "workflow_id",
+            "workflow_version",
+            "run_id",
+            "step_id",
+            "attempt",
+            "subject_id",
+            "dimensions",
         }
     ]
 )

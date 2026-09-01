@@ -8,6 +8,71 @@ from unittest.mock import AsyncMock
 import pytest
 
 
+@pytest.mark.asyncio
+async def test_terminal_observation_is_rate_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Out-of-band status reads must not become the load generator."""
+    from tests.load_release import workload_probe
+
+    responses = iter(
+        (
+            SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"status": "running"},
+            ),
+            SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"status": "succeeded"},
+            ),
+        )
+    )
+    sleeps: list[float] = []
+
+    async def get(*_args, **_kwargs):
+        return next(responses)
+
+    async def sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    target = workload_probe.Target(
+        SimpleNamespace(secrets={"operator": "secret"}),
+        SimpleNamespace(get=get),
+    )
+    monkeypatch.setattr(workload_probe.asyncio, "sleep", sleep)
+
+    terminal = await workload_probe._settle_run(
+        target,
+        "sustained",
+        1,
+        "run-1",
+        workload_probe.time.perf_counter(),
+    )
+
+    assert terminal[0]["state"] == "completed"
+    assert sleeps == [0.05]
+
+
+def test_idle_worker_polling_cannot_eclipse_the_scheduled_workload() -> None:
+    """The probe's workers must not manufacture a database load test."""
+    from tests.load_release import workload_probe
+
+    class Worker:
+        poll_interval = 1.0
+
+        async def _execute_leased_run(self, run_id, **_kwargs):
+            return run_id
+
+    service = SimpleNamespace(
+        orchestrator=SimpleNamespace(agent_runners={}),
+        worker=Worker(),
+    )
+
+    workload_probe.install_runner(service, "slow-script")
+
+    assert service.worker.poll_interval == 0.04
+
+
 @pytest.mark.parametrize("status_code", (202, 429))
 @pytest.mark.asyncio
 async def test_response_processing_does_not_hold_the_request_inflight_slot(

@@ -1,6 +1,7 @@
 from sqlalchemy import select
 
 from zeroth.econ.plane.auth.models import Role
+from zeroth.econ.plane.billing import models as _billing_models  # noqa: F401
 from zeroth.econ.plane.database import Base, SessionLocal, _ensure_sqlite_compat, engine
 from zeroth.platform.storage.schema_revision import (
     SchemaRevision,

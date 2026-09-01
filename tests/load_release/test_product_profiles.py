@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,11 @@ async def test_real_product_fairness_fault_and_overload_evidence(
     if not output and not postgres_dsn and not redis_url:
         pytest.skip("real load-release services are not configured")
     assert output and postgres_dsn and redis_url, "load-release service config is partial"
+
+    # Webhook and other control-plane mutations are required to write signed
+    # audit records. Give this isolated candidate run an ephemeral key instead
+    # of weakening that invariant or depending on a repository secret.
+    monkeypatch.setenv("SIGNING_DEPLOYMENT", secrets.token_hex(32))
 
     from tests.load_release.product_probe import collect_product_observations
     from release.load.report import evidence_errors
