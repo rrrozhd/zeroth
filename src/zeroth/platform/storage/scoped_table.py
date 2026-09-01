@@ -395,7 +395,7 @@ SERVICE_SCOPE_DEFINITIONS = tuple(
 ECON_MIGRATION_SCOPE_DEFINITIONS = (
     ResourceScopeDefinition(
         resource_name="econ.alembic_version",
-        table_name="alembic_version",
+        table_name="alembic_version_econ",
         scope=ResourceScope.GLOBAL,
         operations=frozenset({ResourceOperation.READ}),
     ),

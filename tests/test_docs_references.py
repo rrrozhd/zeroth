@@ -180,7 +180,9 @@ def test_only_settings_and_runtime_environment_access_are_valid() -> None:
         "ZEROTH_ACCEPTANCE_ADMIN_KEY",
         "ZEROTH_ACCEPTANCE_OPERATOR_KEY",
         "ZEROTH_ACCEPTANCE_REVIEWER_KEY",
+        "ZEROTH_CLOUD_API_KEY",
         "ZEROTH_CONSOLE_DIR",
+        "ZEROTH_LAUNCH_PADDLE_NOTIFICATION_SETTING_ID",
         "ZEROTH_LOAD_POSTGRES_INSTANCE_ID",
         "ZEROTH_LOAD_REDIS_STARTED_AT",
         "ZEROTH_OUTPUT_FILE",
@@ -206,6 +208,16 @@ pip install \\
         (violation.line, violation.kind, violation.target)
         for violation in scan_markdown(markdown, "docs/install.md", REPO_ROOT)
     ] == [(2, "install-target", "zeroth-core[missing-extra]")]
+
+
+def test_workspace_install_target_is_resolved() -> None:
+    markdown = """\
+```bash
+pip install zeroth-sdk
+```
+"""
+
+    assert scan_markdown(markdown, "docs/install.md", REPO_ROOT) == []
 
 
 def test_allowlist_accepts_removals_but_rejects_additions() -> None:

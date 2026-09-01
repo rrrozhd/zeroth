@@ -145,6 +145,10 @@ nav:
       - Pilot operations: operations/pilot-operations.md
       - Economic debugger commercial pilot: operations/economic-debugger-commercial-pilot.md
       - Economic debugger launch experiment: operations/economic-debugger-launch-experiment.md
+      - Solo SaaS launch: operations/solo-saas-launch.md
+      - Hosted identity and commerce: operations/hosted-commerce.md
+      - Cloud launch evidence: operations/cloud-launch-evidence.md
+      - Cloud launch policy inputs: operations/cloud-launch-policy-inputs.md
       - Ingress guardrails: how-to/deployment/ingress-guardrails.md
       - LangGraph release deployment: how-to/deployment/langgraph-release.md
       - Release gates and evidence: how-to/deployment/release-gates.md

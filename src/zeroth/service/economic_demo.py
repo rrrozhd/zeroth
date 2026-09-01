@@ -40,6 +40,7 @@ def _event(
     attempt: int = 1,
     plan: str,
 ) -> ExecutionEventCreate:
+    """Build one deterministic workflow execution for the synthetic demo ledger."""
     return ExecutionEventCreate(
         execution_id=execution_id,
         join_key=run_id,
@@ -61,6 +62,7 @@ def _event(
 
 
 def _seed(db: ScopedSession) -> None:
+    """Seed outcome, execution, and provider-bill evidence for the demo workflow."""
     create_outcome_definition(
         db,
         OutcomeDefinitionCreate(
@@ -117,6 +119,7 @@ def _seed(db: ScopedSession) -> None:
 
 
 def _json(value: object) -> str:
+    """Serialize a stable, human-readable JSON artifact with a trailing newline."""
     return json.dumps(value, indent=2, sort_keys=True) + "\n"
 
 

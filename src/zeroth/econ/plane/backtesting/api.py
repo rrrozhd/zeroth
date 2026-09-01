@@ -22,7 +22,12 @@ from zeroth.econ.plane.backtesting.service import (
     retain_backtest,
 )
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
-from zeroth.econ.plane.cloud.entitlements import EntitlementError, release_usage, reserve_usage
+from zeroth.econ.plane.cloud.entitlements import (
+    EntitlementError,
+    release_usage,
+    release_usage_batch,
+    reserve_usage_batch,
+)
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["economic-change-control"])
@@ -57,18 +62,21 @@ async def create_backtest(
 
     reserved_calls = len(payload.cases) * 4
     try:
-        reserved = reserve_usage(db, "backtest_calls", reserved_calls)
+        reserved = reserve_usage_batch(
+            db,
+            {"backtests": 1, "backtest_calls": reserved_calls},
+        )
     except EntitlementError as exc:
         raise HTTPException(status_code=402, detail=exc.detail) from exc
     try:
         computation = await executor.execute(payload)
     except Exception:
         if reserved:
-            release_usage(db, "backtest_calls", reserved_calls)
+            release_usage_batch(db, {"backtests": 1, "backtest_calls": reserved_calls})
         raise
     if computation.provider_calls > reserved_calls:
         if reserved:
-            release_usage(db, "backtest_calls", reserved_calls)
+            release_usage_batch(db, {"backtests": 1, "backtest_calls": reserved_calls})
         raise RuntimeError("backtest executor exceeded its provider-call budget")
     if reserved and computation.provider_calls < reserved_calls:
         release_usage(db, "backtest_calls", reserved_calls - computation.provider_calls)

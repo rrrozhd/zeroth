@@ -8,7 +8,7 @@ from zeroth.econ.plane.database import Base
 from zeroth.econ.plane import auth, capabilities, counterfactual, dashboard, enforcement, instrumentation, performance  # noqa: F401
 
 config = context.config
-database_url = os.getenv("ECP_DATABASE_URL")
+database_url = config.attributes.get("database_url_override") or os.getenv("ECP_DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
@@ -16,11 +16,17 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+version_table = config.attributes.get("version_table", "alembic_version")
 
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
-    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        version_table=version_table,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
@@ -34,7 +40,11 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table=version_table,
+        )
 
         with context.begin_transaction():
             context.run_migrations()

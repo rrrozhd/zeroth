@@ -25,6 +25,7 @@ _MAX_USD_AMOUNT = Decimal("10000000000")
 
 
 def _money(value: object) -> str:
+    """Render an optional numeric value as a fixed-precision USD amount."""
     return "—" if value is None else f"${float(value):.8f}"
 
 
@@ -170,22 +171,26 @@ def render_bill_markdown(report: dict[str, Any]) -> str:
 
 
 def _utc_timestamp(value: int) -> str:
+    """Convert a Unix timestamp to the canonical UTC representation used in imports."""
     return datetime.fromtimestamp(value, UTC).isoformat().replace("+00:00", "Z")
 
 
 def _mapping(value: object, *, field: str) -> dict[str, Any]:
+    """Require an object-shaped JSON field and return its typed mapping."""
     if not isinstance(value, dict):
         raise ValueError(f"{field} must be an object")
     return value
 
 
 def _list(value: object, *, field: str) -> list[Any]:
+    """Require an array-shaped JSON field and return its typed list."""
     if not isinstance(value, list):
         raise ValueError(f"{field} must be an array")
     return value
 
 
 def _openai_cost_amount(value: object, *, field: str) -> Decimal:
+    """Validate one OpenAI USD cost against Zeroth's precision and range limits."""
     if isinstance(value, bool) or not isinstance(value, (Decimal, int)):
         raise ValueError(f"{field} must be a JSON number")
     amount = Decimal(value)
@@ -201,6 +206,7 @@ def _openai_cost_amount(value: object, *, field: str) -> Decimal:
 def _normalize_openai_costs_page(
     page: dict[str, Any], *, statement_id: str
 ) -> dict[str, Any]:
+    """Convert one complete OpenAI Costs page into a bounded Zeroth statement."""
     if _STATEMENT_ID.fullmatch(statement_id) is None:
         raise ValueError("statement_id is not URL-safe")
     if page.get("object") != "page":
@@ -289,6 +295,7 @@ def _normalize_openai_costs_page(
 
 
 async def _normalize_openai_costs(args: argparse.Namespace) -> int:
+    """Normalize an offline OpenAI Costs export and write the requested artifact."""
     try:
         page = json.loads(
             Path(args.input).read_text(encoding="utf-8"),
@@ -311,6 +318,7 @@ async def _normalize_openai_costs(args: argparse.Namespace) -> int:
 
 
 async def _diagnose(args: argparse.Namespace) -> int:
+    """Fetch one authenticated workflow diagnostic and render it for the operator."""
     token = os.getenv(args.token_env)
     if not token:
         print(f"diagnose failed: set {args.token_env} to an econ-plane JWT", file=sys.stderr)
@@ -360,6 +368,7 @@ async def _diagnose(args: argparse.Namespace) -> int:
 
 
 async def _reconcile(args: argparse.Namespace) -> int:
+    """Import a normalized bill and render its authenticated closure report."""
     token = os.getenv(args.token_env)
     if not token:
         print(f"reconcile failed: set {args.token_env} to an econ-plane JWT", file=sys.stderr)
@@ -423,6 +432,7 @@ async def _reconcile(args: argparse.Namespace) -> int:
 
 
 async def _demo(args: argparse.Namespace) -> int:
+    """Generate the explicitly synthetic local economic-debugger evidence pack."""
     try:
         from zeroth.service.economic_demo import generate_demo_pack
     except ModuleNotFoundError as exc:
@@ -447,6 +457,7 @@ async def _demo(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the headless economic-debugger command-line interface."""
     parser = argparse.ArgumentParser(
         prog="zeroth-econ",
         description="Debug workflow economics and reconcile provider bills without the UI.",
@@ -494,6 +505,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse command-line arguments and run the selected asynchronous command."""
     args = build_parser().parse_args(argv)
     return int(asyncio.run(args.func(args)))
 

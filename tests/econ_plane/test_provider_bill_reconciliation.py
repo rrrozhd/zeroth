@@ -416,7 +416,7 @@ def test_provider_bill_migration_is_tenant_bound_and_independently_reversible(
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260901_16"
+                ).scalar_one() == "20260901_17"
     finally:
         engine.dispose()
 

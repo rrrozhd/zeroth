@@ -83,8 +83,8 @@
           "expected_status": 200,
           "expected_json": {
             "schema_revision": {
-              "applied": "20260901_16",
-              "head": "20260901_16",
+              "applied": "20260901_17",
+              "head": "20260901_17",
               "state": "current"
             }
           }

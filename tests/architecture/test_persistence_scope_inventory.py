@@ -38,7 +38,13 @@ from zeroth.governance.audit import AuditRepository
 
 _ECON_PLANE_ROOT = Path(econ_plane_paths[0])
 _SOURCE_ROOT = _ECON_PLANE_ROOT.parents[1]
-_GLOBAL_TABLES = {"pricing_catalog", "tool_pricing_catalog", "roles", "user_roles"}
+_GLOBAL_TABLES = {
+    "cloud_tenant_bindings",
+    "pricing_catalog",
+    "tool_pricing_catalog",
+    "roles",
+    "user_roles",
+}
 
 
 _AUDIT_REPOSITORY_CLASS = ("zeroth", "governance", "audit", "AuditRepository")
@@ -11740,18 +11746,9 @@ def migration_head_tables(
 
     econ_path = tmp_path_factory.mktemp("econ-scope-head") / "econ.db"
     econ_url = f"sqlite:///{econ_path}"
-    econ_config = Config()
-    econ_config.set_main_option("script_location", str(root / "src/zeroth/econ/plane/_migrations"))
-    econ_config.set_main_option("sqlalchemy.url", econ_url)
-    previous_econ_url = os.environ.get("ECP_DATABASE_URL")
-    os.environ["ECP_DATABASE_URL"] = econ_url
-    try:
-        command.upgrade(econ_config, "head")
-    finally:
-        if previous_econ_url is None:
-            os.environ.pop("ECP_DATABASE_URL", None)
-        else:
-            os.environ["ECP_DATABASE_URL"] = previous_econ_url
+    from zeroth.econ.plane.migrations import run_econ_migrations
+
+    run_econ_migrations(econ_url)
 
     def schema(url: str) -> tuple[set[str], dict[str, set[str]]]:
         engine = create_engine(url)
@@ -11861,14 +11858,14 @@ def test_econ_migration_head_reuses_mapper_definitions_without_duplicates(
 
     assert econ_tables <= {definition.table_name for definition in registry.definitions}
     for table_name in econ_tables - {
-        "alembic_version",
+        "alembic_version_econ",
         "_zeroth_20260811_04_auth_scope",
     }:
         assert registry.definition_for_table(table_name) == next(
             definition for definition in mapper_definitions if definition.table_name == table_name
         )
     assert {definition.table_name for definition in ECON_MIGRATION_SCOPE_DEFINITIONS} == {
-        "alembic_version",
+        "alembic_version_econ",
         "_zeroth_20260811_04_auth_scope",
     }
 

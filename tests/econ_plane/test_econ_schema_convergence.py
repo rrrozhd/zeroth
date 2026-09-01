@@ -226,7 +226,7 @@ def test_non_sqlite_startup_refuses_a_schema_the_chain_has_not_reached(
             "execution_events.usage_measurement (revision 20260812_04)",
             "policy_actions.enforcement_action_id (revision 20260812_06)",
             "'20260811_04'",  # applied
-            "'20260901_16'",  # shipped head
+            "'20260901_17'",  # shipped head
             "behind",
             "alembic upgrade head",
             "postgresql",

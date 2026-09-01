@@ -9,9 +9,11 @@ from sqlalchemy import Connection, Numeric, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.migrations import ECON_VERSION_TABLE
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.schema_revision import read_schema_revision
 from zeroth.platform.storage.scoping import ScopeContext
+from zeroth.platform.storage.sqlalchemy_url import sqlalchemy_database_url
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class EconSchemaNotConverged(RuntimeError):
     """
 
 
-engine = create_engine(settings.database_url, future=True)
+engine = create_engine(sqlalchemy_database_url(settings.database_url), future=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, class_=Session)
 
 
@@ -140,7 +142,13 @@ def _require_converged_schema(conn: Connection) -> None:
     missing = _missing_chain_owned_columns(conn)
     if not missing:
         return
-    revision = read_schema_revision(engine, _MIGRATIONS_PACKAGE)
+    revision = read_schema_revision(
+        engine, _MIGRATIONS_PACKAGE, version_table=ECON_VERSION_TABLE
+    )
+    if revision.applied is None:
+        legacy = read_schema_revision(engine, _MIGRATIONS_PACKAGE)
+        if legacy.state != "unknown":
+            revision = legacy
     detail = ", ".join(
         f"{table}.{column} (revision {added_by})" for table, column, added_by in missing
     )

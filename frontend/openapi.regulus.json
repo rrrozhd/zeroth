@@ -14,6 +14,340 @@
         "title": "APIMessage",
         "type": "object"
       },
+      "ApiKeyCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ApiKeyCreate",
+        "type": "object"
+      },
+      "ApiKeyOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "last_four": {
+            "title": "Last Four",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key_id",
+          "name",
+          "last_four",
+          "roles",
+          "created_at",
+          "last_used_at",
+          "revoked_at"
+        ],
+        "title": "ApiKeyOut",
+        "type": "object"
+      },
+      "ApiKeyReveal": {
+        "properties": {
+          "api_key": {
+            "title": "Api Key",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "last_four": {
+            "title": "Last Four",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key_id",
+          "name",
+          "last_four",
+          "roles",
+          "created_at",
+          "last_used_at",
+          "revoked_at",
+          "api_key"
+        ],
+        "title": "ApiKeyReveal",
+        "type": "object"
+      },
+      "BacktestCase": {
+        "additionalProperties": false,
+        "properties": {
+          "expected": {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "title": "Expected",
+            "type": "object"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "input": {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "title": "Input",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "input",
+          "expected"
+        ],
+        "title": "BacktestCase",
+        "type": "object"
+      },
+      "BacktestCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_version": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Version"
+          },
+          "candidate": {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "title": "Candidate",
+            "type": "object"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestCase"
+            },
+            "maxItems": 25,
+            "title": "Cases",
+            "type": "array"
+          },
+          "constraints": {
+            "$ref": "#/components/schemas/EconomicConstraints-Input"
+          },
+          "incumbent_model": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incumbent Model"
+          },
+          "instruction": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "workflow": {
+            "minLength": 1,
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "candidate",
+          "constraints"
+        ],
+        "title": "BacktestCreate",
+        "type": "object"
+      },
+      "BillingURL": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "BillingURL",
+        "type": "object"
+      },
+      "BreakagePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "default": "failed_run_exposure_not_step_causality",
+            "title": "Attribution",
+            "type": "string"
+          },
+          "estimated_failure_exposure_usd": {
+            "title": "Estimated Failure Exposure Usd",
+            "type": "number"
+          },
+          "estimated_repeated_attempt_cost_usd": {
+            "title": "Estimated Repeated Attempt Cost Usd",
+            "type": "number"
+          },
+          "failed_runs": {
+            "title": "Failed Runs",
+            "type": "integer"
+          },
+          "measured_failure_exposure_usd": {
+            "title": "Measured Failure Exposure Usd",
+            "type": "number"
+          },
+          "measured_repeated_attempt_cost_usd": {
+            "title": "Measured Repeated Attempt Cost Usd",
+            "type": "number"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "workflow_version",
+          "step_id",
+          "failed_runs",
+          "measured_failure_exposure_usd",
+          "estimated_failure_exposure_usd",
+          "measured_repeated_attempt_cost_usd",
+          "estimated_repeated_attempt_cost_usd"
+        ],
+        "title": "BreakagePoint",
+        "type": "object"
+      },
       "BudgetStatusOut": {
         "properties": {
           "active_exposure_usd": {
@@ -479,6 +813,89 @@
           "confidence"
         ],
         "title": "CapabilityValueRow",
+        "type": "object"
+      },
+      "CheckoutRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "plan": {
+            "const": "solo",
+            "title": "Plan",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "title": "CheckoutRequest",
+        "type": "object"
+      },
+      "CohortPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "cohort": {
+            "title": "Cohort",
+            "type": "string"
+          },
+          "estimated_cost_per_successful_outcome_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Per Successful Outcome Usd"
+          },
+          "estimated_cost_usd": {
+            "title": "Estimated Cost Usd",
+            "type": "number"
+          },
+          "failed_runs": {
+            "title": "Failed Runs",
+            "type": "integer"
+          },
+          "incomplete_events": {
+            "title": "Incomplete Events",
+            "type": "integer"
+          },
+          "measured_cost_per_successful_outcome_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Cost Per Successful Outcome Usd"
+          },
+          "measured_cost_usd": {
+            "title": "Measured Cost Usd",
+            "type": "number"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "successful_runs": {
+            "title": "Successful Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cohort",
+          "runs",
+          "successful_runs",
+          "failed_runs",
+          "measured_cost_usd",
+          "estimated_cost_usd",
+          "measured_cost_per_successful_outcome_usd",
+          "estimated_cost_per_successful_outcome_usd",
+          "incomplete_events"
+        ],
+        "title": "CohortPoint",
         "type": "object"
       },
       "ConfidenceGateConfig": {
@@ -1138,6 +1555,57 @@
         "title": "DataQualityMix",
         "type": "object"
       },
+      "DecisionPolicy": {
+        "additionalProperties": false,
+        "description": "Minimum evidence and economic constraints for a version decision.",
+        "properties": {
+          "allow_estimated_cost": {
+            "default": false,
+            "title": "Allow Estimated Cost",
+            "type": "boolean"
+          },
+          "allow_inferred_outcomes": {
+            "default": false,
+            "title": "Allow Inferred Outcomes",
+            "type": "boolean"
+          },
+          "max_cost_per_outcome_increase": {
+            "default": 0.1,
+            "minimum": 0.0,
+            "title": "Max Cost Per Outcome Increase",
+            "type": "number"
+          },
+          "max_success_rate_drop": {
+            "default": 0.05,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Success Rate Drop",
+            "type": "number"
+          },
+          "min_outcome_coverage": {
+            "default": 0.8,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min Outcome Coverage",
+            "type": "number"
+          },
+          "min_runs": {
+            "default": 10,
+            "minimum": 1.0,
+            "title": "Min Runs",
+            "type": "integer"
+          },
+          "min_success_rate": {
+            "default": 0.0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min Success Rate",
+            "type": "number"
+          }
+        },
+        "title": "DecisionPolicy",
+        "type": "object"
+      },
       "DecisionRequest": {
         "properties": {
           "reason": {
@@ -1147,6 +1615,145 @@
           }
         },
         "title": "DecisionRequest",
+        "type": "object"
+      },
+      "DecisionScheduleCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_version": {
+            "minLength": 1,
+            "title": "Baseline Version",
+            "type": "string"
+          },
+          "candidate_version": {
+            "minLength": 1,
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "interval_minutes": {
+            "default": 1440,
+            "maximum": 43200.0,
+            "minimum": 60.0,
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "outcome_type": {
+            "default": "accepted",
+            "minLength": 1,
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/DecisionPolicy"
+          },
+          "workflow": {
+            "minLength": 1,
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "baseline_version",
+          "candidate_version"
+        ],
+        "title": "DecisionScheduleCreate",
+        "type": "object"
+      },
+      "DecisionScheduleOut": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "baseline_version": {
+            "title": "Baseline Version",
+            "type": "string"
+          },
+          "candidate_version": {
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "interval_minutes": {
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "last_decision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Decision Id"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "next_run_at": {
+            "format": "date-time",
+            "title": "Next Run At",
+            "type": "string"
+          },
+          "outcome_type": {
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/DecisionPolicy"
+          },
+          "schedule_id": {
+            "title": "Schedule Id",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schedule_id",
+          "workflow",
+          "baseline_version",
+          "candidate_version",
+          "outcome_type",
+          "policy",
+          "interval_minutes",
+          "active",
+          "next_run_at",
+          "last_run_at",
+          "last_decision_id",
+          "last_error",
+          "created_at"
+        ],
+        "title": "DecisionScheduleOut",
         "type": "object"
       },
       "DeploymentCreate": {
@@ -1245,6 +1852,624 @@
           "updated_at"
         ],
         "title": "DeploymentOut",
+        "type": "object"
+      },
+      "DiagnosticAction": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "repair_evidence",
+              "define_outcome_success",
+              "instrument_outcomes",
+              "investigate_retry_policy",
+              "inspect_failed_runs",
+              "retain_current_configuration"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "supported_claim": {
+            "title": "Supported Claim",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "rationale",
+          "supported_claim"
+        ],
+        "title": "DiagnosticAction",
+        "type": "object"
+      },
+      "EconomicBacktest": {
+        "additionalProperties": false,
+        "properties": {
+          "backtest_id": {
+            "title": "Backtest Id",
+            "type": "string"
+          },
+          "baseline_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Version"
+          },
+          "candidate_error_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Error Rate"
+          },
+          "candidate_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Model"
+          },
+          "candidate_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Success Rate"
+          },
+          "cases": {
+            "maximum": 25.0,
+            "minimum": 0.0,
+            "title": "Cases",
+            "type": "integer"
+          },
+          "constraints": {
+            "$ref": "#/components/schemas/EconomicConstraints-Output"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "incumbent_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incumbent Model"
+          },
+          "incumbent_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incumbent Success Rate"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "provider_call_credits": {
+            "minimum": 0.0,
+            "title": "Provider Call Credits",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "recommended_action": {
+            "enum": [
+              "approve_candidate",
+              "keep_incumbent",
+              "collect_evidence"
+            ],
+            "title": "Recommended Action",
+            "type": "string"
+          },
+          "request_digest": {
+            "title": "Request Digest",
+            "type": "string"
+          },
+          "savings_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Savings Pct"
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "fail",
+              "abstain"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backtest_id",
+          "request_digest",
+          "workflow",
+          "baseline_version",
+          "node_id",
+          "incumbent_model",
+          "candidate_model",
+          "verdict",
+          "recommended_action",
+          "cases",
+          "provider_call_credits",
+          "constraints",
+          "evaluated_at"
+        ],
+        "title": "EconomicBacktest",
+        "type": "object"
+      },
+      "EconomicConstraints-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "max_cost_per_outcome_usd": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Per Outcome Usd"
+          },
+          "max_critical_error_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Critical Error Rate"
+          },
+          "min_success_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Success Rate"
+          }
+        },
+        "title": "EconomicConstraints",
+        "type": "object"
+      },
+      "EconomicConstraints-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "max_cost_per_outcome_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Per Outcome Usd"
+          },
+          "max_critical_error_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Critical Error Rate"
+          },
+          "min_success_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Success Rate"
+          }
+        },
+        "title": "EconomicConstraints",
+        "type": "object"
+      },
+      "EconomicDecision": {
+        "additionalProperties": false,
+        "description": "Auditable economic release decision for a candidate workflow version.",
+        "properties": {
+          "baseline": {
+            "$ref": "#/components/schemas/VersionEconomics"
+          },
+          "baseline_version": {
+            "title": "Baseline Version",
+            "type": "string"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/VersionEconomics"
+          },
+          "candidate_version": {
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "cost_per_outcome_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Outcome Change"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/DecisionPolicy"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "recommended_action": {
+            "enum": [
+              "approve",
+              "hold",
+              "investigate",
+              "collect_evidence"
+            ],
+            "title": "Recommended Action",
+            "type": "string"
+          },
+          "success_rate_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate Change"
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "fail",
+              "abstain"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "baseline_version",
+          "candidate_version",
+          "verdict",
+          "recommended_action",
+          "reason_codes",
+          "baseline",
+          "candidate",
+          "policy"
+        ],
+        "title": "EconomicDecision",
+        "type": "object"
+      },
+      "EconomicDiagnosticReport": {
+        "additionalProperties": false,
+        "properties": {
+          "claim_scope": {
+            "const": "observed_economic_exposure",
+            "default": "observed_economic_exposure",
+            "title": "Claim Scope",
+            "type": "string"
+          },
+          "cohort_dimension": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohort Dimension"
+          },
+          "data_quality": {
+            "enum": [
+              "incomplete",
+              "estimated_only",
+              "measured_only",
+              "mixed_cost_evidence"
+            ],
+            "title": "Data Quality",
+            "type": "string"
+          },
+          "decision_state": {
+            "enum": [
+              "insufficient_evidence",
+              "economic_risk_observed",
+              "stable_observation"
+            ],
+            "title": "Decision State",
+            "type": "string"
+          },
+          "estimated_cost_per_successful_outcome_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Per Successful Outcome Usd"
+          },
+          "estimated_cost_usd": {
+            "title": "Estimated Cost Usd",
+            "type": "number"
+          },
+          "estimated_events": {
+            "title": "Estimated Events",
+            "type": "integer"
+          },
+          "estimated_failure_exposure_usd": {
+            "title": "Estimated Failure Exposure Usd",
+            "type": "number"
+          },
+          "event_count": {
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "failed_runs": {
+            "title": "Failed Runs",
+            "type": "integer"
+          },
+          "highest_failure_rate_cohort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CohortPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "incomplete_events": {
+            "title": "Incomplete Events",
+            "type": "integer"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "measured_cost_per_successful_outcome_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Cost Per Successful Outcome Usd"
+          },
+          "measured_cost_usd": {
+            "title": "Measured Cost Usd",
+            "type": "number"
+          },
+          "measured_events": {
+            "title": "Measured Events",
+            "type": "integer"
+          },
+          "measured_failure_exposure_usd": {
+            "title": "Measured Failure Exposure Usd",
+            "type": "number"
+          },
+          "outcome_coverage": {
+            "title": "Outcome Coverage",
+            "type": "number"
+          },
+          "recommended_action": {
+            "$ref": "#/components/schemas/DiagnosticAction"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "successful_runs": {
+            "title": "Successful Runs",
+            "type": "integer"
+          },
+          "top_failure_exposure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BreakagePoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "undefined_outcome_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Undefined Outcome Versions",
+            "type": "array"
+          },
+          "unmeasured_events": {
+            "title": "Unmeasured Events",
+            "type": "integer"
+          },
+          "unresolved_runs": {
+            "title": "Unresolved Runs",
+            "type": "integer"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "window_start",
+          "window_end",
+          "cohort_dimension",
+          "decision_state",
+          "data_quality",
+          "event_count",
+          "runs",
+          "successful_runs",
+          "failed_runs",
+          "unresolved_runs",
+          "undefined_outcome_versions",
+          "outcome_coverage",
+          "measured_events",
+          "estimated_events",
+          "unmeasured_events",
+          "incomplete_events",
+          "measured_cost_usd",
+          "estimated_cost_usd",
+          "measured_failure_exposure_usd",
+          "estimated_failure_exposure_usd",
+          "measured_cost_per_successful_outcome_usd",
+          "estimated_cost_per_successful_outcome_usd",
+          "top_failure_exposure",
+          "highest_failure_rate_cohort",
+          "recommended_action",
+          "limitations"
+        ],
+        "title": "EconomicDiagnosticReport",
         "type": "object"
       },
       "EnforcementActionCreate": {
@@ -1442,6 +2667,13 @@
       },
       "ExecutionEventCreate": {
         "properties": {
+          "attempt": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Attempt",
+            "type": "integer"
+          },
           "campaign_id": {
             "anyOf": [
               {
@@ -1509,6 +2741,26 @@
             ],
             "title": "Deployment Ref"
           },
+          "dimensions": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Dimensions",
+            "type": "object"
+          },
           "evidence_kind": {
             "default": "production",
             "enum": [
@@ -1574,6 +2826,39 @@
             ],
             "title": "Provider Request Id"
           },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Id"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          },
           "tenant_id": {
             "anyOf": [
               {
@@ -1623,6 +2908,28 @@
           "usage_measurement": {
             "$ref": "#/components/schemas/MeasurementState",
             "default": "unmeasured"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "workflow_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Version"
           }
         },
         "required": [
@@ -2163,6 +3470,117 @@
         "title": "OutcomeBatchIngestRequest",
         "type": "object"
       },
+      "OutcomeDefinitionCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "operator": {
+            "enum": [
+              "equals",
+              "not_equals",
+              "greater_than_or_equal",
+              "less_than_or_equal"
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "outcome_type": {
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Target"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "workflow_version",
+          "outcome_type",
+          "operator",
+          "target"
+        ],
+        "title": "OutcomeDefinitionCreate",
+        "type": "object"
+      },
+      "OutcomeDefinitionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "definition_digest": {
+            "title": "Definition Digest",
+            "type": "string"
+          },
+          "operator": {
+            "enum": [
+              "equals",
+              "not_equals",
+              "greater_than_or_equal",
+              "less_than_or_equal"
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "outcome_type": {
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Target"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "workflow_version",
+          "outcome_type",
+          "operator",
+          "target",
+          "definition_digest",
+          "created_at"
+        ],
+        "title": "OutcomeDefinitionOut",
+        "type": "object"
+      },
       "OutcomeEventCreate": {
         "properties": {
           "capability_id": {
@@ -2629,6 +4047,419 @@
         "title": "PricingCatalogCreate",
         "type": "object"
       },
+      "ProviderBillAllocation": {
+        "properties": {
+          "billed_cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Billed Cost Usd",
+            "type": "string"
+          },
+          "bucket_id": {
+            "title": "Bucket Id",
+            "type": "string"
+          },
+          "event_count": {
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "outcome_status": {
+            "enum": [
+              "success",
+              "failure",
+              "unresolved"
+            ],
+            "title": "Outcome Status",
+            "type": "string"
+          },
+          "provider_dimensions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Provider Dimensions",
+            "type": "object"
+          },
+          "run_count": {
+            "title": "Run Count",
+            "type": "integer"
+          },
+          "telemetry_cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Telemetry Cost Usd",
+            "type": "string"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket_id",
+          "model",
+          "provider_dimensions",
+          "workflow_id",
+          "workflow_version",
+          "outcome_status",
+          "billed_cost_usd",
+          "telemetry_cost_usd",
+          "run_count",
+          "event_count"
+        ],
+        "title": "ProviderBillAllocation",
+        "type": "object"
+      },
+      "ProviderBillImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "billed_total_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Billed Total Usd"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderCostBucketIn"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Buckets",
+            "type": "array"
+          },
+          "currency": {
+            "const": "USD",
+            "default": "USD",
+            "title": "Currency",
+            "type": "string"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Provider",
+            "type": "string"
+          },
+          "source_kind": {
+            "enum": [
+              "cost_api",
+              "csv_export",
+              "invoice_export",
+              "manual"
+            ],
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "statement_id": {
+            "maxLength": 192,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Statement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement_id",
+          "provider",
+          "period_start",
+          "period_end",
+          "billed_total_usd",
+          "source_kind",
+          "buckets"
+        ],
+        "title": "ProviderBillImportRequest",
+        "type": "object"
+      },
+      "ProviderBillOut": {
+        "properties": {
+          "billed_total_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Billed Total Usd",
+            "type": "string"
+          },
+          "bucket_count": {
+            "title": "Bucket Count",
+            "type": "integer"
+          },
+          "currency": {
+            "const": "USD",
+            "title": "Currency",
+            "type": "string"
+          },
+          "imported_at": {
+            "format": "date-time",
+            "title": "Imported At",
+            "type": "string"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "source_kind": {
+            "enum": [
+              "cost_api",
+              "csv_export",
+              "invoice_export",
+              "manual"
+            ],
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "statement_digest": {
+            "title": "Statement Digest",
+            "type": "string"
+          },
+          "statement_id": {
+            "title": "Statement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement_id",
+          "provider",
+          "period_start",
+          "period_end",
+          "currency",
+          "billed_total_usd",
+          "source_kind",
+          "bucket_count",
+          "statement_digest",
+          "imported_at"
+        ],
+        "title": "ProviderBillOut",
+        "type": "object"
+      },
+      "ProviderBillReport": {
+        "properties": {
+          "allocated_billed_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Allocated Billed Usd",
+            "type": "string"
+          },
+          "allocation_method": {
+            "const": "measured_cost_proportional",
+            "title": "Allocation Method",
+            "type": "string"
+          },
+          "allocations": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderBillAllocation"
+            },
+            "title": "Allocations",
+            "type": "array"
+          },
+          "billed_total_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Billed Total Usd",
+            "type": "string"
+          },
+          "currency": {
+            "const": "USD",
+            "title": "Currency",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "matched_buckets": {
+            "title": "Matched Buckets",
+            "type": "integer"
+          },
+          "outcome_unresolved_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Outcome Unresolved Usd",
+            "type": "string"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reconciliation_state": {
+            "enum": [
+              "reconciled",
+              "allocated_with_variance",
+              "outcomes_unresolved",
+              "unreconciled"
+            ],
+            "title": "Reconciliation State",
+            "type": "string"
+          },
+          "statement_digest": {
+            "title": "Statement Digest",
+            "type": "string"
+          },
+          "statement_id": {
+            "title": "Statement Id",
+            "type": "string"
+          },
+          "telemetry_measured_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Telemetry Measured Usd",
+            "type": "string"
+          },
+          "telemetry_variance_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Telemetry Variance Usd",
+            "type": "string"
+          },
+          "unbilled_telemetry_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unbilled Telemetry Usd",
+            "type": "string"
+          },
+          "unmatched_buckets": {
+            "items": {
+              "$ref": "#/components/schemas/UnmatchedProviderBucket"
+            },
+            "title": "Unmatched Buckets",
+            "type": "array"
+          },
+          "unreconciled_billed_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unreconciled Billed Usd",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement_id",
+          "provider",
+          "statement_digest",
+          "period_start",
+          "period_end",
+          "currency",
+          "reconciliation_state",
+          "billed_total_usd",
+          "allocated_billed_usd",
+          "unreconciled_billed_usd",
+          "telemetry_measured_usd",
+          "telemetry_variance_usd",
+          "unbilled_telemetry_usd",
+          "outcome_unresolved_usd",
+          "matched_buckets",
+          "unmatched_buckets",
+          "allocations",
+          "allocation_method",
+          "limitations"
+        ],
+        "title": "ProviderBillReport",
+        "type": "object"
+      },
+      "ProviderCostBucketIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount Usd"
+          },
+          "bucket_id": {
+            "maxLength": 192,
+            "minLength": 1,
+            "title": "Bucket Id",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "period_end": {
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "provider_dimensions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Provider Dimensions",
+            "type": "object"
+          }
+        },
+        "required": [
+          "bucket_id",
+          "period_start",
+          "period_end",
+          "amount_usd"
+        ],
+        "title": "ProviderCostBucketIn",
+        "type": "object"
+      },
       "RetryOutboxResponse": {
         "properties": {
           "id": {
@@ -2750,6 +4581,254 @@
         "title": "ScopedUserClaims",
         "type": "object"
       },
+      "SdkExecutionEvent": {
+        "properties": {
+          "attempt": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "cost_measurement": {
+            "default": "measured",
+            "enum": [
+              "measured",
+              "estimated",
+              "unmeasured"
+            ],
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "0",
+            "title": "Cost Usd"
+          },
+          "dimensions": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Dimensions",
+            "type": "object"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "latency_ms": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "model_version": {
+            "default": "unknown",
+            "minLength": 1,
+            "title": "Model Version",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "run_id": {
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "step": {
+            "minLength": 1,
+            "title": "Step",
+            "type": "string"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          },
+          "workflow": {
+            "minLength": 1,
+            "title": "Workflow",
+            "type": "string"
+          },
+          "workflow_version": {
+            "default": "unversioned",
+            "minLength": 1,
+            "title": "Workflow Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "run_id",
+          "step"
+        ],
+        "title": "SdkExecutionEvent",
+        "type": "object"
+      },
+      "SdkOutcomeEvent": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "dimensions": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Dimensions",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "outcome_type": {
+            "default": "accepted",
+            "minLength": 1,
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "provenance": {
+            "default": "measured",
+            "enum": [
+              "measured",
+              "inferred",
+              "mixed"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "run_id": {
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          },
+          "value_usd": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Usd"
+          },
+          "workflow": {
+            "minLength": 1,
+            "title": "Workflow",
+            "type": "string"
+          },
+          "workflow_version": {
+            "default": "unversioned",
+            "minLength": 1,
+            "title": "Workflow Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "run_id",
+          "accepted"
+        ],
+        "title": "SdkOutcomeEvent",
+        "type": "object"
+      },
       "TenantBudgetUpsert": {
         "properties": {
           "budget_cap_usd": {
@@ -2762,6 +4841,95 @@
           "budget_cap_usd"
         ],
         "title": "TenantBudgetUpsert",
+        "type": "object"
+      },
+      "TimelinePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "estimated_cost_per_successful_outcome_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Per Successful Outcome Usd"
+          },
+          "estimated_cost_usd": {
+            "title": "Estimated Cost Usd",
+            "type": "number"
+          },
+          "estimated_failure_exposure_usd": {
+            "title": "Estimated Failure Exposure Usd",
+            "type": "number"
+          },
+          "failed_runs": {
+            "title": "Failed Runs",
+            "type": "integer"
+          },
+          "incomplete_events": {
+            "title": "Incomplete Events",
+            "type": "integer"
+          },
+          "measured_cost_per_successful_outcome_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Cost Per Successful Outcome Usd"
+          },
+          "measured_cost_usd": {
+            "title": "Measured Cost Usd",
+            "type": "number"
+          },
+          "measured_failure_exposure_usd": {
+            "title": "Measured Failure Exposure Usd",
+            "type": "number"
+          },
+          "period_start": {
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "successful_runs": {
+            "title": "Successful Runs",
+            "type": "integer"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          },
+          "workflow_version": {
+            "title": "Workflow Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period_start",
+          "workflow_id",
+          "workflow_version",
+          "runs",
+          "successful_runs",
+          "failed_runs",
+          "measured_cost_usd",
+          "estimated_cost_usd",
+          "measured_failure_exposure_usd",
+          "estimated_failure_exposure_usd",
+          "measured_cost_per_successful_outcome_usd",
+          "estimated_cost_per_successful_outcome_usd",
+          "incomplete_events"
+        ],
+        "title": "TimelinePoint",
         "type": "object"
       },
       "TokenResponse": {
@@ -2798,6 +4966,28 @@
           "y"
         ],
         "title": "TrendPoint",
+        "type": "object"
+      },
+      "UnmatchedProviderBucket": {
+        "properties": {
+          "bucket_id": {
+            "title": "Bucket Id",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "no_measured_telemetry",
+              "ambiguous_bucket_scope"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket_id",
+          "reason"
+        ],
+        "title": "UnmatchedProviderBucket",
         "type": "object"
       },
       "ValidationError": {
@@ -3018,6 +5208,144 @@
         ],
         "title": "ValueEstimateOut",
         "type": "object"
+      },
+      "VersionComparisonRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_version": {
+            "minLength": 1,
+            "title": "Baseline Version",
+            "type": "string"
+          },
+          "candidate_version": {
+            "minLength": 1,
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "outcome_type": {
+            "default": "accepted",
+            "minLength": 1,
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/DecisionPolicy"
+          },
+          "workflow": {
+            "minLength": 1,
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "baseline_version",
+          "candidate_version"
+        ],
+        "title": "VersionComparisonRequest",
+        "type": "object"
+      },
+      "VersionEconomics": {
+        "additionalProperties": false,
+        "description": "Provenance-aware economics for one workflow version.",
+        "properties": {
+          "accepted_runs": {
+            "title": "Accepted Runs",
+            "type": "integer"
+          },
+          "cost_per_accepted_outcome_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Accepted Outcome Usd"
+          },
+          "estimated_cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Estimated Cost Usd",
+            "type": "string"
+          },
+          "estimated_runs": {
+            "title": "Estimated Runs",
+            "type": "integer"
+          },
+          "inferred_outcome_runs": {
+            "title": "Inferred Outcome Runs",
+            "type": "integer"
+          },
+          "labeled_runs": {
+            "title": "Labeled Runs",
+            "type": "integer"
+          },
+          "measured_cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Measured Cost Usd",
+            "type": "string"
+          },
+          "measured_runs": {
+            "title": "Measured Runs",
+            "type": "integer"
+          },
+          "outcome_coverage": {
+            "title": "Outcome Coverage",
+            "type": "number"
+          },
+          "rejected_runs": {
+            "title": "Rejected Runs",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "unmeasured_runs": {
+            "title": "Unmeasured Runs",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "version",
+          "runs",
+          "labeled_runs",
+          "accepted_runs",
+          "rejected_runs",
+          "inferred_outcome_runs",
+          "outcome_coverage",
+          "success_rate",
+          "measured_cost_usd",
+          "estimated_cost_usd",
+          "measured_runs",
+          "estimated_runs",
+          "unmeasured_runs",
+          "cost_per_accepted_outcome_usd"
+        ],
+        "title": "VersionEconomics",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -3043,6 +5371,26 @@
                 "schema": {
                   "additionalProperties": true,
                   "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "health_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health Health Ready Get",
                   "type": "object"
                 }
               }
@@ -3140,6 +5488,102 @@
         "summary": "Token",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/v1/backtests": {
+      "get": {
+        "operationId": "backtest_history_v1_backtests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EconomicBacktest"
+                  },
+                  "title": "Response Backtest History V1 Backtests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Backtest History",
+        "tags": [
+          "economic-change-control"
+        ]
+      },
+      "post": {
+        "operationId": "create_backtest_v1_backtests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomicBacktest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Backtest",
+        "tags": [
+          "economic-change-control"
         ]
       }
     },
@@ -3503,6 +5947,287 @@
         "tags": [
           "capabilities",
           "registry"
+        ]
+      }
+    },
+    "/v1/cloud/api-keys": {
+      "get": {
+        "operationId": "keys_v1_cloud_api_keys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyOut"
+                  },
+                  "title": "Response Keys V1 Cloud Api Keys Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Keys",
+        "tags": [
+          "zeroth-cloud-api-keys"
+        ]
+      },
+      "post": {
+        "operationId": "create_key_v1_cloud_api_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyReveal"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Key",
+        "tags": [
+          "zeroth-cloud-api-keys"
+        ]
+      }
+    },
+    "/v1/cloud/api-keys/{key_id}": {
+      "delete": {
+        "operationId": "revoke_key_v1_cloud_api_keys__key_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Key",
+        "tags": [
+          "zeroth-cloud-api-keys"
+        ]
+      }
+    },
+    "/v1/cloud/auth/callback": {
+      "get": {
+        "operationId": "callback_v1_cloud_auth_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "zeroth-cloud-auth"
+        ]
+      }
+    },
+    "/v1/cloud/auth/login": {
+      "get": {
+        "operationId": "login_v1_cloud_auth_login_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "zeroth-cloud-auth"
+        ]
+      }
+    },
+    "/v1/cloud/billing/checkout": {
+      "post": {
+        "operationId": "checkout_v1_cloud_billing_checkout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingURL"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Checkout",
+        "tags": [
+          "zeroth-cloud-billing"
+        ]
+      }
+    },
+    "/v1/cloud/billing/paddle/webhook": {
+      "post": {
+        "operationId": "paddle_webhook_v1_cloud_billing_paddle_webhook_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Paddle Webhook V1 Cloud Billing Paddle Webhook Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Paddle Webhook",
+        "tags": [
+          "zeroth-cloud-billing"
+        ]
+      }
+    },
+    "/v1/cloud/billing/portal": {
+      "post": {
+        "operationId": "portal_v1_cloud_billing_portal_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingURL"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Portal",
+        "tags": [
+          "zeroth-cloud-billing"
         ]
       }
     },
@@ -4439,6 +7164,684 @@
         ]
       }
     },
+    "/v1/debugger/breakage": {
+      "get": {
+        "operationId": "get_debugger_breakage_v1_debugger_breakage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BreakagePoint"
+                  },
+                  "title": "Response Get Debugger Breakage V1 Debugger Breakage Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Debugger Breakage",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/debugger/cohorts": {
+      "get": {
+        "operationId": "get_debugger_cohorts_v1_debugger_cohorts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group_by",
+            "required": false,
+            "schema": {
+              "default": "subject_id",
+              "enum": [
+                "subject_id",
+                "dimension"
+              ],
+              "title": "Group By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dimension",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dimension"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CohortPoint"
+                  },
+                  "title": "Response Get Debugger Cohorts V1 Debugger Cohorts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Debugger Cohorts",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/debugger/outcome-definitions": {
+      "get": {
+        "operationId": "get_outcome_definitions_v1_debugger_outcome_definitions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workflow_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OutcomeDefinitionOut"
+                  },
+                  "title": "Response Get Outcome Definitions V1 Debugger Outcome Definitions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Outcome Definitions",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      },
+      "post": {
+        "operationId": "post_outcome_definition_v1_debugger_outcome_definitions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutcomeDefinitionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutcomeDefinitionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Outcome Definition",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/debugger/report": {
+      "get": {
+        "operationId": "get_debugger_report_v1_debugger_report_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cohort_dimension",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cohort Dimension"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomicDiagnosticReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Debugger Report",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/debugger/timeline": {
+      "get": {
+        "operationId": "get_debugger_timeline_v1_debugger_timeline_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TimelinePoint"
+                  },
+                  "title": "Response Get Debugger Timeline V1 Debugger Timeline Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Debugger Timeline",
+        "tags": [
+          "instrumentation",
+          "outcomes"
+        ]
+      }
+    },
+    "/v1/decision-schedules": {
+      "get": {
+        "operationId": "schedules_v1_decision_schedules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DecisionScheduleOut"
+                  },
+                  "title": "Response Schedules V1 Decision Schedules Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Schedules",
+        "tags": [
+          "economic-change-control"
+        ]
+      },
+      "post": {
+        "operationId": "create_schedule_v1_decision_schedules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionScheduleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionScheduleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Schedule",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/decisions": {
+      "get": {
+        "operationId": "decision_history_v1_decisions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workflow",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EconomicDecision"
+                  },
+                  "title": "Response Decision History V1 Decisions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decision History",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/decisions/compare": {
+      "post": {
+        "operationId": "compare_versions_v1_decisions_compare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionComparisonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomicDecision"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Compare Versions",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
     "/v1/enforcement/actions": {
       "get": {
         "operationId": "list_all_v1_enforcement_actions_get",
@@ -4908,6 +8311,52 @@
         ]
       }
     },
+    "/v1/executions": {
+      "post": {
+        "operationId": "record_execution_v1_executions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SdkExecutionEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Execution",
+        "tags": [
+          "zeroth-cloud-sdk"
+        ]
+      }
+    },
     "/v1/instrumentation/executions": {
       "post": {
         "operationId": "post_execution_v1_instrumentation_executions_post",
@@ -5024,6 +8473,52 @@
         "tags": [
           "connectors",
           "metrics"
+        ]
+      }
+    },
+    "/v1/outcomes": {
+      "post": {
+        "operationId": "record_outcome_v1_outcomes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SdkOutcomeEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Outcome",
+        "tags": [
+          "zeroth-cloud-sdk"
         ]
       }
     },
@@ -5334,6 +8829,108 @@
           }
         ],
         "summary": "Import Ground Truth",
+        "tags": [
+          "reconciliation"
+        ]
+      }
+    },
+    "/v1/reconciliation/provider-bills": {
+      "post": {
+        "operationId": "post_provider_bill_v1_reconciliation_provider_bills_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderBillImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderBillOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Provider Bill",
+        "tags": [
+          "reconciliation"
+        ]
+      }
+    },
+    "/v1/reconciliation/provider-bills/{provider}/{statement_id}/report": {
+      "get": {
+        "operationId": "get_provider_bill_report_v1_reconciliation_provider_bills__provider___statement_id__report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "statement_id",
+            "required": true,
+            "schema": {
+              "title": "Statement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderBillReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Provider Bill Report",
         "tags": [
           "reconciliation"
         ]
