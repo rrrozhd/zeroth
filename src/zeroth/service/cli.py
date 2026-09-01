@@ -8,6 +8,7 @@ Subcommands:
   deployment (contracts + published single-agent graph) so a fresh install
   can serve its first run without writing Python.
 - ``zeroth-core migrate``    — apply database migrations and exit.
+- ``zeroth-core migrate-econ`` — apply economic-plane migrations and exit.
 - ``zeroth-core mcp-import`` — pin a registered MCP server's tools into a
   draft graph as ``mcp_tool`` nodes, so an MCP tool has a contract at publish
   time instead of only at run time.
@@ -42,6 +43,20 @@ def ensure_schema() -> None:
 def _cmd_migrate(_args: argparse.Namespace) -> int:
     ensure_schema()
     print("migrations applied")
+    return 0
+
+
+def ensure_econ_schema() -> None:
+    """Run the packaged economic-plane migration chain against ECP_DATABASE_URL."""
+    from zeroth.econ.plane.config import settings
+    from zeroth.econ.plane.migrations import run_econ_migrations
+
+    run_econ_migrations(settings.database_url)
+
+
+def _cmd_migrate_econ(_args: argparse.Namespace) -> int:
+    ensure_econ_schema()
+    print("economic migrations applied")
     return 0
 
 
@@ -217,6 +232,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     migrate = sub.add_parser("migrate", help="apply database migrations and exit")
     migrate.set_defaults(func=_cmd_migrate)
+
+    migrate_econ = sub.add_parser(
+        "migrate-econ",
+        help="apply economic-plane database migrations and exit",
+    )
+    migrate_econ.set_defaults(func=_cmd_migrate_econ)
 
     from zeroth.check.cli import attach_check_parser
 

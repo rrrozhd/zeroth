@@ -152,9 +152,9 @@ def test_worker_discovers_due_tenants_internally(tmp_path: Path, monkeypatch) ->
             created_by="test",
         )
 
-    from zeroth.econ.plane.decisioning import workers
+    from zeroth.econ.plane.decisioning import scheduler
 
-    monkeypatch.setattr(workers, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(scheduler, "SessionLocal", lambda: Session(engine))
 
     processed = _run_due_decision_scans(now=datetime.now(UTC) + timedelta(seconds=1))
 

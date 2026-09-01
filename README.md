@@ -24,18 +24,24 @@ The boundary is deliberate:
 
 - **Free and self-hosted:** SDK, instrumentation, local analysis, existing UI,
   and bounded model-swap backtests.
-- **Paid-service hypothesis:** continuously hosted evidence, scheduled version
-  decisions, retained history, usage limits, collaboration/governance, and
-  post-change verification. Provider-bill reconciliation remains supporting
-  evidence, not the product category.
+- **Paid managed service:** continuously hosted evidence, scheduled version
+  decisions, retained history, enforced usage limits, and post-change
+  verification. Provider-bill reconciliation remains supporting evidence, not
+  the product category.
 
 > **Current status:** authenticated SDK ingestion, workflow-version decisions,
-> recurring decision schedules, project API keys, opt-in plan quotas,
+> recurring decision schedules, project API keys, enforced plan quotas,
 > provider-bill import, measured-cost allocation, and hosted backtest execution are
-> implemented for bounded model changes. A vendor-neutral, replay-safe subscription
-> projection is also implemented, but no merchant adapter or checkout calls it yet.
-> Managed hosting, production provider credentials, checkout, notifications, and
-> service terms are not.
+> implemented for bounded model changes. WorkOS AuthKit activation and Paddle
+> checkout, signed webhooks, and customer portal are implemented behind optional
+> hosted dependencies. Server-rendered `/` and `/account` routes provide
+> self-serve signup, key delivery, checkout, recovery, usage, billing, and
+> scheduled decisions without bundling the open-source UI. The
+> approved first offer is Solo at $39/month after a
+> 14-day trial, with three hosted backtests and 300 calls per
+> billing period. Team checkout remains disabled until its governance limits are
+> enforced. Managed infrastructure, production vendor credentials, notifications,
+> and service terms are not yet live.
 > This is not yet a purchasable hosted service.
 
 Intended self-serve activation after the release block is cleared:
@@ -53,7 +59,7 @@ unresolved outcomes separate; see the
 | Workflow-version economic decisions and schedules | Implemented API; hosting and notifications planned | Initial recurring paid service boundary |
 | Provider-bill import and workflow/outcome allocation | Implemented API; hosting, connectors, and rollups planned | Supporting finance evidence and expansion tier |
 | Bounded model-change backtests | Hosted API replays 5–25 labeled, tool-free cases and retains a privacy-preserving decision | Initial proof-of-savings subscription surface |
-| Subscription state and entitlement projection | Vendor-neutral normalized events are idempotent and stale events cannot roll access backward | Merchant checkout/webhook adapter still required |
+| Identity, checkout, and entitlement projection | WorkOS AuthKit activation plus Paddle checkout/portal and signed webhooks; normalized events are replay-safe | Production vendor projects and real-transaction acceptance remain required |
 | Structural workflow backtests and signed evidence | Not implemented | Expansion after model-change demand is proven |
 | Studio and console | Existing open-source UI; unchanged for this narrowing | Not the SaaS product |
 | `zeroth-sdk` | Execution, outcome, backtest, decision, schedule, and history routes are served and exercised end to end | Release-blocked on hosted operations and package release readiness, not a dangling route |
@@ -205,11 +211,13 @@ uv sync --extra dispatch           # Distributed worker (redis + arq)
 uv sync --extra sandbox            # Sandbox sidecar marker
 uv sync --extra otel               # OpenTelemetry trace/metric export
 uv sync --extra regulus            # Bundled economic control plane backend
+uv sync --extra cloud              # Hosted WorkOS AuthKit + Paddle adapters
 uv sync --extra all                # Headless runtime bundle; excludes console and langgraph middleware
 ```
 
 Available extras: `console`, `langgraph`, `langgraph-gateway`, `memory-pg`,
-`memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `otel`, `regulus`, `all`.
+`memory-chroma`, `memory-es`, `dispatch`, `sandbox`, `otel`, `regulus`, `cloud`,
+`all`. The hosted vendors remain out of the SDK and default runtime wheels.
 
 ---
 

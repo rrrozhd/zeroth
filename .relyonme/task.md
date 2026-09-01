@@ -54,6 +54,18 @@ the future paid organization FinOps/governance service.
 - Low-touch demand experiment: specified; one conditional Show HN launch uses
   an installable demo, one public issue CTA, explicit artifact/source fields,
   a 14-day window, and commercial rather than attention metrics.
+- Solo hosted launch boundary: implemented locally; WorkOS AuthKit identity,
+  Paddle merchant-of-record billing, the $39/month offer, trial/paid quotas,
+  one-Postgres Railway definition, and commercial-flow acceptance are present.
+- Production-candidate preflight: implemented locally; four read-only HTTPS
+  checks write a secret-free atomic evidence report, while sandbox and production
+  Paddle journeys remain explicit external release gates.
+- Zero-touch activation surface: implemented locally; the narrowed economic
+  plane owns the public offer, browser activation, account usage, key recovery,
+  Solo checkout, and billing portal without installing or changing the OSS UI.
+- Scheduled recurring value: implemented in the one-replica launch shape; a
+  fail-visible in-process loop executes database-claimed due decisions without
+  Redis, and Paddle trialing accounts retain Trial rather than Solo quotas.
 
 # Decisions
 
@@ -97,6 +109,12 @@ the future paid organization FinOps/governance service.
 - Show HN currently requires an established, community-familiar account and
   active asynchronous participation. Account eligibility is external state; do
   not evade it or substitute untracked cross-posting.
+- The Railway CLI can execute locally but cannot produce a remote plan without
+  an authenticated, linked project; no hosted environment or backup policy is
+  proven by repository IaC validation.
+- Legal entity, jurisdiction, retention, support, and supplier refund facts are
+  owner/counsel inputs. The repository contains a checklist, not publishable
+  legal terms, and production billing must stay disabled until they are resolved.
 
 # Evidence
 
@@ -185,6 +203,41 @@ the future paid organization FinOps/governance service.
 - Launch-experiment verification: 58 documentation, public-surface, and legacy
   boundary tests passed with 1 environment-dependent skip; strict MkDocs and
   Ruff passed. The issue form requires both artifact stage and discovery source.
+- Solo cloud-launch implementation commit `2aeadbd0` passed the exact repository
+  state: 12,473 tests passed, 9 skipped, and 465 deselected with zero failures;
+  its impacted 920 tests, strict docs, Ruff, IaC typecheck, and container build
+  also passed.
+- Cloud launch preflight and commercial-flow acceptance: 10 tests passed; Ruff,
+  strict MkDocs, and the pinned Railway TypeScript definition passed. Railway
+  CLI 5.47.1 reached its authentication boundary but no remote plan was produced.
+- Standalone self-serve activation verification: 772 economic-plane,
+  release-gate, and commercial-flow acceptance tests passed. The staged
+  architecture, security, wheel-provenance, and container-contract suite then
+  passed 2,019 tests with 3 environment-dependent skips.
+- A fresh `zeroth-cloud:self-serve` image ran the exact production command
+  against an isolated migrated economic database. Readiness reported schema
+  `20260901_17` and scheduler `ok`; `/` served the Solo offer; AuthKit login
+  returned a PKCE redirect and Secure/HttpOnly/SameSite cookie; the image
+  contained `zeroth-core` 0.25.7.3 and excluded `zeroth-console`.
+- A read-only vendor-readiness command now fails closed on AuthKit callback or
+  launch-role drift, the wrong Paddle amount/currency/cadence/trial, and an
+  inactive, sensitive, misrouted, or incomplete Paddle subscription webhook.
+  Its report excludes credentials and raw vendor responses; the real sandbox
+  journey remains authority for client-key and write-only webhook-secret
+  pairing.
+- Vendor-readiness verification passed 10 focused red/green cases, followed by
+  422 release-gate and commercial-flow tests and 2,019 architecture, security,
+  wheel-provenance, and container-contract tests with 3 environment-dependent
+  skips. Strict documentation, Ruff, and staged diff checks passed.
+- The active Solo GTM runbook now fixes one promise, one earned channel per
+  14-day window, one CTA, asynchronous support, and no paid ads or Team work
+  before measured recurring Solo value. A read-only aggregate funnel report
+  measures signup, first/repeat backtest, checkout-completed projection, paid,
+  canceled, past-due, verdict mix, and time-to-first-value without customer
+  identifiers, tracking pixels, third-party analytics, or a migration.
+- Funnel/GTM verification passed 3 focused aggregate-report cases, 425 release
+  and commercial-flow tests, and 1,743 staged architecture and wheel-boundary
+  tests. Strict MkDocs, Ruff, and diff checks passed.
 
 # Remediation bound
 
@@ -193,10 +246,10 @@ expand into hosted infrastructure, billing, SSO, or provider integrations here.
 
 # Next action
 
-Verify and commit the self-serve activation slice locally. Do not push or
-publish without owner direction. The external activation path is then:
-confirm both workflow-specific trusted publishers, push and run the candidate
-gates, dispatch digest-bound promotion, exercise one real Costs API response
-through the normalized import, and distribute the asynchronous closure test to
-qualified production AI teams. Do not build a broader connector or
-organization shell before those commercial evidence gates.
+Commit the self-serve activation slice locally. Do not push, deploy, or enable live
+billing without owner direction. The shortest external path to revenue is:
+resolve the policy/contact facts; authenticate and review the Railway plan;
+create WorkOS and Paddle sandbox configuration; deploy a candidate; pass the
+read-only preflight and full sandbox purchase/cancellation evidence record; then
+repeat against production before opening the $39/month Solo checkout. Do not add
+Team or another product surface before the first retained self-serve customer.

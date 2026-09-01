@@ -199,7 +199,21 @@ def valid_environment_variables(repo_root: Path) -> set[str]:
                     candidate = value(node.slice)
             if candidate:
                 names.update(ENV_RE.findall(candidate))
+    for path in sorted((repo_root / "release").rglob("*.py")):
+        names.update(ENV_RE.findall(path.read_text(encoding="utf-8")))
     return names
+
+
+@lru_cache
+def install_projects(repo_root: Path) -> tuple[dict[str, object], ...]:
+    """Load root and separately packaged Python distributions in the workspace."""
+    paths = [repo_root / "pyproject.toml"]
+    paths.extend(sorted((repo_root / "packaging").glob("*/pyproject.toml")))
+    return tuple(
+        tomllib.loads(path.read_text(encoding="utf-8"))["project"]
+        for path in paths
+        if path.is_file()
+    )
 
 
 def _module_exists(module: str, repo_root: Path) -> bool:
@@ -295,7 +309,7 @@ def _install_violations(
     text: str,
     path: str,
     line: int,
-    project: dict[str, object],
+    projects: tuple[dict[str, object], ...],
 ) -> list[Violation]:
     match = PIP_INSTALL_RE.search(text)
     if not match:
@@ -305,9 +319,6 @@ def _install_violations(
     except ValueError:
         return []
 
-    project_name = str(project["name"])
-    version = str(project["version"])
-    extras = set(project.get("optional-dependencies", {}))
     violations = []
     for argument in arguments:
         if argument.startswith("-") or argument in {".", ".."}:
@@ -321,11 +332,13 @@ def _install_violations(
         supplied_name = requirement["name"].lower().replace("_", "-")
         supplied_extras = set(filter(None, (requirement["extras"] or "").split(",")))
         versions = re.findall(r"\d+(?:\.\d+)+", requirement["specifier"])
-        if (
-            supplied_name != project_name
-            or not supplied_extras <= extras
-            or any(supplied != version for supplied in versions)
-        ):
+        matches_project = any(
+            supplied_name == str(project["name"]).lower().replace("_", "-")
+            and supplied_extras <= set(project.get("optional-dependencies", {}))
+            and all(supplied == str(project["version"]) for supplied in versions)
+            for project in projects
+        )
+        if not matches_project:
             violations.append(Violation(path, line, "install-target", argument))
     return violations
 
@@ -336,7 +349,7 @@ def _scan_actionable_text(
     line: int,
     repo_root: Path,
     valid_env: set[str],
-    project: dict[str, object],
+    projects: tuple[dict[str, object], ...],
 ) -> list[Violation]:
     violations = []
     for match in FROM_IMPORT_RE.finditer(text):
@@ -359,7 +372,7 @@ def _scan_actionable_text(
     for target in SOURCE_PATH_RE.findall(text):
         if not _source_exists(target, repo_root):
             violations.append(Violation(path, line, "source-path", target))
-    violations.extend(_install_violations(text, path, line, project))
+    violations.extend(_install_violations(text, path, line, projects))
     return violations
 
 
@@ -390,7 +403,7 @@ def _historical_inline_context(line: str, start: int, end: int) -> bool:
 
 def scan_markdown(text: str, path: str, repo_root: Path = REPO_ROOT) -> list[Violation]:
     """Return broken references from code blocks and inline code only."""
-    project = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    projects = install_projects(repo_root)
     valid_env = valid_environment_variables(repo_root)
     violations: set[Violation] = set()
     in_fence = False
@@ -436,7 +449,7 @@ def scan_markdown(text: str, path: str, repo_root: Path = REPO_ROOT) -> list[Vio
                         scan_line_number,
                         repo_root,
                         valid_env,
-                        project,
+                        projects,
                     )
                 )
                 continued_line = 0
@@ -446,7 +459,7 @@ def scan_markdown(text: str, path: str, repo_root: Path = REPO_ROOT) -> list[Vio
                 if not _historical_inline_context(line, inline.start(), inline.end()):
                     violations.update(
                         _scan_actionable_text(
-                            inline.group(1), path, line_number, repo_root, valid_env, project
+                            inline.group(1), path, line_number, repo_root, valid_env, projects
                         )
                     )
             if stripped:

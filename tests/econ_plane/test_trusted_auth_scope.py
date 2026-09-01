@@ -252,10 +252,19 @@ def test_every_operational_econ_database_route_requires_auth_and_structural_scop
         get_current_user,
     )
     from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, get_cloud_user
+    from zeroth.econ.plane.cloud.authkit import get_workos_gateway
+    from zeroth.econ.plane.cloud.paddle import get_paddle_gateway
     from zeroth.econ.plane.main import app
 
     operational = []
     non_operational_database_routes = {"/v1/auth/token", "/v1/metrics"}
+    # These are the only pre-session external ingress routes. Their own tests
+    # pin state/PKCE validation and raw-body Paddle signature verification
+    # before the trusted external identity is converted into local tenant scope.
+    trusted_external_ingress = {
+        "/v1/cloud/auth/callback": get_workos_gateway,
+        "/v1/cloud/billing/paddle/webhook": get_paddle_gateway,
+    }
     for route in app.routes:
         if not isinstance(route, APIRoute):
             continue
@@ -263,6 +272,9 @@ def test_every_operational_econ_database_route_requires_auth_and_structural_scop
         has_database_parameter = "db" in python_inspect.signature(route.endpoint).parameters
         if has_database_parameter and route.path not in non_operational_database_routes:
             operational.append(route)
+            if route.path in trusted_external_ingress:
+                assert trusted_external_ingress[route.path] in calls, route.path
+                continue
             assert calls.intersection({get_current_user, get_cloud_user}), route.path
             assert calls.intersection(
                 {get_current_scoped_db, get_current_global_db, get_cloud_scoped_db}

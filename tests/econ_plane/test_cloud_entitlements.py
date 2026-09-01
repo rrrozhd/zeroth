@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -12,7 +13,12 @@ from zeroth.econ.analytics.service_auth import mint_econ_service_token
 from zeroth.econ.plane.auth.deps import get_current_scoped_db
 from zeroth.econ.plane.cloud.api import router as cloud_router
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db
-from zeroth.econ.plane.cloud.entitlements import PLAN_CATALOG, PlanLimits
+from zeroth.econ.plane.cloud.entitlements import (
+    PLAN_CATALOG,
+    EntitlementError,
+    PlanLimits,
+    reserve_usage,
+)
 from zeroth.econ.plane.cloud.models import CloudSubscription
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.database import Base
@@ -60,6 +66,7 @@ def test_cloud_event_quota_is_enforced_without_charging_duplicate_retries(
         PlanLimits(
             event_limit=1,
             decision_scan_limit=1,
+            backtest_limit=1,
             backtest_call_limit=1,
             schedule_limit=1,
             minimum_schedule_interval_minutes=1440,
@@ -116,6 +123,40 @@ def test_self_hosted_mode_does_not_require_a_subscription(tmp_path: Path, monkey
     )
 
     assert response.status_code == 200
+
+
+def test_paddle_trialing_solo_subscription_keeps_trial_limits(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'paddle-trial.db'}")
+    Base.metadata.create_all(engine)
+    now = datetime.now(UTC)
+    monkeypatch.setattr(settings, "cloud_entitlements_enabled", True)
+    monkeypatch.setitem(
+        PLAN_CATALOG,
+        "trial",
+        PlanLimits(1, 1, 1, 1, 1, 1440),
+    )
+    with Session(engine) as session:
+        session.add(
+            CloudSubscription(
+                tenant_id="tenant-a",
+                plan="solo",
+                status="trialing",
+                period_start=now,
+                period_end=now + timedelta(days=14),
+                external_customer_id="ctm_01",
+                external_subscription_id="sub_01",
+                billing_provider="paddle",
+                updated_at=now,
+            )
+        )
+        session.commit()
+        scoped = ScopedSession(session, TenantWideScopeContext(tenant_id="tenant-a"))
+
+        assert reserve_usage(scoped, "backtests") is True
+        with pytest.raises(EntitlementError, match="trial backtest limit reached"):
+            reserve_usage(scoped, "backtests")
 
 
 def test_trial_limits_decision_scans_and_schedule_frequency(

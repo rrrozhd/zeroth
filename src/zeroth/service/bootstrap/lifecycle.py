@@ -36,6 +36,18 @@ _ABANDONED_TASK_FAILED = "abandoned_task_failed"
 _STARTUP_CLOSE_FAILED = "startup_transport_close_failed"
 
 
+def _hosted_economics_required(settings: object) -> bool:
+    """Return whether economics is a paid-service dependency for this process."""
+    return any(
+        bool(getattr(settings, flag, False))
+        for flag in (
+            "workos_authkit_enabled",
+            "paddle_billing_enabled",
+            "cloud_entitlements_enabled",
+        )
+    )
+
+
 def _release_abandoned_task(task: asyncio.Task) -> None:
     """Retire an abandoned shutdown task, consuming the result nobody awaited.
 
@@ -78,9 +90,14 @@ async def _service_runtime_lifespan(app: FastAPI):
     # its own schema + seed data here: Starlette does not run a mounted
     # sub-app's startup events, so econ_plane.main's on_startup never fires.
     if getattr(app.state.bootstrap, "regulus_client", None) is not None:
+        hosted_economics_required = False
         try:
+            from zeroth.econ.plane import config as ecp_config
+
+            ecp_settings = ecp_config.settings
+            hosted_economics_required = _hosted_economics_required(ecp_settings)
+
             from zeroth.econ.plane.common.bootstrap import bootstrap as econ_plane_bootstrap
-            from zeroth.econ.plane.config import settings as ecp_settings
             from zeroth.econ.plane.connectors.service import init_otel_metrics
 
             # Default-safe JWT secret for the bundled control plane. The
@@ -118,6 +135,13 @@ async def _service_runtime_lifespan(app: FastAPI):
                     "ECP_JWT_SECRET for multi-worker or persistent deployments."
                 )
 
+            # Starlette does not execute a mounted sub-application's lifespan.
+            # Paid hosting therefore validates here, before touching its schema;
+            # otherwise invalid WorkOS/Paddle configuration could serve a live
+            # application whose identity or entitlements never became usable.
+            if hosted_economics_required:
+                ecp_config.validate_startup_settings()
+
             # The in-process client is a provisioned service principal. Its
             # tenant claim is configuration-owned and never copied from an econ
             # request body; an empty scope would make the persistence boundary
@@ -150,10 +174,20 @@ async def _service_runtime_lifespan(app: FastAPI):
             app.state.regulus_registration_ready = True
             init_otel_metrics()  # no-op unless ECP_OTEL_METRICS_ENABLED
             logger.info("Initialized bundled Regulus control plane")
-        except ImportError:
-            pass
-        except Exception as exc:  # noqa: BLE001 - economics degrades without blocking runs
+        except Exception as exc:  # noqa: BLE001 - self-host economics is optional
             app.state.regulus_registration_ready = False
+            if hosted_economics_required:
+                logger.error(
+                    "Hosted economic plane initialization failed exception_type=%s",
+                    type(exc).__name__,
+                )
+                if original_regulus_scope is not None:
+                    (
+                        ecp_settings.service_principal_tenant_id,
+                        ecp_settings.service_principal_workspace_id,
+                    ) = original_regulus_scope
+                    original_regulus_scope = None
+                raise RuntimeError("Hosted economic plane failed to initialize") from exc
             logger.error(
                 "Bundled Regulus registration degraded exception_type=%s",
                 type(exc).__name__,

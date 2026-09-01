@@ -40,4 +40,4 @@ include = ["src/zeroth", "README.md"]
 
 [tool.zeroth.release]
 publish = false
-reason = "No supported production hosted endpoint, managed provider credentials, or activation flow"
+reason = "No supported production hosted endpoint, managed provider credentials, or release"

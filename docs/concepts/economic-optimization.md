@@ -38,9 +38,14 @@ hosted operation and decision history rather than a basic cost dashboard.
 The land user may be a solo developer or small AI team that needs a recurring,
 low-touch answer to “is this cheaper version safe to ship?” Organization finance
 and governance controls are the expansion motion. Project API keys, retained
-decisions, schedules, opt-in Trial/Solo/Team/Scale quotas, and a vendor-neutral
-subscription projection are implemented. Merchant checkout, verified webhook
-adaptation, production hosting, and service terms are not.
+decisions, schedules, enforced quotas, and a vendor-neutral subscription
+projection are implemented. The approved self-serve offer is Solo at $39/month
+after a 14-day trial, capped at three hosted backtests and 300 provider-call
+credits per billing period. WorkOS AuthKit identity and Paddle checkout,
+portal, and verified webhook adaptation are also implemented behind the
+optional hosted configuration. Team checkout is disabled until governance
+limits are enforceable. Production vendor projects, an applied Railway
+deployment, service terms, and a real transaction are not yet complete.
 
 The billing projection accepts normalized events only after an external adapter
 has verified their authenticity and resolved the tenant. It keeps exact retries

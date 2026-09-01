@@ -96,6 +96,7 @@ def test_backtest_is_retained_without_raw_cases_and_duplicate_is_free(
         PlanLimits(
             event_limit=1,
             decision_scan_limit=1,
+            backtest_limit=1,
             backtest_call_limit=20,
             schedule_limit=1,
             minimum_schedule_interval_minutes=1440,
@@ -127,6 +128,128 @@ def test_backtest_is_retained_without_raw_cases_and_duplicate_is_free(
         usage = db.get(CloudUsageCounter, ("tenant-a", record.period_start, "backtest_calls"))
         assert usage is not None
         assert usage.quantity == 20
+
+
+def test_backtest_count_limit_is_independent_from_provider_call_credits(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'backtest-count.db'}")
+    Base.metadata.create_all(engine)
+    now = datetime.now(UTC)
+    with Session(engine) as db:
+        db.add(
+            CloudSubscription(
+                tenant_id="tenant-a",
+                plan="trial",
+                status="trialing",
+                period_start=now - timedelta(days=1),
+                period_end=now + timedelta(days=13),
+                external_customer_id=None,
+                external_subscription_id=None,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+
+    def scoped_db():
+        with Session(engine) as db:
+            yield ScopedSession(db, TenantWideScopeContext(tenant_id="tenant-a"))
+
+    executor = _Executor()
+    app.dependency_overrides[get_cloud_scoped_db] = scoped_db
+    app.dependency_overrides[get_backtest_executor] = lambda: executor
+    monkeypatch.setattr(settings, "cloud_entitlements_enabled", True)
+    monkeypatch.setattr(settings, "service_principal_tenant_id", "tenant-a")
+    monkeypatch.setitem(
+        PLAN_CATALOG,
+        "trial",
+        PlanLimits(
+            event_limit=1,
+            decision_scan_limit=1,
+            backtest_limit=1,
+            backtest_call_limit=100,
+            schedule_limit=1,
+            minimum_schedule_interval_minutes=1440,
+        ),
+    )
+    token = mint_econ_service_token()
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first = client.post("/v1/backtests", headers=headers, json=_payload())
+    changed = _payload()
+    changed["candidate"] = {"model": "openai/gpt-5-mini-2026-09"}
+    second = client.post("/v1/backtests", headers=headers, json=changed)
+
+    assert first.status_code == 200
+    assert second.status_code == 402
+    assert second.json()["detail"] == "trial backtest limit reached"
+    assert executor.calls == 1
+
+
+def test_backtest_meter_reservation_is_atomic_when_call_credits_are_exhausted(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'atomic-backtest-quota.db'}")
+    Base.metadata.create_all(engine)
+    now = datetime.now(UTC)
+    period_start = now - timedelta(days=1)
+    with Session(engine) as db:
+        db.add(
+            CloudSubscription(
+                tenant_id="tenant-a",
+                plan="trial",
+                status="trialing",
+                period_start=period_start,
+                period_end=now + timedelta(days=13),
+                external_customer_id=None,
+                external_subscription_id=None,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+
+    def scoped_db():
+        with Session(engine) as db:
+            yield ScopedSession(db, TenantWideScopeContext(tenant_id="tenant-a"))
+
+    executor = _Executor()
+    app.dependency_overrides[get_cloud_scoped_db] = scoped_db
+    app.dependency_overrides[get_backtest_executor] = lambda: executor
+    monkeypatch.setattr(settings, "cloud_entitlements_enabled", True)
+    monkeypatch.setattr(settings, "service_principal_tenant_id", "tenant-a")
+    monkeypatch.setitem(
+        PLAN_CATALOG,
+        "trial",
+        PlanLimits(
+            event_limit=1,
+            decision_scan_limit=1,
+            backtest_limit=1,
+            backtest_call_limit=19,
+            schedule_limit=1,
+            minimum_schedule_interval_minutes=1440,
+        ),
+    )
+    token = mint_econ_service_token()
+
+    response = TestClient(app).post(
+        "/v1/backtests",
+        headers={"Authorization": f"Bearer {token}"},
+        json=_payload(),
+    )
+
+    assert response.status_code == 402
+    assert response.json()["detail"] == "trial backtest call limit reached"
+    assert executor.calls == 0
+    with Session(engine) as db:
+        count = db.get(CloudUsageCounter, ("tenant-a", period_start, "backtests"))
+        assert count is None
 
 
 def test_backtest_abstains_without_executable_evidence(tmp_path: Path, monkeypatch) -> None:

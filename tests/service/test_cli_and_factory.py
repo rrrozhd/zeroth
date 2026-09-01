@@ -300,3 +300,4 @@ def test_cli_parser_has_expected_subcommands():
     assert args.model == "m"
     args = parser.parse_args(["serve", "--port", "9000"])
     assert args.port == 9000
+    assert parser.parse_args(["migrate-econ"]).command == "migrate-econ"

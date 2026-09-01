@@ -2,9 +2,10 @@
 
 > **Historical launch experiment (superseded 2026-08-31):** retained for its
 > channel and measurement evidence. It is not the active SaaS launch plan. The
-> current direction is a low-touch Trial/Solo/Team subscription whose immediate
+> current direction is a low-touch Trial/Solo subscription whose immediate
 > value is a bounded model-change backtest, followed by continuous production
-> evidence and verification.
+> evidence and verification. Use the active
+> [Solo SaaS launch runbook](solo-saas-launch.md), not the decision rules below.
 
 ## Bottom line
 
@@ -109,8 +110,9 @@ savings. Answer technical questions directly and link to implemented contracts.
 Every launch surface ends with the same path:
 
 ```text
-pip install → zeroth-econ demo → real instrumentation → real closure report
-            → .github/ISSUE_TEMPLATE/economic-diagnostic-pilot.yml
+pip install zeroth-sdk
+zeroth-econ demo → real instrumentation → real closure report
+                 → .github/ISSUE_TEMPLATE/economic-diagnostic-pilot.yml
 ```
 
 Do not add a mailing list, calendar link, generic “contact sales” form, or a

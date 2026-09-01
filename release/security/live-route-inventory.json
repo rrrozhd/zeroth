@@ -686,6 +686,48 @@
     {
       "kind": "http",
       "methods": [
+        "GET"
+      ],
+      "path": "/regulus/"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/account"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/account/api-keys"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/account/api-keys/{key_id}/revoke"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/account/checkout"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/account/portal"
+    },
+    {
+      "kind": "http",
+      "methods": [
         "GET",
         "HEAD"
       ],
@@ -705,6 +747,13 @@
         "GET"
       ],
       "path": "/regulus/health"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/health/ready"
     },
     {
       "kind": "http",
@@ -826,6 +875,41 @@
         "DELETE"
       ],
       "path": "/regulus/v1/cloud/api-keys/{key_id}"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/cloud/auth/callback"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/cloud/auth/login"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/cloud/billing/checkout"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/cloud/billing/paddle/webhook"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/cloud/billing/portal"
     },
     {
       "kind": "http",
@@ -12448,6 +12532,48 @@
     {
       "kind": "http",
       "methods": [
+        "GET"
+      ],
+      "path": "/regulus/"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/account"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/account/api-keys"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/account/api-keys/{key_id}/revoke"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/account/checkout"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/account/portal"
+    },
+    {
+      "kind": "http",
+      "methods": [
         "GET",
         "HEAD"
       ],
@@ -12467,6 +12593,13 @@
         "GET"
       ],
       "path": "/regulus/health"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/health/ready"
     },
     {
       "kind": "http",
@@ -12588,6 +12721,41 @@
         "DELETE"
       ],
       "path": "/regulus/v1/cloud/api-keys/{key_id}"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/cloud/auth/callback"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/cloud/auth/login"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/cloud/billing/checkout"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/cloud/billing/paddle/webhook"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/cloud/billing/portal"
     },
     {
       "kind": "http",

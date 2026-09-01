@@ -23,6 +23,8 @@ IMAGE_EXPORT_COMMAND = (
     "langgraph-gateway",
     "--extra",
     "regulus",
+    "--extra",
+    "cloud",
     "--no-emit-project",
     "--no-annotate",
     "--no-header",

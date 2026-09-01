@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health */
+        get: operations["health_health_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/metrics": {
         parameters: {
             query?: never;
@@ -66,6 +83,24 @@ export interface paths {
         put?: never;
         /** Token */
         post: operations["token_v1_auth_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backtests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Backtest History */
+        get: operations["backtest_history_v1_backtests_get"];
+        put?: never;
+        /** Create Backtest */
+        post: operations["create_backtest_v1_backtests_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -172,6 +207,126 @@ export interface paths {
         put?: never;
         /** Post Implementation */
         post: operations["post_implementation_v1_capabilities__capability_id__implementations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cloud/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Keys */
+        get: operations["keys_v1_cloud_api_keys_get"];
+        put?: never;
+        /** Create Key */
+        post: operations["create_key_v1_cloud_api_keys_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cloud/api-keys/{key_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Key */
+        delete: operations["revoke_key_v1_cloud_api_keys__key_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cloud/auth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Callback */
+        get: operations["callback_v1_cloud_auth_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cloud/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Login */
+        get: operations["login_v1_cloud_auth_login_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cloud/billing/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checkout */
+        post: operations["checkout_v1_cloud_billing_checkout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cloud/billing/paddle/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Paddle Webhook */
+        post: operations["paddle_webhook_v1_cloud_billing_paddle_webhook_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cloud/billing/portal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Portal */
+        post: operations["portal_v1_cloud_billing_portal_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -586,6 +741,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/debugger/breakage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Debugger Breakage */
+        get: operations["get_debugger_breakage_v1_debugger_breakage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/debugger/cohorts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Debugger Cohorts */
+        get: operations["get_debugger_cohorts_v1_debugger_cohorts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/debugger/outcome-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Outcome Definitions */
+        get: operations["get_outcome_definitions_v1_debugger_outcome_definitions_get"];
+        put?: never;
+        /** Post Outcome Definition */
+        post: operations["post_outcome_definition_v1_debugger_outcome_definitions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/debugger/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Debugger Report */
+        get: operations["get_debugger_report_v1_debugger_report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/debugger/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Debugger Timeline */
+        get: operations["get_debugger_timeline_v1_debugger_timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/decision-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Schedules */
+        get: operations["schedules_v1_decision_schedules_get"];
+        put?: never;
+        /** Create Schedule */
+        post: operations["create_schedule_v1_decision_schedules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Decision History */
+        get: operations["decision_history_v1_decisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/decisions/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compare Versions */
+        post: operations["compare_versions_v1_decisions_compare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/enforcement/actions": {
         parameters: {
             query?: never;
@@ -723,6 +1016,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record Execution */
+        post: operations["record_execution_v1_executions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/instrumentation/executions": {
         parameters: {
             query?: never;
@@ -768,6 +1078,23 @@ export interface paths {
         get: operations["metrics_v1_metrics_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record Outcome */
+        post: operations["record_outcome_v1_outcomes_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -870,6 +1197,40 @@ export interface paths {
         put?: never;
         /** Import Ground Truth */
         post: operations["import_ground_truth_v1_reconciliation_ground_truth_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reconciliation/provider-bills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Provider Bill */
+        post: operations["post_provider_bill_v1_reconciliation_provider_bills_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reconciliation/provider-bills/{provider}/{statement_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Provider Bill Report */
+        get: operations["get_provider_bill_report_v1_reconciliation_provider_bills__provider___statement_id__report_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1021,6 +1382,117 @@ export interface components {
         APIMessage: {
             /** Message */
             message: string;
+        };
+        /** ApiKeyCreate */
+        ApiKeyCreate: {
+            /** Name */
+            name: string;
+            /** Roles */
+            roles?: string[];
+        };
+        /** ApiKeyOut */
+        ApiKeyOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Key Id */
+            key_id: string;
+            /** Last Four */
+            last_four: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Roles */
+            roles: string[];
+        };
+        /** ApiKeyReveal */
+        ApiKeyReveal: {
+            /** Api Key */
+            api_key: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Key Id */
+            key_id: string;
+            /** Last Four */
+            last_four: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Roles */
+            roles: string[];
+        };
+        /** BacktestCase */
+        BacktestCase: {
+            /** Expected */
+            expected: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: string;
+            /** Input */
+            input: {
+                [key: string]: unknown;
+            };
+        };
+        /** BacktestCreate */
+        BacktestCreate: {
+            /** Baseline Version */
+            baseline_version?: string | null;
+            /** Candidate */
+            candidate: {
+                [key: string]: unknown;
+            };
+            /** Cases */
+            cases?: components["schemas"]["BacktestCase"][];
+            constraints: components["schemas"]["EconomicConstraints-Input"];
+            /** Incumbent Model */
+            incumbent_model?: string | null;
+            /** Instruction */
+            instruction?: string | null;
+            /** Node Id */
+            node_id?: string | null;
+            /** Workflow */
+            workflow: string;
+        };
+        /** BillingURL */
+        BillingURL: {
+            /** Url */
+            url: string;
+        };
+        /** BreakagePoint */
+        BreakagePoint: {
+            /**
+             * Attribution
+             * @default failed_run_exposure_not_step_causality
+             */
+            attribution: string;
+            /** Estimated Failure Exposure Usd */
+            estimated_failure_exposure_usd: number;
+            /** Estimated Repeated Attempt Cost Usd */
+            estimated_repeated_attempt_cost_usd: number;
+            /** Failed Runs */
+            failed_runs: number;
+            /** Measured Failure Exposure Usd */
+            measured_failure_exposure_usd: number;
+            /** Measured Repeated Attempt Cost Usd */
+            measured_repeated_attempt_cost_usd: number;
+            /** Step Id */
+            step_id: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: string;
         };
         /** BudgetStatusOut */
         BudgetStatusOut: {
@@ -1231,6 +1703,35 @@ export interface components {
             confidence: number;
             /** Net Margin Usd */
             net_margin_usd: number;
+        };
+        /** CheckoutRequest */
+        CheckoutRequest: {
+            /**
+             * Plan
+             * @constant
+             */
+            plan: "solo";
+        };
+        /** CohortPoint */
+        CohortPoint: {
+            /** Cohort */
+            cohort: string;
+            /** Estimated Cost Per Successful Outcome Usd */
+            estimated_cost_per_successful_outcome_usd: number | null;
+            /** Estimated Cost Usd */
+            estimated_cost_usd: number;
+            /** Failed Runs */
+            failed_runs: number;
+            /** Incomplete Events */
+            incomplete_events: number;
+            /** Measured Cost Per Successful Outcome Usd */
+            measured_cost_per_successful_outcome_usd: number | null;
+            /** Measured Cost Usd */
+            measured_cost_usd: number;
+            /** Runs */
+            runs: number;
+            /** Successful Runs */
+            successful_runs: number;
         };
         /** ConfidenceGateConfig */
         ConfidenceGateConfig: {
@@ -1517,6 +2018,47 @@ export interface components {
             /** Mixed */
             mixed: number;
         };
+        /**
+         * DecisionPolicy
+         * @description Minimum evidence and economic constraints for a version decision.
+         */
+        DecisionPolicy: {
+            /**
+             * Allow Estimated Cost
+             * @default false
+             */
+            allow_estimated_cost: boolean;
+            /**
+             * Allow Inferred Outcomes
+             * @default false
+             */
+            allow_inferred_outcomes: boolean;
+            /**
+             * Max Cost Per Outcome Increase
+             * @default 0.1
+             */
+            max_cost_per_outcome_increase: number;
+            /**
+             * Max Success Rate Drop
+             * @default 0.05
+             */
+            max_success_rate_drop: number;
+            /**
+             * Min Outcome Coverage
+             * @default 0.8
+             */
+            min_outcome_coverage: number;
+            /**
+             * Min Runs
+             * @default 10
+             */
+            min_runs: number;
+            /**
+             * Min Success Rate
+             * @default 0
+             */
+            min_success_rate: number;
+        };
         /** DecisionRequest */
         DecisionRequest: {
             /**
@@ -1524,6 +2066,60 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /** DecisionScheduleCreate */
+        DecisionScheduleCreate: {
+            /** Baseline Version */
+            baseline_version: string;
+            /** Candidate Version */
+            candidate_version: string;
+            /**
+             * Interval Minutes
+             * @default 1440
+             */
+            interval_minutes: number;
+            /**
+             * Outcome Type
+             * @default accepted
+             */
+            outcome_type: string;
+            policy?: components["schemas"]["DecisionPolicy"];
+            /** Workflow */
+            workflow: string;
+        };
+        /** DecisionScheduleOut */
+        DecisionScheduleOut: {
+            /** Active */
+            active: boolean;
+            /** Baseline Version */
+            baseline_version: string;
+            /** Candidate Version */
+            candidate_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Last Decision Id */
+            last_decision_id: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Run At */
+            last_run_at: string | null;
+            /**
+             * Next Run At
+             * Format: date-time
+             */
+            next_run_at: string;
+            /** Outcome Type */
+            outcome_type: string;
+            policy: components["schemas"]["DecisionPolicy"];
+            /** Schedule Id */
+            schedule_id: string;
+            /** Workflow */
+            workflow: string;
         };
         /** DeploymentCreate */
         DeploymentCreate: {
@@ -1565,6 +2161,184 @@ export interface components {
             weights_json: {
                 [key: string]: number;
             };
+        };
+        /** DiagnosticAction */
+        DiagnosticAction: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "repair_evidence" | "define_outcome_success" | "instrument_outcomes" | "investigate_retry_policy" | "inspect_failed_runs" | "retain_current_configuration";
+            /** Rationale */
+            rationale: string;
+            /** Supported Claim */
+            supported_claim: string;
+        };
+        /** EconomicBacktest */
+        EconomicBacktest: {
+            /** Backtest Id */
+            backtest_id: string;
+            /** Baseline Version */
+            baseline_version: string | null;
+            /** Candidate Error Rate */
+            candidate_error_rate?: number | null;
+            /** Candidate Model */
+            candidate_model: string | null;
+            /** Candidate Success Rate */
+            candidate_success_rate?: number | null;
+            /** Cases */
+            cases: number;
+            constraints: components["schemas"]["EconomicConstraints-Output"];
+            /**
+             * Evaluated At
+             * Format: date-time
+             */
+            evaluated_at: string;
+            /** Incumbent Model */
+            incumbent_model: string | null;
+            /** Incumbent Success Rate */
+            incumbent_success_rate?: number | null;
+            /** Node Id */
+            node_id: string | null;
+            /** Provider Call Credits */
+            provider_call_credits: number;
+            /** Reasons */
+            reasons?: string[];
+            /**
+             * Recommended Action
+             * @enum {string}
+             */
+            recommended_action: "approve_candidate" | "keep_incumbent" | "collect_evidence";
+            /** Request Digest */
+            request_digest: string;
+            /** Savings Pct */
+            savings_pct?: number | null;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "pass" | "fail" | "abstain";
+            /** Workflow */
+            workflow: string;
+        };
+        /** EconomicConstraints */
+        "EconomicConstraints-Input": {
+            /** Max Cost Per Outcome Usd */
+            max_cost_per_outcome_usd?: number | string | null;
+            /** Max Critical Error Rate */
+            max_critical_error_rate?: number | null;
+            /** Min Success Rate */
+            min_success_rate?: number | null;
+        };
+        /** EconomicConstraints */
+        "EconomicConstraints-Output": {
+            /** Max Cost Per Outcome Usd */
+            max_cost_per_outcome_usd?: string | null;
+            /** Max Critical Error Rate */
+            max_critical_error_rate?: number | null;
+            /** Min Success Rate */
+            min_success_rate?: number | null;
+        };
+        /**
+         * EconomicDecision
+         * @description Auditable economic release decision for a candidate workflow version.
+         */
+        EconomicDecision: {
+            baseline: components["schemas"]["VersionEconomics"];
+            /** Baseline Version */
+            baseline_version: string;
+            candidate: components["schemas"]["VersionEconomics"];
+            /** Candidate Version */
+            candidate_version: string;
+            /** Cost Per Outcome Change */
+            cost_per_outcome_change?: number | null;
+            /** Decision Id */
+            decision_id?: string | null;
+            /** Evaluated At */
+            evaluated_at?: string | null;
+            policy: components["schemas"]["DecisionPolicy"];
+            /** Reason Codes */
+            reason_codes: string[];
+            /**
+             * Recommended Action
+             * @enum {string}
+             */
+            recommended_action: "approve" | "hold" | "investigate" | "collect_evidence";
+            /** Success Rate Change */
+            success_rate_change?: number | null;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "pass" | "fail" | "abstain";
+            /** Workflow */
+            workflow: string;
+        };
+        /** EconomicDiagnosticReport */
+        EconomicDiagnosticReport: {
+            /**
+             * Claim Scope
+             * @default observed_economic_exposure
+             * @constant
+             */
+            claim_scope: "observed_economic_exposure";
+            /** Cohort Dimension */
+            cohort_dimension: string | null;
+            /**
+             * Data Quality
+             * @enum {string}
+             */
+            data_quality: "incomplete" | "estimated_only" | "measured_only" | "mixed_cost_evidence";
+            /**
+             * Decision State
+             * @enum {string}
+             */
+            decision_state: "insufficient_evidence" | "economic_risk_observed" | "stable_observation";
+            /** Estimated Cost Per Successful Outcome Usd */
+            estimated_cost_per_successful_outcome_usd: number | null;
+            /** Estimated Cost Usd */
+            estimated_cost_usd: number;
+            /** Estimated Events */
+            estimated_events: number;
+            /** Estimated Failure Exposure Usd */
+            estimated_failure_exposure_usd: number;
+            /** Event Count */
+            event_count: number;
+            /** Failed Runs */
+            failed_runs: number;
+            highest_failure_rate_cohort: components["schemas"]["CohortPoint"] | null;
+            /** Incomplete Events */
+            incomplete_events: number;
+            /** Limitations */
+            limitations: string[];
+            /** Measured Cost Per Successful Outcome Usd */
+            measured_cost_per_successful_outcome_usd: number | null;
+            /** Measured Cost Usd */
+            measured_cost_usd: number;
+            /** Measured Events */
+            measured_events: number;
+            /** Measured Failure Exposure Usd */
+            measured_failure_exposure_usd: number;
+            /** Outcome Coverage */
+            outcome_coverage: number;
+            recommended_action: components["schemas"]["DiagnosticAction"];
+            /** Runs */
+            runs: number;
+            /** Successful Runs */
+            successful_runs: number;
+            top_failure_exposure: components["schemas"]["BreakagePoint"] | null;
+            /** Undefined Outcome Versions */
+            undefined_outcome_versions: string[];
+            /** Unmeasured Events */
+            unmeasured_events: number;
+            /** Unresolved Runs */
+            unresolved_runs: number;
+            /** Window End */
+            window_end: string | null;
+            /** Window Start */
+            window_start: string | null;
+            /** Workflow Id */
+            workflow_id: string;
         };
         /** EnforcementActionCreate */
         EnforcementActionCreate: {
@@ -1656,6 +2430,11 @@ export interface components {
         };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {
+            /**
+             * Attempt
+             * @default 1
+             */
+            attempt: number;
             /** Campaign Id */
             campaign_id?: string | null;
             /** Capability Id */
@@ -1672,6 +2451,10 @@ export interface components {
             cost_measurement?: components["schemas"]["MeasurementState"] | null;
             /** Deployment Ref */
             deployment_ref?: string | null;
+            /** Dimensions */
+            dimensions?: {
+                [key: string]: string | number | boolean;
+            };
             /**
              * Evidence Kind
              * @default production
@@ -1699,6 +2482,12 @@ export interface components {
             operation_id?: string | null;
             /** Provider Request Id */
             provider_request_id?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Step Id */
+            step_id?: string | null;
+            /** Subject Id */
+            subject_id?: string | null;
             /** Tenant Id */
             tenant_id?: string | null;
             /**
@@ -1712,6 +2501,10 @@ export interface components {
             tool_cost_usd?: number | string | null;
             /** @default unmeasured */
             usage_measurement: components["schemas"]["MeasurementState"];
+            /** Workflow Id */
+            workflow_id?: string | null;
+            /** Workflow Version */
+            workflow_version?: string | null;
         };
         /** ExperimentCreate */
         ExperimentCreate: {
@@ -1959,6 +2752,45 @@ export interface components {
             /** Events */
             events: components["schemas"]["OutcomeEventCreate"][];
         };
+        /** OutcomeDefinitionCreate */
+        OutcomeDefinitionCreate: {
+            /**
+             * Operator
+             * @enum {string}
+             */
+            operator: "equals" | "not_equals" | "greater_than_or_equal" | "less_than_or_equal";
+            /** Outcome Type */
+            outcome_type: string;
+            /** Target */
+            target: boolean | number | string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: string;
+        };
+        /** OutcomeDefinitionOut */
+        OutcomeDefinitionOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Definition Digest */
+            definition_digest: string;
+            /**
+             * Operator
+             * @enum {string}
+             */
+            operator: "equals" | "not_equals" | "greater_than_or_equal" | "less_than_or_equal";
+            /** Outcome Type */
+            outcome_type: string;
+            /** Target */
+            target: boolean | number | string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: string;
+        };
         /** OutcomeEventCreate */
         OutcomeEventCreate: {
             /** Capability Id */
@@ -2137,6 +2969,183 @@ export interface components {
              */
             region: string;
         };
+        /** ProviderBillAllocation */
+        ProviderBillAllocation: {
+            /** Billed Cost Usd */
+            billed_cost_usd: string;
+            /** Bucket Id */
+            bucket_id: string;
+            /** Event Count */
+            event_count: number;
+            /** Model */
+            model: string | null;
+            /**
+             * Outcome Status
+             * @enum {string}
+             */
+            outcome_status: "success" | "failure" | "unresolved";
+            /** Provider Dimensions */
+            provider_dimensions: {
+                [key: string]: string;
+            };
+            /** Run Count */
+            run_count: number;
+            /** Telemetry Cost Usd */
+            telemetry_cost_usd: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: string;
+        };
+        /** ProviderBillImportRequest */
+        ProviderBillImportRequest: {
+            /** Billed Total Usd */
+            billed_total_usd: number | string;
+            /** Buckets */
+            buckets: components["schemas"]["ProviderCostBucketIn"][];
+            /**
+             * Currency
+             * @default USD
+             * @constant
+             */
+            currency: "USD";
+            /**
+             * Period End
+             * Format: date-time
+             */
+            period_end: string;
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "cost_api" | "csv_export" | "invoice_export" | "manual";
+            /** Statement Id */
+            statement_id: string;
+        };
+        /** ProviderBillOut */
+        ProviderBillOut: {
+            /** Billed Total Usd */
+            billed_total_usd: string;
+            /** Bucket Count */
+            bucket_count: number;
+            /**
+             * Currency
+             * @constant
+             */
+            currency: "USD";
+            /**
+             * Imported At
+             * Format: date-time
+             */
+            imported_at: string;
+            /**
+             * Period End
+             * Format: date-time
+             */
+            period_end: string;
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "cost_api" | "csv_export" | "invoice_export" | "manual";
+            /** Statement Digest */
+            statement_digest: string;
+            /** Statement Id */
+            statement_id: string;
+        };
+        /** ProviderBillReport */
+        ProviderBillReport: {
+            /** Allocated Billed Usd */
+            allocated_billed_usd: string;
+            /**
+             * Allocation Method
+             * @constant
+             */
+            allocation_method: "measured_cost_proportional";
+            /** Allocations */
+            allocations: components["schemas"]["ProviderBillAllocation"][];
+            /** Billed Total Usd */
+            billed_total_usd: string;
+            /**
+             * Currency
+             * @constant
+             */
+            currency: "USD";
+            /** Limitations */
+            limitations: string[];
+            /** Matched Buckets */
+            matched_buckets: number;
+            /** Outcome Unresolved Usd */
+            outcome_unresolved_usd: string;
+            /**
+             * Period End
+             * Format: date-time
+             */
+            period_end: string;
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Reconciliation State
+             * @enum {string}
+             */
+            reconciliation_state: "reconciled" | "allocated_with_variance" | "outcomes_unresolved" | "unreconciled";
+            /** Statement Digest */
+            statement_digest: string;
+            /** Statement Id */
+            statement_id: string;
+            /** Telemetry Measured Usd */
+            telemetry_measured_usd: string;
+            /** Telemetry Variance Usd */
+            telemetry_variance_usd: string;
+            /** Unbilled Telemetry Usd */
+            unbilled_telemetry_usd: string;
+            /** Unmatched Buckets */
+            unmatched_buckets: components["schemas"]["UnmatchedProviderBucket"][];
+            /** Unreconciled Billed Usd */
+            unreconciled_billed_usd: string;
+        };
+        /** ProviderCostBucketIn */
+        ProviderCostBucketIn: {
+            /** Amount Usd */
+            amount_usd: number | string;
+            /** Bucket Id */
+            bucket_id: string;
+            /** Model */
+            model?: string | null;
+            /**
+             * Period End
+             * Format: date-time
+             */
+            period_end: string;
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
+            /** Provider Dimensions */
+            provider_dimensions?: {
+                [key: string]: string;
+            };
+        };
         /** RetryOutboxResponse */
         RetryOutboxResponse: {
             /** Id */
@@ -2186,10 +3195,143 @@ export interface components {
             /** Workspace Id */
             workspace_id?: string | null;
         };
+        /** SdkExecutionEvent */
+        SdkExecutionEvent: {
+            /**
+             * Attempt
+             * @default 1
+             */
+            attempt: number;
+            /**
+             * Cost Measurement
+             * @default measured
+             * @enum {string}
+             */
+            cost_measurement: "measured" | "estimated" | "unmeasured";
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number | string | null;
+            /** Dimensions */
+            dimensions?: {
+                [key: string]: string | number | boolean;
+            };
+            /** Event Id */
+            event_id?: string | null;
+            /**
+             * Latency Ms
+             * @default 0
+             */
+            latency_ms: number;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Model Version
+             * @default unknown
+             */
+            model_version: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at?: string;
+            /** Run Id */
+            run_id: string;
+            /** Step */
+            step: string;
+            /** Subject Id */
+            subject_id?: string | null;
+            /** Workflow */
+            workflow: string;
+            /**
+             * Workflow Version
+             * @default unversioned
+             */
+            workflow_version: string;
+        };
+        /** SdkOutcomeEvent */
+        SdkOutcomeEvent: {
+            /** Accepted */
+            accepted: boolean;
+            /** Dimensions */
+            dimensions?: {
+                [key: string]: string | number | boolean;
+            };
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at?: string;
+            /**
+             * Outcome Type
+             * @default accepted
+             */
+            outcome_type: string;
+            /**
+             * Provenance
+             * @default measured
+             * @enum {string}
+             */
+            provenance: "measured" | "inferred" | "mixed";
+            /** Run Id */
+            run_id: string;
+            /** Score */
+            score?: number | null;
+            /** Subject Id */
+            subject_id?: string | null;
+            /** Value Usd */
+            value_usd?: number | string | null;
+            /** Workflow */
+            workflow: string;
+            /**
+             * Workflow Version
+             * @default unversioned
+             */
+            workflow_version: string;
+        };
         /** TenantBudgetUpsert */
         TenantBudgetUpsert: {
             /** Budget Cap Usd */
             budget_cap_usd: number;
+        };
+        /** TimelinePoint */
+        TimelinePoint: {
+            /** Estimated Cost Per Successful Outcome Usd */
+            estimated_cost_per_successful_outcome_usd: number | null;
+            /** Estimated Cost Usd */
+            estimated_cost_usd: number;
+            /** Estimated Failure Exposure Usd */
+            estimated_failure_exposure_usd: number;
+            /** Failed Runs */
+            failed_runs: number;
+            /** Incomplete Events */
+            incomplete_events: number;
+            /** Measured Cost Per Successful Outcome Usd */
+            measured_cost_per_successful_outcome_usd: number | null;
+            /** Measured Cost Usd */
+            measured_cost_usd: number;
+            /** Measured Failure Exposure Usd */
+            measured_failure_exposure_usd: number;
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
+            /** Runs */
+            runs: number;
+            /** Successful Runs */
+            successful_runs: number;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: string;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -2207,6 +3349,16 @@ export interface components {
             x: string;
             /** Y */
             y: number;
+        };
+        /** UnmatchedProviderBucket */
+        UnmatchedProviderBucket: {
+            /** Bucket Id */
+            bucket_id: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "no_measured_telemetry" | "ambiguous_bucket_scope";
         };
         /** ValidationError */
         ValidationError: {
@@ -2304,6 +3456,57 @@ export interface components {
             /** Value Data Quality */
             value_data_quality: string;
         };
+        /** VersionComparisonRequest */
+        VersionComparisonRequest: {
+            /** Baseline Version */
+            baseline_version: string;
+            /** Candidate Version */
+            candidate_version: string;
+            /**
+             * Outcome Type
+             * @default accepted
+             */
+            outcome_type: string;
+            policy?: components["schemas"]["DecisionPolicy"];
+            /** Workflow */
+            workflow: string;
+        };
+        /**
+         * VersionEconomics
+         * @description Provenance-aware economics for one workflow version.
+         */
+        VersionEconomics: {
+            /** Accepted Runs */
+            accepted_runs: number;
+            /** Cost Per Accepted Outcome Usd */
+            cost_per_accepted_outcome_usd: string | null;
+            /** Estimated Cost Usd */
+            estimated_cost_usd: string;
+            /** Estimated Runs */
+            estimated_runs: number;
+            /** Inferred Outcome Runs */
+            inferred_outcome_runs: number;
+            /** Labeled Runs */
+            labeled_runs: number;
+            /** Measured Cost Usd */
+            measured_cost_usd: string;
+            /** Measured Runs */
+            measured_runs: number;
+            /** Outcome Coverage */
+            outcome_coverage: number;
+            /** Rejected Runs */
+            rejected_runs: number;
+            /** Runs */
+            runs: number;
+            /** Success Rate */
+            success_rate: number | null;
+            /** Unmeasured Runs */
+            unmeasured_runs: number;
+            /** Version */
+            version: string;
+            /** Workflow */
+            workflow: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -2314,6 +3517,28 @@ export interface components {
 export type $defs = Record<string, never>;
 export interface operations {
     health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    health_health_ready_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2395,6 +3620,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    backtest_history_v1_backtests_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EconomicBacktest"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_backtest_v1_backtests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BacktestCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EconomicBacktest"];
                 };
             };
             /** @description Validation Error */
@@ -2625,6 +3914,215 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    keys_v1_cloud_api_keys_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyOut"][];
+                };
+            };
+        };
+    };
+    create_key_v1_cloud_api_keys_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiKeyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyReveal"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_key_v1_cloud_api_keys__key_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    callback_v1_cloud_auth_callback_get: {
+        parameters: {
+            query: {
+                code: string;
+                state: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_v1_cloud_auth_login_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    checkout_v1_cloud_billing_checkout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillingURL"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    paddle_webhook_v1_cloud_billing_paddle_webhook_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    portal_v1_cloud_billing_portal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillingURL"];
                 };
             };
         };
@@ -3242,6 +4740,323 @@ export interface operations {
             };
         };
     };
+    get_debugger_breakage_v1_debugger_breakage_get: {
+        parameters: {
+            query: {
+                workflow_id: string;
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BreakagePoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_debugger_cohorts_v1_debugger_cohorts_get: {
+        parameters: {
+            query: {
+                workflow_id: string;
+                group_by?: "subject_id" | "dimension";
+                dimension?: string | null;
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CohortPoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_outcome_definitions_v1_debugger_outcome_definitions_get: {
+        parameters: {
+            query?: {
+                workflow_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutcomeDefinitionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_outcome_definition_v1_debugger_outcome_definitions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutcomeDefinitionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutcomeDefinitionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_debugger_report_v1_debugger_report_get: {
+        parameters: {
+            query: {
+                workflow_id: string;
+                cohort_dimension?: string | null;
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EconomicDiagnosticReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_debugger_timeline_v1_debugger_timeline_get: {
+        parameters: {
+            query: {
+                workflow_id: string;
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelinePoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schedules_v1_decision_schedules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionScheduleOut"][];
+                };
+            };
+        };
+    };
+    create_schedule_v1_decision_schedules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionScheduleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decision_history_v1_decisions_get: {
+        parameters: {
+            query?: {
+                workflow?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EconomicDecision"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_versions_v1_decisions_compare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionComparisonRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EconomicDecision"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_all_v1_enforcement_actions_get: {
         parameters: {
             query?: {
@@ -3535,6 +5350,39 @@ export interface operations {
             };
         };
     };
+    record_execution_v1_executions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SdkExecutionEvent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     post_execution_v1_instrumentation_executions_post: {
         parameters: {
             query?: never;
@@ -3617,6 +5465,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    record_outcome_v1_outcomes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SdkOutcomeEvent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3771,6 +5652,71 @@ export interface operations {
                     "application/json": {
                         [key: string]: number;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_provider_bill_v1_reconciliation_provider_bills_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderBillImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderBillOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_provider_bill_report_v1_reconciliation_provider_bills__provider___statement_id__report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+                statement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderBillReport"];
                 };
             };
             /** @description Validation Error */

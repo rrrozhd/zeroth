@@ -61,6 +61,10 @@ zeroth-econ = "zeroth.service.economic_diagnostic_cli:main"
 zeroth-auth-rejection-sink = "zeroth.eval.auth_rejection_sink:main"
 
 [project.optional-dependencies]
+cloud = [
+    "workos>=10,<11",
+    "paddle-python-sdk>=1.15,<2",
+]
 langgraph-gateway = [
     "httpx[http2]>=0.27",
     "websockets>=15,<16",

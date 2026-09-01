@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Literal
 
@@ -16,7 +17,14 @@ if TYPE_CHECKING:
 
     from zeroth.platform.storage.database import AsyncDatabase
 
-ALEMBIC_VERSION_QUERY = "SELECT version_num FROM alembic_version LIMIT 2"
+ALEMBIC_VERSION_TABLE = "alembic_version"
+_SQL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _version_query(version_table: str) -> str:
+    if _SQL_IDENTIFIER.fullmatch(version_table) is None:
+        raise ValueError(f"invalid Alembic version table: {version_table!r}")
+    return f"SELECT version_num FROM {version_table} LIMIT 2"
 
 
 class SchemaRevision(BaseModel):
@@ -88,14 +96,19 @@ async def read_async_schema_revision(
         return _unknown(None)
     try:
         async with database.transaction() as connection:
-            rows = await connection.fetch_all(ALEMBIC_VERSION_QUERY)
+            rows = await connection.fetch_all(_version_query(ALEMBIC_VERSION_TABLE))
         applied = tuple(str(row["version_num"]) for row in rows)
     except Exception:
         return _unknown(scripts)
     return classify_schema_revision(applied, scripts)
 
 
-def read_schema_revision(engine: Engine, migrations_package: str) -> SchemaRevision:
+def read_schema_revision(
+    engine: Engine,
+    migrations_package: str,
+    *,
+    version_table: str = ALEMBIC_VERSION_TABLE,
+) -> SchemaRevision:
     """Read at most two applied heads from a synchronous SQLAlchemy engine."""
     try:
         scripts = _scripts(migrations_package)
@@ -104,7 +117,8 @@ def read_schema_revision(engine: Engine, migrations_package: str) -> SchemaRevis
     try:
         with engine.connect() as connection:
             applied = tuple(
-                str(row[0]) for row in connection.execute(text(ALEMBIC_VERSION_QUERY))
+                str(row[0])
+                for row in connection.execute(text(_version_query(version_table)))
             )
     except Exception:
         return _unknown(scripts)

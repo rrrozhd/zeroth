@@ -5,14 +5,68 @@ from __future__ import annotations
 from datetime import datetime
 from typing import ClassVar
 
-from sqlalchemy import DateTime, Index, Integer, String
+from sqlalchemy import DateTime, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zeroth.econ.plane.database import Base
-from zeroth.platform.storage.scoping import ResourceOperation, ResourceScopeDefinition
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    ResourceScope,
+    ResourceScopeDefinition,
+)
 
 _ALL_OPERATIONS = frozenset(ResourceOperation)
+
+
+class CloudTenantBinding(Base):
+    """Immutable mapping from a verified identity-provider organization."""
+
+    __tablename__ = "cloud_tenant_bindings"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.cloud_tenant_binding",
+        table_name=__tablename__,
+        operations=_ALL_OPERATIONS,
+        scope=ResourceScope.GLOBAL,
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "external_organization_id",
+            name="uq_cloud_tenant_bindings_provider_org",
+        ),
+    )
+
+    local_tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    external_organization_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class CloudIdentityMembership(Base):
+    """Verified external identity membership in one Zeroth tenant."""
+
+    __tablename__ = "cloud_identity_memberships"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.cloud_identity_membership",
+        table_name=__tablename__,
+        operations=_ALL_OPERATIONS,
+    )
+    __table_args__ = (
+        Index(
+            "ix_cloud_identity_memberships_provider_org",
+            "provider",
+            "external_organization_id",
+        ),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), primary_key=True)
+    external_user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    external_organization_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
 class CloudApiKey(Base):

@@ -6,9 +6,10 @@ boundary for Zeroth's economic debugger.
 > **Release blocked:** do not publish or recommend this package yet. Its client
 > routes now have authenticated server implementations, retrieval methods, and
 > client-to-server tests. The remaining block is operational: no production
-> hosted endpoint, managed provider credentials, checkout, or supported release
-> exists. The `0.0.0.dev0` version and `tool.zeroth.release.publish = false`
-> marker encode that hold.
+> hosted endpoint, managed provider credentials, or supported release exists.
+> WorkOS activation and Paddle commerce are implemented but have not completed
+> a real sandbox/production transaction. The `0.0.0.dev0` version and
+> `tool.zeroth.release.publish = false` marker encode that hold.
 
 The SDK contains only public wire contracts, HTTP client operations, and the
 instrumentation namespace. It does not ship the Zeroth runtime, service,
