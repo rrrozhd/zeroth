@@ -100,5 +100,7 @@ apps/vendor_dd/.runbook_state.json
 
 # Local agent/automation run state — never publish
 .autopilot/
+.relyonme/
+.railway/
 .superpowers/
 tmp/

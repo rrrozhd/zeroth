@@ -108,33 +108,27 @@ the launch if the configured price has different renewal or trial terms.
 
 ## Railway deployment
 
-The current Railway configuration is `.railway/railway.ts`. It declares one
-managed Postgres service and one headless economic-plane API built from
-`Dockerfile.cloud`. `zeroth-core migrate-econ` runs in the pre-deploy container
-before the single API replica starts. `/health/ready` is the deployment
-healthcheck; inspect its JSON as well as its HTTP status because readiness
+The repository does not publish Railway project state or infrastructure as
+code. Create one managed Postgres service and one headless economic-plane API
+built from `Dockerfile.cloud` in the Railway project itself. Configure
+`zeroth-core migrate-econ` as the pre-deploy command and use `/health/ready` as
+the healthcheck. Inspect its JSON as well as its HTTP status because readiness
 intentionally reports dependency degradation in the body.
 
-Before applying the infrastructure, set the preserved WorkOS and Paddle values
-listed above, plus `ECP_JWT_SECRET`, in the Railway API service. The Postgres URL
-is wired to `ECP_DATABASE_URL`. Then validate locally:
+Set the WorkOS and Paddle values listed above, plus `ECP_JWT_SECRET`, on the API
+service. Wire the managed Postgres URL to `ECP_DATABASE_URL`, set
+`ECP_CLOUD_SCHEDULER_ENABLED=true`, and retain the single-replica launch shape.
+Railway should start the image using the `CMD` already declared by
+`Dockerfile.cloud`:
 
 ```bash
-cd .railway
-npm ci
-npm exec tsc -- --project tsconfig.json
-railway config plan
+docker build -f Dockerfile.cloud -t zeroth-cloud:candidate .
+docker inspect zeroth-cloud:candidate --format '{{json .Config.Cmd}}'
 ```
 
-Review the plan before `railway config apply`. The repository definition pins
-Railway's TypeScript SDK because that interface is still beta. It does not
-provision or mutate infrastructure merely by being committed.
-
-The repository definition passes its pinned TypeScript check. A read-only check
-with Railway CLI 5.47.1 on 2026-08-31 reached the authentication boundary, but
-could not produce a remote plan because no Railway account or project was linked
-on the verification host. Do not treat the TypeScript check as evidence that the
-managed database, domain, region, backups, variables, or deployment exist.
+Review the Railway project configuration before deploying. No repository check
+proves that the managed database, domain, region, backups, variables, or remote
+deployment exist.
 
 ## Read-only vendor configuration audit
 
@@ -244,8 +238,8 @@ tracking pixel, count page views, or export tenant identifiers.
 - Create the monthly $39 Solo product and price in Paddle with a free 14-day
   payment-method trial; configure the default payment link and `/account` return
   path, and leave Team disabled.
-- Link the Railway project, select its region/domain, review the IaC plan, and
-  provision paid compute plus Postgres backups and recovery.
+- Link the Railway project, select its region/domain, review its service
+  configuration, and provision paid compute plus Postgres backups and recovery.
 - Configure WorkOS production redirect/origin values and the supported role
   slugs. A WorkOS custom auth domain is optional, not a launch dependency.
 - Configure Paddle sandbox products, prices, webhook destination, customer
