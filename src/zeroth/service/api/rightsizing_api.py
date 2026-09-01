@@ -482,6 +482,7 @@ def register_rightsizing_routes(app: FastAPI | APIRouter) -> None:
                 run_id=experiment_run_id,
                 tenant_id=principal.tenant_id,
                 deployment_ref=deployment_ref or "unknown",
+                workflow_version=synthetic_run.graph_version_ref,
                 cost_instrumentation=instrumentation,
                 campaign_id=campaign_id,
                 per_run_cap_usd=per_run_cap_usd,

@@ -20,7 +20,13 @@ class RuntimeState:
         self.auto_config = AutoInstrumentationConfig(
             capture_mode=os.getenv("ECP_CAPTURE_MODE", "hierarchical"),
         )
-        self.transport = TelemetryTransport(self.config)
+        token = os.getenv("ECP_BEARER_TOKEN")
+        self._headers_provider = (
+            (lambda: {"Authorization": f"Bearer {token}"}) if token else None
+        )
+        self.transport = TelemetryTransport(
+            self.config, headers_provider=self._headers_provider
+        )
         self.transport.start()
         self._active_layers: ContextVar[tuple[str, ...]] = ContextVar("ecp_active_layers", default=())
         self._run_stack: ContextVar[tuple[str, ...]] = ContextVar("ecp_run_stack", default=())
@@ -36,7 +42,9 @@ class RuntimeState:
             if callable(stop):
                 stop()
             self.config = config
-            self.transport = TelemetryTransport(config)
+            self.transport = TelemetryTransport(
+                config, headers_provider=self._headers_provider
+            )
             self.transport.start()
 
     def enable_auto_instrumentation(self, config: AutoInstrumentationConfig) -> None:

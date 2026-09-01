@@ -1,13 +1,15 @@
 [project]
 name = "zeroth-core"
 version = "0.25.7.3"
-description = "Governed medium-code platform for production-grade multi-agent systems"
+description = "Economic debugger and governed change evidence for production AI workflows"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 keywords = [
     "agents",
-    "multi-agent",
+    "backtesting",
+    "economics",
+    "optimization",
     "llm",
     "governance",
     "fastapi",
@@ -55,6 +57,7 @@ dependencies = [
 
 [project.scripts]
 zeroth-core = "zeroth.service.cli:main"
+zeroth-econ = "zeroth.service.economic_diagnostic_cli:main"
 zeroth-auth-rejection-sink = "zeroth.eval.auth_rejection_sink:main"
 
 [project.optional-dependencies]
@@ -158,6 +161,7 @@ only-include = [
     "src/zeroth/eval",
     "src/zeroth/governance",
     "src/zeroth/integrations",
+    "src/zeroth/optimization",
     "src/zeroth/platform",
     "src/zeroth/runtime",
     "src/zeroth/service",

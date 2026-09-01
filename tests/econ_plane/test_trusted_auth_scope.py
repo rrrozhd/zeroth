@@ -251,6 +251,7 @@ def test_every_operational_econ_database_route_requires_auth_and_structural_scop
         get_current_scoped_db,
         get_current_user,
     )
+    from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, get_cloud_user
     from zeroth.econ.plane.main import app
 
     operational = []
@@ -262,8 +263,10 @@ def test_every_operational_econ_database_route_requires_auth_and_structural_scop
         has_database_parameter = "db" in python_inspect.signature(route.endpoint).parameters
         if has_database_parameter and route.path not in non_operational_database_routes:
             operational.append(route)
-            assert get_current_user in calls, route.path
-            assert calls.intersection({get_current_scoped_db, get_current_global_db}), route.path
+            assert calls.intersection({get_current_user, get_cloud_user}), route.path
+            assert calls.intersection(
+                {get_current_scoped_db, get_current_global_db, get_cloud_scoped_db}
+            ), route.path
 
     assert operational
 

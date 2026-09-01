@@ -9,7 +9,10 @@ from starlette.requests import Request
 from zeroth.econ.plane.auth.api import router as auth_router
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
+from zeroth.econ.plane.backtesting.api import router as backtesting_router
 from zeroth.econ.plane.capabilities.api import router as capabilities_router
+from zeroth.econ.plane.cloud.api import router as cloud_router
+from zeroth.econ.plane.cloud.keys_api import router as cloud_keys_router
 from zeroth.econ.plane.common import bootstrap as common_bootstrap
 from zeroth.econ.plane.config import settings, validate_startup_settings
 from zeroth.econ.plane.connectors.api import router as connectors_router
@@ -17,6 +20,7 @@ from zeroth.econ.plane.connectors.service import init_otel_metrics, render_prome
 from zeroth.econ.plane.counterfactual.api import router as counterfactual_router
 from zeroth.econ.plane.costing.api import router as costing_router
 from zeroth.econ.plane.dashboard.api import router as dashboard_router
+from zeroth.econ.plane.decisioning.api import router as decisioning_router
 from zeroth.econ.plane.enforcement.api import router as enforcement_router
 from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 from zeroth.econ.plane.performance.api import router as performance_router
@@ -26,13 +30,17 @@ from zeroth.econ.plane.scoped_session import ScopedSession
 app = FastAPI(title="AI Economic Control Plane", version="0.1.0")
 
 app.include_router(auth_router, prefix="/v1")
+app.include_router(backtesting_router, prefix="/v1")
 app.include_router(instrumentation_router, prefix="/v1")
 app.include_router(capabilities_router, prefix="/v1")
+app.include_router(cloud_router, prefix="/v1")
+app.include_router(cloud_keys_router, prefix="/v1")
 app.include_router(counterfactual_router, prefix="/v1")
 app.include_router(costing_router, prefix="/v1")
 app.include_router(performance_router, prefix="/v1")
 app.include_router(enforcement_router, prefix="/v1")
 app.include_router(dashboard_router, prefix="/v1")
+app.include_router(decisioning_router, prefix="/v1")
 app.include_router(reconciliation_router, prefix="/v1")
 app.include_router(connectors_router, prefix="/v1")
 

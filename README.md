@@ -11,9 +11,58 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
 </p>
 
-A governed medium-code platform for building, running, and deploying production-grade multi-agent systems as standalone API services.
+**Test AI cost cuts before production, then verify that outcomes still hold.**
 
-Zeroth treats an agentic application as an **explicit executable graph** rather than an opaque prompt chain. Every node boundary is typed, executable units can run inside a hardened Docker/sidecar sandbox (the default local backend is for development), memory is attachable and shareable, and audits are recorded per node. The result is a system you can reason about, govern, and deploy with confidence.
+Zeroth is an economic debugger and change-control engine for production AI
+workflows. It compares exact workflow versions by measured cost per accepted
+outcome, refuses to decide when evidence is incomplete, and retains the
+decision trail needed to govern rollout.
+
+> **Primary product loop:** find → simulate → approve → verify.
+
+The boundary is deliberate:
+
+- **Free and self-hosted:** SDK, instrumentation, local analysis, existing UI,
+  and bounded model-swap backtests.
+- **Paid-service hypothesis:** continuously hosted evidence, scheduled version
+  decisions, retained history, usage limits, collaboration/governance, and
+  post-change verification. Provider-bill reconciliation remains supporting
+  evidence, not the product category.
+
+> **Current status:** authenticated SDK ingestion, workflow-version decisions,
+> recurring decision schedules, project API keys, opt-in plan quotas,
+> provider-bill import, measured-cost allocation, and hosted backtest execution are
+> implemented for bounded model changes. A vendor-neutral, replay-safe subscription
+> projection is also implemented, but no merchant adapter or checkout calls it yet.
+> Managed hosting, production provider credentials, checkout, notifications, and
+> service terms are not.
+> This is not yet a purchasable hosted service.
+
+Intended self-serve activation after the release block is cleared:
+`pip install zeroth-sdk`.
+
+Provider-bill reconciliation remains available as supporting finance evidence.
+It keeps billed totals, measured telemetry, variance, unmatched buckets, and
+unresolved outcomes separate; see the
+[reconciliation guide](docs/how-to/provider-bill-reconciliation.md) and
+[free debugger guide](docs/how-to/economic-debugger.md).
+
+| Surface | Current role | Commercial boundary |
+|---|---|---|
+| Economic evidence and single-team debugging | Implemented, free, and self-hostable | Trust and adoption layer |
+| Workflow-version economic decisions and schedules | Implemented API; hosting and notifications planned | Initial recurring paid service boundary |
+| Provider-bill import and workflow/outcome allocation | Implemented API; hosting, connectors, and rollups planned | Supporting finance evidence and expansion tier |
+| Bounded model-change backtests | Hosted API replays 5–25 labeled, tool-free cases and retains a privacy-preserving decision | Initial proof-of-savings subscription surface |
+| Subscription state and entitlement projection | Vendor-neutral normalized events are idempotent and stale events cannot roll access backward | Merchant checkout/webhook adapter still required |
+| Structural workflow backtests and signed evidence | Not implemented | Expansion after model-change demand is proven |
+| Studio and console | Existing open-source UI; unchanged for this narrowing | Not the SaaS product |
+| `zeroth-sdk` | Execution, outcome, backtest, decision, schedule, and history routes are served and exercised end to end | Release-blocked on hosted operations and package release readiness, not a dangling route |
+
+### Preserved platform capabilities
+
+Zeroth's broader runtime continues to treat an agentic application as an
+explicit executable graph. The table below describes those existing enforcement
+boundaries; it is not the narrowed commercial product surface.
 
 | Capability | Observed | Partial | Enforced |
 |---|---:|---:|---:|
@@ -28,14 +77,26 @@ Zeroth treats an agentic application as an **explicit executable graph** rather 
 
 ---
 
+## Quickstart
+
+Install the lean hosted-service client without the runtime, economic plane, or
+UI:
+
+```bash
+pip install zeroth-sdk
+```
+
+The wheel remains release-blocked until a production hosted endpoint, provider
+credentials, service terms, and release verification exist. For the current
+self-hosted debugger and preserved platform, use the source checkout
+instructions below.
+
 ## Documentation
 
-For consequential LangGraph trajectory replay and operational fault testing, start with the
-[Zeroth Check quickstart](docs/how-to/check/quickstart.md).
-
-Full documentation lives at **<https://rrrozhd.github.io/zeroth/>** —
-start with the [Getting Started tutorial](https://rrrozhd.github.io/zeroth/tutorials/getting-started/)
-or the [LangGraph release deployment guide](docs/how-to/deployment/langgraph-release.md).
+Browse **<https://rrrozhd.github.io/zeroth/>**. For the preserved platform, see
+[Getting Started](https://rrrozhd.github.io/zeroth/tutorials/getting-started/),
+[Zeroth Check](docs/how-to/check/quickstart.md), or
+[LangGraph deployment](docs/how-to/deployment/langgraph-release.md).
 
 Project links: [source](https://github.com/rrrozhd/zeroth) ·
 [releases](https://github.com/rrrozhd/zeroth/releases) ·
@@ -44,7 +105,7 @@ Project links: [source](https://github.com/rrrozhd/zeroth) ·
 
 ---
 
-## Quickstart
+## Platform quickstart (preserved)
 
 One command clones the repo, installs everything, and serves a working demo
 deployment — a deployed Q&A graph on `http://127.0.0.1:8000` with the web
@@ -118,21 +179,20 @@ procedure when a clean campaign is intended.
 
 ## Install (PyPI temporarily unavailable)
 
-Install from a source checkout — the documented, current path:
+The standalone `zeroth-sdk` source is preserved under `packaging/sdk`, but it
+is not a supported install target yet. Its execution, outcome, backtest,
+decision, schedule, and history calls now terminate in authenticated plane
+routes, including a real client-to-server backtest test. The package must not be
+published until the hosted endpoint and managed provider credentials exist and
+the release hold is deliberately cleared.
 
-```bash
-git clone https://github.com/rrrozhd/zeroth.git
-cd zeroth
-uv sync
-```
+The preserved local platform is a separate distribution. From a source
+checkout, use `uv sync` for development or build/install `zeroth-core`. The
+published `zeroth-core` package is still a stale `0.1.0` placeholder (verified
+2026-08-24), so do not use it for the current source tree.
 
-> **PyPI note:** the published [`zeroth-core`](https://pypi.org/project/zeroth-core/)
-> package is a stale `0.1.0` placeholder (verified 2026-08-24) that predates this
-> documentation. Do **not** `pip install zeroth-core` for the version described
-> here — use the source checkout above until a current release is published.
-
-Optional extras pull in swappable backends (base install stays minimal); enable
-them on the checkout with `uv sync --extra <name>`:
+The following extras belong to the preserved `zeroth-core` platform, not to
+`zeroth-sdk`. Enable them in a source checkout with `uv sync --extra <name>`:
 
 ```bash
 uv sync --extra console            # Bundled web console UI (no Node needed)
@@ -153,16 +213,27 @@ Available extras: `console`, `langgraph`, `langgraph-gateway`, `memory-pg`,
 
 ---
 
-## Why Zeroth?
+## Product boundary
 
-Most agent frameworks prioritize getting something working quickly. Zeroth prioritizes getting something **working correctly** — with governance, auditability, and operational control built in from day one.
+An Admin defines success once for each workflow version. Definitions are
+immutable, and versions without one remain unresolved rather than receiving an
+inferred success rate.
+
+Provider statement operators can use `zeroth-econ reconcile`; the
+[reconciliation guide](docs/how-to/provider-bill-reconciliation.md) defines the
+OpenAI Costs JSON normalizer, provider-neutral import, and closure states.
+
+Zeroth's active product scope is economic debugging: attribution, timelines,
+cohort and breakage analysis, and evidence-backed change simulation. The
+broader runtime remains available for compatibility, as an evidence source,
+and as an integration testbed.
 
 | What Zeroth **is** | What Zeroth **is not** |
 |---|---|
-| A medium-code platform for governed agentic backends | A generic no-code automation tool |
-| A graph-based runtime for typed multi-agent systems | A chat UI builder |
-| A controlled execution platform for code-backed workflows | A prompt playground |
-| A deployment environment that ships workflows as API services | An ungoverned autonomous agent sandbox |
+| An economic debugger and evidence spine for AI workflows | A generic LLM observability dashboard |
+| A way to explain cost by outcome, version, step, subject/cohort, and time | A model router or provider marketplace |
+| A backtester for evidence-backed cost-saving changes | A replacement for LangGraph or other workflow runtimes |
+| A repository that preserves its existing runtime | A promise that every legacy subsystem remains an active product |
 
 ---
 
@@ -236,7 +307,7 @@ REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template ma
 
 ---
 
-## Architecture Overview
+## Preserved runtime architecture
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -264,7 +335,9 @@ REST endpoints for artifact retrieval (`GET /v1/artifacts/{id}`) and template ma
 └──────────────────────────────────────────────────────┘
 ```
 
-Zeroth is implemented as a **modular monolith** — all subsystems live in a single deployable unit but are cleanly separated by domain.
+The existing runtime is implemented as a modular monolith and remains in this
+repository. New product-facing code should depend on the economics contracts and
+analytics surface rather than on the orchestrator or service internals.
 
 ---
 

@@ -1,6 +1,11 @@
 # Zeroth
 
-A governed medium-code platform for building, running, and deploying production-grade multi-agent systems as standalone API services.
+**The economic debugger for production AI workflows.**
+
+Zeroth explains cost and breakage by outcome, workflow version, step,
+subject/cohort, and time, then backtests a cost-saving change before rollout.
+
+[Understand the product boundary →](concepts/economic-optimization.md)
 
 [Source](https://github.com/rrrozhd/zeroth) ·
 [Releases](https://github.com/rrrozhd/zeroth/releases) ·
@@ -8,22 +13,27 @@ A governed medium-code platform for building, running, and deploying production-
 [Issues](https://github.com/rrrozhd/zeroth/issues) ·
 [Changelog](https://github.com/rrrozhd/zeroth/blob/main/CHANGELOG.md)
 
-## Install
+## Current availability
 
-Install from a source checkout — the documented, current path, with
-[uv](https://docs.astral.sh/uv/):
+The economic-debugger API is self-hostable from this repository. It accepts
+tenant-scoped evidence, exposes timeline/cohort/breakage queries, compares exact
+workflow versions, and runs bounded model-change backtests. Managed hosting,
+production provider credentials, merchant checkout/webhook integration,
+organization rollups, and signed proof-of-savings are not implemented product
+claims. The internal subscription projection exists but is not yet a way to buy
+the service.
 
-```bash
-git clone https://github.com/rrrozhd/zeroth.git
-cd zeroth
-uv sync
-```
+[Run the economic debugger API →](how-to/economic-debugger.md)
+
+!!! warning "Standalone SDK release is blocked"
+    `packaging/sdk` now has matching authenticated routes, retrieval, and real
+    end-to-end coverage. Do not publish or recommend `pip install zeroth-sdk`
+    until a supported hosted endpoint and production provider credentials exist.
 
 !!! note "PyPI"
     The published `zeroth-core` package is a stale `0.1.0` placeholder (verified
-    2026-08-24). Do not `pip install`/`uv add zeroth-core` for the version
-    documented here — use the source checkout above until a current release is
-    published.
+    2026-08-24). It is also the preserved local platform, not the lean customer
+    SDK. Do not install it for the current source tree.
 
 !!! note "Docs for the current source tree"
     This site is built from the repository's `main` branch, which can be ahead
@@ -34,7 +44,18 @@ Use the [Getting Started tutorial](tutorials/getting-started/index.md) for a
 guided first graph, or jump to [local development](how-to/deployment/local-dev.md)
 to run the API and web console.
 
-## Choose Your Path
+## Primary product flow
+
+1. **Attribute** cost and outcome to version, run, step, attempt, and subject.
+2. **Debug** timelines, cohorts, and the groups that break the pipeline.
+3. **Backtest** a cheaper model or workflow candidate against recorded cases.
+4. **Govern** rollout with explicit economic and evidence thresholds.
+
+`zeroth.optimization` remains the local façade over existing analytics. The
+headless service API is now the primary product surface. The existing console
+remains an optional open-source UI.
+
+## Preserved platform paths
 
 === "Embed as library"
 
@@ -52,8 +73,8 @@ to run the API and web console.
 
     [Start: Service mode & approval tutorial →](tutorials/getting-started/03-service-and-approval.md)
 
-New here? The [Getting Started tutorial](tutorials/getting-started/index.md)
-walks both paths end-to-end in under 30 minutes.
+The [Getting Started tutorial](tutorials/getting-started/index.md) documents the
+preserved graph runtime and service paths.
 
 ## Hello, Zeroth
 

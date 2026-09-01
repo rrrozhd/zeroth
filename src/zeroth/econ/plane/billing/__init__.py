@@ -1,0 +1,1 @@
+"""Vendor-neutral subscription synchronization."""

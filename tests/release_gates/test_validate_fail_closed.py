@@ -162,8 +162,9 @@ def test_an_arbitrary_file_is_not_evidence(manifest, candidate, evidence):
 
 def test_a_record_cannot_cite_itself_as_its_own_evidence(manifest, candidate, evidence):
     gate = _gate(manifest, "remote-acceptance")
+    kind = gate["kinds"][0]
     _rewrite(
-        evidence, gate, lambda record: record["kinds"].update(deployment=gate["record"])
+        evidence, gate, lambda record: record["kinds"].update({kind: gate["record"]})
     )
 
     result = _validate(manifest, candidate, evidence)["remote-acceptance"]

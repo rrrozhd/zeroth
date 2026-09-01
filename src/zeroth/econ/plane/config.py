@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # With this on (default), the EXECUTION ingest path auto-upserts those rows so
     # cost events land instead of 422-ing; the OUTCOME path keeps the strict guard.
     auto_register_ingest_capabilities: bool = True
+    # Hosted deployments enable plan/usage enforcement. Self-hosted installs
+    # keep the same open-source APIs without requiring subscription records.
+    cloud_entitlements_enabled: bool = False
 
     model_config = SettingsConfigDict(env_prefix="ECP_", case_sensitive=False)
 

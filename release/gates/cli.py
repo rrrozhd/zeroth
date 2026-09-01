@@ -42,7 +42,7 @@ from gates.manifest import (  # noqa: E402
     load_manifest,
     select_gates,
 )
-from gates.validate import PASSED, releasable, validate  # noqa: E402
+from gates.validate import PASSED, releasable, validate, validate_gate  # noqa: E402
 from gates.verdict import render  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -92,6 +92,7 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("--evidence-root", type=Path, default=ROOT)
     check.add_argument("--phase", choices=("candidate", "final"), default="final")
     check.add_argument("--trigger", choices=TRIGGERS)
+    check.add_argument("--gate", help="validate exactly one named gate")
 
     report = commands.add_parser("verdict", help="render the human-readable verdict")
     report.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -173,20 +174,25 @@ def _do_record(args: argparse.Namespace) -> int:
 
 def _do_validate(args: argparse.Namespace) -> int:
     manifest = load_manifest(args.manifest)
-    results = validate(
-        manifest,
-        _identity(args.identity),
-        args.evidence_root,
-        phase=args.phase,
-        trigger=args.trigger,
-    )
+    candidate = _identity(args.identity)
+    if args.gate:
+        results = [validate_gate(_gate(manifest, args.gate), candidate, args.evidence_root)]
+    else:
+        results = validate(
+            manifest,
+            candidate,
+            args.evidence_root,
+            phase=args.phase,
+            trigger=args.trigger,
+        )
     for result in results:
         print(f"{result.gate}: {result.status} — {result.reason}")
     if not releasable(results):
         blocking = [result.gate for result in results if result.blocking]
         print(f"::error::release blocked by: {', '.join(blocking)}", file=sys.stderr)
         return 1
-    print(f"all {len(results)} {args.phase}-phase gates hold")
+    scope = f"gate {args.gate}" if args.gate else f"{args.phase}-phase gates"
+    print(f"all {len(results)} {scope} hold")
     return 0
 
 

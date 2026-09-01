@@ -170,6 +170,13 @@ def _execution_identity_fields(row: ExecutionEvent) -> dict:
         "operation_id": row.operation_id,
         "provider_request_id": row.provider_request_id,
         "cleanup_status": row.cleanup_status,
+        "workflow_id": row.workflow_id or row.capability_id,
+        "workflow_version": row.workflow_version or row.implementation_id,
+        "run_id": row.run_id or row.join_key,
+        "step_id": row.step_id,
+        "attempt": row.attempt or 1,
+        "subject_id": row.subject_id,
+        "dimensions": row.dimensions or {},
         "capability_id": row.capability_id,
         "implementation_id": row.implementation_id,
         "join_key": row.join_key,
@@ -192,12 +199,14 @@ def _execution_payload_fields(
     ``join_key`` and ``metadata`` are arguments rather than attributes because
     ``ingest_execution`` derives both before the row is built.
     """
+    debugger = _debugger_identity(payload, join_key=join_key, metadata=metadata)
     return {
         "execution_id": payload.execution_id,
         "campaign_id": payload.campaign_id,
         "operation_id": payload.operation_id,
         "provider_request_id": payload.provider_request_id,
         "cleanup_status": payload.cleanup_status,
+        **debugger,
         "capability_id": payload.capability_id,
         "implementation_id": payload.implementation_id,
         "join_key": join_key,
@@ -209,6 +218,21 @@ def _execution_payload_fields(
         "latency_ms": payload.latency_ms,
         "compute_time_ms": payload.compute_time_ms,
         "metadata": _event_metadata_identity(metadata),
+    }
+
+
+def _debugger_identity(
+    payload: ExecutionEventCreate, *, join_key: str, metadata: dict
+) -> dict[str, object]:
+    """Resolve the additive debugger identity without breaking legacy emitters."""
+    return {
+        "workflow_id": payload.workflow_id or payload.capability_id,
+        "workflow_version": payload.workflow_version or payload.implementation_id,
+        "run_id": payload.run_id or str(metadata.get("run_id") or join_key),
+        "step_id": payload.step_id or metadata.get("node_id"),
+        "attempt": payload.attempt,
+        "subject_id": payload.subject_id or metadata.get("subject_id") or metadata.get("user_id"),
+        "dimensions": payload.dimensions,
     }
 
 
@@ -433,6 +457,7 @@ def ingest_execution(
             }
         )
 
+    debugger = _debugger_identity(payload, join_key=join_key, metadata=metadata)
     row = ExecutionEvent(
         tenant_id=tenant_id,
         campaign_id=payload.campaign_id,
@@ -441,6 +466,7 @@ def ingest_execution(
         evidence_kind=payload.evidence_kind,
         provider_request_id=payload.provider_request_id,
         cleanup_status=payload.cleanup_status,
+        **debugger,
         execution_id=payload.execution_id,
         join_key=join_key,
         timestamp=payload.timestamp,

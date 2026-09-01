@@ -69,6 +69,7 @@ CANONICAL_PACKAGES = (
     "zeroth.econ.analytics",
     "zeroth.econ.instrumentation",
     "zeroth.econ.plane",
+    "zeroth.optimization",
     "zeroth.integrations",
     "zeroth.integrations.execution",
     "zeroth.integrations.http",
@@ -150,7 +151,11 @@ def _comparable(signature: str | None) -> str | None:
     """Return a signature with Zeroth's own module qualifiers removed."""
     if signature is None:
         return None
-    return _ZEROTH_QUALIFIER.sub(r"\1", signature)
+    comparable = _ZEROTH_QUALIFIER.sub(r"\1", signature)
+    # ``annotated_types`` constraints compare 0 and 0.0 as equal, and Pydantic
+    # may reuse either cached repr depending on import order. Normalize only
+    # integral literals inside constraint reprs; defaults stay fully pinned.
+    return re.sub(r"(?<=[(,])(ge|gt|le|lt)=(-?\d+)\.0(?=[,)])", r"\1=\2", comparable)
 
 
 def _signature(value: object) -> str | None:
@@ -361,8 +366,11 @@ def test_an_upstream_parameter_appearing_is_tolerated() -> None:
             ["shortcuts: 'Mapping[str, str | list[str]] | None' = None"],
             id="a_comma_inside_brackets",
         ),
-        pytest.param("(*, a: int, **rest: Any) -> None", ["*", "a: int", "**rest: Any"],
-                     id="markers_and_var_keyword"),
+        pytest.param(
+            "(*, a: int, **rest: Any) -> None",
+            ["*", "a: int", "**rest: Any"],
+            id="markers_and_var_keyword",
+        ),
         pytest.param("() -> None", [], id="no_parameters"),
     ],
 )
@@ -396,6 +404,12 @@ def test_comparable_signature_still_separates_different_types() -> None:
     """
     assert _comparable("(x: zeroth.core.runs.models.Run) -> None") != _comparable(
         "(x: zeroth.core.runs.models.Thread) -> None"
+    )
+
+
+def test_comparable_signature_normalizes_integral_constraint_repr_only() -> None:
+    assert _comparable("(*, x: Annotated[float, Ge(ge=0.0), Le(le=1.0)] = 0.0)") == (
+        "(*, x: Annotated[float, Ge(ge=0), Le(le=1)] = 0.0)"
     )
 
 
@@ -583,6 +597,5 @@ def test_every_discovered_schema_model_is_in_legacy_and_canonical_surfaces() -> 
         )
     )
     assert not invented_legacy_ids, (
-        "new schemas must not claim invented legacy identities: "
-        f"{invented_legacy_ids}"
+        f"new schemas must not claim invented legacy identities: {invented_legacy_ids}"
     )

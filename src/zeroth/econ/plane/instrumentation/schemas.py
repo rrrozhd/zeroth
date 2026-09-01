@@ -5,8 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from zeroth.econ.instrumentation.schemas import DimensionValue, validate_dimensions
 from zeroth.econ.measurement import MeasurementState
 
 
@@ -18,6 +19,13 @@ class ExecutionEventCreate(BaseModel):
     evidence_kind: Literal["production", "synthetic_control", "legacy_unknown"] = "production"
     provider_request_id: str | None = None
     cleanup_status: str | None = None
+    workflow_id: str | None = None
+    workflow_version: str | None = None
+    run_id: str | None = None
+    step_id: str | None = None
+    attempt: int = Field(default=1, ge=1, le=1000)
+    subject_id: str | None = None
+    dimensions: dict[str, DimensionValue] = Field(default_factory=dict)
     execution_id: str
     join_key: str | None = None
     timestamp: datetime
@@ -32,6 +40,8 @@ class ExecutionEventCreate(BaseModel):
     latency_ms: int = 0
     compute_time_ms: int = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    _bounded_dimensions = field_validator("dimensions")(validate_dimensions)
 
     @model_validator(mode="after")
     def _measurement_values_agree(self) -> ExecutionEventCreate:
@@ -70,6 +80,13 @@ ExecutionEventCreate.__signature__ = _execution_event_create_signature.replace(
             "cleanup_status",
             "cost_measurement",
             "usage_measurement",
+            "workflow_id",
+            "workflow_version",
+            "run_id",
+            "step_id",
+            "attempt",
+            "subject_id",
+            "dimensions",
         }
     ]
 )

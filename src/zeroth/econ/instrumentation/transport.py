@@ -62,7 +62,12 @@ class TelemetryTransport:
     def enqueue_execution(self, event: ExecutionEvent) -> None:
         self._enqueue("/instrumentation/executions", event.model_dump(mode="json"))
 
-    def deliver_execution_confirmed(self, event: ExecutionEvent) -> None:
+    def deliver_execution_confirmed(
+        self,
+        event: ExecutionEvent | OutcomeEvent,
+        *,
+        _endpoint: str = "/instrumentation/executions",
+    ) -> None:
         """Deliver one execution synchronously or raise before reporting success.
 
         Explicit provider probes use this path because their API response is an
@@ -72,11 +77,11 @@ class TelemetryTransport:
         caller can safely reconcile an ambiguous response without duplicating it.
         """
         queued = _QueuedEvent(
-            endpoint="/instrumentation/executions",
+            endpoint=_endpoint,
             payload=event.model_dump(mode="json"),
             next_attempt_at=time.time(),
         )
-        headers = self._headers_provider() if self._headers_provider is not None else None
+        headers = self._request_headers()
         if self._asgi_app is not None:
             response = self._post_in_process(queued, headers)
         else:
@@ -92,6 +97,17 @@ class TelemetryTransport:
             raise RuntimeError(
                 f"confirmed instrumentation delivery failed with status {response.status_code}"
             )
+
+    def deliver_outcome_confirmed(self, event: OutcomeEvent) -> None:
+        """Deliver one terminal outcome synchronously or raise on rejection."""
+        self.deliver_execution_confirmed(
+            event, _endpoint="/instrumentation/outcomes"
+        )
+
+    def _request_headers(self) -> dict[str, str] | None:
+        if self._headers_provider is not None:
+            return self._headers_provider()
+        return None
 
     async def aenqueue_execution(self, event: ExecutionEvent) -> None:
         self.enqueue_execution(event)
@@ -140,7 +156,7 @@ class TelemetryTransport:
             return
 
         failed: list[_QueuedEvent] = []
-        headers = self._headers_provider() if self._headers_provider is not None else None
+        headers = self._request_headers()
         client_context = (
             nullcontext(None)
             if self._asgi_app is not None

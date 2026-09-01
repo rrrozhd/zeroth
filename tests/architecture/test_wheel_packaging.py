@@ -52,6 +52,7 @@ CANONICAL_WHEEL_SOURCES = (
     "src/zeroth/eval",
     "src/zeroth/governance",
     "src/zeroth/integrations",
+    "src/zeroth/optimization",
     "src/zeroth/platform",
     "src/zeroth/runtime",
     "src/zeroth/service",

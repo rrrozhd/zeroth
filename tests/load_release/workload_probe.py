@@ -22,6 +22,8 @@ from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 
 
 _CLAIMED_BY: dict[str, str] = {}
+_SETTLEMENT_POLL_SECONDS = 0.05
+_WORKER_POLL_SECONDS = 0.04
 
 
 @dataclass(slots=True)
@@ -113,7 +115,10 @@ def install_runner(service: Any, surface: str) -> None:
         delay=0.1,
         fails=surface == "failing-script",
     )
-    service.worker.poll_interval = 0.005
+    # Eighteen load workers share one database. A 5 ms idle poll manufactured
+    # thousands of admission-lock queries per second and overwhelmed the
+    # 30-request/s profile the gate was intended to measure.
+    service.worker.poll_interval = _WORKER_POLL_SECONDS
     execute = service.worker._execute_leased_run
 
     async def observed_execute(run_id, **kwargs):
@@ -237,7 +242,10 @@ async def _settle_run(
                     "run_id": run_id,
                 }
             ]
-        await asyncio.sleep(0.01)
+        # These reads observe accepted work; they are not part of the scheduled
+        # request profile. Keep them bounded so the probe cannot manufacture
+        # database pressure that eclipses the workload it is measuring.
+        await asyncio.sleep(_SETTLEMENT_POLL_SECONDS)
     raise AssertionError(f"load run {run_id} did not reach a terminal status")
 
 

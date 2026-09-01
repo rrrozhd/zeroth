@@ -5,10 +5,12 @@ name: Release zeroth-core
 #
 # Stage order (per Phase 28 plan 03, D-12):
 #   build -> smoke-install -> test-wheel -> publish-testpypi ->
-#   smoke-from-testpypi -> publish-pypi
+#   smoke-from-testpypi -> assemble-promotion-candidate
+# PyPI publication is an explicit second-stage dispatch in
+# promote-zeroth-core.yml, bound to this run and its candidate digest.
 #
-# Trusted publishers must be registered on pypi.org (env=pypi) AND
-# test.pypi.org (env=testpypi) before this workflow can publish.
+# The TestPyPI trusted publisher must name this workflow and env=testpypi.
+# The PyPI publisher must separately name promote-zeroth-core.yml and env=pypi.
 
 on:
   release:
@@ -52,20 +54,6 @@ jobs:
       - name: Build sdist + wheel
         run: uv build
 
-      - name: Set up Node (console build)
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Build console static export + zeroth-console dist
-        shell: bash
-        run: |
-          set -euo pipefail
-          (cd frontend && npm ci --no-fund --no-audit && npm run build)
-          ./scripts/build_console_dist.sh --skip-frontend-build
-
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
@@ -107,13 +95,6 @@ jobs:
           pip install --upgrade pip
           pip install dist/*.whl
           python -c "import zeroth.runtime; print('zeroth.runtime path:', zeroth.runtime.__path__)"
-          # Console dist: the bundled static export must resolve and mount.
-          python -c "
-          from zeroth.service.api.console_ui import find_console_dir
-          d = find_console_dir()
-          assert d is not None and (d / 'index.html').is_file(), f'console dir: {d}'
-          print('zeroth-console static export OK:', d)
-          "
 
   test-wheel:
     name: Run pytest against built wheel
@@ -254,19 +235,11 @@ jobs:
           # Sigstore attestations are default-on in v1.14+ (D-13)
 
   smoke-from-testpypi:
-    name: TestPyPI install + deployed black-box acceptance
+    name: TestPyPI install + economic debugger acceptance
     needs: [publish-testpypi]
     runs-on: ubuntu-latest
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      ZEROTH_ACCEPTANCE_BASE_URL: ${{ vars.ZEROTH_ACCEPTANCE_BASE_URL }}
-      ZEROTH_ACCEPTANCE_TENANT_ID: ${{ vars.ZEROTH_ACCEPTANCE_TENANT_ID }}
-      ZEROTH_ACCEPTANCE_DEPLOYMENT_REF: ${{ vars.ZEROTH_ACCEPTANCE_DEPLOYMENT_REF }}
-      ZEROTH_ACCEPTANCE_OPERATOR_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_OPERATOR_KEY }}
-      ZEROTH_ACCEPTANCE_REVIEWER_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_REVIEWER_KEY }}
-      ZEROTH_ACCEPTANCE_ADMIN_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_ADMIN_KEY }}
     steps:
-      - name: Checkout (for examples/00_hello.py)
+      - name: Checkout acceptance harness
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -281,17 +254,24 @@ jobs:
           name: candidate-identity-full
           path: release/evidence
 
-      - name: Install the published artifact and run the example
+      - name: Install the published artifact and prove the economic product
+        id: economic-acceptance
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
+          echo "INDEX_INSTALL_STATUS=failed" >> "${GITHUB_ENV}"
+          echo "HEADLESS_INSTALL_STATUS=failed" >> "${GITHUB_ENV}"
+          echo "DIAGNOSTIC_ARTIFACT_STATUS=failed" >> "${GITHUB_ENV}"
+          echo "PROVIDER_RECONCILIATION_STATUS=failed" >> "${GITHUB_ENV}"
           VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           echo "Target version: ${VERSION}"
           python -m venv /tmp/testpypi-venv
           source /tmp/testpypi-venv/bin/activate
           pip install --upgrade pip
           mkdir -p release/evidence
-          # Fetch the primary distributions from TestPyPI as the SOLE index.
+          # Fetch zeroth-core from TestPyPI as the SOLE index. The UI and the
+          # release-blocked standalone SDK are not candidate distributions.
           # `--extra-index-url` gives indexes no priority -- pip collects every
           # candidate and picks the best -- so resolving the primary dist across
           # both could install an existing same-version artifact from PyPI and
@@ -301,7 +281,7 @@ jobs:
           for i in 1 2 3 4 5; do
             if pip download --no-deps --dest /tmp/rc-dist \
                 --index-url https://test.pypi.org/simple/ \
-                "zeroth-core==${VERSION}" "zeroth-console==${VERSION}"; then
+                "zeroth-core==${VERSION}"; then
               DOWNLOADED=1
               break
             fi
@@ -312,12 +292,17 @@ jobs:
             echo "::error::TestPyPI download failed after 5 attempts"
             exit 1
           fi
+          WHEELS=(/tmp/rc-dist/zeroth_core-*.whl)
+          if [ "${#WHEELS[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one zeroth-core wheel from TestPyPI"
+            exit 1
+          fi
+          WHEEL="${WHEELS[0]}"
+          ARTIFACT_DIGEST="sha256:$(shasum -a 256 "${WHEEL}" | cut -d' ' -f1)"
           {
             echo "index: https://test.pypi.org/simple/ (sole index for the primary dists)"
             echo "requested-version: ${VERSION}"
-            for dist in /tmp/rc-dist/*; do
-              echo "accepted-artifact: $(basename "${dist}") sha256:$(shasum -a 256 "${dist}" | cut -d' ' -f1)"
-            done
+            echo "accepted-artifact: $(basename "${WHEEL}") ${ARTIFACT_DIGEST}"
           } > release/evidence/remote-acceptance-log.txt
           # Refuse to go further unless those bytes are this candidate's.
           python - <<'PY' || { echo "::error::published artifact is not the candidate"; exit 1; }
@@ -333,70 +318,83 @@ jobs:
           assert not unknown, f"published artifact {unknown} is not among this candidate's {expected}"
           print("published artifacts match the candidate:", sorted(accepted))
           PY
-          # Install exactly those verified files; PyPI serves dependencies only.
-          pip install /tmp/rc-dist/* --extra-index-url https://pypi.org/simple/
-          pip install 'websockets>=15,<16'
-          {
-            echo "installed: $(pip show zeroth-core | sed -n 's/^Version: //p')"
-            echo "console: $(pip show zeroth-console | sed -n 's/^Version: //p')"
-          } >> release/evidence/remote-acceptance-log.txt
-          if [ -n "${OPENAI_API_KEY:-}" ]; then
-            echo "OPENAI_API_KEY present — running examples/00_hello.py end-to-end"
-            python examples/00_hello.py 2>&1 | tee -a release/evidence/remote-acceptance-log.txt
-            echo "EXAMPLE_STATUS=passed" >> "${GITHUB_ENV}"
-          else
-            echo "SKIP: no OPENAI_API_KEY available; skipping examples/00_hello.py"
-            echo "example: skipped, no OPENAI_API_KEY" >> release/evidence/remote-acceptance-log.txt
-            echo "EXAMPLE_STATUS=failed" >> "${GITHUB_ENV}"
-          fi
+          echo "INDEX_INSTALL_STATUS=passed" >> "${GITHUB_ENV}"
 
+          # Install the verified wheel with only the backend dependencies needed
+          # by the economic plane. Dependency resolution may use PyPI, but the
+          # primary Zeroth distribution is the digest-checked local candidate.
+          pip install "${WHEEL}[regulus]" --extra-index-url https://pypi.org/simple/
           python - <<'PY'
-          import json, os, pathlib
-          pathlib.Path("release/evidence/deployed-acceptance-config.json").write_text(
-              json.dumps({
-                  "schema_version": 1,
-                  "base_url": os.environ.get("ZEROTH_ACCEPTANCE_BASE_URL", ""),
-                  "tenant_id": os.environ.get("ZEROTH_ACCEPTANCE_TENANT_ID", ""),
-                  "deployment_ref": os.environ.get("ZEROTH_ACCEPTANCE_DEPLOYMENT_REF", ""),
-                  "candidate_identity": "release/evidence/candidate-identity-full.json",
-                  "credentials": {
-                      "operator": "ZEROTH_ACCEPTANCE_OPERATOR_KEY",
-                      "reviewer": "ZEROTH_ACCEPTANCE_REVIEWER_KEY",
-                      "admin": "ZEROTH_ACCEPTANCE_ADMIN_KEY",
-                  },
-                  "lifecycle": {
-                      "restart_url": "/__acceptance/restart",
-                      "shutdown_url": "/__acceptance/shutdown",
-                  },
-              }, sort_keys=True),
-              encoding="utf-8",
-          )
+          from importlib.metadata import PackageNotFoundError, version
+          assert version("zeroth-core")
+          for excluded in ("zeroth-console", "zeroth-sdk"):
+              try:
+                  version(excluded)
+              except PackageNotFoundError:
+                  continue
+              raise AssertionError(f"headless install unexpectedly contains {excluded}")
           PY
-          if python -m release.acceptance.cli \
-              --config release/evidence/deployed-acceptance-config.json \
-              --contract release/acceptance/contracts/zeroth-deployed-v1.json \
-              --output release/evidence/deployed-acceptance-report.json; then
-            echo "DEPLOYED_ACCEPTANCE_STATUS=passed" >> "${GITHUB_ENV}"
-          else
-            echo "DEPLOYED_ACCEPTANCE_STATUS=failed" >> "${GITHUB_ENV}"
-          fi
+          echo "HEADLESS_INSTALL_STATUS=passed" >> "${GITHUB_ENV}"
 
+          export ECP_DATABASE_URL=sqlite+pysqlite:////tmp/zeroth-economic-acceptance.db
+          export ECP_JWT_SECRET=$(python -c 'import secrets; print(secrets.token_hex(32))')
+          export ECP_SERVICE_PRINCIPAL_TENANT_ID=acceptance-economic
+          export ECP_SERVICE_PRINCIPAL_ROLES=Admin
+          export ZEROTH_ECON_TOKEN=$(python -c 'from zeroth.econ.analytics.service_auth import mint_econ_service_token; print(mint_econ_service_token() or "")')
+          test -n "${ZEROTH_ECON_TOKEN}"
+          python -m uvicorn zeroth.econ.plane.main:app \
+            --host 127.0.0.1 --port 8001 \
+            > release/evidence/economic-plane.log 2>&1 &
+          ECON_PID=$!
+          cleanup_econ() { kill "${ECON_PID}" >/dev/null 2>&1 || true; }
+          trap cleanup_econ EXIT
+          READY=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --fail --silent http://127.0.0.1:8001/health >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          test "${READY}" -eq 1
+
+          python release/economic_acceptance.py seed \
+            --statement-output release/evidence/provider-statement.json
+          zeroth-econ diagnose --workflow-id invoice-processing \
+            --cohort-dimension plan --format json \
+            --output release/evidence/economic-diagnostic.json
+          zeroth-econ diagnose --workflow-id invoice-processing \
+            --cohort-dimension plan --format markdown \
+            --output release/evidence/economic-diagnostic.md
+          echo "DIAGNOSTIC_ARTIFACT_STATUS=passed" >> "${GITHUB_ENV}"
+          zeroth-econ reconcile \
+            --statement release/evidence/provider-statement.json --format json \
+            --output release/evidence/provider-reconciliation.json
+          zeroth-econ reconcile \
+            --statement release/evidence/provider-statement.json --format markdown \
+            --output release/evidence/provider-reconciliation.md
+          echo "PROVIDER_RECONCILIATION_STATUS=passed" >> "${GITHUB_ENV}"
+          python release/economic_acceptance.py report \
+            --identity release/evidence/candidate-identity-full.json \
+            --artifact-digest "${ARTIFACT_DIGEST}" \
+            --diagnostic-json release/evidence/economic-diagnostic.json \
+            --diagnostic-markdown release/evidence/economic-diagnostic.md \
+            --reconciliation-json release/evidence/provider-reconciliation.json \
+            --reconciliation-markdown release/evidence/provider-reconciliation.md \
+            --output release/evidence/economic-acceptance-report.json
 
       - name: Record the remote-acceptance gate
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release/evidence
-          # A skipped example is not a passed one. Without the key the run has
-          # not accepted the published artifact end to end, so the gate reports
-          # failure and promotion to PyPI stays closed.
           python release/gates/cli.py record --gate remote-acceptance \
             --identity release/evidence/candidate-identity-full.json \
-            --result index-install=passed \
-            --result "example-run=${EXAMPLE_STATUS}" \
-            --result "deployed-suite=${DEPLOYED_ACCEPTANCE_STATUS}" \
-            --kind install-log=release/evidence/remote-acceptance-log.txt \
-            --kind deployment=release/evidence/deployed-acceptance-report.json \
+            --result "index-install=${INDEX_INSTALL_STATUS}" \
+            --result "headless-install=${HEADLESS_INSTALL_STATUS}" \
+            --result "diagnostic-artifact=${DIAGNOSTIC_ARTIFACT_STATUS}" \
+            --result "provider-reconciliation=${PROVIDER_RECONCILIATION_STATUS}" \
+            --kind economic-acceptance=release/evidence/economic-acceptance-report.json \
             --output release/evidence/remote-acceptance.json
           cat release/evidence/remote-acceptance.json
 
@@ -407,12 +405,24 @@ jobs:
           path: |
             release/evidence/remote-acceptance.json
             release/evidence/remote-acceptance-log.txt
-            release/evidence/deployed-acceptance-report.json
+            release/evidence/economic-acceptance-report.json
+            release/evidence/economic-diagnostic.json
+            release/evidence/economic-diagnostic.md
+            release/evidence/provider-statement.json
+            release/evidence/provider-reconciliation.json
+            release/evidence/provider-reconciliation.md
+            release/evidence/economic-plane.log
 
-  # The last gate before PyPI: every candidate gate, plus acceptance of the
-  # artifact as actually published, plus a named human's recorded signoff.
-  evidence-gate-final:
-    name: Validate final evidence and promotion signoff
+      - name: Enforce economic acceptance
+        if: steps.economic-acceptance.outcome != 'success'
+        run: exit 1
+
+  # Produce one immutable handoff for a separate, explicitly dispatched PyPI
+  # promotion. A committed signoff cannot name a digest produced from the same
+  # commit without changing that digest; the promotion workflow therefore binds
+  # human intent to this run and candidate after all automatic evidence exists.
+  assemble-promotion-candidate:
+    name: Assemble promotion candidate
     needs: [evidence-gate, smoke-from-testpypi]
     if: always()
     runs-on: ubuntu-latest
@@ -448,117 +458,41 @@ jobs:
           name: candidate-identity-full
           path: release/evidence
 
-      - name: Record the promotion gate
-        shell: bash
-        run: |
-          set -uo pipefail
-          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
-          # does not clear it: the first failing command aborts the step before its
-          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
-          # the recorded result was decided by whichever command failed first.
-          set +e
-          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          SIGNOFF="release/signoff/${VERSION}.md"
-          # No CI step can produce a signoff. When the operator has not written
-          # one for this exact version the gate cannot cite it, and validation
-          # reports the promotion gate as `partial` naming the absent file.
-          # Nothing is written here on purpose: fabricating a placeholder so the
-          # evidence "exists" is precisely the move this gate exists to stop.
-          DIGEST=$(python release/gates/cli.py digest \
-            --identity release/evidence/candidate-identity-full.json)
-          SIGNOFF_STATUS=failed
-          if [ ! -f "${SIGNOFF}" ]; then
-            echo "::error::no operator signoff at ${SIGNOFF}"
-          elif ! grep -q "${DIGEST}" "${SIGNOFF}"; then
-            # A signoff that does not name this candidate is a signoff for some
-            # other build. Existing is not the same as accepting *this* one.
-            echo "::error::${SIGNOFF} does not name candidate ${DIGEST}"
-          elif ! grep -qiE '^(signed-off-by|operator):' "${SIGNOFF}"; then
-            echo "::error::${SIGNOFF} names no operator"
-          else
-            SIGNOFF_STATUS=passed
-            mkdir -p release/evidence
-            cp "${SIGNOFF}" release/evidence/promotion-signoff.md
-          fi
-          python release/gates/cli.py validate \
-            --identity release/evidence/candidate-identity-full.json \
-            --phase candidate > /dev/null; CANDIDATE=$?
-          # Errexit restored: past this point a failure is not a status to record
-          # but a broken step, and recording a gate from a half-written evidence
-          # tree would be worse than failing loudly.
-          set -e
-          status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
-          python release/gates/cli.py record --gate promotion \
-            --identity release/evidence/candidate-identity-full.json \
-            --result "candidate-gates-validated=$(status ${CANDIDATE})" \
-            --result "manual-signoff=${SIGNOFF_STATUS}" \
-            --kind manual-signoff=release/evidence/promotion-signoff.md \
-            --output release/evidence/promotion.json
-          cat release/evidence/promotion.json
-
-      - name: Validate and publish the final verdict
-        shell: bash
-        run: |
-          set -uo pipefail
-          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
-          # does not clear it: the first failing command aborts the step before its
-          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
-          # the recorded result was decided by whichever command failed first.
-          set +e
-          python release/gates/cli.py verdict \
-            --identity release/evidence/candidate-identity-full.json \
-            --phase final \
-            --output release/evidence/VERDICT.md; VERDICT=$?
-          cat release/evidence/VERDICT.md >> "${GITHUB_STEP_SUMMARY}"
-          # Seal regardless of the verdict: a blocked release still needs a
-          # tamper-evident record of what was and was not proven. That intent was
-          # stated here before and never held -- errexit aborted the step at the
-          # `verdict` call above, so a blocked release was never sealed.
-          python release/gates/cli.py seal \
-            --identity release/evidence/candidate-identity-full.json \
-            --phase final \
-            --output release/evidence/evidence-manifest.json; SEAL=$?
-          if [ "${SEAL}" -ne 0 ]; then
-            echo "::error::sealing the final evidence manifest failed"
-            exit "${SEAL}"
-          fi
-          exit "${VERDICT}"
-
-      - name: Attest the evidence manifest
-        if: always()
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          # Signs over the candidate identity and the digest of every gate
-          # record, so the evidence itself carries an attestation rather than
-          # only the image it describes.
-          subject-path: release/evidence/evidence-manifest.json
-
-      - name: Retain the final evidence bundle
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-evidence-final
-          path: release/evidence
-          retention-days: 90
-
-  publish-pypi:
-    name: Publish to PyPI (trusted publisher)
-    needs: [evidence-gate-final]
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Download dist artifact
+      - name: Download the exact candidate distributions
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
-          path: dist/
+          path: dist
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
-        # Default index, Sigstore attestations default-on in v1.14+ (D-13)
+      - name: Validate automatic evidence and seal the handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python release/gates/cli.py validate \
+            --identity release/evidence/candidate-identity-full.json \
+            --phase candidate
+          python release/gates/cli.py validate \
+            --identity release/evidence/candidate-identity-full.json \
+            --gate remote-acceptance
+          python release/gates/cli.py seal \
+            --identity release/evidence/candidate-identity-full.json \
+            --phase final \
+            --output release/evidence/promotion-candidate-manifest.json
+
+      - name: Attest the promotion candidate manifest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release/evidence/promotion-candidate-manifest.json
+
+      - name: Upload immutable promotion candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: promotion-candidate
+          path: |
+            dist
+            release/evidence
+          retention-days: 90
 
   container-evidence:
     name: Validate LangGraph container evidence

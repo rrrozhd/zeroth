@@ -93,8 +93,8 @@ def _contract() -> dict[str, object]:
                 role="admin",
                 expected_json={
                     "schema_revision": {
-                        "applied": "20260824_10",
-                        "head": "20260824_10",
+                        "applied": "20260830_13",
+                        "head": "20260830_13",
                         "state": "current",
                     }
                 },
@@ -381,8 +381,8 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
             200,
             {
                 "schema_revision": {
-                    "applied": "20260824_10",
-                    "head": "20260824_10",
+                    "applied": "20260830_13",
+                    "head": "20260830_13",
                     "state": "current",
                 }
             },

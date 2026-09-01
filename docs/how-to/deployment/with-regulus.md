@@ -154,10 +154,11 @@ curl -s http://localhost:8000/health                 # -> {"status":"ok"}
 - **Settings isolation.** Zeroth uses the `ZEROTH_` prefix; the bundled backend
   uses `ECP_`. They do not collide.
 - **Migrations.** Startup compatibility handles SQLite. Managed deployments
-  should apply the Alembic chain under `src/zeroth/econ/plane/_migrations`;
-  revision `20260811_04` backfills historical auth subjects to the reserved
-  `default` tenant, makes `users.tenant_id` non-null, and adds the optional
-  workspace column.
+  should run `uv run alembic -c alembic-econ.ini upgrade head`; the dedicated
+  config targets the chain under `src/zeroth/econ/plane/_migrations`. Revision
+  `20260830_11` adds and backfills the economic-debugger identity spine;
+  `20260830_12` adds immutable workflow-version outcome definitions; and
+  `20260830_13` adds tenant-bound provider bills and cost buckets.
 
 ## Related references
 

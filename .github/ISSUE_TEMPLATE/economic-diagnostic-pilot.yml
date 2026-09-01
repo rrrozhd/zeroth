@@ -1,0 +1,154 @@
+name: Provider bill reconciliation design-partner request
+description: Test whether Zeroth can close a current AI provider-billing gap.
+title: "[Provider bill reconciliation]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a public issue. Do not attach an invoice or export, and do not
+        include exact line items, prompts, responses, traces, secrets,
+        provider credentials, customer or user identifiers, `subject_id` values,
+        proprietary workflow names, or any unredacted report. Aggregate bands
+        and percentages are enough for qualification.
+
+  - type: dropdown
+    id: monthly_provider_spend
+    attributes:
+      label: Approximate monthly AI provider spend
+      description: Select a public-safe band, not an exact financial value.
+      options:
+        - Under $1,000
+        - $1,000–$9,999
+        - $10,000–$49,999
+        - $50,000–$249,999
+        - $250,000 or more
+        - Prefer not to answer publicly
+    validations:
+      required: true
+
+  - type: dropdown
+    id: current_process
+    attributes:
+      label: Current reconciliation process
+      options:
+        - No reconciliation today
+        - Manual spreadsheet or scripts
+        - Provider dashboard only
+        - Gateway or observability cost tooling
+        - Internal data warehouse or FinOps pipeline
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider_export
+    attributes:
+      label: Provider cost evidence currently available
+      options:
+        - OpenAI Costs API or export
+        - Anthropic cost and usage export
+        - Multiple provider exports
+        - Other provider CSV or API export
+        - No export available yet
+    validations:
+      required: true
+
+  - type: dropdown
+    id: closure_gap
+    attributes:
+      label: Primary provider-bill closure gap
+      description: Choose the single problem that matters most today.
+      options:
+        - Provider total does not close to measured telemetry
+        - Spend cannot be allocated to an owning team, customer, or workflow
+        - Spend cannot be tied to successful versus failed outcomes
+        - Finance or compliance does not trust the available evidence
+        - No current provider-bill closure problem
+    validations:
+      required: true
+
+  - type: dropdown
+    id: outcome_coverage
+    attributes:
+      label: Approximate workflow outcome coverage
+      description: Select how much provider-funded workflow activity has a success or failure signal.
+      options:
+        - 90–100%
+        - 50–89%
+        - Below 50%
+        - Not measured yet
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment requirement
+      options:
+        - Managed service
+        - Customer-managed deployment
+        - Either
+        - Not decided
+    validations:
+      required: true
+
+  - type: dropdown
+    id: monthly_budget
+    attributes:
+      label: Monthly budget if the selected problem is solved
+      description: This is demand research, not a quote or commitment.
+      options:
+        - No budget assigned yet
+        - Under $500
+        - $500–$1,499
+        - $1,500–$4,999
+        - $5,000 or more
+        - Prefer not to answer publicly
+    validations:
+      required: true
+
+  - type: dropdown
+    id: artifact_stage
+    attributes:
+      label: Highest Zeroth artifact produced
+      description: This separates product activation from interest in the idea.
+      options:
+        - Generated a real provider-bill closure report
+        - Generated a real economic diagnostic only
+        - Ran the synthetic demo only
+        - Have not run Zeroth yet
+    validations:
+      required: true
+
+  - type: dropdown
+    id: discovery_source
+    attributes:
+      label: How you found Zeroth
+      description: Used only to compare acquisition channels without tracking users.
+      options:
+        - Hacker News
+        - GitHub
+        - PyPI
+        - Search
+        - Colleague or community referral
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: operating_problem
+    attributes:
+      label: Aggregate operating problem
+      description: Describe the recurring decision, who owns it, and how it is handled today.
+      placeholder: Finance and engineering spend several hours each month reconciling an aggregate provider total to team-owned workflow outcomes.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Public-data check
+      options:
+        - label: I confirm this issue contains only non-sensitive aggregate information.
+          required: true
+    validations:
+      required: true

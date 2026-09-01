@@ -1,0 +1,141 @@
+name: Promote zeroth-core
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful Release zeroth-core run containing promotion-candidate
+        required: true
+        type: string
+      candidate_digest:
+        description: Exact sha256 candidate identity printed by that run
+        required: true
+        type: string
+      confirmation:
+        description: Type PROMOTE_ZEROTH_CORE to authorize PyPI publication
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  promote:
+    name: Validate evidence and publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Download and bind the immutable candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          PROMOTION_CONFIRMATION: ${{ inputs.confirmation }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${PROMOTION_CONFIRMATION}" != "PROMOTE_ZEROTH_CORE" ]; then
+            echo "::error::promotion confirmation did not match"
+            exit 1
+          fi
+          gh run view "${CANDIDATE_RUN_ID}" \
+            --json conclusion,headSha,workflowName > /tmp/zeroth-candidate-run.json
+          python - <<'PY'
+          import json, pathlib
+          run = json.loads(pathlib.Path("/tmp/zeroth-candidate-run.json").read_text())
+          assert run["workflowName"] == "Release zeroth-core", run
+          assert run["conclusion"] == "success", run
+          PY
+          gh run download "${CANDIDATE_RUN_ID}" \
+            --name promotion-candidate --dir "${GITHUB_WORKSPACE}"
+          IDENTITY=release/evidence/candidate-identity-full.json
+          test -f "${IDENTITY}"
+          CANDIDATE_COMMIT=$(python -c 'import json; print(json.load(open("release/evidence/candidate-identity-full.json"))["commit"])')
+          RUN_COMMIT=$(python -c 'import json; print(json.load(open("/tmp/zeroth-candidate-run.json"))["headSha"])')
+          if [ "${CANDIDATE_COMMIT}" != "${RUN_COMMIT}" ]; then
+            echo "::error::candidate identity is not bound to the selected run commit"
+            exit 1
+          fi
+          git checkout --detach "${CANDIDATE_COMMIT}"
+          OBSERVED_DIGEST=$(python release/gates/cli.py digest --identity "${IDENTITY}")
+          if [ "${OBSERVED_DIGEST}" != "${EXPECTED_CANDIDATE_DIGEST}" ]; then
+            echo "::error::candidate digest does not match the operator-authorized digest"
+            exit 1
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          names = {path.name for path in Path("dist").iterdir() if path.is_file()}
+          assert len(names) == 2, names
+          assert all(name.startswith("zeroth_core-") for name in names), names
+          assert any(name.endswith(".whl") for name in names), names
+          assert any(name.endswith(".tar.gz") for name in names), names
+          PY
+
+      - name: Record explicit human promotion and validate every gate
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          PROMOTION_ACTOR: ${{ github.actor }}
+          PROMOTION_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          IDENTITY=release/evidence/candidate-identity-full.json
+          python release/gates/cli.py validate \
+            --identity "${IDENTITY}" --phase candidate
+          python release/gates/cli.py validate \
+            --identity "${IDENTITY}" --gate remote-acceptance
+          {
+            echo "Operator: ${PROMOTION_ACTOR}"
+            echo "Triggering-operator: ${PROMOTION_TRIGGERING_ACTOR}"
+            echo "Candidate-run-id: ${CANDIDATE_RUN_ID}"
+            echo "Candidate-digest: ${EXPECTED_CANDIDATE_DIGEST}"
+            echo "Confirmation: PROMOTE_ZEROTH_CORE"
+          } > release/evidence/promotion-signoff.md
+          python release/gates/cli.py record --gate promotion \
+            --identity "${IDENTITY}" \
+            --result candidate-gates-validated=passed \
+            --result manual-signoff=passed \
+            --kind manual-signoff=release/evidence/promotion-signoff.md \
+            --output release/evidence/promotion.json
+          python release/gates/cli.py verdict \
+            --identity "${IDENTITY}" --phase final \
+            --output release/evidence/VERDICT.md
+          cat release/evidence/VERDICT.md >> "${GITHUB_STEP_SUMMARY}"
+          python release/gates/cli.py seal \
+            --identity "${IDENTITY}" --phase final \
+            --output release/evidence/evidence-manifest.json
+
+      - name: Attest final evidence manifest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release/evidence/evidence-manifest.json
+
+      - name: Publish exact candidate to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: dist/
+
+      - name: Retain final evidence bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-evidence-final-${{ inputs.candidate_run_id }}
+          path: release/evidence
+          retention-days: 90

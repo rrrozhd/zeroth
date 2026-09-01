@@ -746,6 +746,20 @@
     {
       "kind": "http",
       "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/backtests"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/backtests"
+    },
+    {
+      "kind": "http",
+      "methods": [
         "POST"
       ],
       "path": "/regulus/v1/budget/reservations/{operation_id}/reconcile"
@@ -791,6 +805,27 @@
         "POST"
       ],
       "path": "/regulus/v1/capabilities/{capability_id}/implementations"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/cloud/api-keys"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/cloud/api-keys"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/regulus/v1/cloud/api-keys/{key_id}"
     },
     {
       "kind": "http",
@@ -965,6 +1000,76 @@
       "methods": [
         "GET"
       ],
+      "path": "/regulus/v1/debugger/breakage"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/debugger/cohorts"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/debugger/outcome-definitions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/debugger/outcome-definitions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/debugger/report"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/debugger/timeline"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/decision-schedules"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decision-schedules"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/decisions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decisions/compare"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
       "path": "/regulus/v1/enforcement/actions"
     },
     {
@@ -1028,6 +1133,13 @@
       "methods": [
         "POST"
       ],
+      "path": "/regulus/v1/executions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
       "path": "/regulus/v1/instrumentation/executions"
     },
     {
@@ -1043,6 +1155,13 @@
         "GET"
       ],
       "path": "/regulus/v1/metrics"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/outcomes"
     },
     {
       "kind": "http",
@@ -1085,6 +1204,20 @@
         "POST"
       ],
       "path": "/regulus/v1/reconciliation/ground-truth-import"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/reconciliation/provider-bills"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/reconciliation/provider-bills/{provider}/{statement_id}/report"
     },
     {
       "kind": "http",
@@ -12375,6 +12508,20 @@
     {
       "kind": "http",
       "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/backtests"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/backtests"
+    },
+    {
+      "kind": "http",
+      "methods": [
         "POST"
       ],
       "path": "/regulus/v1/budget/reservations/{operation_id}/reconcile"
@@ -12420,6 +12567,27 @@
         "POST"
       ],
       "path": "/regulus/v1/capabilities/{capability_id}/implementations"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/cloud/api-keys"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/cloud/api-keys"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/regulus/v1/cloud/api-keys/{key_id}"
     },
     {
       "kind": "http",
@@ -12594,6 +12762,76 @@
       "methods": [
         "GET"
       ],
+      "path": "/regulus/v1/debugger/breakage"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/debugger/cohorts"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/debugger/outcome-definitions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/debugger/outcome-definitions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/debugger/report"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/debugger/timeline"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/decision-schedules"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decision-schedules"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/decisions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decisions/compare"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
       "path": "/regulus/v1/enforcement/actions"
     },
     {
@@ -12657,6 +12895,13 @@
       "methods": [
         "POST"
       ],
+      "path": "/regulus/v1/executions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
       "path": "/regulus/v1/instrumentation/executions"
     },
     {
@@ -12672,6 +12917,13 @@
         "GET"
       ],
       "path": "/regulus/v1/metrics"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/outcomes"
     },
     {
       "kind": "http",
@@ -12714,6 +12966,20 @@
         "POST"
       ],
       "path": "/regulus/v1/reconciliation/ground-truth-import"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/reconciliation/provider-bills"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/reconciliation/provider-bills/{provider}/{statement_id}/report"
     },
     {
       "kind": "http",

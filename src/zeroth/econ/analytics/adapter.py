@@ -28,6 +28,7 @@ from zeroth.econ.analytics.client import RegulusClient
 from zeroth.econ.analytics.cost import CostEstimator
 from zeroth.econ.analytics.identity import capability_identity, implementation_identity
 from zeroth.econ.instrumentation import ExecutionEvent
+from zeroth.econ.instrumentation.schemas import DimensionValue
 from zeroth.econ.measurement import MeasurementState
 from zeroth.runtime.agents.provider import (
     ModelParams,
@@ -81,6 +82,9 @@ class InstrumentedProviderAdapter:
         run_id: str,
         tenant_id: str,
         deployment_ref: str,
+        workflow_version: str | None = None,
+        subject_id: str | None = None,
+        dimensions: dict[str, DimensionValue] | None = None,
         cost_instrumentation: object | None = None,
         campaign_id: str | None = None,
         per_run_cap_usd: Decimal | float | None = None,
@@ -93,6 +97,9 @@ class InstrumentedProviderAdapter:
         self._run_id = run_id
         self._tenant_id = tenant_id
         self._deployment_ref = deployment_ref
+        self._workflow_version = workflow_version
+        self._subject_id = subject_id
+        self._dimensions = dict(dimensions or {})
         self._cost_instrumentation = cost_instrumentation
         self._campaign_id = campaign_id
         self._per_run_cap_usd = (
@@ -445,6 +452,13 @@ class InstrumentedProviderAdapter:
         event = ExecutionEvent(
             capability_id=capability_id,
             implementation_id=implementation_identity(capability_id, request.model_name),
+            workflow_id=self._deployment_ref,
+            workflow_version=self._workflow_version,
+            run_id=self._run_id,
+            step_id=self._node_id,
+            attempt=1,
+            subject_id=self._subject_id,
+            dimensions=self._dimensions,
             model_version=request.model_name,
             tenant_id=self._tenant_id,
             deployment_ref=self._deployment_ref,
@@ -500,6 +514,9 @@ InstrumentedProviderAdapter.__signature__ = inspect.signature(InstrumentedProvid
             "campaign_id",
             "per_run_cap_usd",
             "branch_id",
+            "workflow_version",
+            "subject_id",
+            "dimensions",
         }
     ]
 )

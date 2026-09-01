@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.plane.auth.deps import (
@@ -9,6 +10,23 @@ from zeroth.econ.plane.auth.deps import (
     require_roles,
 )
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
+from zeroth.econ.plane.debugger.schemas import (
+    BreakagePoint,
+    CohortPoint,
+    EconomicDiagnosticReport,
+    OutcomeDefinitionCreate,
+    OutcomeDefinitionOut,
+    TimelinePoint,
+)
+from zeroth.econ.plane.debugger.models import OutcomeDefinition
+from zeroth.econ.plane.debugger.service import (
+    breakage,
+    cohorts,
+    create_outcome_definition,
+    diagnostic_report,
+    list_outcome_definitions,
+    timeline,
+)
 from zeroth.econ.plane.instrumentation.schemas import (
     ExecutionEventCreate,
     IngestResult,
@@ -25,6 +43,18 @@ from zeroth.econ.plane.instrumentation.service import (
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["instrumentation", "outcomes"])
+
+
+def _definition_out(row: OutcomeDefinition) -> OutcomeDefinitionOut:
+    return OutcomeDefinitionOut(
+        workflow_id=row.workflow_id,
+        workflow_version=row.workflow_version,
+        outcome_type=row.outcome_type,
+        operator=row.operator,
+        target=row.target_json,
+        definition_digest=row.definition_digest,
+        created_at=row.created_at,
+    )
 
 #: Last resort for an identity conflict the service could not resolve into a
 #: reported duplicate -- a concurrent writer that took the identity and then
@@ -158,3 +188,114 @@ def get_outcomes(
         end=end,
     )
     return [_outcome_out(row) for row in rows]
+
+
+@router.get("/debugger/timeline", response_model=list[TimelinePoint])
+def get_debugger_timeline(
+    workflow_id: str,
+    start: datetime | None = Query(default=None),  # noqa: B008
+    end: datetime | None = Query(default=None),  # noqa: B008
+    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(  # noqa: B008
+        require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
+    ),
+) -> list[TimelinePoint]:
+    return timeline(db, workflow_id=workflow_id, start=start, end=end)
+
+
+@router.get("/debugger/cohorts", response_model=list[CohortPoint])
+def get_debugger_cohorts(
+    workflow_id: str,
+    group_by: Literal["subject_id", "dimension"] = "subject_id",
+    dimension: str | None = None,
+    start: datetime | None = Query(default=None),  # noqa: B008
+    end: datetime | None = Query(default=None),  # noqa: B008
+    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(  # noqa: B008
+        require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
+    ),
+) -> list[CohortPoint]:
+    try:
+        return cohorts(
+            db,
+            workflow_id=workflow_id,
+            group_by=group_by,
+            dimension=dimension,
+            start=start,
+            end=end,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/debugger/breakage", response_model=list[BreakagePoint])
+def get_debugger_breakage(
+    workflow_id: str,
+    start: datetime | None = Query(default=None),  # noqa: B008
+    end: datetime | None = Query(default=None),  # noqa: B008
+    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(  # noqa: B008
+        require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
+    ),
+) -> list[BreakagePoint]:
+    return breakage(db, workflow_id=workflow_id, start=start, end=end)
+
+
+@router.post(
+    "/debugger/outcome-definitions",
+    response_model=OutcomeDefinitionOut,
+    status_code=201,
+)
+def post_outcome_definition(
+    payload: OutcomeDefinitionCreate,
+    response: Response,
+    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_roles("Admin")),  # noqa: B008
+) -> OutcomeDefinitionOut:
+    try:
+        created, row = create_outcome_definition(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not created:
+        response.status_code = 200
+    return _definition_out(row)
+
+
+@router.get("/debugger/outcome-definitions", response_model=list[OutcomeDefinitionOut])
+def get_outcome_definitions(
+    workflow_id: str | None = None,
+    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(  # noqa: B008
+        require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
+    ),
+) -> list[OutcomeDefinitionOut]:
+    return [
+        _definition_out(row)
+        for row in list_outcome_definitions(db, workflow_id=workflow_id)
+    ]
+
+
+@router.get("/debugger/report", response_model=EconomicDiagnosticReport)
+def get_debugger_report(
+    workflow_id: str,
+    cohort_dimension: str | None = None,
+    start: datetime | None = Query(default=None),  # noqa: B008
+    end: datetime | None = Query(default=None),  # noqa: B008
+    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(  # noqa: B008
+        require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
+    ),
+) -> EconomicDiagnosticReport:
+    report = diagnostic_report(
+        db,
+        workflow_id=workflow_id,
+        start=start,
+        end=end,
+        cohort_dimension=cohort_dimension,
+    )
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No economic evidence found for this workflow and window",
+        )
+    return report

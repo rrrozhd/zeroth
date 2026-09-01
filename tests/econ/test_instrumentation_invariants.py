@@ -7,13 +7,14 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 
 from zeroth.econ.instrumentation import client
 from zeroth.econ.instrumentation.config import InstrumentationConfig
 from zeroth.econ.instrumentation.integrations import anthropic, langchain, openai
 from zeroth.econ.instrumentation.runtime import RuntimeState
-from zeroth.econ.instrumentation.schemas import ExecutionEvent
+from zeroth.econ.instrumentation.schemas import ExecutionEvent, OutcomeEvent
 from zeroth.econ.instrumentation.transport import TelemetryTransport
 
 
@@ -91,7 +92,7 @@ def test_join_key_cache_is_bounded(monkeypatch) -> None:
 
 def test_noop_configure_keeps_transport(monkeypatch) -> None:
     class FakeTransport:
-        def __init__(self, config):
+        def __init__(self, config, **_kwargs):
             self.config = config
             self.started = False
             self.stopped = False
@@ -164,3 +165,111 @@ def test_in_process_transport_delivers_without_opening_a_socket(monkeypatch) -> 
     assert len(received) == 1
     assert received[0]["capability_id"] == "cap"
     assert transport.queue_size() == 0
+
+
+def test_authenticated_client_keeps_token_out_of_repr_and_authenticates_delivery(
+    monkeypatch,
+) -> None:
+    observed: list[tuple[str, dict[str, str] | None]] = []
+
+    class Response:
+        status_code = 200
+
+    class Client:
+        def __init__(self, **kwargs: Any):
+            observed.append(("headers", kwargs.get("headers")))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: Any):
+            return None
+
+        def post(self, url: str, **_kwargs: Any):
+            observed.append((url, None))
+            return Response()
+
+    monkeypatch.setattr("zeroth.econ.instrumentation.transport.httpx.Client", Client)
+    instrumentation = client.InstrumentationClient.authenticated(
+        bearer_token="secret-token"
+    )
+    transport = instrumentation.transport
+
+    transport.deliver_execution_confirmed(
+        ExecutionEvent(capability_id="cap", implementation_id="impl")
+    )
+    transport.deliver_outcome_confirmed(
+        OutcomeEvent(
+            execution_id="exec-1",
+            capability_id="cap",
+            outcome_type="approval",
+            outcome_value=True,
+        )
+    )
+
+    instrumentation.close()
+    assert "secret-token" not in repr(instrumentation)
+    assert observed == [
+        ("headers", {"Authorization": "Bearer secret-token"}),
+        ("http://localhost:8000/v1/instrumentation/executions", None),
+        ("headers", {"Authorization": "Bearer secret-token"}),
+        ("http://localhost:8000/v1/instrumentation/outcomes", None),
+    ]
+
+
+def test_authenticated_client_refuses_a_blank_token() -> None:
+    with pytest.raises(ValueError, match="bearer_token must not be blank"):
+        client.InstrumentationClient.authenticated(bearer_token="  ")
+
+
+def test_runtime_uses_environment_bearer_token(monkeypatch) -> None:
+    monkeypatch.setenv("ECP_BEARER_TOKEN", "environment-token")
+    state = RuntimeState()
+    try:
+        assert state.transport._request_headers() == {
+            "Authorization": "Bearer environment-token"
+        }
+        state.configure(state.config.model_copy(update={"request_timeout_s": 6.0}))
+        assert state.transport._request_headers() == {
+            "Authorization": "Bearer environment-token"
+        }
+    finally:
+        state.transport.stop()
+
+
+def test_instrumentation_client_confirms_outcomes_and_closes_transport(monkeypatch) -> None:
+    observed: dict[str, Any] = {}
+
+    class FakeTransport:
+        def __init__(self, config, **kwargs):
+            observed["config"] = config
+            observed["kwargs"] = kwargs
+
+        def start(self):
+            observed["started"] = True
+
+        def stop(self):
+            observed["stopped"] = True
+
+        def deliver_outcome_confirmed(self, outcome):
+            observed["outcome"] = outcome
+
+    monkeypatch.setattr(client, "TelemetryTransport", FakeTransport)
+    outcome = OutcomeEvent(
+        execution_id="exec-1",
+        capability_id="cap",
+        outcome_type="approval",
+        outcome_value=True,
+    )
+
+    with client.InstrumentationClient.authenticated(
+        base_url="https://econ.example/v1", bearer_token="secret-token"
+    ) as instrumentation:
+        instrumentation.track_outcome_confirmed(outcome)
+
+    assert observed["kwargs"]["headers_provider"]() == {
+        "Authorization": "Bearer secret-token"
+    }
+    assert observed["outcome"] is outcome
+    assert observed["started"] is True
+    assert observed["stopped"] is True

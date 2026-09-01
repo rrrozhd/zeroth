@@ -258,3 +258,9 @@ def test_documented_reproduction_pins_every_container_to_linux_arm64() -> None:
     page = (ROOT / "docs/how-to/deployment/release-gates.md").read_text()
 
     assert page.count("--platform linux/arm64") >= 3
+
+
+def test_documented_reproduction_does_not_replace_the_host_virtualenv() -> None:
+    page = (ROOT / "docs/how-to/deployment/release-gates.md").read_text()
+
+    assert "UV_PROJECT_ENVIRONMENT=/tmp/zeroth-load-gate-venv" in page

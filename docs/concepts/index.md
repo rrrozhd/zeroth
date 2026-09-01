@@ -11,6 +11,13 @@ understanding, [Usage Guides](../how-to/index.md) for task-oriented
 instructions, [Tutorials](../tutorials/index.md) for guided learning,
 and [Reference](../reference/index.md) for look-up.
 
+## Primary product
+
+- [Economic debugger service](economic-optimization.md) — attribute cost and
+  outcomes, analyze timelines/cohorts/breakage, backtest candidates, and define
+  the free-versus-paid boundary. The sections below document preserved platform
+  capabilities that supply or govern its evidence.
+
 ## Execution
 
 The nodes, edges, and runners that move a payload through a graph.

@@ -31,7 +31,7 @@ being silently accepted.
 | 5 | Security regression | The reviewed tenant-isolation and hostile-execution matrix ran exactly, completed without skips, and its observable evidence contains no credential canary or GitHub token | pull request, nightly, release candidate |
 | 6 | Load and recovery | Versioned burst, sustained, soak, overload, and fault profiles preserve capacity, fairness, recovery and every accepted run | nightly, release candidate |
 | 7 | Deployment smoke | The image starts, reports ready, serves the gateway, refuses invalid configuration, drains on shutdown, and carries an SBOM and a verified provenance attestation | release candidate |
-| 8 | Remote acceptance | The candidate installs from the published index and the published artifact runs end to end | release candidate |
+| 8 | Economic debugger acceptance | The exact TestPyPI core wheel installs headlessly, emits a bounded diagnostic, and closes a seeded provider bill | release candidate |
 | 9 | Promotion | Every preceding gate validated, and a named human accepted the release | release candidate, manual |
 
 Gates 1–7 are the **candidate** phase and gate TestPyPI. Gates 8–9 are the
@@ -72,15 +72,15 @@ Run the same set on demand from the Actions tab (**Release gates** →
 
 Publishing a GitHub Release runs `release-zeroth-core.yml`. It builds once,
 calls the nightly workflow to gather gates 1–6 against **that** build, adds
-gates 7–9, and validates:
+gates 7–8, and validates:
 
 - `evidence-gate` validates the candidate phase; TestPyPI publication depends
   on it.
-- `evidence-gate-final` validates every gate including the promotion signoff;
-  PyPI publication depends on it.
+- `assemble-promotion-candidate` validates the TestPyPI economic-debugger gate,
+  seals the automatic evidence, and uploads one immutable promotion handoff.
 
-Both verdicts are written to the job summary and retained as artifact bundles
-for 90 days.
+The promotion handoff is retained for 90 days. The release workflow does not
+publish to PyPI by itself.
 
 The security record binds the candidate commit and package identity. Its four
 independent results are the matrix pytest exit, exact coverage verification,
@@ -92,22 +92,25 @@ promotion through the same evidence validator as every other gate.
 
 ### Manual
 
-One piece of evidence has no CI producer: the promotion signoff. Before
-promoting to PyPI, a named human records acceptance at
-`release/signoff/<version>.md` — for example `release/signoff/0.20.md` — and
-commits it on the release tag.
+One piece of evidence has no automatic producer: the promotion signoff. After
+a successful candidate run, a named human dispatches **Promote zeroth-core**
+with three required values:
 
-The file must contain both:
+- the successful `Release zeroth-core` run ID;
+- the exact `sha256:` candidate digest printed by that run; and
+- the confirmation phrase `PROMOTE_ZEROTH_CORE`.
 
-- a line beginning `Signed-off-by:` or `Operator:` naming the human, and
-- the candidate identity digest, which the release run prints and which you can
-  reproduce with
-  `python release/gates/cli.py digest --identity release/evidence/candidate-identity-full.json`.
+The `pypi` GitHub environment is the second manual stop and should require a
+reviewer. The promotion job downloads only that run's `promotion-candidate`
+artifact, verifies the workflow name, successful conclusion, run commit,
+candidate digest, and two expected `zeroth-core` distributions, then checks out
+the candidate commit. Only then does it record the dispatching actor, run ID,
+digest, and confirmation as `promotion-signoff.md`, validate all nine gates,
+seal and attest the final evidence, and publish those exact bytes to PyPI.
 
-Requiring the digest is what stops a signoff for an earlier build of the same
-version from being accepted for this one — existing is not the same as
-accepting *this* candidate. Absent, unsigned, or wrongly-bound, the promotion
-gate fails and PyPI stays closed.
+A committed signoff file is deliberately not used: adding a post-build digest
+to the commit that produced the digest changes the candidate and creates a
+circular signoff.
 
 The evidence manifest — the candidate identity plus the digest of every gate
 record — is sealed and attested with `actions/attest` at the end of the release
@@ -251,6 +254,7 @@ uv run python release/gates/cli.py identity \
   --output release/evidence/candidate-identity.json
 docker run --rm --platform linux/arm64 --network "$NETWORK" --cpus 2 --memory 8g \
   -v "$PWD:/work" -w /work \
+  -e UV_PROJECT_ENVIRONMENT=/tmp/zeroth-load-gate-venv \
   -e "ZEROTH_LOAD_POSTGRES_DSN=postgresql://zeroth:zeroth@${POSTGRES_NAME}:5432/zeroth" \
   -e "ZEROTH_LOAD_REDIS_URL=redis://${REDIS_NAME}:6379/14" \
   -e "ZEROTH_TEST_REDIS_URL=redis://${REDIS_NAME}:6379/15" \
@@ -281,7 +285,12 @@ docker run --rm --platform linux/arm64 --network "$NETWORK" --cpus 2 --memory 8g
 The latency window ends when the HTTP admission or rejection response arrives;
 accepted-run settlement remains a separate ordered lifecycle observation. This
 keeps `202` and `429`/`503` latency percentiles comparable without dropping the
-terminal accounting evidence.
+terminal accounting evidence. Settlement status reads are capped at 20 per
+second per accepted run; they are observer traffic, not additional scheduled
+load, and must not become the dominant source of database pressure. The 18
+durable workers likewise cap idle claim polling at 25 attempts per second each,
+preventing the original 3,600-attempts-per-second idle thundering herd from
+overwhelming the declared profile.
 
 The atomic source receipt binds the raw observation digest to the candidate
 identity, exact commit and tree, package version, and canonical `git archive`
@@ -296,6 +305,46 @@ CI uploads `release/evidence/load-recovery*`: the raw rows, benchmark report,
 JUnit output and gate record. They are retained for at least 30 days even when
 the job fails. A missing, malformed, threshold-regressed, or differently-bound
 file blocks the candidate verdict.
+
+## Economic-debugger release path
+
+`release-zeroth-core.yml` publishes only the headless `zeroth-core` sdist and
+wheel. After TestPyPI publication it downloads that exact wheel from TestPyPI,
+checks its digest against the candidate identity, installs the `regulus`
+backend extra, and proves the economic product through public interfaces:
+
+1. an isolated SQLite plane starts with an ephemeral signing secret;
+2. the harness defines outcome semantics and ingests one successful and one
+   failed run, including one observed paid retry;
+3. `zeroth-econ diagnose` writes both JSON and claim-limited Markdown;
+4. `zeroth-econ reconcile` imports a seeded provider statement whose total
+   exactly equals measured telemetry and writes JSON and Markdown closure; and
+5. candidate-bound evidence proves `zeroth-console` and `zeroth-sdk` were not
+   installed.
+
+The provider statement is deterministic release evidence, not a claim that a
+live provider connector works. It makes no provider call and needs no provider
+credential. The older remote platform suite remains available through the
+manual `deployed-acceptance.yml` workflow and does not gate the headless
+economic-debugger package.
+
+Before the first economic-debugger release, the operator must:
+
+1. Push the reviewed commit, run **Release gates**, and require every produced
+   candidate gate to pass against that commit.
+2. Confirm the `testpypi` and `pypi` GitHub environments are registered as
+   trusted publishers: TestPyPI must authorize `release-zeroth-core.yml` with
+   environment `testpypi`, while PyPI must authorize
+   `promote-zeroth-core.yml` with environment `pypi`. Repository configuration
+   is external state and cannot be inferred from this checkout.
+3. Publish the matching `v<version>` GitHub Release to produce the TestPyPI
+   candidate and immutable promotion handoff.
+4. Dispatch **Promote zeroth-core** with that successful run ID, its exact
+   candidate digest, and `PROMOTE_ZEROTH_CORE`; approve the `pypi` environment
+   only after reviewing the retained evidence.
+
+The release tag must match the version in `pyproject.toml`; any mismatch fails
+closed. No release step in this path may build or publish `zeroth-sdk`.
 
 ## Reading a blocked verdict
 

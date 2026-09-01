@@ -75,7 +75,7 @@ def test_econ_alembic_head_creates_reservations_and_event_evidence_fields(
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == ("20260824_10")
+                ).scalar_one() == ("20260901_16")
     finally:
         engine.dispose()
 

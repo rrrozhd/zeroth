@@ -24,6 +24,13 @@ guarded lazy import in `otel.py`.
   optional `headers_provider` (`Callable[[], dict]`, defaults to `None`) called once
   per flush to attach fresh request headers — Zeroth uses it to inject a short-lived
   service-auth token.
+- `InstrumentationClient.authenticated(...)` is the additive, static-token
+  onboarding path; it preserves the protected constructor signature and keeps
+  the token out of model configuration and object representations. Global
+  instrumentation reads `ECP_BEARER_TOKEN` when its runtime initializes.
+- Executions and outcomes both expose confirmed delivery. Those methods return
+  only after the plane accepts the write and raise on rejection; buffered
+  delivery remains available for long-running applications.
 
 ## Lint
 

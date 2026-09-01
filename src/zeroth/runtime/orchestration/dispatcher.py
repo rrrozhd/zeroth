@@ -1047,6 +1047,12 @@ class NodeDispatcher:
                         run_id=run.run_id,
                         tenant_id=tenant_id,
                         deployment_ref=self.deployment_ref or "unknown",
+                        workflow_version=run.graph_version_ref,
+                        subject_id=(
+                            str(run.metadata["subject_id"])
+                            if run.metadata.get("subject_id") is not None
+                            else None
+                        ),
                         # Persistent reservation is an admission-control boundary,
                         # not a passive analytics decorator. Preserve legacy
                         # unbounded runs when no campaign or local cap requested
