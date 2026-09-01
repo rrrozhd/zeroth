@@ -2,11 +2,17 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -21,18 +27,52 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Run repo checks
+      - name: Run lint and docstring coverage
         run: |
           uv sync --all-groups --all-extras
           uv run ruff check src tests
-          uv run pytest -v --no-header -ra
           uv run interrogate src/zeroth
+
+  test:
+    name: test (shard ${{ matrix.group }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run the suite (shard ${{ matrix.group }} of 4)
+        run: |
+          uv sync --all-groups --all-extras
+          uv run pytest -v --no-header -ra \
+            --splits 4 --group ${{ matrix.group }} \
+            --timeout=300 --timeout-method=thread
 
   zeroth-check-action:
     name: Zeroth Check consumer fixture
@@ -68,6 +108,7 @@ jobs:
     name: Security regression — PR-critical
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
