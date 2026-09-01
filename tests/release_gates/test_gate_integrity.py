@@ -623,7 +623,7 @@ def test_the_lint_gate_environment_really_has_ruff() -> None:
 
     The marker does not weaken it. ``tests/release_gates/test_marker_integrity.py``
     proves it still runs wherever the project default applies, which is both
-    places the lint gate actually runs: ``ci.yml:verify`` and
+    places the lint gate actually runs: ``ci.yml:lint`` and
     ``release-gates.yml:source``.
     """
     assert _ruff_is_installed(), (

@@ -190,6 +190,10 @@ dev = [
     "libcst>=1.4",
     "pytest>=8.0",
     "pytest-asyncio>=0.25",
+    # Partitions the collected suite into disjoint groups for the CI matrix.
+    "pytest-split>=0.9",
+    # Turns a hung test into a named failure instead of exhausting a runner.
+    "pytest-timeout>=2.3",
     "ruff>=0.11",
     "testcontainers[postgres]>=4.14",
     "websockets>=15,<16",
