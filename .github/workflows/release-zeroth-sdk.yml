@@ -1,0 +1,129 @@
+name: Release zeroth-sdk
+
+# Package validation runs for relevant pushes and pull requests. Publishing is
+# manual-only. The same workflow is the registered Trusted Publisher on
+# TestPyPI and PyPI; each publishing job uses a distinct GitHub environment so
+# the OIDC claim is registry-scoped.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release-zeroth-sdk.yml
+      - packaging/sdk/**
+      - tests/sdk/**
+      - README.md
+  pull_request:
+    paths:
+      - .github/workflows/release-zeroth-sdk.yml
+      - packaging/sdk/**
+      - tests/sdk/**
+      - README.md
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Registry to publish the current SDK version to
+        required: true
+        type: choice
+        options:
+          - testpypi
+          - pypi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify SDK distributions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Enforce the production release hold
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import tomllib
+
+          with open("packaging/sdk/pyproject.toml", "rb") as handle:
+              metadata = tomllib.load(handle)
+
+          release = metadata.get("tool", {}).get("zeroth", {}).get("release", {})
+          # Production requires tool.zeroth.release.publish = true.
+          if release.get("publish") is not True:
+              reason = release.get("reason", "no release reason recorded")
+              raise SystemExit(f"SDK production publishing remains blocked: {reason}")
+          PY
+
+      - name: Build sdist and wheel once
+        run: uv build packaging/sdk --out-dir dist/zeroth-sdk
+
+      - name: Check distribution metadata
+        run: uvx twine check dist/zeroth-sdk/*
+
+      - name: Smoke-install the wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/zeroth-sdk-smoke
+          source /tmp/zeroth-sdk-smoke/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install dist/zeroth-sdk/*.whl
+          python -c "from zeroth.sdk import ZerothClient; print(ZerothClient.__name__)"
+
+      - name: Upload verified SDK distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeroth-sdk-dist
+          path: dist/zeroth-sdk/
+          if-no-files-found: error
+
+  publish-testpypi:
+    name: Publish SDK to TestPyPI
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download verified SDK distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: zeroth-sdk-dist
+          path: dist/
+
+      - name: Publish through Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: Publish SDK to PyPI
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download verified SDK distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: zeroth-sdk-dist
+          path: dist/
+
+      - name: Publish through Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1

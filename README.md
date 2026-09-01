@@ -8,6 +8,8 @@
 <p align="center">
   <a href="https://rrrozhd.github.io/zeroth/"><img alt="Documentation" src="https://img.shields.io/badge/docs-live-4f46e5"></a>
   <a href="https://github.com/rrrozhd/zeroth/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rrrozhd/zeroth/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/rrrozhd/zeroth/actions/workflows/release-zeroth-sdk.yml"><img alt="PyPI package check" src="https://img.shields.io/github/actions/workflow/status/rrrozhd/zeroth/release-zeroth-sdk.yml?branch=main&amp;label=PyPI%20check"></a>
+  <a href="https://github.com/rrrozhd/zeroth/actions/workflows/release-zeroth-sdk.yml"><img alt="TestPyPI package check" src="https://img.shields.io/github/actions/workflow/status/rrrozhd/zeroth/release-zeroth-sdk.yml?branch=main&amp;label=TestPyPI%20check"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
 </p>
 

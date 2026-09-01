@@ -10,10 +10,12 @@ WARNING = "Gateway-only mode cannot enforce internal Agent Server tool calls."
 
 
 def test_readme_first_screen_has_capability_matrix_and_warning() -> None:
-    first_screen = (ROOT / "README.md").read_text(encoding="utf-8")[:5000]
-    assert "| Capability | Observed | Partial | Enforced |" in first_screen
-    assert WARNING in first_screen
-    assert first_screen.index(WARNING) < first_screen.index("## Quickstart")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    before_quickstart, separator, _ = readme.partition("## Quickstart")
+
+    assert separator
+    assert "| Capability | Observed | Partial | Enforced |" in before_quickstart
+    assert WARNING in before_quickstart
 
 
 def test_canonical_guide_covers_release_operations_and_commands_execute(tmp_path: Path) -> None:

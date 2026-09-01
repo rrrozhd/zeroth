@@ -49434,7 +49434,7 @@
   "schema_version": 1,
   "source": {
     "command": "three isolated pinned ARM runs of pytest tests/load_release/test_product_profiles.py::test_real_product_fairness_fault_and_overload_evidence",
-    "commit": "933bea33ce77195265903c9dfe085cdb8ddc8065",
+    "commit": "39742db061f8b1b4d62a2222306efb9397c8c61a",
     "package_version": "0.23.9.11",
     "raw_request_count": 7044,
     "run_digests": [
@@ -49444,7 +49444,7 @@
     ],
     "run_receipts": [
       {
-        "commit": "933bea33ce77195265903c9dfe085cdb8ddc8065",
+        "commit": "39742db061f8b1b4d62a2222306efb9397c8c61a",
         "environment": {
           "cpu_limit": 2,
           "machine": "aarch64",
@@ -49472,11 +49472,11 @@
           }
         },
         "source_digest": "sha256:1e4eb09aa480af86f26681283a693e830a9091f05132ab3cc414f85c5d83ab3c",
-        "source_identity_digest": "sha256:540e70ea57609dd9c7b938336c0e93dd3378f20cfc31e567cbf30d13396b61a1",
+        "source_identity_digest": "sha256:d8bd310e99dbbfedffe9224ced24ae0faabe1010febfc4bb11aea2d0d1db199d",
         "tree": "c6be2b4d99391e5129e408065859252cfb9752d0"
       },
       {
-        "commit": "933bea33ce77195265903c9dfe085cdb8ddc8065",
+        "commit": "39742db061f8b1b4d62a2222306efb9397c8c61a",
         "environment": {
           "cpu_limit": 2,
           "machine": "aarch64",
@@ -49504,11 +49504,11 @@
           }
         },
         "source_digest": "sha256:1e4eb09aa480af86f26681283a693e830a9091f05132ab3cc414f85c5d83ab3c",
-        "source_identity_digest": "sha256:540e70ea57609dd9c7b938336c0e93dd3378f20cfc31e567cbf30d13396b61a1",
+        "source_identity_digest": "sha256:d8bd310e99dbbfedffe9224ced24ae0faabe1010febfc4bb11aea2d0d1db199d",
         "tree": "c6be2b4d99391e5129e408065859252cfb9752d0"
       },
       {
-        "commit": "933bea33ce77195265903c9dfe085cdb8ddc8065",
+        "commit": "39742db061f8b1b4d62a2222306efb9397c8c61a",
         "environment": {
           "cpu_limit": 2,
           "machine": "aarch64",
@@ -49536,13 +49536,13 @@
           }
         },
         "source_digest": "sha256:1e4eb09aa480af86f26681283a693e830a9091f05132ab3cc414f85c5d83ab3c",
-        "source_identity_digest": "sha256:540e70ea57609dd9c7b938336c0e93dd3378f20cfc31e567cbf30d13396b61a1",
+        "source_identity_digest": "sha256:d8bd310e99dbbfedffe9224ced24ae0faabe1010febfc4bb11aea2d0d1db199d",
         "tree": "c6be2b4d99391e5129e408065859252cfb9752d0"
       }
     ],
     "sample_run_count": 3,
     "source_digest": "sha256:1e4eb09aa480af86f26681283a693e830a9091f05132ab3cc414f85c5d83ab3c",
-    "source_identity_digest": "sha256:540e70ea57609dd9c7b938336c0e93dd3378f20cfc31e567cbf30d13396b61a1",
+    "source_identity_digest": "sha256:d8bd310e99dbbfedffe9224ced24ae0faabe1010febfc4bb11aea2d0d1db199d",
     "tree": "c6be2b4d99391e5129e408065859252cfb9752d0"
   }
 }
