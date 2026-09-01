@@ -34,7 +34,7 @@ def test_ci_partitions_the_full_suite_across_four_bounded_runners() -> None:
     assert "uv run pytest -v --no-header -ra" in scripts
     assert "--splits 4 --group ${{ matrix.group }}" in scripts
     assert "--durations-path .test_durations" in scripts
-    assert "--splitting-algorithm least_duration" in scripts
+    assert "--splitting-algorithm duration_based_chunks" in scripts
     assert "--timeout=300 --timeout-method=thread" in scripts
 
 
