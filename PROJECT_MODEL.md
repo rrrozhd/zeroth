@@ -120,6 +120,23 @@ reports, and calibration history, so export the applicable records before rollba
 
 ## Current risks and unfinished work
 
+- Frozen economic evaluation contract v1 is now under independent acceptance testing.
+  Earlier test counts above describe the source baseline, not acceptance under this
+  contract. Production predictive validity and customer sufficiency remain blocked.
+  See `docs/operations/economic-evaluation-implementation-status.md` for current
+  evidence and `docs/operations/economic-evaluation-design-decisions.md` for pending
+  public-contract decisions. The new evaluation CLI intentionally fails while
+  required delivery, fidelity, mutation, or statistical gates are unresolved.
+- Scenario pairing now uses IDs for joins and paired outcome content for canonical
+  ordering, preserving independent duplicate-valued units. Common routing uniforms
+  prevent action order changing draws. Bootstrap size equals independent paired
+  count; runtime scales with that count (the previous 500-case cap is removed).
+- CVaR integrates fractional tail mass; quantiles reject empty/nonfinite inputs and
+  invalid probabilities. Numerical agreement alone does not establish calibration.
+- Local SMTP acceptance followed by a crash currently loses the uncommitted audit
+  attempt; partial recipient rejection is silently ignored. These are reproduced
+  failing gates, not repaired behavior. No delivery-state schema change is approved.
+
 - The renamed platform and SDK releases are locally verified but not published. PyPI still
   returns 404 for `zeroth-platform` and `zeroth-sdk`; `zeroth-core` remains at `0.1.0`.
 - Public README positioning and availability wording will be reconciled after registry

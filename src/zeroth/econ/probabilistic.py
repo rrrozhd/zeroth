@@ -6,13 +6,11 @@ import random
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
-from math import ceil
+from math import ceil, fsum, isfinite
 from statistics import fmean
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-_MAX_BOOTSTRAP_CASES = 500
 
 
 class MigrationObservation(BaseModel):
@@ -218,13 +216,20 @@ def empirical_var_cvar(losses: list[float], *, confidence: float) -> tuple[float
     """Return the empirical loss cutoff and average of the declared worst tail."""
     if not losses:
         raise ValueError("losses must not be empty")
-    if confidence <= 0 or confidence >= 1:
+    if not isfinite(confidence) or confidence <= 0 or confidence >= 1:
         raise ValueError("confidence must be greater than 0 and less than 1")
     ordered = sorted(float(loss) for loss in losses)
+    if not all(isfinite(loss) for loss in ordered):
+        raise ValueError("losses must be finite")
     value_at_risk_index = max(0, min(len(ordered) - 1, ceil(confidence * len(ordered)) - 1))
-    tail_count = max(1, ceil((1 - confidence) * len(ordered)))
-    tail = ordered[-tail_count:]
-    return ordered[value_at_risk_index], sum(tail) / len(tail)
+    # Integrate exactly the declared upper-tail mass, including its boundary atom.
+    tail_mass = (1 - confidence) * len(ordered)
+    whole_rows = int(tail_mass)
+    boundary_mass = tail_mass - whole_rows
+    tail_sum = fsum(ordered[len(ordered) - whole_rows :])
+    if boundary_mass:
+        tail_sum += boundary_mass * ordered[len(ordered) - whole_rows - 1]
+    return ordered[value_at_risk_index], tail_sum / tail_mass
 
 
 def assess_forecast_readiness(
@@ -352,17 +357,17 @@ def _money(value: float) -> Decimal:
 def _empirical_quantile(values: list[float], quantile: float) -> float:
     if not values:
         raise ValueError("values must not be empty")
+    if not isfinite(quantile) or not 0 <= quantile <= 1:
+        raise ValueError("quantile must be finite and between 0 and 1")
+    if not all(isfinite(value) for value in values):
+        raise ValueError("values must be finite")
     ordered = sorted(values)
     index = max(0, min(len(ordered) - 1, ceil(quantile * len(ordered)) - 1))
     return ordered[index]
 
 
 def _quantile(values: list[float], quantile: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, ceil(len(ordered) * quantile) - 1))
-    return ordered[index]
+    return _empirical_quantile(values, quantile)
 
 
 def _paired_observations(
@@ -370,7 +375,19 @@ def _paired_observations(
 ) -> tuple[list[MigrationObservation], list[MigrationObservation]]:
     incumbent_by_id = {observation.case_id: observation for observation in evidence.incumbent}
     candidate_by_id = {observation.case_id: observation for observation in evidence.candidate}
-    paired_ids = sorted(incumbent_by_id.keys() & candidate_by_id.keys())
+
+    # IDs establish pairing, but arbitrary ID spelling must not steer seeded draws.
+    # Keep duplicate-valued independent units; only their ordering is canonicalized.
+    def outcome_key(row: MigrationObservation) -> tuple:
+        return (row.cohort, row.cost_usd, row.latency_ms, row.accepted, row.critical_error)
+
+    paired_ids = sorted(
+        incumbent_by_id.keys() & candidate_by_id.keys(),
+        key=lambda case_id: (
+            outcome_key(incumbent_by_id[case_id]),
+            outcome_key(candidate_by_id[case_id]),
+        ),
+    )
     return (
         [incumbent_by_id[case_id] for case_id in paired_ids],
         [candidate_by_id[case_id] for case_id in paired_ids],
@@ -496,7 +513,7 @@ def recommend_model_migration(
                     )
 
     rng = random.Random(seed)
-    bootstrap_cases = min(paired_cases, _MAX_BOOTSTRAP_CASES)
+    bootstrap_cases = paired_cases
     routing_specs: list[tuple[str, float, dict[str, float]]] = []
     if policy.routing_actions:
         cohort_counts: dict[str, int] = defaultdict(int)
@@ -539,22 +556,17 @@ def recommend_model_migration(
         baseline_success_rate = fmean(row.accepted for row in baseline_rows)
         baseline_critical_rate = fmean(row.critical_error for row in baseline_rows)
 
-        for action_id, _, cohort_shares in routing_specs:
+        # Common uniforms preserve each action's marginal routing law without
+        # letting enumeration order or additional actions consume different draws.
+        routing_uniforms = [rng.random() for _ in sampled_indices]
+        for action_id, share, cohort_shares in routing_specs:
             values = scenario_results[action_id]
             action_rows = [
                 candidate[index]
-                if rng.random()
-                < (
-                    cohort_shares.get(incumbent[index].cohort, 0.0)
-                    if cohort_shares
-                    else next(
-                        share
-                        for candidate_action_id, share, _ in routing_specs
-                        if candidate_action_id == action_id
-                    )
-                )
+                if uniform
+                < (cohort_shares.get(incumbent[index].cohort, 0.0) if cohort_shares else share)
                 else incumbent[index]
-                for index in sampled_indices
+                for index, uniform in zip(sampled_indices, routing_uniforms, strict=True)
             ]
             action_mean_cost = fmean(float(row.cost_usd) for row in action_rows)
             action_cost = action_mean_cost * demand
@@ -663,7 +675,12 @@ def recommend_model_migration(
         )
     recommended = min(
         worthwhile,
-        key=lambda action: (action.expected_monthly_cost_usd, action.candidate_share),
+        key=lambda action: (
+            action.expected_monthly_cost_usd,
+            action.candidate_share,
+            tuple(sorted(action.cohort_candidate_shares.items())),
+            action.action_id,
+        ),
     )
     action = "ship_candidate" if recommended.candidate_share == 1 else "hybrid_route"
     if recommended.cohort_candidate_shares:

@@ -1,0 +1,28 @@
+name: Economic evaluation contract v1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  engineering-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install frozen evaluation environment
+        run: uv sync --frozen --group dev --extra regulus
+      - name: Run fail-closed evaluation (blocked claims remain failures)
+        run: uv run --frozen python -m release.economic_evaluation.cli --output release/economic_evaluation/evidence/ci-bundle.json
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-evaluation-v1
+          path: release/economic_evaluation/evidence/
