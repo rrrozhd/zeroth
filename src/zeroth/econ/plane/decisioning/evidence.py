@@ -163,10 +163,15 @@ def harvest_migration_evidence(
         incumbent_artifact = report.get("incumbent_observations")
         candidate_artifact = report.get("candidate_observations")
         period_artifact = report.get("period_request_counts")
+        # Aggregate-only backtests retain empty defaults. They are missing
+        # evidence, not a malformed nonempty artifact to validate as a forecast.
         if (
             isinstance(incumbent_artifact, list)
+            and incumbent_artifact
             and isinstance(candidate_artifact, list)
+            and candidate_artifact
             and isinstance(period_artifact, list)
+            and period_artifact
         ):
             artifact_evidence = MigrationEvidence.model_validate(
                 {

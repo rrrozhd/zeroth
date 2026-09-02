@@ -164,6 +164,12 @@ reports, and calibration history, so export the applicable records before rollba
   publication, rather than claiming an install path is live before it is verified.
 - Managed provider backtests do not yet emit case-level cost/latency artifacts by default; only
   explicit artifacts are harvestable, and aggregate records abstain.
+  Empty or missing retained observation/demand arrays use the existing
+  `no_paired_case_level_evidence` path: API refresh retains an abstention and scheduled
+  refresh records its decision ID without `last_error`. Nonempty malformed artifacts
+  still fail validation. Regression entry point:
+  `tests/econ_plane/test_empty_backtest_evidence.py`. This repair changes only the
+  harvester guard; no schema migration, measurement synthesis, or cutoff change is required.
 - Calibration assessment is intentionally small and transparent. Explicit SMTP report delivery is
   implemented; automatic scheduled delivery and calibration-drift notification rules are not.
 - PDFs are stored in the relational database for the POC. Move large or high-volume artifacts to a
