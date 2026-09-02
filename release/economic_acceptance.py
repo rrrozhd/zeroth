@@ -150,9 +150,7 @@ def seed_service(*, base_url: str, token: str, statement_output: Path) -> None:
         timeout=30.0,
     ) as instrumentation:
         for execution in contract["executions"]:
-            instrumentation.track_execution_confirmed(
-                ExecutionEvent.model_validate(execution)
-            )
+            instrumentation.track_execution_confirmed(ExecutionEvent.model_validate(execution))
         for outcome in contract["outcomes"]:
             instrumentation.track_outcome_confirmed(
                 OutcomeEvent(
@@ -196,8 +194,8 @@ def build_report(
 
     package = candidate.get("package", {})
     candidate_version = package.get("version")
-    if installed_distributions.get("zeroth-core") != candidate_version:
-        raise ValueError("installed zeroth-core version does not match the candidate")
+    if installed_distributions.get("zeroth-platform") != candidate_version:
+        raise ValueError("installed zeroth-platform version does not match the candidate")
     if artifact_digest not in set(package.get("artifacts", {}).values()):
         raise ValueError("installed artifact digest does not match the candidate")
     excluded = {
@@ -206,9 +204,10 @@ def build_report(
     }
     if any(value != "absent" for value in excluded.values()):
         raise ValueError("headless install contains the UI or standalone SDK")
-    if diagnostic.get("claim_scope") != "observed_economic_exposure" or diagnostic.get(
-        "decision_state"
-    ) != "economic_risk_observed":
+    if (
+        diagnostic.get("claim_scope") != "observed_economic_exposure"
+        or diagnostic.get("decision_state") != "economic_risk_observed"
+    ):
         raise ValueError("diagnostic does not expose bounded economic risk")
     diagnostic_text = diagnostic_markdown.read_text(encoding="utf-8").lower()
     if "not which step caused" not in diagnostic_text or "does not prove savings" not in (
@@ -228,7 +227,7 @@ def build_report(
         "status": "passed",
         "candidate_digest": identity_digest(candidate),
         "package": {
-            "name": "zeroth-core",
+            "name": "zeroth-platform",
             "version": candidate_version,
             "artifact_digest": artifact_digest,
         },
@@ -236,9 +235,7 @@ def build_report(
         "diagnostic": {
             "claim_scope": diagnostic["claim_scope"],
             "decision_state": diagnostic["decision_state"],
-            "measured_failure_exposure_usd": diagnostic.get(
-                "measured_failure_exposure_usd"
-            ),
+            "measured_failure_exposure_usd": diagnostic.get("measured_failure_exposure_usd"),
             "markdown_sha256": _file_digest(diagnostic_markdown),
         },
         "reconciliation": {
@@ -254,7 +251,7 @@ def build_report(
 
 def _installed_distributions() -> dict[str, str]:
     installed: dict[str, str] = {}
-    for name in ("zeroth-core", "zeroth-console", "zeroth-sdk"):
+    for name in ("zeroth-platform", "zeroth-console", "zeroth-sdk"):
         try:
             installed[name] = version(name)
         except PackageNotFoundError:

@@ -1,6 +1,6 @@
 # Standalone service
 
-Standalone service mode runs `zeroth-core` as a production single-node deploy
+Standalone service mode runs `zeroth-platform` as a production single-node deploy
 fronted by a reverse proxy. Use it when you want real Postgres, TLS, and a
 process manager (systemd, supervisord, or a pod) — but without the overhead
 of Docker Compose or Kubernetes.
@@ -24,7 +24,7 @@ of Docker Compose or Kubernetes.
 
 ```bash
 python3.12 -m venv /opt/zeroth/venv
-/opt/zeroth/venv/bin/pip install "zeroth-core[memory-pg,dispatch]"
+/opt/zeroth/venv/bin/pip install "zeroth-platform[memory-pg,dispatch]"
 ```
 
 ## Configure
@@ -51,20 +51,20 @@ Run Alembic before the first start:
 
 ## Run
 
-The `zeroth-core serve` console script runs migrations, bootstraps the
+The `zeroth serve` console script runs migrations, bootstraps the
 service (including agent runners built from the deployment's graph), and
 serves uvicorn with TLS from `zeroth.service.entrypoint` — bootstrap
 and server share one event loop, which the durable run worker requires.
 Use it directly under systemd (`Type=simple`):
 
 ```bash
-/opt/zeroth/venv/bin/zeroth-core serve --port 8000
+/opt/zeroth/venv/bin/zeroth serve --port 8000
 ```
 
 Do **not** serve `zeroth.service.entrypoint:app_factory` through
 `uvicorn --factory`: uvicorn calls the factory inside its running event
 loop, where the bootstrap's `asyncio.run()` raises `RuntimeError`. For
-horizontal scale, run one `zeroth-core serve` process per port behind
+horizontal scale, run one `zeroth serve` process per port behind
 your reverse proxy (each instance polls the shared run queue; Postgres
 `SKIP LOCKED` leasing keeps them from double-claiming runs).
 
@@ -79,7 +79,7 @@ After=network.target postgresql.service
 Type=simple
 User=zeroth
 EnvironmentFile=/etc/zeroth/zeroth.env
-ExecStart=/opt/zeroth/venv/bin/zeroth-core serve --port 8000
+ExecStart=/opt/zeroth/venv/bin/zeroth serve --port 8000
 Restart=on-failure
 RestartSec=5
 
@@ -121,8 +121,8 @@ surface you can now exercise through the proxy.
 - **Serving `app_factory` via `uvicorn --factory`:** the factory calls
   `asyncio.run()` and uvicorn invokes it inside a running loop —
   `RuntimeError: asyncio.run() cannot be called from a running event loop`.
-  Use `zeroth-core serve`.
-- **Migrations not run:** the `zeroth-core serve` console script runs
+  Use `zeroth serve`.
+- **Migrations not run:** the `zeroth serve` console script runs
   `alembic upgrade head` automatically; raw `uvicorn` does not. Run it once
   before first start, and after every upgrade.
 - **Encryption key:** `ZEROTH_DATABASE__ENCRYPTION_KEY` must be stable across

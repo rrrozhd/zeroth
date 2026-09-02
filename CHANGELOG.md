@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The full self-hosted distribution is now `zeroth-platform`, with `zeroth` as its
+  primary CLI. The existing `zeroth-core` distribution and command are retained as
+  exact-version compatibility paths for migration; Python imports remain under
+  `zeroth.*`.
+- `zeroth-sdk` is prepared for its first public `0.1.0` release as the lightweight
+  client for self-hosted Zeroth services. Clients must pass `base_url` explicitly
+  until a supported Zeroth Cloud endpoint exists.
+
 ## [0.25.7.3]
 
 ### Fixed

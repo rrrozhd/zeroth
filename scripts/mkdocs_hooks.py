@@ -14,7 +14,7 @@ from types import ModuleType
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 _GENERATOR = _SCRIPTS_DIR / "dump_openapi.py"
-_ASSET_RELPATH = Path("assets") / "openapi" / "zeroth-core-openapi.json"
+_ASSET_RELPATH = Path("assets") / "openapi" / "zeroth-platform-openapi.json"
 
 #: Site-root-relative URL of the generated asset, as MkDocs sees it.
 ASSET_URL = _ASSET_RELPATH.as_posix()
@@ -118,7 +118,7 @@ def on_pre_build(config, **_kwargs) -> None:
     """Generate the OpenAPI asset that the HTTP API reference links to.
 
     ``docs/reference/http-api.md`` links to
-    ``assets/openapi/zeroth-core-openapi.json``, which is generated from the
+    ``assets/openapi/zeroth-platform-openapi.json``, which is generated from the
     live FastAPI app rather than committed (see ``.gitignore``). Before this
     hook existed the target was absent in any build not preceded by the CI
     generate step, so ``mkdocs build --strict`` promoted the dangling link to

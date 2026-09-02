@@ -20,9 +20,7 @@ def test_seed_contract_closes_provider_truth_to_two_resolved_outcomes() -> None:
     assert sum(Decimal(item["token_cost_usd"]) for item in contract["executions"]) == Decimal(
         contract["provider_statement"]["billed_total_usd"]
     )
-    assert all(
-        item["metadata"]["provider"] == "openai" for item in contract["executions"]
-    )
+    assert all(item["metadata"]["provider"] == "openai" for item in contract["executions"])
 
 
 def test_report_binds_candidate_headless_install_and_claim_limited_artifacts(
@@ -46,7 +44,7 @@ def test_report_binds_candidate_headless_install_and_claim_limited_artifacts(
     report = build_report(
         candidate=candidate,
         artifact_digest=next(iter(candidate["package"]["artifacts"].values())),
-        installed_distributions={"zeroth-core": candidate["package"]["version"]},
+        installed_distributions={"zeroth-platform": candidate["package"]["version"]},
         diagnostic={
             "claim_scope": "observed_economic_exposure",
             "decision_state": "economic_risk_observed",
@@ -75,12 +73,12 @@ def test_report_binds_candidate_headless_install_and_claim_limited_artifacts(
     ("installed", "reconciliation", "message"),
     [
         (
-            {"zeroth-core": "0.19", "zeroth-console": "0.19"},
+            {"zeroth-platform": "0.19", "zeroth-console": "0.19"},
             {"reconciliation_state": "reconciled", "unreconciled_billed_usd": "0"},
             "headless",
         ),
         (
-            {"zeroth-core": "0.19"},
+            {"zeroth-platform": "0.19"},
             {"reconciliation_state": "unreconciled", "unreconciled_billed_usd": "0.10"},
             "reconciliation",
         ),

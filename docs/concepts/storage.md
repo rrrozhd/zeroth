@@ -10,7 +10,7 @@ Every subsystem that persists data needs the same primitives: connection lifecyc
 
 Storage solves this by making one `AsyncDatabase` protocol the *only* way the rest of Zeroth talks to a database. Subsystems call `await db.execute(...)` and `await db.fetchall(...)`; they never instantiate a raw connection. The concrete backend — SQLite today, Postgres tomorrow — is selected once at startup via `create_database(settings)` and passed around.
 
-Postgres support is gated behind the `memory-pg` extra and imported lazily: a vanilla `pip install zeroth-core` does not require `psycopg` at import time, so lean deployments stay lean.
+Postgres support is gated behind the `memory-pg` extra and imported lazily: a vanilla `pip install zeroth-platform` does not require `psycopg` at import time, so lean deployments stay lean.
 
 ## Where it fits
 

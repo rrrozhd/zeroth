@@ -100,12 +100,12 @@ def _candidate_archives(
 def _runtime_evidence(
     tmp_path: Path, candidate: CandidateIdentity
 ) -> tuple[Path, Path, Path, Path]:
-    wheel = tmp_path / "zeroth-core.whl"
+    wheel = tmp_path / "zeroth-platform.whl"
     requirements = tmp_path / "requirements-image.txt"
     installation = tmp_path / "installed-wheel.json"
     image_config = tmp_path / "image-config.json"
     wheel.write_bytes(b"trusted wheel")
-    requirements.write_text("zeroth-core==0.23.9.9\n", encoding="utf-8")
+    requirements.write_text("zeroth-platform==0.23.9.9\n", encoding="utf-8")
     image_config.write_text(
         json.dumps(
             {
@@ -131,7 +131,7 @@ def _runtime_evidence(
         json.dumps(
             {
                 "schema_version": 2,
-                "package": "zeroth-core",
+                "package": "zeroth-platform",
                 "version": candidate.zeroth_version,
                 "wheel_sha256": file_digest(wheel),
                 "installed_files": {"zeroth/__init__.py": "sha256:" + "a" * 64},
@@ -154,7 +154,7 @@ def _candidate_evidence(
         json.dumps(
             {
                 "spdxVersion": "SPDX-2.3",
-                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+                "packages": [{"name": "zeroth-platform", "versionInfo": candidate.zeroth_version}],
             }
         ),
         encoding="utf-8",

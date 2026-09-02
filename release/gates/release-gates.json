@@ -177,7 +177,7 @@
     "ui": {
       "applicable": true,
       "producer": "ci",
-      "description": "Open-source console unit-suite evidence from the shared repository. The console is not installed or published by the headless zeroth-core release."
+      "description": "Open-source console unit-suite evidence from the shared repository. The console is not installed or published by the headless zeroth-platform release."
     },
     "sbom": {
       "applicable": true,

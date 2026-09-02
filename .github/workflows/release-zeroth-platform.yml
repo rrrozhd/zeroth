@@ -1,16 +1,16 @@
-name: Release zeroth-core
+name: Release zeroth-platform
 
-# Trusted-publisher OIDC release pipeline for zeroth-core.
+# Trusted-publisher OIDC release pipeline for zeroth-platform.
 # Triggered by GitHub Release `published` event. PKG-02/PKG-05/PKG-06.
 #
 # Stage order (per Phase 28 plan 03, D-12):
 #   build -> smoke-install -> test-wheel -> publish-testpypi ->
 #   smoke-from-testpypi -> assemble-promotion-candidate
 # PyPI publication is an explicit second-stage dispatch in
-# promote-zeroth-core.yml, bound to this run and its candidate digest.
+# promote-zeroth-platform.yml, bound to this run and its candidate digest.
 #
 # The TestPyPI trusted publisher must name this workflow and env=testpypi.
-# The PyPI publisher must separately name promote-zeroth-core.yml and env=pypi.
+# The PyPI publisher must separately name promote-zeroth-platform.yml and env=pypi.
 
 on:
   release:
@@ -52,7 +52,10 @@ jobs:
         run: uv sync --all-groups
 
       - name: Build sdist + wheel
-        run: uv build
+        run: |
+          set -euo pipefail
+          uv build
+          uv build packaging/core-compat --out-dir dist
 
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
@@ -131,7 +134,7 @@ jobs:
           # their deps. testcontainers[postgres] is a dev/test-only dep (not in any
           # runtime extra) needed by the Docker-gated postgres backend tests, which
           # run on the Docker-enabled GitHub runner.
-          pip install "$(ls dist/zeroth_core-*.whl)[all,langgraph]" pytest pytest-asyncio "testcontainers[postgres]"
+          pip install "$(ls dist/zeroth_platform-*.whl)[all,langgraph]" pytest pytest-asyncio "testcontainers[postgres]"
           # Run the suite against the INSTALLED wheel, not src mode.
           # `-m` REPLACES pyproject's addopts expression rather than extending it,
           # so every marker the project deselects by default is repeated here --
@@ -270,7 +273,7 @@ jobs:
           source /tmp/testpypi-venv/bin/activate
           pip install --upgrade pip
           mkdir -p release/evidence
-          # Fetch zeroth-core from TestPyPI as the SOLE index. The UI and the
+          # Fetch zeroth-platform from TestPyPI as the SOLE index. The UI and the
           # release-blocked standalone SDK are not candidate distributions.
           # `--extra-index-url` gives indexes no priority -- pip collects every
           # candidate and picks the best -- so resolving the primary dist across
@@ -281,6 +284,7 @@ jobs:
           for i in 1 2 3 4 5; do
             if pip download --no-deps --dest /tmp/rc-dist \
                 --index-url https://test.pypi.org/simple/ \
+                "zeroth-platform==${VERSION}" \
                 "zeroth-core==${VERSION}"; then
               DOWNLOADED=1
               break
@@ -292,17 +296,25 @@ jobs:
             echo "::error::TestPyPI download failed after 5 attempts"
             exit 1
           fi
-          WHEELS=(/tmp/rc-dist/zeroth_core-*.whl)
+          WHEELS=(/tmp/rc-dist/zeroth_platform-*.whl)
           if [ "${#WHEELS[@]}" -ne 1 ]; then
-            echo "::error::expected exactly one zeroth-core wheel from TestPyPI"
+            echo "::error::expected exactly one zeroth-platform wheel from TestPyPI"
             exit 1
           fi
           WHEEL="${WHEELS[0]}"
+          CORE_COMPAT_WHEELS=(/tmp/rc-dist/zeroth_core-*.whl)
+          if [ "${#CORE_COMPAT_WHEELS[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one zeroth-core compatibility wheel from TestPyPI"
+            exit 1
+          fi
+          CORE_COMPAT_WHEEL="${CORE_COMPAT_WHEELS[0]}"
           ARTIFACT_DIGEST="sha256:$(shasum -a 256 "${WHEEL}" | cut -d' ' -f1)"
+          CORE_COMPAT_DIGEST="sha256:$(shasum -a 256 "${CORE_COMPAT_WHEEL}" | cut -d' ' -f1)"
           {
             echo "index: https://test.pypi.org/simple/ (sole index for the primary dists)"
             echo "requested-version: ${VERSION}"
             echo "accepted-artifact: $(basename "${WHEEL}") ${ARTIFACT_DIGEST}"
+            echo "accepted-artifact: $(basename "${CORE_COMPAT_WHEEL}") ${CORE_COMPAT_DIGEST}"
           } > release/evidence/remote-acceptance-log.txt
           # Refuse to go further unless those bytes are this candidate's.
           python - <<'PY' || { echo "::error::published artifact is not the candidate"; exit 1; }
@@ -324,9 +336,11 @@ jobs:
           # by the economic plane. Dependency resolution may use PyPI, but the
           # primary Zeroth distribution is the digest-checked local candidate.
           pip install "${WHEEL}[regulus]" --extra-index-url https://pypi.org/simple/
+          pip install --no-deps "${CORE_COMPAT_WHEEL}"
           python - <<'PY'
           from importlib.metadata import PackageNotFoundError, version
-          assert version("zeroth-core")
+          assert version("zeroth-platform")
+          assert version("zeroth-core") == version("zeroth-platform")
           for excluded in ("zeroth-console", "zeroth-sdk"):
               try:
                   version(excluded)
@@ -527,18 +541,18 @@ jobs:
           path: release/langgraph
 
       - name: Build release image
-        run: docker build -t zeroth-core:${{ github.ref_name }} .
+        run: docker build -t zeroth-platform:${{ github.ref_name }} .
 
       - name: Compare image wheel with release candidate
         shell: bash
         run: |
           set -euo pipefail
-          CONTAINER_ID=$(docker create zeroth-core:${{ github.ref_name }})
+          CONTAINER_ID=$(docker create zeroth-platform:${{ github.ref_name }})
           trap 'docker rm -f "${CONTAINER_ID}" >/dev/null' EXIT
           mkdir -p /tmp/zeroth-image-wheel
           docker cp "${CONTAINER_ID}:/opt/zeroth/wheel/." /tmp/zeroth-image-wheel/
-          DIST_WHEELS=(dist/zeroth_core-*.whl)
-          IMAGE_WHEELS=(/tmp/zeroth-image-wheel/zeroth_core-*.whl)
+          DIST_WHEELS=(dist/zeroth_platform-*.whl)
+          IMAGE_WHEELS=(/tmp/zeroth-image-wheel/zeroth_platform-*.whl)
           if [ "${#DIST_WHEELS[@]}" -ne 1 ] || [ ! -f "${DIST_WHEELS[0]}" ]; then
             echo "::error::expected exactly one release candidate wheel"
             exit 1
@@ -553,10 +567,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker compose run --rm zeroth zeroth-core seed-demo
+          docker compose run --rm zeroth zeroth seed-demo
           set +e
           OUTPUT=$(timeout 15 docker compose run --rm \
-            -e ZEROTH_DATABASE__BACKEND=invalid zeroth zeroth-core migrate 2>&1)
+            -e ZEROTH_DATABASE__BACKEND=invalid zeroth zeroth migrate 2>&1)
           STATUS=$?
           set -e
           if [ "${STATUS}" -eq 0 ] || [ "${STATUS}" -eq 124 ]; then
@@ -585,12 +599,12 @@ jobs:
           wait "${REQUEST_PID}"
 
       - name: Export image artifact
-        run: docker save --output zeroth-core-image.tar zeroth-core:${{ github.ref_name }}
+        run: docker save --output zeroth-platform-image.tar zeroth-platform:${{ github.ref_name }}
 
       - name: Generate image SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
-          image: zeroth-core:${{ github.ref_name }}
+          image: zeroth-platform:${{ github.ref_name }}
           format: spdx-json
           output-file: release/langgraph/image.spdx.json
 
@@ -600,19 +614,19 @@ jobs:
         run: |
           set -euo pipefail
           python release/langgraph/harness.py image-evidence \
-            --image zeroth-core:${{ github.ref_name }} \
+            --image zeroth-platform:${{ github.ref_name }} \
             --image python:3.12.13-slim-bookworm \
             --image postgres:16.9-bookworm \
             --sbom release/langgraph/image.spdx.json \
-            --artifact zeroth-core-image.tar \
+            --artifact zeroth-platform-image.tar \
             --output release/langgraph/image-compatibility.json
-          IMAGE_DIGEST=$(python -c "import json; p=json.load(open('release/langgraph/image-compatibility.json')); print(next(i['digest'] for i in p['images'] if i['reference'].startswith('zeroth-core:')))")
+          IMAGE_DIGEST=$(python -c "import json; p=json.load(open('release/langgraph/image-compatibility.json')); print(next(i['digest'] for i in p['images'] if i['reference'].startswith('zeroth-platform:')))")
           echo "digest=${IMAGE_DIGEST}" >> "${GITHUB_OUTPUT}"
 
       - name: Verify installed image package compatibility
         run: |
           python release/langgraph/harness.py image-packages \
-            --image zeroth-core:${{ github.ref_name }} \
+            --image zeroth-platform:${{ github.ref_name }} \
             --compatibility release/langgraph/compatibility.json \
             --image-evidence release/langgraph/image-compatibility.json \
             --output release/langgraph/image-packages.json
@@ -621,7 +635,7 @@ jobs:
         id: provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: zeroth-core-image.tar
+          subject-path: zeroth-platform-image.tar
 
       - name: Capture Sigstore provenance bundle
         run: cp "${{ steps.provenance.outputs.bundle-path }}" release/langgraph/provenance.bundle.json
@@ -632,7 +646,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh attestation verify zeroth-core-image.tar \
+          gh attestation verify zeroth-platform-image.tar \
             --bundle release/langgraph/provenance.bundle.json \
             --repo "$GITHUB_REPOSITORY" \
             --format json \
@@ -641,7 +655,7 @@ jobs:
       - name: Attest image SBOM
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-name: zeroth-core
+          subject-name: zeroth-platform
           subject-digest: ${{ steps.images.outputs.digest }}
           sbom-path: release/langgraph/image.spdx.json
 
@@ -664,7 +678,7 @@ jobs:
           done
           python release/gates/cli.py identity \
             "${ARGS[@]}" \
-            --image "zeroth-core:${{ github.ref_name }}=${{ steps.images.outputs.digest }}" \
+            --image "zeroth-platform:${{ github.ref_name }}=${{ steps.images.outputs.digest }}" \
             --configuration docker-compose.yml \
             --compatibility release/langgraph/compatibility.json \
             --output release/evidence/candidate-identity-full.json
@@ -714,7 +728,7 @@ jobs:
         with:
           name: langgraph-container-evidence
           path: |
-            zeroth-core-image.tar
+            zeroth-platform-image.tar
             release/langgraph/image.spdx.json
             release/langgraph/image-compatibility.json
             release/langgraph/image-packages.json

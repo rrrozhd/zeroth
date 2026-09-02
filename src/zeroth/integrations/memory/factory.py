@@ -257,7 +257,7 @@ def _build_pgvector(
 ) -> tuple[ConnectorManifest, Any]:
     if PgvectorMemoryConnector is None:
         raise ValueError(
-            "pgvector connector dependencies not installed; install zeroth-core[memory-pg]"
+            "pgvector connector dependencies not installed; install zeroth-platform[memory-pg]"
         )
     dsn = _require_param(params, "dsn", "pgvector")
     kwargs: dict[str, Any] = {}
@@ -288,7 +288,7 @@ def _build_chroma(
 ) -> tuple[ConnectorManifest, Any]:
     if chromadb is None or ChromaDBMemoryConnector is None:
         raise ValueError(
-            "chroma connector dependencies not installed; install zeroth-core[memory-chroma]"
+            "chroma connector dependencies not installed; install zeroth-platform[memory-chroma]"
         )
     host = _require_param(params, "host", "chroma")
     port = int(params.get("port") or 8000)
@@ -323,7 +323,7 @@ def _build_chroma(
 def _build_elasticsearch(params: dict[str, Any]) -> tuple[ConnectorManifest, Any]:
     if AsyncElasticsearch is None or ElasticsearchMemoryConnector is None:
         raise ValueError(
-            "elasticsearch connector dependencies not installed; install zeroth-core[memory-es]"
+            "elasticsearch connector dependencies not installed; install zeroth-platform[memory-es]"
         )
     hosts = _require_param(params, "hosts", "elasticsearch")
     if isinstance(hosts, str):
@@ -351,7 +351,7 @@ def _build_redis(
     if connector_cls is None:
         raise ValueError(
             f"{backend_type} connector dependencies not installed; "
-            "install zeroth-core[dispatch] (redis)"
+            "install zeroth-platform[dispatch] (redis)"
         )
     client = redis_client
     if client is None:
@@ -362,7 +362,7 @@ def _build_redis(
             import redis.asyncio as aioredis  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover - redis is a core-ish dep
             raise ValueError(
-                "redis client library not installed; install zeroth-core[dispatch]"
+                "redis client library not installed; install zeroth-platform[dispatch]"
             ) from exc
         # redis-py leaves both of these at None, which lets a command against
         # an unresponsive server wait forever. Connect and per-command read

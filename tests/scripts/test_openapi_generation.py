@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MAIN = ROOT / "scripts" / "dump_openapi.py"
 REGULUS = ROOT / "scripts" / "dump_regulus_openapi.py"
 HOOKS = ROOT / "scripts" / "mkdocs_hooks.py"
-ASSET_RELPATH = Path("assets") / "openapi" / "zeroth-core-openapi.json"
+ASSET_RELPATH = Path("assets") / "openapi" / "zeroth-platform-openapi.json"
 SPEC_PAGE = "reference/http-api.md"
 
 
@@ -142,8 +142,8 @@ def test_docs_hook_leaves_an_already_current_asset_untouched(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     ("page_url", "expected"),
     [
-        ("reference/http-api/", "../../assets/openapi/zeroth-core-openapi.json"),
-        ("reference/http-api.html", "../assets/openapi/zeroth-core-openapi.json"),
+        ("reference/http-api/", "../../assets/openapi/zeroth-platform-openapi.json"),
+        ("reference/http-api.html", "../assets/openapi/zeroth-platform-openapi.json"),
     ],
 )
 @needs_mkdocs
@@ -167,7 +167,7 @@ def test_docs_hook_fails_the_build_when_the_spec_page_loses_its_token() -> None:
     hooks = _load_hooks()
     with pytest.raises(RuntimeError, match="ZEROTH_OPENAPI_SPEC_URL"):
         hooks.on_post_page(
-            _viewer_page('url: "../assets/openapi/zeroth-core-openapi.json",'),
+            _viewer_page('url: "../assets/openapi/zeroth-platform-openapi.json",'),
             page=_spec_page(),
         )
 
@@ -190,7 +190,7 @@ def test_docs_hook_accepts_the_spellings_a_contributor_may_write(legitimate) -> 
     """A guard that rejects valid edits gets deleted by the next contributor."""
     hooks = _load_hooks()
     output = hooks.on_post_page(_viewer_page(legitimate), page=_spec_page())
-    assert "../../assets/openapi/zeroth-core-openapi.json" in output
+    assert "../../assets/openapi/zeroth-platform-openapi.json" in output
 
 
 @needs_mkdocs
@@ -206,7 +206,7 @@ def test_docs_hook_is_not_confused_by_apostrophes_in_prose() -> None:
         _viewer_page('url: "@@ZEROTH_OPENAPI_SPEC_URL@@",', prose=prose),
         page=_spec_page(),
     )
-    assert hooks.active_spec_urls(output) == ["../../assets/openapi/zeroth-core-openapi.json"]
+    assert hooks.active_spec_urls(output) == ["../../assets/openapi/zeroth-platform-openapi.json"]
 
 
 @pytest.mark.parametrize(
@@ -252,7 +252,7 @@ def test_docs_hook_tolerates_reformatting_around_the_viewer_call(formatting) -> 
     hooks = _load_hooks()
     page = formatting.replace("{URL}", 'url: "@@ZEROTH_OPENAPI_SPEC_URL@@",')
     output = hooks.on_post_page(page, page=_spec_page())
-    assert hooks.active_spec_urls(output) == ["../../assets/openapi/zeroth-core-openapi.json"]
+    assert hooks.active_spec_urls(output) == ["../../assets/openapi/zeroth-platform-openapi.json"]
 
 
 @needs_mkdocs

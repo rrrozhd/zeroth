@@ -31,7 +31,7 @@ auth_config = ServiceAuthConfig(
     ],
     bearer=BearerTokenConfig(
         issuer="https://auth.example.com/",
-        audience="zeroth-core",
+        audience="zeroth-platform",
         jwks_url="https://auth.example.com/.well-known/jwks.json",
     ),
 )

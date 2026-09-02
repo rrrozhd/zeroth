@@ -115,7 +115,7 @@ production-readiness claims:
   all.** Validation and runtime reject it by default. The explicit development
   flag above permits legacy graphs only for migration/testing; their binary,
   argv, environment, and discovered tools remain author-controlled. Migrate to
-  registry-backed `mcp_tool` nodes with `zeroth-core mcp-import`.
+  registry-backed `mcp_tool` nodes with `zeroth mcp-import`.
 
 - **Gateway-only governance cannot enforce internal tool calls.** Gateway
   admission can authenticate, scope, budget, and audit the outer request, but a

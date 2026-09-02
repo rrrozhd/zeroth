@@ -5,6 +5,6 @@ approved action is bound to one invoice and one stable tool-call ID, uses the in
 action repository, and exercises cancellation ambiguity during the mandatory fault matrix.
 
 ```bash
-zeroth-core check run --config apps/check_approval/zeroth-check.yaml \
+zeroth check run --config apps/check_approval/zeroth-check.yaml \
   --report-dir .zeroth/check/approval-report
 ```

@@ -2,19 +2,19 @@
 
 **Time budget: under 5 minutes.** This is the gate for the whole
 Getting Started tutorial — if you finish this section you have a
-working `zeroth-core` install and have made a real LLM call through
+working `zeroth-platform` install and have made a real LLM call through
 it.
 
 ## Install the package
 
 ```bash
-pip install zeroth-core
+pip install zeroth-platform
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv add zeroth-core
+uv add zeroth-platform
 ```
 
 Optional backends (Postgres, pgvector, Chroma, Elasticsearch, Redis,
@@ -25,7 +25,7 @@ so you do not need any extras to complete the tutorial.
 
 !!! note "Published package versus current docs"
     This documentation is built from `main`, which can be ahead of the latest
-    package on [PyPI](https://pypi.org/project/zeroth-core/). For the exact
+    package on [PyPI](https://pypi.org/project/zeroth-platform/). For the exact
     source documented here, use the repository checkout below and run commands
     with `uv run`.
 
@@ -54,7 +54,7 @@ git clone https://github.com/rrrozhd/zeroth.git && cd zeroth
 uv sync
 ```
 
-(No clone handy? `zeroth-core seed-demo && zeroth-core serve` gives you a
+(No clone handy? `zeroth seed-demo && zeroth serve` gives you a
 running demo service from the bare pip install — see
 [Local development](../../how-to/deployment/local-dev.md).)
 

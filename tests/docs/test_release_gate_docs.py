@@ -42,10 +42,10 @@ def test_the_guide_explains_every_refusal_reason():
 
 
 def test_the_guide_documents_the_run_bound_manual_signoff():
-    assert "Promote zeroth-core" in TEXT
+    assert "Promote zeroth-platform" in TEXT
     assert "PROMOTE_ZEROTH_CORE" in TEXT
     workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/promote-zeroth-core.yml").read_text(encoding="utf-8")
+        (ROOT / ".github/workflows/promote-zeroth-platform.yml").read_text(encoding="utf-8")
     )
     scripts = "\n".join(
         step.get("run", "")
@@ -87,8 +87,10 @@ def test_documented_commands_execute(command: str, tmp_path: Path):
     argv[0] = sys.executable
     argv[1] = str(CLI)
     # Keep the doc's own output path out of the working tree.
-    argv = [str(tmp_path / "candidate-identity.json") if part.endswith(".json") else part
-            for part in argv]
+    argv = [
+        str(tmp_path / "candidate-identity.json") if part.endswith(".json") else part
+        for part in argv
+    ]
 
     if "identity" in argv:
         completed = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, check=False)

@@ -136,9 +136,10 @@ class AuthSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_browser_session_secret(self) -> AuthSettings:
-        if self.browser_session_secret is not None and len(
-            self.browser_session_secret.get_secret_value().encode("utf-8")
-        ) < 32:
+        if (
+            self.browser_session_secret is not None
+            and len(self.browser_session_secret.get_secret_value().encode("utf-8")) < 32
+        ):
             raise ValueError("browser_session_secret must contain at least 32 bytes")
         return self
 
@@ -273,7 +274,7 @@ class TracingSettings(BaseModel):
     """OpenTelemetry tracing configuration (requires the ``otel`` extra)."""
 
     enabled: bool = False
-    service_name: str = "zeroth-core"
+    service_name: str = "zeroth-platform"
     # OTLP/HTTP collector endpoint; when unset the exporter falls back to its own
     # OTEL_EXPORTER_OTLP_ENDPOINT environment variable.
     otlp_endpoint: str | None = None
@@ -425,6 +426,8 @@ class CertificationSettings(BaseModel):
         if (self.serving_app_commit is None) != (self.serving_image_digest is None):
             raise ValueError("serving app commit and image digest must be configured together")
         return self
+
+
 class GitHubAppSettings(BaseModel):
     """GitHub App integration configuration (ZER-37).
 

@@ -55,9 +55,7 @@ def econ_engine():
         engine.dispose()
 
 
-def _client(
-    engine, *, tenant_id: str = "tenant-a", roles: list[str] | None = None
-) -> TestClient:
+def _client(engine, *, tenant_id: str = "tenant-a", roles: list[str] | None = None) -> TestClient:
     app = FastAPI()
     app.include_router(reconciliation_router, prefix="/v1")
 
@@ -178,9 +176,7 @@ def test_provider_bill_allocates_billed_money_and_preserves_unreconciled_varianc
     client = _client(econ_engine)
 
     imported = client.post("/v1/reconciliation/provider-bills", json=_statement())
-    report_response = client.get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    )
+    report_response = client.get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report")
 
     assert imported.status_code == 201
     assert report_response.status_code == 200
@@ -239,15 +235,24 @@ def test_provider_bill_exact_replay_is_idempotent_and_changed_content_is_rejecte
     assert changed.json() == {
         "detail": "Provider bill is immutable for this provider and statement_id"
     }
-    assert _client(econ_engine, tenant_id="tenant-b").get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    ).status_code == 404
-    assert _client(econ_engine, roles=["Analyst"]).get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    ).status_code == 200
-    assert _client(econ_engine, roles=["Viewer"]).get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    ).status_code == 403
+    assert (
+        _client(econ_engine, tenant_id="tenant-b")
+        .get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report")
+        .status_code
+        == 404
+    )
+    assert (
+        _client(econ_engine, roles=["Analyst"])
+        .get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report")
+        .status_code
+        == 200
+    )
+    assert (
+        _client(econ_engine, roles=["Viewer"])
+        .get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report")
+        .status_code
+        == 403
+    )
 
 
 def test_provider_bill_requires_a_closed_source_total_and_admin_authority(
@@ -255,9 +260,7 @@ def test_provider_bill_requires_a_closed_source_total_and_admin_authority(
 ) -> None:
     malformed = _statement(total="0.71")
 
-    rejected = _client(econ_engine).post(
-        "/v1/reconciliation/provider-bills", json=malformed
-    )
+    rejected = _client(econ_engine).post("/v1/reconciliation/provider-bills", json=malformed)
     forbidden = _client(econ_engine, roles=["Analyst"]).post(
         "/v1/reconciliation/provider-bills", json=_statement()
     )
@@ -272,9 +275,7 @@ def test_provider_bill_rejects_statement_ids_that_cannot_be_used_in_report_urls(
 ) -> None:
     invalid = {**_statement(), "statement_id": "openai/2026-08"}
 
-    rejected = _client(econ_engine).post(
-        "/v1/reconciliation/provider-bills", json=invalid
-    )
+    rejected = _client(econ_engine).post("/v1/reconciliation/provider-bills", json=invalid)
 
     assert rejected.status_code == 422
     assert "statement_id" in rejected.text
@@ -295,9 +296,7 @@ def test_provider_bill_does_not_use_estimated_cost_as_allocation_weight(econ_eng
 
     client = _client(econ_engine)
     assert client.post("/v1/reconciliation/provider-bills", json=_statement()).status_code == 201
-    report = client.get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    ).json()
+    report = client.get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report").json()
 
     assert Decimal(report["allocated_billed_usd"]) == Decimal("0")
     assert Decimal(report["unreconciled_billed_usd"]) == Decimal("0.70")
@@ -326,9 +325,7 @@ def test_provider_bill_reports_outcome_semantics_as_a_separate_closure_gate(
     client = _client(econ_engine)
 
     assert client.post("/v1/reconciliation/provider-bills", json=body).status_code == 201
-    report = client.get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    ).json()
+    report = client.get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report").json()
 
     assert report["reconciliation_state"] == "outcomes_unresolved"
     assert Decimal(report["unreconciled_billed_usd"]) == Decimal("0")
@@ -352,9 +349,7 @@ def test_provider_bill_distinguishes_exact_closure_from_allocated_variance(
     client = _client(econ_engine)
 
     assert client.post("/v1/reconciliation/provider-bills", json=body).status_code == 201
-    report = client.get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    ).json()
+    report = client.get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report").json()
 
     assert report["reconciliation_state"] == expected_state
     assert Decimal(report["allocated_billed_usd"]) == Decimal(billed)
@@ -374,9 +369,7 @@ def test_overlapping_provider_buckets_fail_closed_instead_of_double_allocating(
     client = _client(econ_engine)
 
     assert client.post("/v1/reconciliation/provider-bills", json=body).status_code == 201
-    report = client.get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    ).json()
+    report = client.get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report").json()
 
     assert report["reconciliation_state"] == "unreconciled"
     assert Decimal(report["allocated_billed_usd"]) == Decimal("0")
@@ -397,12 +390,9 @@ def test_provider_bill_migration_is_tenant_bound_and_independently_reversible(
     engine = create_engine(url, future=True)
     try:
         inspector = inspect(engine)
-        assert {"provider_bills", "provider_cost_buckets"} <= set(
-            inspector.get_table_names()
-        )
+        assert {"provider_bills", "provider_cost_buckets"} <= set(inspector.get_table_names())
         assert {
-            constraint["name"]
-            for constraint in inspector.get_unique_constraints("provider_bills")
+            constraint["name"] for constraint in inspector.get_unique_constraints("provider_bills")
         } >= {
             "uq_provider_bills_tenant_id",
             "uq_provider_bills_tenant_provider_statement",
@@ -414,9 +404,10 @@ def test_provider_bill_migration_is_tenant_bound_and_independently_reversible(
             for key in foreign_keys
         )
         with engine.connect() as connection:
-            assert connection.execute(
-                text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "20260901_17"
+            assert (
+                connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+                == "20260902_20"
+            )
     finally:
         engine.dispose()
 
@@ -465,15 +456,11 @@ def test_provider_dimensions_scope_allocation_and_expose_unbilled_telemetry(
     client = _client(econ_engine)
 
     assert client.post("/v1/reconciliation/provider-bills", json=body).status_code == 201
-    report = client.get(
-        "/v1/reconciliation/provider-bills/openai/openai-2026-08/report"
-    ).json()
+    report = client.get("/v1/reconciliation/provider-bills/openai/openai-2026-08/report").json()
 
     assert Decimal(report["telemetry_measured_usd"]) == Decimal("0.30")
     assert Decimal(report["unbilled_telemetry_usd"]) == Decimal("0.20")
     assert Decimal(report["allocated_billed_usd"]) == Decimal("0.30")
     assert report["allocations"][0]["bucket_id"] == "gpt-5"
     assert report["allocations"][0]["model"] == "gpt-5"
-    assert report["allocations"][0]["provider_dimensions"] == {
-        "project_id": "proj_a"
-    }
+    assert report["allocations"][0]["provider_dimensions"] == {"project_id": "proj_a"}

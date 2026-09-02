@@ -53,22 +53,28 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "## Economics",
             "",
-        "| Metric | Observed value |",
-        "|---|---:|",
-        f"| Runs | {report['runs']} |",
-        f"| Successful runs | {report['successful_runs']} |",
-        f"| Failed runs | {report['failed_runs']} |",
-        f"| Unresolved runs | {report['unresolved_runs']} |",
-        f"| Outcome coverage | {float(report['outcome_coverage']):.1%} |",
-        f"| Measured cost | {_money(report['measured_cost_usd'])} |",
-        f"| Estimated cost | {_money(report['estimated_cost_usd'])} |",
-        (
-            "| Measured cost per successful outcome | "
-            f"{_money(report['measured_cost_per_successful_outcome_usd'])} |"
-        ),
-        f"| Measured failed-run exposure | {_money(report['measured_failure_exposure_usd'])} |",
-        f"| Estimated failed-run exposure | {_money(report['estimated_failure_exposure_usd'])} |",
-        "",
+            "| Metric | Observed value |",
+            "|---|---:|",
+            f"| Runs | {report['runs']} |",
+            f"| Successful runs | {report['successful_runs']} |",
+            f"| Failed runs | {report['failed_runs']} |",
+            f"| Unresolved runs | {report['unresolved_runs']} |",
+            f"| Outcome coverage | {float(report['outcome_coverage']):.1%} |",
+            f"| Measured cost | {_money(report['measured_cost_usd'])} |",
+            f"| Estimated cost | {_money(report['estimated_cost_usd'])} |",
+            (
+                "| Measured cost per successful outcome | "
+                f"{_money(report['measured_cost_per_successful_outcome_usd'])} |"
+            ),
+            (
+                "| Measured failed-run exposure | "
+                f"{_money(report['measured_failure_exposure_usd'])} |"
+            ),
+            (
+                "| Estimated failed-run exposure | "
+                f"{_money(report['estimated_failure_exposure_usd'])} |"
+            ),
+            "",
         ]
     )
     if top is not None:
@@ -121,10 +127,7 @@ def render_bill_markdown(report: dict[str, Any]) -> str:
     lines = [
         f"# Zeroth provider bill: {report['provider']} / {report['statement_id']}",
         "",
-        (
-            "**Reconciliation state:** "
-            f"{str(report['reconciliation_state']).replace('_', ' ')}"
-        ),
+        (f"**Reconciliation state:** {str(report['reconciliation_state']).replace('_', ' ')}"),
         f"**Statement digest:** `{report['statement_digest']}`",
         f"**Allocation method:** {str(report['allocation_method']).replace('_', ' ')}",
         "",
@@ -203,9 +206,7 @@ def _openai_cost_amount(value: object, *, field: str) -> Decimal:
     return amount
 
 
-def _normalize_openai_costs_page(
-    page: dict[str, Any], *, statement_id: str
-) -> dict[str, Any]:
+def _normalize_openai_costs_page(page: dict[str, Any], *, statement_id: str) -> dict[str, Any]:
     """Convert one complete OpenAI Costs page into a bounded Zeroth statement."""
     if _STATEMENT_ID.fullmatch(statement_id) is None:
         raise ValueError("statement_id is not URL-safe")
@@ -239,9 +240,7 @@ def _normalize_openai_costs_page(
             value = _openai_cost_amount(amount.get("value"), field=f"{field}.amount.value")
             project_id = result.get("project_id")
             if project_id is not None and (
-                not isinstance(project_id, str)
-                or not project_id
-                or len(project_id) > 256
+                not isinstance(project_id, str) or not project_id or len(project_id) > 256
             ):
                 raise ValueError(f"{field}.project_id must be null or 1-256 characters")
             line_item = result.get("line_item")
@@ -437,8 +436,8 @@ async def _demo(args: argparse.Namespace) -> int:
         from zeroth.service.economic_demo import generate_demo_pack
     except ModuleNotFoundError as exc:
         print(
-            'demo failed: install the economic service dependencies with '
-            '`pip install "zeroth-core[regulus]"` '
+            "demo failed: install the economic service dependencies with "
+            '`pip install "zeroth-platform[regulus]"` '
             f"({exc})",
             file=sys.stderr,
         )

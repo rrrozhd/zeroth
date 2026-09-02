@@ -34,7 +34,7 @@ class GateEvidence(BaseModel):
 
 class WheelEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    filename: str = Field(pattern=r"^zeroth_core-.*\.whl$")
+    filename: str = Field(pattern=r"^zeroth_platform-.*\.whl$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 

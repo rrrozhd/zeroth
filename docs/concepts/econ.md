@@ -24,7 +24,7 @@ event before the caller ever sees the response.
 that flows through a [run](runs.md) is costed in flight. The cost events
 are forwarded through `zeroth.econ.instrumentation` to **Regulus**. Both the
 instrumentation client and the `zeroth.econ.plane` backend ship in
-`zeroth-core`; the backend can be mounted in-process or run separately.
+`zeroth-platform`; the backend can be mounted in-process or run separately.
 
 ## Tenant boundary
 

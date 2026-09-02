@@ -20,7 +20,7 @@ _RUNTIME_MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 _IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _IMAGE_PYTHON = "/usr/local/bin/python"
 _IMAGE_SITE_PACKAGES = "/usr/local/lib/python3.12/site-packages"
-_WHEEL_FILENAME = re.compile(r"^zeroth_core-[0-9]+(?:\.[0-9]+)*-py3-none-any\.whl$")
+_WHEEL_FILENAME = re.compile(r"^zeroth_platform-[0-9]+(?:\.[0-9]+)*-py3-none-any\.whl$")
 TRUSTED_RUNTIME_IMAGE = (
     "python:3.12.13-slim-bookworm@"
     "sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
@@ -101,8 +101,8 @@ def _metadata(archive: zipfile.ZipFile) -> tuple[str, str]:
     message = BytesParser().parsebytes(archive.read(names[0]))
     package = str(message.get("Name", "")).lower().replace("_", "-")
     version = str(message.get("Version", ""))
-    if package != "zeroth-core" or not version:
-        raise ValueError("trusted wheel metadata must identify versioned zeroth-core")
+    if package != "zeroth-platform" or not version:
+        raise ValueError("trusted wheel metadata must identify versioned zeroth-platform")
     return package, version
 
 
@@ -275,7 +275,7 @@ def prepare_runtime_context(
     _command, app_root, module = _runtime_command(document)
     wheel_name = certifier_wheel.name
     if _WHEEL_FILENAME.fullmatch(wheel_name) is None:
-        raise ValueError("certifier runtime requires a canonical zeroth-core wheel filename")
+        raise ValueError("certifier runtime requires a canonical zeroth-platform wheel filename")
     if output.exists() and any(output.iterdir()):
         raise ValueError("certifier runtime context output must be empty")
     output.mkdir(parents=True, exist_ok=True)
@@ -385,7 +385,7 @@ def validate_wheel_installation(
     files = document.get("installed_files")
     if (
         document.get("schema_version") != 2
-        or document.get("package") != "zeroth-core"
+        or document.get("package") != "zeroth-platform"
         or document.get("version") != candidate.zeroth_version
         or document.get("wheel_sha256") != file_digest(wheel)
         or not isinstance(files, dict)

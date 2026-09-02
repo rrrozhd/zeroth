@@ -19,8 +19,8 @@ import yaml
 from .conftest import ROOT
 
 WORKFLOWS = ROOT / ".github/workflows"
-RELEASE_WORKFLOW = WORKFLOWS / "release-zeroth-core.yml"
-PROMOTION_WORKFLOW = WORKFLOWS / "promote-zeroth-core.yml"
+RELEASE_WORKFLOW = WORKFLOWS / "release-zeroth-platform.yml"
+PROMOTION_WORKFLOW = WORKFLOWS / "promote-zeroth-platform.yml"
 GATES_WORKFLOW = WORKFLOWS / "release-gates.yml"
 CI_WORKFLOW = WORKFLOWS / "ci.yml"
 EVIDENCE_WORKFLOWS = (RELEASE_WORKFLOW, GATES_WORKFLOW, PROMOTION_WORKFLOW)

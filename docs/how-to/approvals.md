@@ -24,7 +24,7 @@ deployment = await deployment_service.deploy("demo-approval", graph.graph_id, gr
 # 2. Drive the orchestrator — it pauses on the approval node.
 paused = await bootstrap.orchestrator.run_graph(
     bootstrap.graph,
-    {"message": "Say hello from zeroth-core."},
+    {"message": "Say hello from zeroth-platform."},
     deployment_ref=deployment.deployment_ref,
 )
 assert paused.status.value == "waiting_approval"

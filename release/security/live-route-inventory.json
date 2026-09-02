@@ -1152,6 +1152,34 @@
     {
       "kind": "http",
       "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decisions/model-migration"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decisions/model-migration/refresh"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/decisions/model-migrations"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decisions/{decision_id}/reports"
+    },
+    {
+      "kind": "http",
+      "methods": [
         "GET"
       ],
       "path": "/regulus/v1/enforcement/actions"
@@ -1280,6 +1308,42 @@
       "methods": [
         "GET"
       ],
+      "path": "/regulus/v1/probabilistic-decision-schedules"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/probabilistic-decision-schedules"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/randomized-rollouts"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/randomized-rollouts/{rollout_id}/assignments"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/randomized-rollouts/{rollout_id}/verify"
+    },
+
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
       "path": "/regulus/v1/reconciliation/calibration-summary"
     },
     {
@@ -1365,6 +1429,20 @@
         "GET"
       ],
       "path": "/regulus/v1/registry/implementations/{implementation_id}"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/reports/{report_id}"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/reports/{report_id}/deliveries"
     },
     {
       "kind": "http",
@@ -12998,6 +13076,34 @@
     {
       "kind": "http",
       "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decisions/model-migration"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decisions/model-migration/refresh"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/decisions/model-migrations"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decisions/{decision_id}/reports"
+    },
+    {
+      "kind": "http",
+      "methods": [
         "GET"
       ],
       "path": "/regulus/v1/enforcement/actions"
@@ -13126,6 +13232,42 @@
       "methods": [
         "GET"
       ],
+      "path": "/regulus/v1/probabilistic-decision-schedules"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/probabilistic-decision-schedules"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/randomized-rollouts"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/randomized-rollouts/{rollout_id}/assignments"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/randomized-rollouts/{rollout_id}/verify"
+    },
+
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
       "path": "/regulus/v1/reconciliation/calibration-summary"
     },
     {
@@ -13211,6 +13353,20 @@
         "GET"
       ],
       "path": "/regulus/v1/registry/implementations/{implementation_id}"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
+      "path": "/regulus/v1/reports/{report_id}"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/reports/{report_id}/deliveries"
     },
     {
       "kind": "http",

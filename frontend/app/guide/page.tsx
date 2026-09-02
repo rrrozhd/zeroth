@@ -93,25 +93,25 @@ curl -X POST "http://127.0.0.1:8000/v1/runs" \\
 const DOCS_LINKS: { label: string; href: string; kind: string; tone: Tone }[] = [
   {
     label: "Getting Started tutorial",
-    href: "https://rrrozhd.github.io/zeroth-core/tutorials/getting-started/",
+    href: "https://rrrozhd.github.io/zeroth-platform/tutorials/getting-started/",
     kind: "tutorial",
     tone: "accent",
   },
   {
     label: "Governance Walkthrough",
-    href: "https://rrrozhd.github.io/zeroth-core/tutorials/governance-walkthrough/",
+    href: "https://rrrozhd.github.io/zeroth-platform/tutorials/governance-walkthrough/",
     kind: "tutorial",
     tone: "agent",
   },
   {
     label: "Full documentation",
-    href: "https://rrrozhd.github.io/zeroth-core/",
+    href: "https://rrrozhd.github.io/zeroth-platform/",
     kind: "docs",
     tone: "info",
   },
   {
     label: "Source on GitHub",
-    href: "https://github.com/rrrozhd/zeroth-core",
+    href: "https://github.com/rrrozhd/zeroth-platform",
     kind: "repo",
     tone: "neutral",
   },

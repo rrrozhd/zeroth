@@ -76,7 +76,7 @@ export const FALLBACK_NODE_TYPES: NodeType[] = [
     ]
   },
   { type: "retrieval", label: "Retrieval", category: "core", ports: [...IO_PORTS] },
-  // Imported by `zeroth-core mcp-import`, never authored here, so it is drawable
+  // Imported by `zeroth mcp-import`, never authored here, so it is drawable
   // but not creatable: it must have ports (an edge whose handle id is missing is
   // silently dropped) while staying out of the palette.
   {

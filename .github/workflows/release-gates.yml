@@ -203,7 +203,7 @@ jobs:
           # the recorded result was decided by whichever command failed first.
           set +e
           mkdir -p release/evidence
-          WHEEL=$(ls dist/zeroth_core-*.whl | head -1)
+          WHEEL=$(ls dist/zeroth_platform-*.whl | head -1)
           python -m venv /tmp/gate-venv
           # shellcheck disable=SC1091
           source /tmp/gate-venv/bin/activate

@@ -1,7 +1,7 @@
-"""Minimal PKG-06 acceptance fixture for zeroth-core.
+"""Minimal PKG-06 acceptance fixture for zeroth-platform.
 
 This script is the canonical end-to-end smoke test for a clean-venv install
-of ``zeroth-core``. Plan 28-03's release workflow installs the freshly-built
+of ``zeroth-platform``. Plan 28-03's release workflow installs the freshly-built
 wheel into a scratch virtualenv and executes this file — if it runs, the
 package is considered publishable.
 
@@ -40,7 +40,7 @@ def main() -> int:
     # Phase 28 intentionally uses the ``litellm`` direct-call fallback described
     # in 28-02-PLAN §interfaces: the full orchestrator/graph builder requires
     # service bootstrap that does not belong in a 30-line example. ``litellm``
-    # is a base dependency of zeroth-core, so importing it here does not require
+    # is a base dependency of zeroth-platform, so importing it here does not require
     # any extras. Phase 30 will replace this with a proper graph walkthrough.
     from litellm import completion
 
@@ -51,7 +51,7 @@ def main() -> int:
         messages=[
             {
                 "role": "user",
-                "content": "Say hello from zeroth-core in one short sentence.",
+                "content": "Say hello from zeroth-platform in one short sentence.",
             }
         ],
     )

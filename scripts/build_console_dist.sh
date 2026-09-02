@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the zeroth-console distribution: compile the Next.js static export,
 # copy it into the zeroth_console package, sync the version from the root
-# pyproject.toml, and build sdist + wheel into dist/ (alongside zeroth-core's).
+# pyproject.toml, and build sdist + wheel into dist/ (alongside zeroth-platform's).
 #
 # Usage: scripts/build_console_dist.sh [--skip-frontend-build]
 #   --skip-frontend-build  reuse an existing frontend/out (CI builds it earlier)

@@ -27,7 +27,7 @@ launch thread plus issue triage.
 - the intended commit is on public `main`;
 - the release candidate and manual promotion workflows pass;
 - the same version is available from public PyPI;
-- a clean machine can run `pip install "zeroth-core[regulus]"` and
+- a clean machine can run `pip install "zeroth-platform[regulus]"` and
   `zeroth-econ demo` without the repository checkout;
 - the public issue template records highest artifact produced and discovery source; and
 - the README still says that the managed service is not implemented.
@@ -88,7 +88,7 @@ only personal details that are not true:
 >
 > You can inspect the output without a server or signup:
 >
-> `pip install "zeroth-core[regulus]"`
+> `pip install "zeroth-platform[regulus]"`
 >
 > `zeroth-econ demo`
 >

@@ -27,7 +27,7 @@ def test_uv_lock_tracks_project_version() -> None:
     }
     assert local_versions == {
         "zeroth-console": expected_version,
-        "zeroth-core": expected_version,
+        "zeroth-platform": expected_version,
     }
 
 
@@ -37,6 +37,16 @@ def test_console_package_version_tracks_project_version() -> None:
         (REPO_ROOT / "packaging/console/pyproject.toml").read_text(encoding="utf-8")
     )
     assert console["project"]["version"] == expected_version
+
+
+def test_core_compatibility_package_tracks_platform_version() -> None:
+    expected_version = project_version()
+    compatibility = tomllib.loads(
+        (REPO_ROOT / "packaging/core-compat/pyproject.toml").read_text(encoding="utf-8")
+    )["project"]
+
+    assert compatibility["version"] == expected_version
+    assert compatibility["dependencies"] == [f"zeroth-platform=={expected_version}"]
 
 
 def test_frontend_version_tracks_project_version() -> None:

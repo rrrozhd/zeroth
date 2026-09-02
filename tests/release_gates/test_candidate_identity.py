@@ -37,7 +37,7 @@ def test_identity_reports_the_commit_the_repository_is_actually_on():
 def test_changing_artifact_bytes_changes_the_identity(tmp_path: Path):
     from gates.identity import candidate_identity, identity_digest
 
-    wheel = tmp_path / "zeroth_core-0.19-py3-none-any.whl"
+    wheel = tmp_path / "zeroth_platform-0.19-py3-none-any.whl"
     wheel.write_bytes(b"first build")
     before = identity_digest(candidate_identity(ROOT, artifacts={"wheel": wheel}))
     wheel.write_bytes(b"second build")
@@ -64,8 +64,8 @@ def test_changing_the_commit_changes_the_identity(facet, first, second):
 def test_changing_the_image_digest_changes_the_identity():
     from gates.identity import candidate_identity, identity_digest
 
-    before = candidate_identity(ROOT, image={"zeroth-core:v0.19": "sha256:" + "1" * 64})
-    after = candidate_identity(ROOT, image={"zeroth-core:v0.19": "sha256:" + "2" * 64})
+    before = candidate_identity(ROOT, image={"zeroth-platform:v0.19": "sha256:" + "1" * 64})
+    after = candidate_identity(ROOT, image={"zeroth-platform:v0.19": "sha256:" + "2" * 64})
 
     assert identity_digest(before) != identity_digest(after)
 

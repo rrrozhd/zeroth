@@ -30,6 +30,7 @@ from zeroth.econ.plane.enforcement.api import router as enforcement_router
 from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 from zeroth.econ.plane.performance.api import router as performance_router
 from zeroth.econ.plane.reconciliation.api import router as reconciliation_router
+from zeroth.econ.plane.reports.api import router as reports_router
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 app = FastAPI(title="AI Economic Control Plane", version="0.1.0")
@@ -50,6 +51,7 @@ app.include_router(enforcement_router, prefix="/v1")
 app.include_router(dashboard_router, prefix="/v1")
 app.include_router(decisioning_router, prefix="/v1")
 app.include_router(reconciliation_router, prefix="/v1")
+app.include_router(reports_router, prefix="/v1")
 app.include_router(connectors_router, prefix="/v1")
 
 request_logger = logging.getLogger("econ_plane.requests")

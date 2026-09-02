@@ -1,18 +1,12 @@
 name: Release zeroth-sdk
 
-# Package validation runs for relevant pushes and pull requests. Publishing is
-# manual-only. The same workflow is the registered Trusted Publisher on
+# Package validation runs for relevant pushes. Publishing is manual-only. The
+# same workflow is the registered Trusted Publisher on
 # TestPyPI and PyPI; each publishing job uses a distinct GitHub environment so
 # the OIDC claim is registry-scoped.
 on:
   push:
     branches: [main]
-    paths:
-      - .github/workflows/release-zeroth-sdk.yml
-      - packaging/sdk/**
-      - tests/sdk/**
-      - README.md
-  pull_request:
     paths:
       - .github/workflows/release-zeroth-sdk.yml
       - packaging/sdk/**

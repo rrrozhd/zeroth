@@ -67,8 +67,8 @@ def _dockerfile_label() -> str:
 
 def _compose_default_tag() -> str:
     source = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    match = re.search(r"image:\s*zeroth-core:\$\{ZEROTH_IMAGE_TAG:-([^}]+)\}", source)
-    assert match, "docker-compose.yml declares no default zeroth-core tag"
+    match = re.search(r"image:\s*zeroth-platform:\$\{ZEROTH_IMAGE_TAG:-([^}]+)\}", source)
+    assert match, "docker-compose.yml declares no default zeroth-platform tag"
     return match.group(1)
 
 

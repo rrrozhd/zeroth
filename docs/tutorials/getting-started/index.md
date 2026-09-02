@@ -5,14 +5,14 @@ A linear three-section tutorial. Time budget:
 - **<5 minutes to first working output** — complete section 1.
 - **<30 minutes end-to-end** — complete all three sections.
 
-By the end you will have installed `zeroth-core` in a clean virtualenv,
+By the end you will have installed `zeroth-platform` in a clean virtualenv,
 built a minimal governed graph with one agent and one tool, and run that
 graph both as an embedded library and as a standalone FastAPI service
 with a real human-in-the-loop approval gate resolved over HTTP.
 
 ## Sections
 
-1. [**Install**](01-install.md) — `pip install zeroth-core`, set
+1. [**Install**](01-install.md) — `pip install zeroth-platform`, set
    `ANTHROPIC_API_KEY`, run `examples/00_hello.py`, see a real LLM call
    complete. This is the <5 minute gate.
 2. [**First graph**](02-first-graph.md) — build a minimal graph with one

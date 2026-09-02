@@ -14,9 +14,9 @@ out for when dispatch is the bottleneck.
 Redis + arq wakeup is gated behind an extra:
 
 ```bash
-pip install 'zeroth-core[dispatch]'
+pip install 'zeroth-platform[dispatch]'
 # or with uv
-uv add 'zeroth-core[dispatch]'
+uv add 'zeroth-platform[dispatch]'
 ```
 
 This pulls `redis>=5.0.0` and `arq>=0.27`. Without it, dispatch still
@@ -75,7 +75,7 @@ if arq_pool is not None:
    connection, and an orchestrator frame. `max_concurrency=200` on a
    single worker will OOM.
 5. **Forgetting the extra** — Importing `enqueue_wakeup` without
-   `zeroth-core[dispatch]` silently falls through to poll-only mode.
+   `zeroth-platform[dispatch]` silently falls through to poll-only mode.
 
 ## Reference cross-link
 

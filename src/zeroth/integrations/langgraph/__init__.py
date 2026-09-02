@@ -67,7 +67,7 @@ caller re-enters.
 
 Importing this package never imports ``langgraph`` or ``langchain`` (optional
 dependencies, installed through the ``langgraph`` extra --
-``pip install "zeroth-core[langgraph]"``): all langgraph use lives in the
+``pip install "zeroth-platform[langgraph]"``): all langgraph use lives in the
 compiled graph the caller passes in, and the middleware surface is resolved on
 demand. The vocabulary above is imported eagerly because none of it touches
 ``langchain`` at module scope; only ``govern_tools`` / ``GovernedTool`` /

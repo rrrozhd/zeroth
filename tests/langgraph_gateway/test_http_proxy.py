@@ -689,7 +689,9 @@ async def test_hostile_credential_configuration_never_connects(
 def test_all_extra_includes_langgraph_gateway_runtime():
     project = tomllib.loads(Path("pyproject.toml").read_text())
 
-    assert "zeroth-core[langgraph-gateway]" in project["project"]["optional-dependencies"]["all"]
+    assert (
+        "zeroth-platform[langgraph-gateway]" in project["project"]["optional-dependencies"]["all"]
+    )
 
 
 class AllowPolicy:

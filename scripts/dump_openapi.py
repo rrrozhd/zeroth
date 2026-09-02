@@ -1,11 +1,11 @@
-"""Dump the zeroth-core OpenAPI spec to JSON for offline consumption.
+"""Dump the zeroth-platform OpenAPI spec to JSON for offline consumption.
 
 Produces a reproducible snapshot of the FastAPI OpenAPI document without
 requiring a running uvicorn process. The docs CI calls this before
 ``mkdocs build`` to render the HTTP API reference.
 
 Usage:
-    uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-core-openapi.json
+    uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-platform-openapi.json
     uv run python scripts/dump_openapi.py  # writes to stdout
 """
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 
 def generate_spec_text() -> str:
-    """Return the zeroth-core OpenAPI document as canonical JSON text.
+    """Return the zeroth-platform OpenAPI document as canonical JSON text.
 
     Shared by this script's CLI and the mkdocs build hook
     (``scripts/mkdocs_hooks.py``) so the stub bootstrap below cannot drift
@@ -59,8 +59,8 @@ def generate_spec_text() -> str:
         audit_repository=None,
         authenticator=None,
         regulus_client=None,
-        artifact_store=None,       # Phase 40
-        template_registry=None,    # Phase 40
+        artifact_store=None,  # Phase 40
+        template_registry=None,  # Phase 40
     )
     settings = get_settings()
     original_auth = settings.auth
@@ -80,7 +80,7 @@ def generate_spec_text() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Dump the zeroth-core FastAPI OpenAPI spec to JSON.",
+        description="Dump the zeroth-platform FastAPI OpenAPI spec to JSON.",
     )
     parser.add_argument(
         "--out",

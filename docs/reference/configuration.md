@@ -216,7 +216,7 @@ OpenTelemetry tracing configuration (requires the ``otel`` extra).
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
 | `ZEROTH_TRACING__ENABLED` | `bool` | `False` |  |  |
-| `ZEROTH_TRACING__SERVICE_NAME` | `str` | `"zeroth-core"` |  |  |
+| `ZEROTH_TRACING__SERVICE_NAME` | `str` | `"zeroth-platform"` |  |  |
 | `ZEROTH_TRACING__OTLP_ENDPOINT` | `str \| None` | `None` |  |  |
 
 ## Secrets

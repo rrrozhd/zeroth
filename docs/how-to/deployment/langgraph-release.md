@@ -34,7 +34,7 @@ export ZEROTH_SERVICE_API_KEYS_JSON='[{"credential_id":"release-smoke","secret":
 export SIGNING_DEPLOYMENT="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 uv build --wheel
 docker compose build
-docker compose run --rm zeroth zeroth-core seed-demo
+docker compose run --rm zeroth zeroth seed-demo
 docker compose up --wait
 python release/langgraph/harness.py smoke --require-gateway
 python release/langgraph/harness.py gateway-smoke --api-key release-smoke-key

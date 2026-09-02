@@ -224,8 +224,7 @@ class TestTheCeilingIsWiredWherePublishHappens:
     def test_every_publish_path_wires_a_resolver(self, module_name: str) -> None:
         source = inspect.getsource(importlib.import_module(module_name))
         assert self._constructions(source), (
-            f"no GraphValidator construction found in {module_name} -- "
-            "this guard has gone vacuous"
+            f"no GraphValidator construction found in {module_name} -- this guard has gone vacuous"
         )
         assert self._unwired(source) == []
 
@@ -291,7 +290,7 @@ async def test_publish_demands_exactly_what_the_pool_demands(withheld: Capabilit
 
 
 # --------------------------------------------------------------------------
-# The agent floor: what ``zeroth-core mcp-import`` produces must not publish
+# The agent floor: what ``zeroth mcp-import`` produces must not publish
 # until the agent itself can be granted what the runner gate will demand.
 # --------------------------------------------------------------------------
 

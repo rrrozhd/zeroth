@@ -178,9 +178,7 @@ def validate_if_node(
             issues,
             severity=ValidationSeverity.ERROR,
             code=ValidationCode.INVALID_CONDITION,
-            message=(
-                f"If expression exceeds the {CONDITION_EXPRESSION_MAX_CHARS} character limit"
-            ),
+            message=(f"If expression exceeds the {CONDITION_EXPRESSION_MAX_CHARS} character limit"),
             graph_id=graph_id,
             node_id=node.node_id,
             path=path,
@@ -647,7 +645,7 @@ def validate_mcp_tool_node(
             code=ValidationCode.INVALID_NODE_ATTACHMENT,
             message=(
                 "mcp_tool node requires a schema_hash; import the tool with "
-                "`zeroth-core mcp-import` rather than authoring the node by hand"
+                "`zeroth mcp-import` rather than authoring the node by hand"
             ),
             graph_id=graph_id,
             node_id=node.node_id,

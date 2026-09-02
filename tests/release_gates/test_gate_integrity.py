@@ -221,9 +221,7 @@ def test_verify_outcomes_rejects_a_skipped_bound_node(tmp_path: Path) -> None:
         for phase in ("setup", "call", "teardown")
     ]
     outcomes = tmp_path / "outcomes.json"
-    outcomes.write_text(
-        json.dumps({"schema_version": 1, "records": records}), encoding="utf-8"
-    )
+    outcomes.write_text(json.dumps({"schema_version": 1, "records": records}), encoding="utf-8")
     output = tmp_path / "verdict.json"
 
     assert verify_outcomes(SECURITY_MATRIX, "pr-critical", outcomes, output) == 1
@@ -235,9 +233,7 @@ def test_verify_outcomes_rejects_a_skipped_bound_node(tmp_path: Path) -> None:
     # the skip and not something incidental about the fixture.
     for record in records:
         record["outcome"], record["skip"] = "passed", False
-    outcomes.write_text(
-        json.dumps({"schema_version": 1, "records": records}), encoding="utf-8"
-    )
+    outcomes.write_text(json.dumps({"schema_version": 1, "records": records}), encoding="utf-8")
     assert verify_outcomes(SECURITY_MATRIX, "pr-critical", outcomes, output) == 0
 
 
@@ -394,9 +390,7 @@ def test_bash_agrees_that_every_capture_block_has_errexit_cleared() -> None:
 
 def test_at_least_one_real_block_is_exercised_against_bash() -> None:
     """A prologue extractor that returned nothing would make the check above pass."""
-    exercised = [
-        where for where, script in _run_blocks() if _has_capture(script)
-    ]
+    exercised = [where for where, script in _run_blocks() if _has_capture(script)]
 
     assert len(exercised) >= 8, exercised
 
@@ -482,8 +476,8 @@ def test_the_errexit_guard_reports_a_deliberately_broken_block(script: str, expe
     "script",
     [
         "set -uo pipefail\nset +e\nmake thing; RC=$?\nset -e\nrecord --result $RC\n",
-        "set -uo pipefail\nset +e\nmake thing; RC=$?\ncat report\nexit \"${RC}\"\n",
-        'set +e\nmake a; A=$?\nmake b\nB=$?\n'
+        'set -uo pipefail\nset +e\nmake thing; RC=$?\ncat report\nexit "${RC}"\n',
+        "set +e\nmake a; A=$?\nmake b\nB=$?\n"
         'if [ "${A}" -ne 0 ] || [ "${B}" -ne 0 ]; then\nexit 1\nfi\n',
         "set -euo pipefail\nmake thing\nrecord --result ok\n",
     ],
@@ -531,7 +525,7 @@ def test_image_digest_producer_refuses_an_sbom_that_names_another_image(tmp_path
     return value, so a forged SBOM decided what the release said it had built.
     """
     smoke = _release_langgraph_module("runtime_smoke")
-    reference = "zeroth-core:v0.0.0"
+    reference = "zeroth-platform:v0.0.0"
     inspected = {"Id": "sha256:" + "a" * 64, "RepoDigests": []}
 
     honest = _sbom_claiming(tmp_path, reference, inspected["Id"])
@@ -547,7 +541,7 @@ def test_image_digest_producer_prefers_a_registry_digest_when_one_exists(tmp_pat
     """A pushed image has a registry digest, and that is the supply-chain reference."""
     smoke = _release_langgraph_module("runtime_smoke")
     registry = "sha256:" + "b" * 64
-    inspected = {"Id": "sha256:" + "a" * 64, "RepoDigests": [f"zeroth-core@{registry}"]}
+    inspected = {"Id": "sha256:" + "a" * 64, "RepoDigests": [f"zeroth-platform@{registry}"]}
 
     assert smoke._resolved_digest(inspected) == registry
 
@@ -579,10 +573,11 @@ def test_the_daemon_reports_the_fields_the_producer_reads() -> None:
 # R7, R8 -- the suite's own vacuity guards
 # ---------------------------------------------------------------------------
 
+
 def _ruff_is_installed() -> bool:
     """Whether Ruff can run in this interpreter.
 
-    Two CI jobs -- ``release-gates:package`` and ``release-zeroth-core:test-wheel`` --
+    Two CI jobs -- ``release-gates:package`` and ``release-zeroth-platform:test-wheel`` --
     run the suite inside a pip venv built from the wheel, to test the *packaged
     product*. Ruff is a dev-group dependency and is deliberately not in that venv,
     so shelling out to it there fails with ModuleNotFoundError.
@@ -652,8 +647,7 @@ def test_the_lint_gate_environment_really_has_ruff() -> None:
 RULE_PROBES = {
     "F841": "def probe():\n    unused = 1\n",
     "B017": (
-        "import pytest\n\n\ndef test_probe():\n"
-        "    with pytest.raises(Exception):\n        pass\n"
+        "import pytest\n\n\ndef test_probe():\n    with pytest.raises(Exception):\n        pass\n"
     ),
 }
 
@@ -674,8 +668,18 @@ def rule_is_reported(rule: str, source: str, *, filename: str = "tests/_probe.py
     output.
     """
     result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "--stdin-filename", filename,
-         "--output-format", "concise", "--no-cache", "-"],
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--stdin-filename",
+            filename,
+            "--output-format",
+            "concise",
+            "--no-cache",
+            "-",
+        ],
         cwd=ROOT,
         input=source,
         check=False,
@@ -715,8 +719,18 @@ COMBINED_PROBE = (
 def _reported_rules(source: str, filename: str) -> set[str]:
     """Every enforced rule Ruff reports for ``source`` at ``filename``."""
     result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "--stdin-filename", filename,
-         "--output-format", "concise", "--no-cache", "-"],
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--stdin-filename",
+            filename,
+            "--output-format",
+            "concise",
+            "--no-cache",
+            "-",
+        ],
         cwd=ROOT,
         input=source,
         check=False,
@@ -837,9 +851,7 @@ def test_ruff_actually_checks_every_test_file_on_disk() -> None:
     assert listed.returncode == 0, listed.stderr
     checked = {Path(line).resolve() for line in listed.stdout.split() if line.strip()}
     on_disk = {
-        path.resolve()
-        for path in (ROOT / "tests").rglob("*.py")
-        if "__pycache__" not in path.parts
+        path.resolve() for path in (ROOT / "tests").rglob("*.py") if "__pycache__" not in path.parts
     }
     unchecked = sorted(str(path.relative_to(ROOT)) for path in on_disk - checked)
 
@@ -976,16 +988,26 @@ def test_every_typescript_test_file_is_matched_by_the_vitest_include() -> None:
             ["app/components/Panel.test.tsx", "app/lib/deep/nested.test.ts"],
             id="a_glob_narrowed_to_one_directory",
         ),
-        pytest.param([], ["app/components/Panel.test.tsx", "app/lib/deep/nested.test.ts",
-                          "app/lib/plain.test.ts"], id="include_emptied_entirely"),
+        pytest.param(
+            [],
+            [
+                "app/components/Panel.test.tsx",
+                "app/lib/deep/nested.test.ts",
+                "app/lib/plain.test.ts",
+            ],
+            id="include_emptied_entirely",
+        ),
     ],
 )
 def test_the_typescript_guard_reports_a_config_that_stops_collecting(
     tmp_path: Path, globs: list[str], expected: list[str]
 ) -> None:
     """The guard fed the shapes a frontend config change would take."""
-    for relative in ("app/lib/plain.test.ts", "app/lib/deep/nested.test.ts",
-                     "app/components/Panel.test.tsx"):
+    for relative in (
+        "app/lib/plain.test.ts",
+        "app/lib/deep/nested.test.ts",
+        "app/components/Panel.test.tsx",
+    ):
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("", encoding="utf-8")
@@ -1111,7 +1133,7 @@ def test_every_hidden_constructor_field_is_recorded() -> None:
 
 #: Evidence classes that no pull-request workflow produces, and why.
 #:
-#: Every `docker` invocation in the repository lives in `release-zeroth-core.yml`,
+#: Every `docker` invocation in the repository lives in `release-zeroth-platform.yml`,
 #: gated on `release: [published]`; `release-gates.yml` is nightly cron plus
 #: `workflow_dispatch` and deliberately has no `pull_request` trigger. So a
 #: change to the Dockerfile, the compose file, or the hardening flags reaches a
@@ -1201,14 +1223,15 @@ def test_the_container_detector_sees_an_action_not_only_a_shell_line() -> None:
     }
     steps = workflow["jobs"]["build"]["steps"]
 
-    assert any(re.search(r"docker|buildx|build-push", str(s.get("uses", "")), re.IGNORECASE)
-               for s in steps)
+    assert any(
+        re.search(r"docker|buildx|build-push", str(s.get("uses", "")), re.IGNORECASE) for s in steps
+    )
     assert not any(str(s.get("run", "")) for s in steps)
 
 
 def test_the_container_evidence_really_is_release_gated() -> None:
     """The other half of the same claim: the coverage exists, just not on PRs."""
-    release = _workflow("release-zeroth-core.yml")
+    release = _workflow("release-zeroth-platform.yml")
     triggers = release.get(True) or release.get("on") or {}
     scripts = "\n".join(
         str(step.get("run", ""))

@@ -51,7 +51,7 @@ REQUIRED_EVIDENCE = {
 }
 EXPECTED_DEPLOYMENT_ARTIFACTS = {
     "adapter": {
-        "artifact": "zeroth-core[langgraph]",
+        "artifact": "zeroth-platform[langgraph]",
         "dependencies": [
             "langchain>=1.0,<2",
             "langgraph>=1.0,<2",
@@ -59,7 +59,7 @@ EXPECTED_DEPLOYMENT_ARTIFACTS = {
         ],
     },
     "gateway": {
-        "artifact": "zeroth-core[langgraph-gateway]",
+        "artifact": "zeroth-platform[langgraph-gateway]",
         "dependencies": ["httpx[http2]>=0.27", "websockets>=15,<16"],
     },
 }
@@ -73,7 +73,7 @@ EXPECTED_RESOLVED = {
     "python_image": "python:3.12.13-slim-bookworm",
     "postgres_image": "postgres:16.9-bookworm",
     "websockets": "15.0.1",
-    "zeroth_core": CURRENT_RELEASE,
+    "zeroth_platform": CURRENT_RELEASE,
 }
 HARDWARE_KEYS = {"system", "release", "machine", "processor", "cpu_count", "python"}
 BASELINE_SOURCE = {

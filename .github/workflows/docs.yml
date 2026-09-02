@@ -65,7 +65,7 @@ jobs:
       - name: Generate OpenAPI asset for docs site
         run: |
           mkdir -p docs/assets/openapi
-          uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-core-openapi.json
+          uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-platform-openapi.json
 
       - name: Build site (strict)
         run: uv run mkdocs build --strict

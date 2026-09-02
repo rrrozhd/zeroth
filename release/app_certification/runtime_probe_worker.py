@@ -10,10 +10,10 @@ from pathlib import Path
 
 def probe_runtime_extras(zeroth_version: str) -> None:
     """Require the exact installed distribution and its Regulus capabilities."""
-    distribution = importlib.metadata.distribution("zeroth-core")
+    distribution = importlib.metadata.distribution("zeroth-platform")
     if distribution.version != zeroth_version:
         raise ValueError(
-            f"runtime zeroth-core version mismatch: {distribution.version} != {zeroth_version}"
+            f"runtime zeroth-platform version mismatch: {distribution.version} != {zeroth_version}"
         )
     site_packages = Path(distribution.locate_file("")).resolve()
     modules = [

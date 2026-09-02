@@ -234,10 +234,11 @@ def _validate_sbom(path: Path, candidate: CandidateIdentity) -> None:
     ):
         raise ValueError("SBOM package inventory is missing or malformed")
     if not any(
-        item.get("name") == "zeroth-core" and item.get("versionInfo") == candidate.zeroth_version
+        item.get("name") == "zeroth-platform"
+        and item.get("versionInfo") == candidate.zeroth_version
         for item in packages
     ):
-        raise ValueError("SBOM package inventory does not contain the declared zeroth-core")
+        raise ValueError("SBOM package inventory does not contain the declared zeroth-platform")
 
 
 def validate_evidence(report: CertificationReport, root: Path) -> None:

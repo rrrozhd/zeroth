@@ -9,7 +9,7 @@ subject/cohort, and time, then backtests a cost-saving change before rollout.
 
 [Source](https://github.com/rrrozhd/zeroth) ·
 [Releases](https://github.com/rrrozhd/zeroth/releases) ·
-[PyPI](https://pypi.org/project/zeroth-core/) ·
+[PyPI](https://pypi.org/project/zeroth-platform/) ·
 [Issues](https://github.com/rrrozhd/zeroth/issues) ·
 [Changelog](https://github.com/rrrozhd/zeroth/blob/main/CHANGELOG.md)
 
@@ -32,7 +32,7 @@ the service.
 
 !!! note "PyPI"
     The published `zeroth-core` package is a stale `0.1.0` placeholder (verified
-    2026-08-24). It is also the preserved local platform, not the lean customer
+    2026-09-02). It is also the preserved local platform, not the lean customer
     SDK. Do not install it for the current source tree.
 
 !!! note "Docs for the current source tree"

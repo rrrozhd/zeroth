@@ -1,12 +1,12 @@
-# Contributing to zeroth-core
+# Contributing to zeroth-platform
 
-Thanks for your interest in contributing to `zeroth-core`! This guide covers
+Thanks for your interest in contributing to `zeroth-platform`! This guide covers
 everything you need to get a local dev environment running, submit a pull
 request, and file issues.
 
 ## Development setup
 
-`zeroth-core` uses [`uv`](https://docs.astral.sh/uv/) as its package manager
+`zeroth-platform` uses [`uv`](https://docs.astral.sh/uv/) as its package manager
 and task runner.
 
 ```bash
@@ -68,13 +68,13 @@ https://github.com/rrrozhd/zeroth/issues
 When reporting a bug, include:
 
 - Steps to reproduce (a minimal snippet is ideal)
-- The `zeroth-core` version (`python -c "from importlib.metadata import version; print(version('zeroth-core'))"`)
+- The `zeroth-platform` version (`python -c "from importlib.metadata import version; print(version('zeroth-platform'))"`)
 - Your Python version (`python --version`) and operating system
 - The full traceback, if any
 
 ## License
 
-`zeroth-core` is distributed under the Apache License 2.0. See the
+`zeroth-platform` is distributed under the Apache License 2.0. See the
 [LICENSE](LICENSE) file for the full text.
 
 By contributing to this repository, you agree that your contributions will

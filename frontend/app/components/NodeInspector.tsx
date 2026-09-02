@@ -85,7 +85,7 @@ export const FIELD_SPECS: Record<string, Field[]> = {
   // Imported, never authored here. Every field is locked: the node is pinned to
   // a schema digest the runtime re-checks against the live server before it will
   // call anything, so an edit made on the canvas would break the run rather than
-  // change it. Re-import with `zeroth-core mcp-import` to change a pin.
+  // change it. Re-import with `zeroth mcp-import` to change a pin.
   mcp_tool: [
     {
       key: "server_ref",

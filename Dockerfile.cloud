@@ -13,10 +13,10 @@ LABEL org.opencontainers.image.version=0.25.7.3
 
 RUN useradd --create-home --uid 10001 zeroth
 COPY requirements-image.txt /tmp/requirements-image.txt
-COPY --from=builder /dist/zeroth_core-*.whl /opt/zeroth/wheel/
+COPY --from=builder /dist/zeroth_platform-*.whl /opt/zeroth/wheel/
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         -r /tmp/requirements-image.txt \
-    && pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_core-*.whl \
+    && pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_platform-*.whl \
     && rm /tmp/requirements-image.txt
 
 ENV PORT=8000

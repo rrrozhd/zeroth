@@ -358,7 +358,7 @@ class GraphValidator:
                     f"agent {node.node_id!r} declares inline mcp_servers, which is "
                     "deprecated: the server's command is author-controlled and its tools "
                     "are unpinned. Register the server with an operator (POST "
-                    "/v1/mcp/servers) and import its tools with `zeroth-core mcp-import`"
+                    "/v1/mcp/servers) and import its tools with `zeroth mcp-import`"
                 ),
                 graph_id=graph_id,
                 node_id=node.node_id,
@@ -402,7 +402,7 @@ class GraphValidator:
         MCPToolNode``, not just the former. While this checked only executable
         units, an ``mcp_tool`` target contributed nothing here, so an agent was
         never required at publish to hold what the runner gate demands: exactly
-        what ``zeroth-core mcp-import`` produces, which writes the spawn pair
+        what ``zeroth mcp-import`` produces, which writes the spawn pair
         onto the ``mcp_tool`` node and nothing onto the agent, published with
         zero errors and was then denied at its first tool call.
 

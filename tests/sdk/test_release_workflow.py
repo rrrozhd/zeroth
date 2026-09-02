@@ -18,7 +18,7 @@ def test_sdk_release_workflow_uses_registry_scoped_oidc_publishers() -> None:
 
     assert "workflow_dispatch:" in workflow
     assert "push:" in workflow
-    assert "pull_request:" in workflow
+    assert "pull_request:" not in workflow
     assert "environment: testpypi" in workflow
     assert "environment: pypi" in workflow
     assert workflow.count("id-token: write") == 2
@@ -28,14 +28,17 @@ def test_sdk_release_workflow_uses_registry_scoped_oidc_publishers() -> None:
     assert workflow.count("github.event_name == 'workflow_dispatch'") == 3
 
 
-def test_sdk_release_builds_once_and_preserves_the_pypi_release_hold() -> None:
+def test_sdk_release_builds_once_and_honors_the_release_marker() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
+    metadata = tomllib.loads(SDK_PYPROJECT.read_text(encoding="utf-8"))
 
     assert "name: zeroth-sdk-dist" in workflow
     assert "uv build packaging/sdk --out-dir dist/zeroth-sdk" in workflow
     assert "tool.zeroth.release.publish" in workflow
     assert "SDK production publishing remains blocked" in workflow
     assert "needs: [build]" in workflow
+    assert metadata["project"]["version"] == "0.1.0"
+    assert metadata["tool"]["zeroth"]["release"]["publish"] is True
 
 
 def test_sdk_readme_documents_truthful_pypi_and_testpypi_install_paths() -> None:
@@ -50,8 +53,9 @@ def test_sdk_readme_documents_truthful_pypi_and_testpypi_install_paths() -> None
     assert f"zeroth-sdk=={version}" in readme
     assert "release-zeroth-sdk.yml" in readme
     assert "Trusted Publishing" in readme
-    assert "No SDK release is currently available on either index" in readme
-    assert "tool.zeroth.release.publish = false" in readme
+    assert "No SDK release is currently available on either index" not in readme
+    assert "self-hosted" in readme.lower()
+    assert "base_url" in readme
 
 
 def test_root_readme_shows_live_pypi_and_testpypi_package_checks() -> None:

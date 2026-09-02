@@ -11,6 +11,7 @@ from zeroth.check.verdict.models import (
     FaultSummary,
     OrdinarySummary,
     PrerequisiteSummary,
+    ReportMetadata,
     UsageSummary,
 )
 from zeroth.check.verdict.reasons import ReasonCode
@@ -43,6 +44,11 @@ def test_positive_prerequisites_produce_pass() -> None:
     verdict = reduce_verdict([], **_summaries())
     assert verdict.status is CheckStatus.PASS
     assert verdict.exit_code == 0
+
+
+def test_report_metadata_uses_primary_cli_and_accepts_legacy_alias() -> None:
+    assert ReportMetadata().generated_by == "zeroth check"
+    assert ReportMetadata(generated_by="zeroth-core check").generated_by == ("zeroth-core check")
 
 
 @pytest.mark.parametrize(

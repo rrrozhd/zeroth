@@ -55,7 +55,9 @@ def test_deployed_and_full_cover_the_same_scenarios() -> None:
 def test_deployed_gateway_http_is_a_strict_subset_of_full() -> None:
     full = _load("zeroth-v1.json")["scenarios"]["gateway_http"]["steps"]
     deployed = _load("zeroth-deployed-v1.json")["scenarios"]["gateway_http"]["steps"]
-    assert deployed == [s for s in full if s.get("protocol") != "lifecycle" and s.get("expected_status") != 502]
+    assert deployed == [
+        s for s in full if s.get("protocol") != "lifecycle" and s.get("expected_status") != 502
+    ]
 
 
 def test_full_profile_still_demands_the_502_proof() -> None:
@@ -102,7 +104,7 @@ def test_every_shipped_contract_pins_the_live_migration_heads(name: str) -> None
     """A shipped contract must expect the head the service will actually report.
 
     These contracts are not merely fixtures: ``deployed-acceptance.yml`` and the
-    ``release-zeroth-core.yml`` release job both run the CLI against a live
+    ``release-zeroth-platform.yml`` release job both run the CLI against a live
     deployment with ``--contract release/acceptance/contracts/<name>``. A stale pin
     therefore does not fail here -- it fails the release, against a service that is
     behaving correctly, at the one moment the gate is load-bearing.
@@ -134,6 +136,5 @@ def test_shipped_contracts_agree_on_the_migration_heads() -> None:
     reference = revisions[_SHIPPED[0]]
     for name, pinned in revisions.items():
         assert pinned == reference, (
-            f"{name} disagrees with {_SHIPPED[0]} on the migration heads: "
-            f"{pinned} != {reference}"
+            f"{name} disagrees with {_SHIPPED[0]} on the migration heads: {pinned} != {reference}"
         )

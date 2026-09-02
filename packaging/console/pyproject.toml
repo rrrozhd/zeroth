@@ -1,10 +1,10 @@
 [project]
 name = "zeroth-console"
-# Kept in lockstep with the root zeroth-core version; scripts/build_console_dist.sh
+# Kept in lockstep with the root zeroth-platform version; scripts/build_console_dist.sh
 # syncs it from the root pyproject.toml at build time and the release workflow
 # asserts the two match.
 version = "0.25.7.3"
-description = "Bundled web console (static UI) for zeroth-core — install via zeroth-core[console]"
+description = "Bundled web console (static UI) for zeroth-platform — install via zeroth-platform[console]"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"

@@ -74,9 +74,7 @@ def declaration_data() -> dict:
     }
 
 
-def write_semantic_inputs(
-    root: Path, data: dict, *, updates: dict | None = None
-) -> AppDeclaration:
+def write_semantic_inputs(root: Path, data: dict, *, updates: dict | None = None) -> AppDeclaration:
     """Write a static certification contract bound to the test checkout sources."""
     declaration = AppDeclaration.model_validate(data)
     (root / "certification.json").write_text(
@@ -112,9 +110,7 @@ def write_semantic_inputs(
         manifest.update(updates)
     semantic = root / declaration.semantic_path
     semantic.parent.mkdir(parents=True, exist_ok=True)
-    semantic.write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    semantic.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return declaration
 
 
@@ -136,7 +132,7 @@ def write_inputs(root: Path) -> None:
         json.dumps(
             {
                 "spdxVersion": "SPDX-2.3",
-                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+                "packages": [{"name": "zeroth-platform", "versionInfo": candidate.zeroth_version}],
             }
         )
         + "\n",
@@ -151,9 +147,7 @@ def passing_executor(argv: list[str], cwd: Path) -> CommandResult:
     check = argv[argv.index("--root") - 1]
     structured: dict = {"check": check, "schema_version": 1, "status": "passed"}
     if "--declaration-json" in argv:
-        declaration = AppDeclaration.model_validate_json(
-            argv[argv.index("--declaration-json") + 1]
-        )
+        declaration = AppDeclaration.model_validate_json(argv[argv.index("--declaration-json") + 1])
         structured = {
             "check": check,
             "evidence": {

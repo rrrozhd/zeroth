@@ -32,7 +32,7 @@ def test_release_rejects_unsigned_promotion_evidence(tmp_path) -> None:
     sbom = tmp_path / "sbom.json"
     sbom.write_text(
         '{"spdxVersion":"SPDX-2.3","packages":'
-        '[{"name":"zeroth-core","versionInfo":"0.23.11"}]}\n',
+        '[{"name":"zeroth-platform","versionInfo":"0.23.11"}]}\n',
         encoding="utf-8",
     )
     evidence.bind_sbom(sbom, candidate)
@@ -90,7 +90,7 @@ def test_release_issues_receipt_only_after_finalized_attestation_verification(
     sbom = tmp_path / "sbom.json"
     sbom.write_text(
         '{"spdxVersion":"SPDX-2.3","packages":'
-        '[{"name":"zeroth-core","versionInfo":"0.23.11"}]}\n',
+        '[{"name":"zeroth-platform","versionInfo":"0.23.11"}]}\n',
         encoding="utf-8",
     )
     evidence.bind_sbom(sbom, candidate)
@@ -210,16 +210,22 @@ def test_promotion_receipt_fails_closed_for_missing_or_unknown_signature() -> No
     signer = signing.EnvHmacSigner(key_id="known", keys={"known": b"secret"})
     signed = receipt.sign_promotion_receipt(payload, signer)
 
-    assert receipt.verify_promotion_receipt(
-        signed.model_copy(
-            update={
-                "signature": None,
-                "signing_key_id": None,
-                "signing_algorithm": None,
-            }
-        ),
-        signer,
-    ) is False
-    assert receipt.verify_promotion_receipt(
-        signed.model_copy(update={"signing_key_id": "unknown"}), signer
-    ) is False
+    assert (
+        receipt.verify_promotion_receipt(
+            signed.model_copy(
+                update={
+                    "signature": None,
+                    "signing_key_id": None,
+                    "signing_algorithm": None,
+                }
+            ),
+            signer,
+        )
+        is False
+    )
+    assert (
+        receipt.verify_promotion_receipt(
+            signed.model_copy(update={"signing_key_id": "unknown"}), signer
+        )
+        is False
+    )

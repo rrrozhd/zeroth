@@ -21,7 +21,7 @@ class SqlAlchemyEconEventEraser:
     """Concrete ``EconEventEraser`` over the econ_plane SQLAlchemy models.
 
     Imports ``zeroth.econ.plane`` lazily for standalone/legacy construction so
-    a plain ``zeroth-core`` install without the ``regulus`` extra never pays for
+    a plain ``zeroth-platform`` install without the ``regulus`` extra never pays for
     it. Live service bootstrap supplies the configured econ session factory
     explicitly and injects the adapter into ``RetentionErasureService``.
     """

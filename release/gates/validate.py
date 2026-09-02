@@ -70,6 +70,7 @@ EVIDENCE_SHAPES = {
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
+
 def _all_digests(values: Any) -> bool:
     return (
         isinstance(values, dict)
@@ -314,7 +315,7 @@ def _economic_acceptance_result(
     expected_digests = set(candidate["package"]["artifacts"].values())
     if (
         not isinstance(package, dict)
-        or package.get("name") != "zeroth-core"
+        or package.get("name") != "zeroth-platform"
         or package.get("version") != candidate["package"]["version"]
     ):
         return GateResult(gate["id"], MISMATCHED, "installed package identity is incorrect")
@@ -333,9 +334,10 @@ def _economic_acceptance_result(
     if diagnostic.get("decision_state") != "economic_risk_observed":
         return GateResult(gate["id"], FAILED, "diagnostic did not expose the seeded economic risk")
     reconciliation = report.get("reconciliation")
-    if not isinstance(reconciliation, dict) or reconciliation.get(
-        "reconciliation_state"
-    ) != "reconciled":
+    if (
+        not isinstance(reconciliation, dict)
+        or reconciliation.get("reconciliation_state") != "reconciled"
+    ):
         return GateResult(gate["id"], FAILED, "provider reconciliation did not close")
     if not _decimal_zero(reconciliation.get("unreconciled_billed_usd")):
         return GateResult(gate["id"], FAILED, "provider reconciliation retained billed variance")

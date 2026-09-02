@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-Interactive reference for the `zeroth-core` FastAPI service. The OpenAPI
+Interactive reference for the `zeroth-platform` FastAPI service. The OpenAPI
 spec is generated from the FastAPI app at docs-build time via
 `scripts/dump_openapi.py` — it is not committed to the repo.
 
@@ -27,7 +27,7 @@ spec is generated from the FastAPI app at docs-build time via
 ## Regenerating the spec locally
 
 ```bash
-uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-core-openapi.json
+uv run python scripts/dump_openapi.py --out docs/assets/openapi/zeroth-platform-openapi.json
 ```
 
 The docs CI runs the same command before `mkdocs build`, so the
@@ -35,4 +35,4 @@ published Swagger UI always reflects the live FastAPI routes.
 
 ## Offline consumption
 
-The raw JSON is served at [`/assets/openapi/zeroth-core-openapi.json`](../assets/openapi/zeroth-core-openapi.json) on the built docs site for tooling that wants to consume it directly (e.g., `openapi-typescript`, Postman import, ReDoc).
+The raw JSON is served at [`/assets/openapi/zeroth-platform-openapi.json`](../assets/openapi/zeroth-platform-openapi.json) on the built docs site for tooling that wants to consume it directly (e.g., `openapi-typescript`, Postman import, ReDoc).

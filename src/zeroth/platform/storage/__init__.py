@@ -5,7 +5,7 @@ of Zeroth use: SQLite for local persistence, Redis connection configuration,
 and JSON helpers for serialization.
 
 Postgres support (``AsyncPostgresDatabase``) is gated behind the ``[memory-pg]``
-extra and imported lazily so that a base ``pip install zeroth-core`` does not
+extra and imported lazily so that a base ``pip install zeroth-platform`` does not
 require ``psycopg`` / ``psycopg-pool`` at import time.
 
 The governed-runtime store factory that used to live beside ``RedisConfig``

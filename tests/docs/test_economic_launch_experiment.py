@@ -12,7 +12,7 @@ def test_launch_uses_one_buyer_problem_channel_and_call_to_action() -> None:
     assert "AI platform engineer" in launch
     assert "Head of AI Platform or FinOps owner" in launch
     assert "Show HN: Zeroth – reconcile AI provider bills to workflow outcomes" in launch
-    assert 'pip install "zeroth-core[regulus]"' in launch
+    assert 'pip install "zeroth-platform[regulus]"' in launch
     assert "zeroth-econ demo" in launch
     assert "economic-diagnostic-pilot.yml" in launch
     assert "one primary earned channel" in launch

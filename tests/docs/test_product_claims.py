@@ -29,7 +29,7 @@ def test_readme_ties_budget_enforcement_to_regulus_extra() -> None:
     budget_line = next(line for line in readme.splitlines() if line.startswith("- **Budgets**"))
     assert "`regulus` extra" in budget_line
     assert "bare install" in budget_line, (
-        "the budget bullet must say what a bare `pip install zeroth-core` does "
+        "the budget bullet must say what a bare `pip install zeroth-platform` does "
         "(no enforcement backend -> caps are not enforced)"
     )
 

@@ -37,7 +37,7 @@ initialization failure aborts startup. The default open-source runtime and UI
 remain separate and unchanged.
 
 Production must also replace `ECP_JWT_SECRET`, use HTTPS, run the economic
-migration chain with `zeroth-core migrate-econ`, and set
+migration chain with `zeroth migrate-econ`, and set
 `ECP_PADDLE_SANDBOX=false` only after the production catalog and webhook
 destination exist. The hosted SKU does not create the broader runtime's service
 tables or `alembic_version`; its schema authority is `alembic_version_econ`.
@@ -111,7 +111,7 @@ the launch if the configured price has different renewal or trial terms.
 The repository does not publish Railway project state or infrastructure as
 code. Create one managed Postgres service and one headless economic-plane API
 built from `Dockerfile.cloud` in the Railway project itself. Configure
-`zeroth-core migrate-econ` as the pre-deploy command and use `/health/ready` as
+`zeroth migrate-econ` as the pre-deploy command and use `/health/ready` as
 the healthcheck. Inspect its JSON as well as its HTTP status because readiness
 intentionally reports dependency degradation in the body.
 

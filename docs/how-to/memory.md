@@ -6,7 +6,7 @@ Memory gives a Zeroth agent somewhere to read and write information that outlive
 
 ## Minimal example
 
-This example uses only the in-process `RunEphemeralMemoryConnector`, which requires no extras — it works out of the box with a plain `pip install zeroth-core`:
+This example uses only the in-process `RunEphemeralMemoryConnector`, which requires no extras — it works out of the box with a plain `pip install zeroth-platform`:
 
 ```python
 import asyncio
@@ -47,9 +47,9 @@ For a durable, multi-run memory, swap the connector for a `KeyValueMemoryConnect
 - **Install only what you use.** The three vector/search connectors are optional extras — pick the one your ops team already runs in production rather than adding a new data store:
 
   ```bash
-  pip install 'zeroth-core[memory-pg]'      # Postgres + pgvector
-  pip install 'zeroth-core[memory-chroma]'  # ChromaDB
-  pip install 'zeroth-core[memory-es]'      # Elasticsearch 8.x
+  pip install 'zeroth-platform[memory-pg]'      # Postgres + pgvector
+  pip install 'zeroth-platform[memory-chroma]'  # ChromaDB
+  pip install 'zeroth-platform[memory-es]'      # Elasticsearch 8.x
   ```
 
   Each extra pulls in the corresponding driver (`psycopg`, `chromadb-client`, `elasticsearch[async]`). Importing the matching connector class before installing its extra raises `ImportError` — this is deliberate so that base installs stay dependency-light.

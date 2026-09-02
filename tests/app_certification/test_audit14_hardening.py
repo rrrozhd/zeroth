@@ -43,9 +43,7 @@ def _recovery(mode: str) -> str:
     )
 
 
-def _runner(
-    root: Path, data: dict, *, semantic_updates: dict | None = None
-) -> CertificationRunner:
+def _runner(root: Path, data: dict, *, semantic_updates: dict | None = None) -> CertificationRunner:
     return CertificationRunner(
         root,
         write_semantic_inputs(root, data, updates=semantic_updates),
@@ -161,7 +159,7 @@ def test_static_optional_contract_never_imports_candidate_targets(
 ) -> None:
     _write_import_attack(tmp_path, recovery)
     data = declaration_data()
-    data["zeroth_version"] = __import__("importlib.metadata").metadata.version("zeroth-core")
+    data["zeroth_version"] = __import__("importlib.metadata").metadata.version("zeroth-platform")
     data["targets"].update(
         {
             "graph_builders": ["candidate:build_graph"],
@@ -214,7 +212,7 @@ def test_committed_reserved_symlink_cannot_block_report_or_upload(tmp_path: Path
     assert result.returncode == 0, result.stderr
     assert json.loads((handoff / "report.json").read_text())["status"] == "failed"
     handoff_step = next(step for step in job["steps"] if step.get("id") == "handoff")
-    assert "HANDOFF_ROOT=\"$RUNNER_TEMP/" in handoff_step["run"]
+    assert 'HANDOFF_ROOT="$RUNNER_TEMP/' in handoff_step["run"]
     assert "HANDOFF_ROOT=$HANDOFF_ROOT" in handoff_step["run"]
     assert '--root "$HANDOFF_ROOT"' in finalizer["run"]
     assert upload["with"]["path"] == "${{ env.HANDOFF_ROOT }}"

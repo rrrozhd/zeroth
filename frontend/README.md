@@ -1,7 +1,7 @@
 # Zeroth Console (frontend)
 
 A Next.js **static export** console for operating and authoring Zeroth apps.
-It talks to the `zeroth-core` HTTP API and runs in two modes from one bundle:
+It talks to the `zeroth-platform` HTTP API and runs in two modes from one bundle:
 mounted by the Zeroth app at `/console`, or hosted standalone. See the
 [Web Console section of the root README](../README.md#web-console) for the
 deploy-mode overview.

@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from zeroth.econ.probabilistic import MigrationObservation
 
 
 class BacktestCase(BaseModel):
@@ -49,6 +50,9 @@ class BacktestComputation(BaseModel):
     savings_pct: float | None = None
     provider_calls: int = Field(default=0, ge=0)
     reasons: list[str] = Field(default_factory=list)
+    incumbent_observations: list[MigrationObservation] = Field(default_factory=list, max_length=25)
+    candidate_observations: list[MigrationObservation] = Field(default_factory=list, max_length=25)
+    period_request_counts: list[int] = Field(default_factory=list, max_length=366)
 
 
 class EconomicBacktest(BaseModel):
@@ -71,4 +75,7 @@ class EconomicBacktest(BaseModel):
     savings_pct: float | None = None
     constraints: EconomicConstraints
     reasons: list[str] = Field(default_factory=list)
+    incumbent_observations: list[MigrationObservation] = Field(default_factory=list, max_length=25)
+    candidate_observations: list[MigrationObservation] = Field(default_factory=list, max_length=25)
+    period_request_counts: list[int] = Field(default_factory=list, max_length=366)
     evaluated_at: datetime

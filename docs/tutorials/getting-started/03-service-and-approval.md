@@ -100,7 +100,7 @@ should wire OAuth/JWT via `ServiceAuthConfig.from_env()`; see the
 
 You have just:
 
-1. Installed `zeroth-core` in a clean venv.
+1. Installed `zeroth-platform` in a clean venv.
 2. Built and run a governed graph embedded as a library.
 3. Submitted a run against Zeroth's HTTP API, paused on a human
    approval gate, and resolved it through the real

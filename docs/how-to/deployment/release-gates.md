@@ -70,7 +70,7 @@ Run the same set on demand from the Actions tab (**Release gates** →
 
 ### Release candidate
 
-Publishing a GitHub Release runs `release-zeroth-core.yml`. It builds once,
+Publishing a GitHub Release runs `release-zeroth-platform.yml`. It builds once,
 calls the nightly workflow to gather gates 1–6 against **that** build, adds
 gates 7–8, and validates:
 
@@ -93,17 +93,17 @@ promotion through the same evidence validator as every other gate.
 ### Manual
 
 One piece of evidence has no automatic producer: the promotion signoff. After
-a successful candidate run, a named human dispatches **Promote zeroth-core**
+a successful candidate run, a named human dispatches **Promote zeroth-platform**
 with three required values:
 
-- the successful `Release zeroth-core` run ID;
+- the successful `Release zeroth-platform` run ID;
 - the exact `sha256:` candidate digest printed by that run; and
 - the confirmation phrase `PROMOTE_ZEROTH_CORE`.
 
 The `pypi` GitHub environment is the second manual stop and should require a
 reviewer. The promotion job downloads only that run's `promotion-candidate`
 artifact, verifies the workflow name, successful conclusion, run commit,
-candidate digest, and two expected `zeroth-core` distributions, then checks out
+candidate digest, and two expected `zeroth-platform` distributions, then checks out
 the candidate commit. Only then does it record the dispatching actor, run ID,
 digest, and confirmation as `promotion-signoff.md`, validate all nine gates,
 seal and attest the final evidence, and publish those exact bytes to PyPI.
@@ -248,8 +248,8 @@ uv build
 WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
 SDIST=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)
 uv run python release/gates/cli.py identity \
-  --artifact "zeroth-core-wheel=$WHEEL" \
-  --artifact "zeroth-core-sdist=$SDIST" \
+  --artifact "zeroth-platform-wheel=$WHEEL" \
+  --artifact "zeroth-platform-sdist=$SDIST" \
   --compatibility release/langgraph/compatibility.json \
   --output release/evidence/candidate-identity.json
 docker run --rm --platform linux/arm64 --network "$NETWORK" --cpus 2 --memory 8g \
@@ -308,7 +308,7 @@ file blocks the candidate verdict.
 
 ## Economic-debugger release path
 
-`release-zeroth-core.yml` publishes only the headless `zeroth-core` sdist and
+`release-zeroth-platform.yml` publishes only the headless `zeroth-platform` sdist and
 wheel. After TestPyPI publication it downloads that exact wheel from TestPyPI,
 checks its digest against the candidate identity, installs the `regulus`
 backend extra, and proves the economic product through public interfaces:
@@ -333,13 +333,13 @@ Before the first economic-debugger release, the operator must:
 1. Push the reviewed commit, run **Release gates**, and require every produced
    candidate gate to pass against that commit.
 2. Confirm the `testpypi` and `pypi` GitHub environments are registered as
-   trusted publishers: TestPyPI must authorize `release-zeroth-core.yml` with
+   trusted publishers: TestPyPI must authorize `release-zeroth-platform.yml` with
    environment `testpypi`, while PyPI must authorize
-   `promote-zeroth-core.yml` with environment `pypi`. Repository configuration
+   `promote-zeroth-platform.yml` with environment `pypi`. Repository configuration
    is external state and cannot be inferred from this checkout.
 3. Publish the matching `v<version>` GitHub Release to produce the TestPyPI
    candidate and immutable promotion handoff.
-4. Dispatch **Promote zeroth-core** with that successful run ID, its exact
+4. Dispatch **Promote zeroth-platform** with that successful run ID, its exact
    candidate digest, and `PROMOTE_ZEROTH_CORE`; approve the `pypi` environment
    only after reviewing the retained evidence.
 

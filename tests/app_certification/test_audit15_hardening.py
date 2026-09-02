@@ -55,9 +55,9 @@ def test_descriptor_scan_has_no_candidate_serialization_channel(tmp_path: Path) 
     data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
 
     declaration = write_semantic_inputs(tmp_path, data)
-    result = CertificationRunner(
-        tmp_path, declaration, check_python=Path(sys.executable)
-    )._command("contracts")
+    result = CertificationRunner(tmp_path, declaration, check_python=Path(sys.executable))._command(
+        "contracts"
+    )
 
     assert result.status == "passed", result.detail
 
@@ -140,9 +140,9 @@ def test_candidate_source_policy_allows_guarded_cli_exit(tmp_path: Path) -> None
     data["targets"]["contracts"] = "candidate:CONTRACTS"
     declaration = write_semantic_inputs(tmp_path, data)
 
-    result = CertificationRunner(
-        tmp_path, declaration, check_python=Path(sys.executable)
-    )._command("contracts")
+    result = CertificationRunner(tmp_path, declaration, check_python=Path(sys.executable))._command(
+        "contracts"
+    )
 
     assert result.status == "passed", result.detail
 
@@ -158,7 +158,7 @@ def test_optional_contract_does_not_offer_a_candidate_import_channel(tmp_path: P
         encoding="utf-8",
     )
     data = declaration_data()
-    data["zeroth_version"] = importlib.metadata.version("zeroth-core")
+    data["zeroth_version"] = importlib.metadata.version("zeroth-platform")
     data["targets"].update(
         {
             "graph_builders": ["candidate_attack:build_graph"],
@@ -170,9 +170,9 @@ def test_optional_contract_does_not_offer_a_candidate_import_channel(tmp_path: P
     )
 
     declaration = write_semantic_inputs(tmp_path, data)
-    result = CertificationRunner(
-        tmp_path, declaration, check_python=Path(sys.executable)
-    )._command("optional-extras")
+    result = CertificationRunner(tmp_path, declaration, check_python=Path(sys.executable))._command(
+        "optional-extras"
+    )
 
     assert result.status == "passed", result.detail
 
@@ -215,9 +215,9 @@ def test_descriptor_scan_cannot_forge_reducer_resolution(tmp_path: Path) -> None
         tmp_path, data, updates={"reducers": ["reducer_attack.merge"]}
     )
 
-    result = CertificationRunner(
-        tmp_path, declaration, check_python=Path(sys.executable)
-    )._command("graph")
+    result = CertificationRunner(tmp_path, declaration, check_python=Path(sys.executable))._command(
+        "graph"
+    )
 
     assert result.status == "failed"
     assert "reducer" in result.detail.lower()

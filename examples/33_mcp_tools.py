@@ -10,7 +10,7 @@ closes that gap by importing each tool as its own graph node: an
 pinned name, description, input schema and ``schema_hash``, attached to
 an agent by a ``kind="tool"`` edge.
 
-This file builds the exact graph shape ``zeroth-core mcp-import`` writes,
+This file builds the exact graph shape ``zeroth mcp-import`` writes,
 then runs the real publish-time
 :class:`~zeroth.runtime.graph_validation.GraphValidator` over four
 variants of it so you can watch the capability model accept and refuse:
@@ -39,7 +39,7 @@ stubbed by ``_grants_for`` below, which is exactly the seam
 ``bootstrap_service`` fills with a real database lookup. To exercise a
 live server instead, register one (``POST /v1/mcp/servers`` with an
 ``mcp:admin`` key), list its tools (``GET /v1/mcp/servers/<ref>/tools``)
-and import them with ``zeroth-core mcp-import``. See
+and import them with ``zeroth mcp-import``. See
 ``docs/how-to/mcp.md`` for the full register → import → publish → run
 walkthrough.
 
@@ -93,7 +93,7 @@ async def _grants_for(server_ref: str) -> set[Capability] | None:
 
 
 def build_imported_graph(*, node_caps: list[str], agent_caps: list[str]) -> Graph:
-    """The shape ``zeroth-core mcp-import`` writes, with both grants parametrised.
+    """The shape ``zeroth mcp-import`` writes, with both grants parametrised.
 
     The importer appends one ``MCPToolNode`` per tool carrying the floor, a
     ``kind="tool"`` edge from the agent, and an ``AgentToolBinding`` so the
@@ -193,7 +193,7 @@ async def _run() -> int:
     print("  command/args/env: operator-owned, never written by the graph author")
 
     await _report(
-        "1. What `zeroth-core mcp-import` writes",
+        "1. What `zeroth mcp-import` writes",
         node_caps=FLOOR,
         agent_caps=FLOOR,
     )

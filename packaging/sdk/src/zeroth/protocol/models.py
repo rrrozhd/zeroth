@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ExecutionEvent(BaseModel):
@@ -113,3 +113,234 @@ class DecisionScheduleRequest(BaseModel):
     outcome_type: str = Field(default="accepted", min_length=1)
     policy: DecisionPolicy = Field(default_factory=DecisionPolicy)
     interval_minutes: int = Field(default=1440, ge=60, le=43_200)
+
+
+class MigrationObservation(BaseModel):
+    """One paired incumbent or candidate outcome used by the scenario engine."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str = Field(min_length=1, max_length=128)
+    cohort: str = Field(default="default", min_length=1, max_length=128)
+    cost_usd: Decimal = Field(ge=0)
+    latency_ms: int = Field(ge=0)
+    accepted: bool
+    critical_error: bool = False
+    source: str = Field(min_length=1, max_length=64)
+
+
+class MetricForecastReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    metric: str
+    calibration_state: Literal["unknown", "calibrated", "warning", "critical"]
+    drift_state: Literal["unknown", "stable", "warning", "critical"]
+    interval_coverage: float | None = Field(default=None, ge=0, le=1)
+    relative_bias: float | None = None
+    relative_residual_shift: float | None = Field(default=None, ge=0)
+    calibration_periods: int = Field(ge=0)
+    assessed_at: datetime | None = None
+
+
+class ForecastReadiness(BaseModel):
+    """Calibration and drift status attached to a forecast evidence snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    calibration_state: Literal["unknown", "calibrated", "warning", "critical"] = "unknown"
+    drift_state: Literal["unknown", "stable", "warning", "critical"] = "unknown"
+    interval_coverage: float | None = Field(default=None, ge=0, le=1)
+    relative_bias: float | None = None
+    relative_residual_shift: float | None = Field(default=None, ge=0)
+    calibration_periods: int = Field(default=0, ge=0)
+    assessed_at: datetime | None = None
+    metrics: list[MetricForecastReadiness] = Field(default_factory=list)
+    missing_metrics: list[str] = Field(default_factory=list)
+
+
+class ForecastCalibrationObservation(BaseModel):
+    """One forecast-versus-observed period used for server-side calibration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    forecast_id: str = Field(min_length=1, max_length=128)
+    metric: str = Field(min_length=1, max_length=128)
+    predicted_mean: float
+    predicted_low: float
+    predicted_high: float
+    observed: float
+    observed_at: datetime
+
+    @model_validator(mode="after")
+    def _interval_is_ordered(self) -> ForecastCalibrationObservation:
+        if self.predicted_low > self.predicted_mean or self.predicted_mean > self.predicted_high:
+            raise ValueError("forecast interval must contain predicted_mean")
+        return self
+
+
+class MigrationEvidence(BaseModel):
+    """Paired model evidence and observed demand periods for one workload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workload: str = Field(min_length=1)
+    incumbent_model: str = Field(min_length=1)
+    candidate_model: str = Field(min_length=1)
+    incumbent: list[MigrationObservation] = Field(min_length=1, max_length=5_000)
+    candidate: list[MigrationObservation] = Field(min_length=1, max_length=5_000)
+    period_request_counts: list[int] = Field(min_length=1, max_length=366)
+    readiness: ForecastReadiness = Field(default_factory=ForecastReadiness)
+
+    @model_validator(mode="after")
+    def _evidence_is_identified(self) -> MigrationEvidence:
+        if any(value <= 0 for value in self.period_request_counts):
+            raise ValueError("period_request_counts must be positive")
+        for label, observations in (
+            ("incumbent", self.incumbent),
+            ("candidate", self.candidate),
+        ):
+            case_ids = [observation.case_id for observation in observations]
+            if len(case_ids) != len(set(case_ids)):
+                raise ValueError(f"{label} case_id values must be unique")
+        incumbent_cohorts = {row.case_id: row.cohort for row in self.incumbent}
+        candidate_cohorts = {row.case_id: row.cohort for row in self.candidate}
+        if any(
+            incumbent_cohorts[case_id] != candidate_cohorts[case_id]
+            for case_id in incumbent_cohorts.keys() & candidate_cohorts.keys()
+        ):
+            raise ValueError("paired case cohorts must match")
+        return self
+
+
+class CohortRoutingAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str = Field(min_length=1, max_length=128)
+    cohort_candidate_shares: dict[str, float] = Field(min_length=1, max_length=32)
+
+    @model_validator(mode="after")
+    def _shares_are_bounded(self) -> CohortRoutingAction:
+        if any(
+            not cohort or share < 0 or share > 1
+            for cohort, share in self.cohort_candidate_shares.items()
+        ):
+            raise ValueError("cohort candidate shares must be between 0 and 1")
+        if not any(self.cohort_candidate_shares.values()):
+            raise ValueError("routing action must send some traffic to the candidate")
+        return self
+
+
+class MigrationRiskPolicy(BaseModel):
+    """Customer-owned chance constraints and CVaR limit for model migration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_paired_cases: int = Field(default=30, ge=1)
+    candidate_shares: list[float] = Field(
+        default_factory=lambda: [0.1, 0.25, 0.5, 1.0], max_length=8
+    )
+    routing_actions: list[CohortRoutingAction] = Field(default_factory=list, max_length=8)
+    max_quality_drop: float = Field(default=0.01, ge=0, le=1)
+    max_p95_latency_ms: int = Field(default=2_000, ge=0)
+    max_critical_error_rate: float = Field(default=0.005, gt=0, le=1)
+    max_constraint_breach_probability: float = Field(default=0.05, ge=0, le=1)
+    cvar_confidence: float = Field(default=0.95, gt=0, lt=1)
+    max_cvar_loss_usd: Decimal = Field(default=Decimal("0"))
+    critical_error_penalty_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    require_calibrated_forecast: bool = True
+    allow_drift_warning: bool = False
+
+    @model_validator(mode="after")
+    def _shares_are_ordered_and_bounded(self) -> MigrationRiskPolicy:
+        if not self.candidate_shares:
+            raise ValueError("candidate_shares must not be empty")
+        if any(share <= 0 or share > 1 for share in self.candidate_shares):
+            raise ValueError("candidate_shares must be greater than 0 and at most 1")
+        if self.candidate_shares != sorted(set(self.candidate_shares)):
+            raise ValueError("candidate_shares must be unique and increasing")
+        return self
+
+
+class ProbabilisticMigrationRequest(BaseModel):
+    """Request a retained Monte Carlo model-migration recommendation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence: MigrationEvidence
+    policy: MigrationRiskPolicy
+    calibration_observations: list[ForecastCalibrationObservation] = Field(
+        default_factory=list, max_length=200
+    )
+    simulations: int = Field(default=10_000, ge=100, le=10_000)
+    seed: int = Field(default=7, ge=0, le=2_147_483_647)
+
+
+class MigrationEvidenceSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workload: str = Field(min_length=1, max_length=128)
+    incumbent_model: str = Field(min_length=1, max_length=255)
+    candidate_model: str = Field(min_length=1, max_length=255)
+    outcome_type: str = Field(default="accepted", min_length=1, max_length=64)
+    lookback_days: int = Field(default=30, ge=1, le=366)
+    cohort_dimension: str = Field(default="cohort", min_length=1, max_length=128)
+
+
+class MigrationEvidenceRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_source: MigrationEvidenceSource
+    policy: MigrationRiskPolicy
+    simulations: int = Field(default=10_000, ge=100, le=10_000)
+    seed: int = Field(default=7, ge=0, le=2_147_483_647)
+
+
+class ProbabilisticDecisionScheduleRequest(MigrationEvidenceRefreshRequest):
+    interval_minutes: int = Field(default=1440, ge=60, le=43_200)
+
+
+class RandomizedRolloutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision_id: str = Field(min_length=1, max_length=40)
+    candidate_probability: float = Field(default=0.5, gt=0, lt=1)
+    cohort_candidate_probabilities: dict[str, float] = Field(default_factory=dict)
+    minimum_per_arm: int = Field(default=100, ge=20, le=10_000)
+
+
+class RandomizedRolloutAssignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    subject_id: str = Field(min_length=1, max_length=192)
+    cohort: str = Field(default="default", min_length=1, max_length=128)
+
+
+class RandomizedRolloutVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome_type: str = Field(default="accepted", min_length=1, max_length=64)
+    bootstrap_samples: int = Field(default=2_000, ge=100, le=10_000)
+    seed: int = Field(default=7, ge=0, le=2_147_483_647)
+
+
+class DecisionReportCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class DecisionReportDeliveryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recipients: list[str] = Field(min_length=1, max_length=20)
+    delivery_mode: Literal["attachment", "link"] = "link"
+
+    @model_validator(mode="after")
+    def _recipients_look_like_email_addresses(self) -> DecisionReportDeliveryRequest:
+        if any(
+            not recipient.strip()
+            or "@" not in recipient
+            or recipient.startswith("@")
+            or recipient.endswith("@")
+            for recipient in self.recipients
+        ):
+            raise ValueError("recipients must contain email addresses")
+        return self

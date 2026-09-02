@@ -542,7 +542,7 @@ jobs:
             --app-repository app \
             --app-commit "$APP_COMMIT" \
             --zeroth-version "$VERSION" --zeroth-commit "$ZEROTH_REF" \
-            --certifier-wheel evidence/materials/zeroth-core.whl \
+            --certifier-wheel evidence/materials/zeroth-platform.whl \
             --requirements-lock evidence/materials/requirements-image.txt \
             --image-config evidence/materials/image-config.json \
             --wheel-installation evidence/materials/installed-wheel.json \
@@ -627,7 +627,7 @@ jobs:
             --app-repository app \
             --app-commit '${{ github.sha }}' --zeroth-version "$VERSION" \
             --zeroth-commit '${{ inputs.zeroth_ref }}' \
-            --certifier-wheel evidence/materials/zeroth-core.whl \
+            --certifier-wheel evidence/materials/zeroth-platform.whl \
             --requirements-lock evidence/materials/requirements-image.txt \
             --image-config evidence/materials/image-config.json \
             --wheel-installation evidence/materials/installed-wheel.json \

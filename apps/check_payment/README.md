@@ -5,6 +5,6 @@ tape-only replays, and all four mandatory faults. The live implementation writes
 ledger and is reachable solely during an explicitly consented `check record` command.
 
 ```bash
-zeroth-core check run --config apps/check_payment/zeroth-check.yaml \
+zeroth check run --config apps/check_payment/zeroth-check.yaml \
   --report-dir .zeroth/check/payment-report
 ```

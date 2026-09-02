@@ -169,8 +169,7 @@ def test_sqlite_converges_instead_of_refusing(tmp_path: Path, monkeypatch) -> No
         with engine.connect() as connection:
             assert database_module._missing_chain_owned_columns(connection) == ()
             subscription_columns = {
-                column["name"]
-                for column in inspect(connection).get_columns("cloud_subscriptions")
+                column["name"] for column in inspect(connection).get_columns("cloud_subscriptions")
             }
             assert "billing_provider" in subscription_columns
             assert "last_billing_event_at" in subscription_columns
@@ -226,7 +225,7 @@ def test_non_sqlite_startup_refuses_a_schema_the_chain_has_not_reached(
             "execution_events.usage_measurement (revision 20260812_04)",
             "policy_actions.enforcement_action_id (revision 20260812_06)",
             "'20260811_04'",  # applied
-            "'20260901_17'",  # shipped head
+            "'20260902_20'",  # shipped head
             "behind",
             "alembic upgrade head",
             "postgresql",

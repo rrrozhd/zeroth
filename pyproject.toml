@@ -1,5 +1,5 @@
 [project]
-name = "zeroth-core"
+name = "zeroth-platform"
 version = "0.25.7.3"
 description = "Economic debugger and governed change evidence for production AI workflows"
 readme = "README.md"
@@ -56,6 +56,7 @@ dependencies = [
 ]
 
 [project.scripts]
+zeroth = "zeroth.service.cli:main"
 zeroth-core = "zeroth.service.cli:main"
 zeroth-econ = "zeroth.service.economic_diagnostic_cli:main"
 zeroth-auth-rejection-sink = "zeroth.eval.auth_rejection_sink:main"
@@ -112,6 +113,7 @@ regulus = [
     "email-validator>=2.2",
     "numpy>=1.26",
     "dramatiq>=1.17",
+    "reportlab>=4.4,<5",
 ]
 # Bundled web console UI (packaging/console): the built static export as a
 # companion package so no Node toolchain is needed. Deliberately NOT part of
@@ -120,14 +122,14 @@ console = [
     "zeroth-console",
 ]
 all = [
-    "zeroth-core[langgraph-gateway]",
-    "zeroth-core[memory-pg]",
-    "zeroth-core[memory-chroma]",
-    "zeroth-core[memory-es]",
-    "zeroth-core[dispatch]",
-    "zeroth-core[sandbox]",
-    "zeroth-core[otel]",
-    "zeroth-core[regulus]",
+    "zeroth-platform[langgraph-gateway]",
+    "zeroth-platform[memory-pg]",
+    "zeroth-platform[memory-chroma]",
+    "zeroth-platform[memory-es]",
+    "zeroth-platform[dispatch]",
+    "zeroth-platform[sandbox]",
+    "zeroth-platform[otel]",
+    "zeroth-platform[regulus]",
 ]
 docs = [
     "mkdocs>=1.6,<2.0",

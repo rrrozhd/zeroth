@@ -166,15 +166,15 @@ def _record_digest(payload: bytes) -> str:
 
 
 def _wheel_fixture(tmp_path: Path) -> tuple[Path, Path]:
-    wheel = tmp_path / "zeroth_core-0.23.9.9-py3-none-any.whl"
+    wheel = tmp_path / "zeroth_platform-0.23.9.9-py3-none-any.whl"
     site_packages = tmp_path / "site-packages"
     members = {
         "zeroth/__init__.py": b'__version__ = "0.23.9.9"\n',
-        "zeroth_core-0.23.9.9.dist-info/METADATA": (
-            b"Metadata-Version: 2.1\nName: zeroth-core\nVersion: 0.23.9.9\n"
+        "zeroth_platform-0.23.9.9.dist-info/METADATA": (
+            b"Metadata-Version: 2.1\nName: zeroth-platform\nVersion: 0.23.9.9\n"
         ),
     }
-    record_name = "zeroth_core-0.23.9.9.dist-info/RECORD"
+    record_name = "zeroth_platform-0.23.9.9.dist-info/RECORD"
     record = (
         "".join(
             f"{name},{_record_digest(payload)},{len(payload)}\n"
@@ -233,7 +233,7 @@ def test_exact_wheel_contents_are_verified_outside_the_candidate(tmp_path: Path)
     assert certification_main(argv) == 0
     proof = json.loads(manifest.read_text(encoding="utf-8"))
     assert proof["wheel_sha256"] == file_digest(wheel)
-    assert proof["package"] == "zeroth-core"
+    assert proof["package"] == "zeroth-platform"
 
     (site_packages / "zeroth/__init__.py").write_text("tampered\n", encoding="utf-8")
     assert certification_main(argv) == 2

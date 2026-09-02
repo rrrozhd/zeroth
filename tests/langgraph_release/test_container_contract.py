@@ -35,7 +35,7 @@ def test_container_and_compatibility_contract() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     compose_config = yaml.safe_load(compose)
-    workflow = (ROOT / ".github/workflows/release-zeroth-core.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/release-zeroth-platform.yml").read_text(encoding="utf-8")
     workflow_config = yaml.safe_load(workflow)
     runtime = (ROOT / "release/langgraph/runtime_smoke.py").read_text(encoding="utf-8")
     manifest = json.loads(
@@ -62,9 +62,9 @@ def test_container_and_compatibility_contract() -> None:
 
     assert f"org.opencontainers.image.version={evidence_version}" in dockerfile
     assert compose_config["services"]["zeroth"]["image"] == (
-        f"zeroth-core:${{ZEROTH_IMAGE_TAG:-{evidence_version}}}"
+        f"zeroth-platform:${{ZEROTH_IMAGE_TAG:-{evidence_version}}}"
     )
-    assert compatibility["resolved"]["zeroth_core"] == evidence_version
+    assert compatibility["resolved"]["zeroth_platform"] == evidence_version
     assert manifest["release"] == evidence_version
     assert benchmark["release"] == evidence_version
     assert f'CURRENT_RELEASE = "{evidence_version}"' in benchmark_source
@@ -74,7 +74,7 @@ def test_container_and_compatibility_contract() -> None:
         for step in workflow_config["jobs"]["container-evidence"]["steps"]
         if step.get("name") == "Build release image"
     )
-    assert build_step["run"] == "docker build -t zeroth-core:${{ github.ref_name }} ."
+    assert build_step["run"] == "docker build -t zeroth-platform:${{ github.ref_name }} ."
     assert "langgraph-fixture:" in compose
     assert 'ZEROTH_LANGGRAPH_GATEWAY__ENABLED: "true"' in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL:" in compose
@@ -89,16 +89,16 @@ def test_container_and_compatibility_contract() -> None:
     assert "name: langgraph-junit" in workflow
     assert "output-file: release/langgraph/image.spdx.json" in workflow
     assert "steps.provenance.outputs.bundle-path" in workflow
-    assert "subject-path: zeroth-core-image.tar" in workflow
-    assert "gh attestation verify zeroth-core-image.tar" in workflow
+    assert "subject-path: zeroth-platform-image.tar" in workflow
+    assert "gh attestation verify zeroth-platform-image.tar" in workflow
     assert '--repo "$GITHUB_REPOSITORY"' in workflow
     assert "release/langgraph/attestation-verification.json" in workflow
     assert workflow.index("gh attestation verify") < workflow.index("validate --phase final")
     assert "image-evidence" in workflow
     assert "image-packages" in workflow
     assert "--sbom release/langgraph/image.spdx.json" in workflow
-    assert "--artifact zeroth-core-image.tar" in workflow
-    assert "subject-name: zeroth-core" in workflow
+    assert "--artifact zeroth-platform-image.tar" in workflow
+    assert "subject-name: zeroth-platform" in workflow
     assert "subject-digest: ${{ steps.images.outputs.digest }}" in workflow
     assert "validate --phase final" in workflow
     assert '"docker", "run"' in runtime and "importlib.metadata" in runtime
@@ -108,7 +108,7 @@ def test_container_and_compatibility_contract() -> None:
         "release/langgraph/attestation-verification.json"
         in manifest["evidence"]["security"]["artifacts"]
     )
-    assert "zeroth-core seed-demo" in workflow
+    assert "zeroth seed-demo" in workflow
     assert "timeout 15" in workflow
     assert "Input should be 'sqlite' or 'postgres'" in workflow
     assert "gateway-smoke" in workflow
@@ -134,7 +134,7 @@ def test_installed_image_packages_are_compared_with_compatibility(
     compatibility = json.loads(compatibility_path.read_text(encoding="utf-8"))
     resolved = compatibility["resolved"]
     packages = {
-        "zeroth-core": resolved["zeroth_core"],
+        "zeroth-platform": resolved["zeroth_platform"],
         "langchain": resolved["langchain"],
         "langgraph": resolved["langgraph"],
         "langgraph-checkpoint-sqlite": resolved["langgraph_checkpoint_sqlite"],
@@ -143,7 +143,7 @@ def test_installed_image_packages_are_compared_with_compatibility(
         "websockets": resolved["websockets"],
     }
     labels = {
-        "org.opencontainers.image.version": resolved["zeroth_core"],
+        "org.opencontainers.image.version": resolved["zeroth_platform"],
         "io.zeroth.langgraph.adapter.version": compatibility["adapter_version"],
         "io.zeroth.langgraph.compatibility.langgraph": resolved["langgraph"],
         "io.zeroth.langgraph.compatibility.agent-server": resolved["agent_server"],
@@ -164,7 +164,7 @@ def test_installed_image_packages_are_compared_with_compatibility(
             {
                 "images": [
                     {
-                        "reference": f"zeroth-core:v{resolved['zeroth_core']}",
+                        "reference": f"zeroth-platform:v{resolved['zeroth_platform']}",
                         "digest": "sha256:" + "d" * 64,
                     }
                 ]
@@ -173,14 +173,14 @@ def test_installed_image_packages_are_compared_with_compatibility(
         encoding="utf-8",
     )
     evidence = installed_package_evidence(
-        f"zeroth-core:v{resolved['zeroth_core']}", compatibility_path, image_path
+        f"zeroth-platform:v{resolved['zeroth_platform']}", compatibility_path, image_path
     )
     assert evidence["packages"] == packages
 
     packages["langgraph"] = "0.0.0"
     with pytest.raises(RuntimeError, match="installed image packages"):
         installed_package_evidence(
-            f"zeroth-core:v{resolved['zeroth_core']}", compatibility_path, image_path
+            f"zeroth-platform:v{resolved['zeroth_platform']}", compatibility_path, image_path
         )
 
 
@@ -231,7 +231,7 @@ def test_image_dependencies_are_hash_locked(tmp_path: Path) -> None:
 
     locked = requirements.read_text(encoding="utf-8")
     assert " --hash=sha256:" in locked
-    assert "-e " not in locked and "zeroth-core" not in locked
+    assert "-e " not in locked and "zeroth-platform" not in locked
 
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY requirements-image.txt" in dockerfile
@@ -274,7 +274,7 @@ def test_container_docs_build_the_candidate_wheel_first() -> None:
     deployment = (ROOT / "docs/how-to/deployment/langgraph-release.md").read_text(encoding="utf-8")
 
     assert "uv build --wheel" in readme
-    assert readme.index("uv build --wheel") < readme.index("docker build -t zeroth-core .")
+    assert readme.index("uv build --wheel") < readme.index("docker build -t zeroth-platform .")
     assert "uv build --wheel" in deployment
     assert deployment.index("uv build --wheel") < deployment.index("docker compose build")
     version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
@@ -289,12 +289,14 @@ def test_container_docs_build_the_candidate_wheel_first() -> None:
 
 def test_release_image_consumes_and_compares_the_candidate_wheel() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY dist/zeroth_core-*.whl /opt/zeroth/wheel/" in dockerfile
-    assert "pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_core-*.whl" in dockerfile
+    assert "COPY dist/zeroth_platform-*.whl /opt/zeroth/wheel/" in dockerfile
+    assert (
+        "pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_platform-*.whl" in dockerfile
+    )
     assert "python -m build" not in dockerfile and "ARG ZEROTH_EXTRAS" not in dockerfile
 
     workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/release-zeroth-core.yml").read_text(encoding="utf-8")
+        (ROOT / ".github/workflows/release-zeroth-platform.yml").read_text(encoding="utf-8")
     )
     steps = workflow["jobs"]["container-evidence"]["steps"]
     build_index = next(
@@ -306,7 +308,7 @@ def test_release_image_consumes_and_compares_the_candidate_wheel() -> None:
     assert len(dist_downloads) == 1
     assert dist_downloads[0][0] < build_index
     assert dist_downloads[0][1]["with"]["path"] == "dist/"
-    assert steps[build_index]["run"] == "docker build -t zeroth-core:${{ github.ref_name }} ."
+    assert steps[build_index]["run"] == "docker build -t zeroth-platform:${{ github.ref_name }} ."
 
     comparison = next(
         step for step in steps if step.get("name") == "Compare image wheel with release candidate"

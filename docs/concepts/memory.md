@@ -10,7 +10,7 @@ Agents need somewhere to remember things, but "somewhere" is not one thing. Ephe
 
 Memory solves this by making the *interface* uniform (read, write, delete, scope, target) while letting the *backing store* vary. An agent asks the registry for "the memory bound to my thread" and gets back a connector; it doesn't know or care whether that connector is writing to a dict, to Postgres, to Chroma, or to Elasticsearch.
 
-The three optional flavours — pgvector, chroma, elasticsearch — are packaged as installable extras (`memory-pg`, `memory-chroma`, `memory-es`) so a base install of `zeroth-core` stays dependency-light.
+The three optional flavours — pgvector, chroma, elasticsearch — are packaged as installable extras (`memory-pg`, `memory-chroma`, `memory-es`) so a base install of `zeroth-platform` stays dependency-light.
 
 ## Where it fits
 

@@ -61,7 +61,7 @@ def _bound_report(tmp_path: Path) -> tuple[CandidateIdentity, Path, Path]:
         json.dumps(
             {
                 "spdxVersion": "SPDX-2.3",
-                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+                "packages": [{"name": "zeroth-platform", "versionInfo": candidate.zeroth_version}],
             }
         ),
         encoding="utf-8",
@@ -153,7 +153,7 @@ def test_finalization_rejects_payload_only_envelope(
         None,
         [],
         [{"name": "other", "versionInfo": "1"}],
-        [{"name": "zeroth-core", "versionInfo": "0.0"}],
+        [{"name": "zeroth-platform", "versionInfo": "0.0"}],
     ],
 )
 def test_sbom_requires_zeroth_package_inventory(tmp_path: Path, packages) -> None:
@@ -164,7 +164,7 @@ def test_sbom_requires_zeroth_package_inventory(tmp_path: Path, packages) -> Non
     sbom = tmp_path / "sbom.json"
     sbom.write_text(json.dumps(document), encoding="utf-8")
     bind_sbom(sbom, candidate)
-    with pytest.raises(ValueError, match="package|zeroth-core|inventory"):
+    with pytest.raises(ValueError, match="package|zeroth-platform|inventory"):
         validate_evidence_subject("sbom", sbom, candidate)
 
 
@@ -218,7 +218,7 @@ def test_provenance_round_trips_all_material_bindings(tmp_path: Path) -> None:
         json.dumps(
             {
                 "spdxVersion": "SPDX-2.3",
-                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+                "packages": [{"name": "zeroth-platform", "versionInfo": candidate.zeroth_version}],
             }
         ),
         encoding="utf-8",

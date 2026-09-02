@@ -38,9 +38,9 @@ def _sha256(path: Path) -> str:
 
 
 def _one_wheel(directory: str | Path) -> Path:
-    wheels = sorted(Path(directory).glob("zeroth_core-*.whl"))
+    wheels = sorted(Path(directory).glob("zeroth_platform-*.whl"))
     if len(wheels) != 1:
-        raise ValueError("wheel directory must contain exactly one zeroth_core wheel")
+        raise ValueError("wheel directory must contain exactly one zeroth_platform wheel")
     return wheels[0]
 
 

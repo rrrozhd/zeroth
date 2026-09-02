@@ -59,9 +59,9 @@ def candidate() -> dict:
         "commit": COMMIT,
         "package": {
             "version": "0.19",
-            "artifacts": {"zeroth_core-0.19-py3-none-any.whl": WHEEL_DIGEST},
+            "artifacts": {"zeroth_platform-0.19-py3-none-any.whl": WHEEL_DIGEST},
         },
-        "image": {"zeroth-core:v0.19": IMAGE_DIGEST},
+        "image": {"zeroth-platform:v0.19": IMAGE_DIGEST},
         "configuration": CONFIG_DIGEST,
         "compatibility": COMPAT_DIGEST,
     }
@@ -107,7 +107,7 @@ def write_record(root: Path, gate: dict, candidate: dict, **overrides) -> Path:
                     "status": "passed",
                     "candidate_digest": identity_digest(candidate),
                     "package": {
-                        "name": "zeroth-core",
+                        "name": "zeroth-platform",
                         "version": candidate["package"]["version"],
                         "artifact_digest": next(iter(candidate["package"]["artifacts"].values())),
                     },

@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          WHEEL=$(ls dist/zeroth_core-*.whl | head -1)
+          WHEEL=$(ls dist/zeroth_platform-*.whl | head -1)
           echo "Using wheel: ${WHEEL}"
           VENV="/tmp/venv-${{ matrix.extra }}"
           python -m venv "${VENV}"
@@ -120,7 +120,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          WHEEL=$(ls dist/zeroth_core-*.whl | head -1)
+          WHEEL=$(ls dist/zeroth_platform-*.whl | head -1)
           python -m venv /tmp/venv-console
           # shellcheck disable=SC1090
           source /tmp/venv-console/bin/activate

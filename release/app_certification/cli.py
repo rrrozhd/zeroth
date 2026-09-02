@@ -546,7 +546,7 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
 def _retain_build_materials(root: Path, args: argparse.Namespace) -> None:
     materials = root / "materials"
     materials.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(args.certifier_wheel, materials / "zeroth-core.whl")
+    shutil.copyfile(args.certifier_wheel, materials / "zeroth-platform.whl")
     shutil.copyfile(args.requirements_lock, materials / "requirements-image.txt")
     shutil.copyfile(args.wheel_installation, materials / "installed-wheel.json")
     shutil.copyfile(args.image_config, materials / "image-config.json")

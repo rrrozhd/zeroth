@@ -204,7 +204,7 @@ EXPECTED: dict[str, list[tuple[str, str, str, tuple[str, ...], str | None, str |
         (
             "error",
             "deprecated_mcp_servers",
-            "agent 'agent' declares inline mcp_servers, which is deprecated: the server's command is author-controlled and its tools are unpinned. Register the server with an operator (POST /v1/mcp/servers) and import its tools with `zeroth-core mcp-import`",
+            "agent 'agent' declares inline mcp_servers, which is deprecated: the server's command is author-controlled and its tools are unpinned. Register the server with an operator (POST /v1/mcp/servers) and import its tools with `zeroth mcp-import`",
             ("nodes", "agent", "agent", "mcp_servers"),
             "agent",
             None,
@@ -286,9 +286,7 @@ EXPECTED: dict[str, list[tuple[str, str, str, tuple[str, ...], str | None, str |
 async def test_validator_output_is_unchanged(case: str) -> None:
     graph = BUILDERS[case]().model_copy(
         update={
-            "execution_settings": ExecutionSettings.model_construct(
-                sequential_join_enabled=False
-            )
+            "execution_settings": ExecutionSettings.model_construct(sequential_join_enabled=False)
         }
     )
     report = await GraphValidator().validate(graph)

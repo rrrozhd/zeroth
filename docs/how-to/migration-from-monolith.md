@@ -2,7 +2,7 @@
 
 If you have a codebase that imports from the pre-split monolithic `zeroth.*`
 namespace, this guide walks you through the one-time upgrade to the published
-`zeroth-core` package. The current package is split across `zeroth.runtime`,
+`zeroth-platform` package. The current package is split across `zeroth.runtime`,
 `zeroth.contracts`, `zeroth.integrations`, `zeroth.governance`, and other
 subsystems, so migrate each import by responsibility rather than applying a
 global prefix rename.
@@ -11,9 +11,9 @@ The legacy import surface was removed in release 0.17.
 
 ## TL;DR
 
-1. `pip install zeroth-core` (drop any local/path dependency on `zeroth`)
+1. `pip install zeroth-platform` (drop any local/path dependency on `zeroth`)
 2. Rewrite imports using the mappings below
-3. Drop any local path dependency on `econ-instrumentation-sdk`; its code is bundled in `zeroth-core`
+3. Drop any local path dependency on `econ-instrumentation-sdk`; its code is bundled in `zeroth-platform`
 4. Check renamed environment variables against the generated configuration reference
 5. Rebuild your Docker image against the new package name
 
@@ -30,9 +30,9 @@ pip install -e /path/to/zeroth-monolith
 **After** (PyPI):
 
 ```bash
-pip install zeroth-core
+pip install zeroth-platform
 # Or with extras matching your backend:
-pip install "zeroth-core[memory-pg,dispatch]"
+pip install "zeroth-platform[memory-pg,dispatch]"
 ```
 
 If your project pins zeroth in `pyproject.toml`, change:
@@ -45,11 +45,11 @@ dependencies = [
 
 # After
 dependencies = [
-  "zeroth-core",
+  "zeroth-platform",
 ]
 ```
 
-The distribution name is `zeroth-core`; its modules share the PEP 420 `zeroth`
+The distribution name is `zeroth-platform`; its modules share the PEP 420 `zeroth`
 namespace. See the root `pyproject.toml` for the current optional extras.
 
 ## 2. Rewrite imports
@@ -90,7 +90,7 @@ substring search cannot distinguish a migrated import from a legacy one.
 
 ## 3. Econ instrumentation path swap
 
-The instrumentation client now ships inside `zeroth-core`. Remove any local
+The instrumentation client now ships inside `zeroth-platform`. Remove any local
 `econ-instrumentation-sdk` dependency from your own `pyproject.toml`:
 
 ```toml
@@ -102,7 +102,7 @@ dependencies = [
 
 # After
 dependencies = [
-  "zeroth-core",
+  "zeroth-platform",
 ]
 ```
 
@@ -136,14 +136,14 @@ COPY zeroth-monolith /src/zeroth-monolith
 RUN pip install -e /src/zeroth-monolith
 
 # After
-RUN pip install "zeroth-core[memory-pg,dispatch]"
+RUN pip install "zeroth-platform[memory-pg,dispatch]"
 ```
 
 **Retag** your image (the tag is arbitrary — pick one that matches your registry layout):
 
 ```bash
-docker build -t registry.example.com/myorg/myapp:zeroth-core .
-docker push registry.example.com/myorg/myapp:zeroth-core
+docker build -t registry.example.com/myorg/myapp:zeroth-platform .
+docker push registry.example.com/myorg/myapp:zeroth-platform
 ```
 
 Update your Kubernetes manifests, Helm values, or Docker Compose files to point
@@ -151,7 +151,7 @@ at the new tag, and apply any environment-variable changes found in Section 4.
 
 ## 6. Verify the migration
 
-Run your existing test suite. The rename is purely structural with zero functional changes, so all passing tests on the monolith should still pass on `zeroth-core` without edits:
+Run your existing test suite. The rename is purely structural with zero functional changes, so all passing tests on the monolith should still pass on `zeroth-platform` without edits:
 
 ```bash
 uv run pytest
@@ -160,7 +160,7 @@ uv run pytest
 Then smoke-test the service layer against your own graphs:
 
 ```bash
-uv run zeroth-core serve  # or however you launch your app
+uv run zeroth serve  # or however you launch your app
 curl http://localhost:8000/health/ready
 ```
 
@@ -170,12 +170,12 @@ import still needs the responsibility-based rewrite from Section 2.
 
 ## Troubleshooting
 
-- **`ModuleNotFoundError: No module named 'zeroth'`** after install — PEP 420 namespace package: make sure nothing in your project creates a `zeroth/__init__.py` that would shadow the namespace. The `zeroth-core` wheel intentionally ships no top-level `__init__.py`.
+- **`ModuleNotFoundError: No module named 'zeroth'`** after install — PEP 420 namespace package: make sure nothing in your project creates a `zeroth/__init__.py` that would shadow the namespace. The `zeroth-platform` wheel intentionally ships no top-level `__init__.py`.
 - **`ModuleNotFoundError: No module named 'zeroth.orchestrator'`** — rename missed; check for imports in `.pyi` stub files, `conftest.py`, plugin entry points in `pyproject.toml`, and any YAML/TOML config referencing dotted module paths.
 - **Duplicate `econ-instrumentation-sdk` install** — remove the old local or
-  published dependency; the implementation is part of `zeroth-core`.
+  published dependency; the implementation is part of `zeroth-platform`.
 - **My CI is still using the monolith wheel** — clear its pip cache, require
-  `zeroth-core`, and regenerate the lock file with your package manager.
+  `zeroth-platform`, and regenerate the lock file with your package manager.
 - **Docstring or comment still names an old module** — update prose references
   by hand after the import migration.
 

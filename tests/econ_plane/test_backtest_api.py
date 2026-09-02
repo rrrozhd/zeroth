@@ -33,6 +33,27 @@ class _Executor:
             candidate_error_rate=0.0,
             savings_pct=61.0,
             provider_calls=20,
+            incumbent_observations=[
+                {
+                    "case_id": f"invoice-{index}",
+                    "cost_usd": "1.00",
+                    "latency_ms": 700,
+                    "accepted": True,
+                    "source": "backtest:model-a",
+                }
+                for index in range(5)
+            ],
+            candidate_observations=[
+                {
+                    "case_id": f"invoice-{index}",
+                    "cost_usd": "0.50",
+                    "latency_ms": 500,
+                    "accepted": True,
+                    "source": "backtest:model-b",
+                }
+                for index in range(5)
+            ],
+            period_request_counts=[100],
         )
 
 
@@ -125,6 +146,8 @@ def test_backtest_is_retained_without_raw_cases_and_duplicate_is_free(
         serialized = str(record.report_json)
         assert "invoice 1" not in serialized
         assert "Extract invoice fields" not in serialized
+        assert len(record.report_json["candidate_observations"]) == 5
+        assert record.report_json["period_request_counts"] == [100]
         usage = db.get(CloudUsageCounter, ("tenant-a", record.period_start, "backtest_calls"))
         assert usage is not None
         assert usage.quantity == 20

@@ -82,7 +82,7 @@ class UsageSummary(BaseModel):
 
 class ReportMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    generated_by: Literal["zeroth-core check"] = "zeroth-core check"
+    generated_by: Literal["zeroth check", "zeroth-core check"] = "zeroth check"
     artifact_refs: tuple[str, ...] = ()
 
 

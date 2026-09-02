@@ -13,7 +13,7 @@ COMPATIBILITY = json.loads(
     (ROOT / "release/langgraph/compatibility.json").read_text(encoding="utf-8")
 )
 RELEASE = COMPATIBILITY["release"]
-IMAGE_REFERENCE = f"zeroth-core:v{RELEASE}"
+IMAGE_REFERENCE = f"zeroth-platform:v{RELEASE}"
 IMAGE_ID = "sha256:" + "a" * 64
 # The application image is built and not pushed before evidence generation, so
 # the daemon reports no registry digest for it and its digest *is* its config id.
@@ -110,13 +110,13 @@ def _junit_xml() -> str:
 # Source: https://github.com/anchore/syft/blob/main/syft/format/spdxjson/testdata/snapshot/TestSPDXJSONImageEncoder.golden
 def _syft_spdx_golden_fragment() -> dict[str, object]:
     digest = IMAGE_DIGEST.removeprefix("sha256:")
-    root_id = "SPDXRef-DocumentRoot-Image-zeroth-core"
+    root_id = "SPDXRef-DocumentRoot-Image-zeroth-platform"
     return {
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": IMAGE_REFERENCE,
-        "documentNamespace": "https://anchore.com/syft/image/zeroth-core-test-golden",
+        "documentNamespace": "https://anchore.com/syft/image/zeroth-platform-test-golden",
         "creationInfo": {"creators": ["Organization: Anchore, Inc", "Tool: syft-v0.42.0-bogus"]},
         "packages": [
             {
@@ -129,19 +129,19 @@ def _syft_spdx_golden_fragment() -> dict[str, object]:
                     {
                         "referenceCategory": "PACKAGE-MANAGER",
                         "referenceType": "purl",
-                        "referenceLocator": f"pkg:oci/zeroth-core@sha256%3A{digest}",
+                        "referenceLocator": f"pkg:oci/zeroth-platform@sha256%3A{digest}",
                     }
                 ],
             },
             {
-                "name": "zeroth-core",
-                "SPDXID": "SPDXRef-Package-python-zeroth-core",
+                "name": "zeroth-platform",
+                "SPDXID": "SPDXRef-Package-python-zeroth-platform",
                 "versionInfo": RELEASE,
                 "externalRefs": [
                     {
                         "referenceCategory": "PACKAGE-MANAGER",
                         "referenceType": "purl",
-                        "referenceLocator": f"pkg:pypi/zeroth-core@{RELEASE}",
+                        "referenceLocator": f"pkg:pypi/zeroth-platform@{RELEASE}",
                     }
                 ],
             },
@@ -169,13 +169,13 @@ def _verification_receipt(digest: str = ARCHIVE_DIGEST) -> list[dict[str, object
                 "initiator": "",
             },
             "verificationResult": {
-                "signature": {"certificate": {"sourceRepository": "zeroth-core"}},
+                "signature": {"certificate": {"sourceRepository": "zeroth-platform"}},
                 "verifiedTimestamps": [{"type": "transparency-log"}],
                 "statement": {
                     "_type": "https://in-toto.io/Statement/v1",
                     "subject": [
                         {
-                            "name": "zeroth-core-image.tar",
+                            "name": "zeroth-platform-image.tar",
                             "digest": {"sha256": digest.removeprefix("sha256:")},
                         }
                     ],
@@ -190,7 +190,7 @@ def _verification_receipt(digest: str = ARCHIVE_DIGEST) -> list[dict[str, object
 def _image_packages() -> dict[str, object]:
     resolved = COMPATIBILITY["resolved"]
     packages = {
-        "zeroth-core": RELEASE,
+        "zeroth-platform": RELEASE,
         "langchain": resolved["langchain"],
         "langgraph": resolved["langgraph"],
         "langgraph-checkpoint-sqlite": resolved["langgraph_checkpoint_sqlite"],
@@ -222,7 +222,7 @@ def _write_generated_evidence(evidence_root: Path) -> None:
             "schema_version": 2,
             "release": RELEASE,
             "artifact": {
-                "path": "zeroth-core-image.tar",
+                "path": "zeroth-platform-image.tar",
                 "digest": ARCHIVE_DIGEST,
             },
             # Every digest here is now tied to a field `docker image inspect`
@@ -459,7 +459,9 @@ def test_final_release_evidence_rejects_a_consistently_tampered_image_digest(
     compatibility_path = evidence_root / "release/langgraph/image-compatibility.json"
     compatibility = json.loads(compatibility_path.read_text(encoding="utf-8"))
     application = next(
-        image for image in compatibility["images"] if image["reference"].startswith("zeroth-core:")
+        image
+        for image in compatibility["images"]
+        if image["reference"].startswith("zeroth-platform:")
     )
     application["digest"] = forged
     assert application["id"] != forged
@@ -483,9 +485,7 @@ def test_final_release_evidence_rejects_a_base_image_digest_from_no_registry(
     evidence_root, manifest = _final_tree(tmp_path)
     path = evidence_root / "release/langgraph/image-compatibility.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
-    base = next(
-        image for image in payload["images"] if image["reference"].startswith("postgres:")
-    )
+    base = next(image for image in payload["images"] if image["reference"].startswith("postgres:"))
     base["repo_digests"] = []
     path.write_text(json.dumps(payload), encoding="utf-8")
 

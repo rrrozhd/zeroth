@@ -1,4 +1,4 @@
-"""Tests for the zeroth-core CLI seed path and the agent-runner factory."""
+"""Tests for the zeroth-platform CLI seed path and the agent-runner factory."""
 
 from __future__ import annotations
 
@@ -244,7 +244,7 @@ async def test_build_runners_recurses_through_scoped_deployed_subgraphs(sqlite_d
                     input_contract_ref="contract://input",
                     output_contract_ref="contract://output",
                     subgraph=SubgraphNodeData(graph_ref="grand-dep"),
-                )
+                ),
             ],
             edges=[
                 Edge(
@@ -295,6 +295,7 @@ def test_cli_parser_has_expected_subcommands():
     from zeroth.service.cli import build_parser
 
     parser = build_parser()
+    assert parser.prog == "zeroth"
     args = parser.parse_args(["seed-demo", "--deployment-ref", "x", "--model", "m"])
     assert args.deployment_ref == "x"
     assert args.model == "m"

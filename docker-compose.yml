@@ -1,12 +1,12 @@
 # Zeroth on Postgres. `docker compose up` then seed once:
-#   docker compose run --rm zeroth zeroth-core seed-demo
+#   docker compose run --rm zeroth zeroth seed-demo
 #
 # Set ZEROTH_SERVICE_API_KEYS_JSON (and provider keys like OPENAI_API_KEY)
 # in an .env file next to this compose file.
 
 services:
   zeroth:
-    image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.23.0}
+    image: zeroth-platform:${ZEROTH_IMAGE_TAG:-0.23.0}
     build:
       context: .
     init: true

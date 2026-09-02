@@ -41,7 +41,7 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 # 2. Repository — reuse the current checkout when run from inside one.
-if [ -f pyproject.toml ] && grep -q '^name = "zeroth-core"' pyproject.toml 2>/dev/null; then
+if [ -f pyproject.toml ] && grep -q '^name = "zeroth-platform"' pyproject.toml 2>/dev/null; then
   say "Running from an existing checkout: $(pwd)"
 elif [ -d "$DIR/.git" ]; then
   say "Using existing checkout: $DIR"

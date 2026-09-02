@@ -1,6 +1,6 @@
 # Troubleshoot Check verdicts
 
-Start with `zeroth-core check explain REPORT/check-verdict.json`; it reads the verdict only and
+Start with `zeroth check explain REPORT/check-verdict.json`; it reads the verdict only and
 never reruns the target.
 
 | Reason | Meaning / first check |

@@ -10,8 +10,14 @@ import logging
 from sqlalchemy import select
 
 from zeroth.econ.plane.database import SessionLocal
-from zeroth.econ.plane.decisioning.models import DecisionSchedule
-from zeroth.econ.plane.decisioning.service import run_due_decision_schedules
+from zeroth.econ.plane.decisioning.models import (
+    DecisionSchedule,
+    ProbabilisticDecisionSchedule,
+)
+from zeroth.econ.plane.decisioning.service import (
+    run_due_decision_schedules,
+    run_due_probabilistic_decision_schedules,
+)
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
 
@@ -21,7 +27,7 @@ logger = logging.getLogger(__name__)
 def eligible_tenant_ids(now: datetime) -> list[str]:
     """Discover due ownership internally; caller input never chooses tenants."""
     with SessionLocal() as db:
-        return list(
+        deterministic = set(
             db.scalars(
                 select(DecisionSchedule.tenant_id)
                 .where(
@@ -32,6 +38,17 @@ def eligible_tenant_ids(now: datetime) -> list[str]:
                 .order_by(DecisionSchedule.tenant_id)
             )
         )
+        probabilistic = set(
+            db.scalars(
+                select(ProbabilisticDecisionSchedule.tenant_id)
+                .where(
+                    ProbabilisticDecisionSchedule.active.is_(True),
+                    ProbabilisticDecisionSchedule.next_run_at <= now,
+                )
+                .distinct()
+            )
+        )
+        return sorted(deterministic | probabilistic)
 
 
 def run_due_decision_scans(*, now: datetime | None = None) -> int:
@@ -45,8 +62,10 @@ def run_due_decision_scans(*, now: datetime | None = None) -> int:
             else TenantWideScopeContext(tenant_id=tenant_id)
         )
         with SessionLocal() as db:
+            scoped = ScopedSession(db, scope)
+            completed += len(run_due_decision_schedules(scoped, now=current))
             completed += len(
-                run_due_decision_schedules(ScopedSession(db, scope), now=current)
+                run_due_probabilistic_decision_schedules(scoped, now=current)
             )
     return completed
 

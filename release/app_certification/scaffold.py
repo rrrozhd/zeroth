@@ -69,11 +69,12 @@ def _dockerfile(module: str, version: str) -> str:
 LABEL org.opencontainers.image.version={version}
 RUN useradd --create-home --uid 10001 app
 COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt
-COPY .zeroth-certifier/zeroth_core-{version}-py3-none-any.whl /opt/zeroth/
+COPY .zeroth-certifier/zeroth_platform-{version}-py3-none-any.whl /opt/zeroth/
 RUN pip install --no-cache-dir \\
         --require-hashes --only-binary=:all: \\
         -r /tmp/requirements-image.txt \\
-    && pip install --no-cache-dir --no-deps /opt/zeroth/zeroth_core-{version}-py3-none-any.whl \\
+    && pip install --no-cache-dir --no-deps \\
+        /opt/zeroth/zeroth_platform-{version}-py3-none-any.whl \\
     && rm /tmp/requirements-image.txt
 WORKDIR /opt/app
 COPY {module_path} /opt/app/{module_path}
@@ -187,6 +188,7 @@ if __name__ == "__main__":
 
 def _certification_entrypoint(app_name: str) -> str:
     return _CERTIFICATION_ENTRYPOINT.replace("APP_NAME = None", f"APP_NAME = {app_name!r}")
+
 
 _MIGRATIONS = '''"""Apply the generated application's database migrations."""
 

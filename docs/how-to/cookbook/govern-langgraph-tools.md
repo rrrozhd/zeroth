@@ -44,7 +44,7 @@ count.
 The integration's dependencies are an opt-in extra:
 
 ```bash
-pip install "zeroth-core[langgraph]"
+pip install "zeroth-platform[langgraph]"
 ```
 
 That brings `langchain` (which ships `langchain.agents`, the middleware base
@@ -53,7 +53,7 @@ pause seam). Both are still imported **lazily** — `import
 zeroth.integrations.langgraph` pulls in neither, so installing without the extra
 leaves the rest of the package working and only `govern_tools`, `GovernedTool`
 and `ZerothMiddleware` unavailable. The extra is how you opt in, not a licence to
-import eagerly. (It is deliberately not part of `zeroth-core[all]`, which is the
+import eagerly. (It is deliberately not part of `zeroth-platform[all]`, which is the
 headless runtime bundle.)
 
 ## Recipe

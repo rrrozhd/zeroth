@@ -62,7 +62,7 @@ export const NODE_META: Record<string, { blurb: string; help: string; icon: stri
   },
   mcp_tool: {
     blurb: "Call a pinned MCP tool",
-    help: "Calls one tool on an MCP server an operator registered. The tool's schema was frozen when it was imported, and the runtime refuses to call it if the live server no longer matches. Unlike a code or executable-unit step, an MCP call is delivered at-least-once: it carries no operation receipt, so a retry can run it twice with nothing to suppress the duplicate. Imported with `zeroth-core mcp-import`, not authored here.",
+    help: "Calls one tool on an MCP server an operator registered. The tool's schema was frozen when it was imported, and the runtime refuses to call it if the live server no longer matches. Unlike a code or executable-unit step, an MCP call is delivered at-least-once: it carries no operation receipt, so a retry can run it twice with nothing to suppress the duplicate. Imported with `zeroth mcp-import`, not authored here.",
     icon: "M4 7h16 M4 12h16 M4 17h10 M18 15l3 3-3 3",
     color: "var(--nt-mcp)",
   },

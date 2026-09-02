@@ -1,9 +1,9 @@
 """Static assets for the Zeroth Console.
 
 This package carries the built Next.js static export of the console UI so a
-plain ``pip install "zeroth-core[console]"`` can serve the console at
-``/console`` without a Node toolchain or a source checkout. zeroth-core
-discovers it via :func:`console_dir` (see ``zeroth.core.service.console_ui``).
+plain ``pip install "zeroth-platform[console]"`` can serve the console at
+``/console`` without a Node toolchain or a source checkout. ``zeroth-platform``
+discovers it via :func:`console_dir` (see ``zeroth.service.api.console_ui``).
 """
 
 from __future__ import annotations

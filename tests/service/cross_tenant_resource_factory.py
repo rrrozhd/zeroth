@@ -478,6 +478,8 @@ def _mapped_column_value(column: Any, token: str) -> Any:
         return 1.0
     if python_type is bool:
         return False
+    if python_type is bytes:
+        return f"matrix-{token}-{column.name}".encode()
     if python_type is dict:
         return {}
     if python_type is list:
@@ -508,6 +510,8 @@ def _different_mapped_value(column: Any, original: Any) -> Any:
         return {"changed": True}
     if isinstance(original, list):
         return ["changed"]
+    if isinstance(original, bytes):
+        return original + b"-changed"
     return f"{original}-changed"
 
 

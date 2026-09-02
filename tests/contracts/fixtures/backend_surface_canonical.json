@@ -174,7 +174,7 @@
       "legacy_ids": [],
       "module": "zeroth.check.verdict.models",
       "name": "ReportMetadata",
-      "signature": "(*, generated_by: Literal['zeroth-core check'] = 'zeroth-core check', artifact_refs: tuple[str, ...] = ()) -> None"
+      "signature": "(*, generated_by: Literal['zeroth check', 'zeroth-core check'] = 'zeroth check', artifact_refs: tuple[str, ...] = ()) -> None"
     },
     {
       "evidence": [
@@ -12585,6 +12585,7 @@
     },
     {
       "evidence": [
+        "entry_point:zeroth",
         "entry_point:zeroth-core"
       ],
       "kind": "function",
@@ -12959,6 +12960,86 @@
       "kind": "class",
       "legacy_ids": [],
       "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "MigrationEvidenceRefreshRequest",
+      "signature": "(*, evidence_source: zeroth.econ.plane.decisioning.schemas.MigrationEvidenceSource, policy: zeroth.econ.probabilistic.MigrationRiskPolicy, simulations: Annotated[int, Ge(ge=100), Le(le=10000)] = 10000, seed: Annotated[int, Ge(ge=0), Le(le=2147483647)] = 7) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "MigrationEvidenceSource",
+      "signature": "(*, workload: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)], incumbent_model: Annotated[str, MinLen(min_length=1), MaxLen(max_length=255)], candidate_model: Annotated[str, MinLen(min_length=1), MaxLen(max_length=255)], outcome_type: Annotated[str, MinLen(min_length=1), MaxLen(max_length=64)] = 'accepted', lookback_days: Annotated[int, Ge(ge=1), Le(le=366)] = 30, cohort_dimension: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)] = 'cohort') -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "ProbabilisticDecisionScheduleCreate",
+      "signature": "(*, evidence_source: zeroth.econ.plane.decisioning.schemas.MigrationEvidenceSource, policy: zeroth.econ.probabilistic.MigrationRiskPolicy, interval_minutes: Annotated[int, Ge(ge=60), Le(le=43200)] = 1440, simulations: Annotated[int, Ge(ge=100), Le(le=10000)] = 10000, seed: Annotated[int, Ge(ge=0), Le(le=2147483647)] = 7) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "ProbabilisticDecisionScheduleOut",
+      "signature": "(*, schedule_id: str, evidence_source: zeroth.econ.plane.decisioning.schemas.MigrationEvidenceSource, policy: zeroth.econ.probabilistic.MigrationRiskPolicy, interval_minutes: int, simulations: int, seed: int, active: bool, next_run_at: datetime.datetime, last_run_at: datetime.datetime | None, last_decision_id: str | None, last_error: str | None, created_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "ProbabilisticMigrationRequest",
+      "signature": "(*, evidence: zeroth.econ.probabilistic.MigrationEvidence, policy: zeroth.econ.probabilistic.MigrationRiskPolicy, calibration_observations: Annotated[list[zeroth.econ.probabilistic.ForecastCalibrationObservation], MaxLen(max_length=200)] = <factory>, simulations: Annotated[int, Ge(ge=100), Le(le=10000)] = 10000, seed: Annotated[int, Ge(ge=0), Le(le=2147483647)] = 7) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "RandomizedRolloutAssignmentCreate",
+      "signature": "(*, subject_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=192)], cohort: Annotated[str, MinLen(min_length=1), MaxLen(max_length=128)] = 'default') -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "RandomizedRolloutAssignmentOut",
+      "signature": "(*, subject_id: str, arm: Literal['incumbent', 'candidate'], assigned_model: str, assigned_at: datetime.datetime, rollout_id: str) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "RandomizedRolloutCreate",
+      "signature": "(*, decision_id: Annotated[str, MinLen(min_length=1), MaxLen(max_length=40)], candidate_probability: Annotated[float, Gt(gt=0), Lt(lt=1)] = 0.5, cohort_candidate_probabilities: dict[str, float] = <factory>, minimum_per_arm: Annotated[int, Ge(ge=20), Le(le=10000)] = 100) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "RandomizedRolloutOut",
+      "signature": "(*, rollout_id: str, decision_id: str, workload: str, incumbent_model: str, candidate_model: str, candidate_probability: float, cohort_candidate_probabilities: dict[str, float], minimum_per_arm: int, active: bool, created_at: datetime.datetime) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
+      "name": "RandomizedRolloutVerify",
+      "signature": "(*, outcome_type: Annotated[str, MinLen(min_length=1), MaxLen(max_length=64)] = 'accepted', bootstrap_samples: Annotated[int, Ge(ge=100), Le(le=10000)] = 2000, seed: Annotated[int, Ge(ge=0), Le(le=2147483647)] = 7) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.decisioning.schemas",
       "name": "DecisionScheduleCreate",
       "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], baseline_version: Annotated[str, MinLen(min_length=1)], candidate_version: Annotated[str, MinLen(min_length=1)], outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', policy: zeroth.econ.decisioning.DecisionPolicy = <factory>, interval_minutes: Annotated[int, Ge(ge=60), Le(le=43200)] = 1440) -> None"
     },
@@ -12992,7 +13073,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.backtesting.schemas",
       "name": "BacktestComputation",
-      "signature": "(*, incumbent_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_error_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, savings_pct: float | None = None, provider_calls: Annotated[int, Ge(ge=0)] = 0, reasons: list[str] = <factory>) -> None"
+      "signature": "(*, incumbent_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_error_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, savings_pct: float | None = None, provider_calls: Annotated[int, Ge(ge=0)] = 0, reasons: list[str] = <factory>, incumbent_observations: Annotated[list[zeroth.econ.probabilistic.MigrationObservation], MaxLen(max_length=25)] = <factory>, candidate_observations: Annotated[list[zeroth.econ.probabilistic.MigrationObservation], MaxLen(max_length=25)] = <factory>, period_request_counts: Annotated[list[int], MaxLen(max_length=366)] = <factory>) -> None"
     },
     {
       "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
@@ -13008,7 +13089,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.backtesting.schemas",
       "name": "EconomicBacktest",
-      "signature": "(*, backtest_id: str, request_digest: str, workflow: str, baseline_version: str | None, node_id: str | None, incumbent_model: str | None, candidate_model: str | None, verdict: Literal['pass', 'fail', 'abstain'], recommended_action: Literal['approve_candidate', 'keep_incumbent', 'collect_evidence'], cases: Annotated[int, Ge(ge=0), Le(le=25)], provider_call_credits: Annotated[int, Ge(ge=0)], incumbent_success_rate: float | None = None, candidate_success_rate: float | None = None, candidate_error_rate: float | None = None, savings_pct: float | None = None, constraints: zeroth.econ.plane.backtesting.schemas.EconomicConstraints, reasons: list[str] = <factory>, evaluated_at: datetime.datetime) -> None"
+      "signature": "(*, backtest_id: str, request_digest: str, workflow: str, baseline_version: str | None, node_id: str | None, incumbent_model: str | None, candidate_model: str | None, verdict: Literal['pass', 'fail', 'abstain'], recommended_action: Literal['approve_candidate', 'keep_incumbent', 'collect_evidence'], cases: Annotated[int, Ge(ge=0), Le(le=25)], provider_call_credits: Annotated[int, Ge(ge=0)], incumbent_success_rate: float | None = None, candidate_success_rate: float | None = None, candidate_error_rate: float | None = None, savings_pct: float | None = None, constraints: zeroth.econ.plane.backtesting.schemas.EconomicConstraints, reasons: list[str] = <factory>, incumbent_observations: Annotated[list[zeroth.econ.probabilistic.MigrationObservation], MaxLen(max_length=25)] = <factory>, candidate_observations: Annotated[list[zeroth.econ.probabilistic.MigrationObservation], MaxLen(max_length=25)] = <factory>, period_request_counts: Annotated[list[int], MaxLen(max_length=366)] = <factory>, evaluated_at: datetime.datetime) -> None"
     },
     {
       "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
@@ -13033,6 +13114,38 @@
       "module": "zeroth.econ.plane.billing.schemas",
       "name": "BillingSyncResult",
       "signature": "(*, disposition: Literal['applied', 'duplicate', 'ignored_stale'], provider: str, event_id: str, tenant_id: str) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.reports.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reports.schemas",
+      "name": "DecisionReportCreate",
+      "signature": "() -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.reports.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reports.schemas",
+      "name": "DecisionReportDeliveryCreate",
+      "signature": "(*, recipients: Annotated[list[pydantic.networks.EmailStr], MinLen(min_length=1), MaxLen(max_length=20)], delivery_mode: Literal['attachment', 'link'] = 'link') -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.reports.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reports.schemas",
+      "name": "DecisionReportDeliveryOut",
+      "signature": "(*, delivery_id: str, report_id: str, report_sha256: str, recipients: list[pydantic.networks.EmailStr], delivery_mode: Literal['attachment', 'link'], status: Literal['sent', 'failed'], last_error: str | None, created_at: datetime.datetime, sent_at: datetime.datetime | None) -> None"
+    },
+    {
+      "evidence": ["schema_model:zeroth.econ.plane.reports.schemas"],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.reports.schemas",
+      "name": "DecisionReportOut",
+      "signature": "(*, report_id: str, decision_id: str, template_version: str, media_type: str, sha256: str, download_path: str, created_at: datetime.datetime) -> None"
     }
   ]
 }

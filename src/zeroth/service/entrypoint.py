@@ -1,7 +1,7 @@
 """Production entrypoint for the Zeroth service.
 
 Runs Alembic migrations (SQLite or Postgres), bootstraps the service,
-and starts uvicorn. Invoked by `zeroth-core serve` or directly via
+and starts uvicorn. Invoked by `zeroth serve` or directly via
 `python -m zeroth.service.entrypoint`.
 """
 

@@ -30,7 +30,7 @@ export ZEROTH_DEAD_SETTING=true
 
 Run `python src/zeroth/dead_script.py`.
 
-Install with `pip install "zeroth-core[missing-extra]"`.
+Install with `pip install "zeroth-platform[missing-extra]"`.
 """
 
     assert {
@@ -39,7 +39,7 @@ Install with `pip install "zeroth-core[missing-extra]"`.
     } == {
         ("import", "zeroth.dead_module"),
         ("environment", "ZEROTH_DEAD_SETTING"),
-        ("install-target", "zeroth-core[missing-extra]"),
+        ("install-target", "zeroth-platform[missing-extra]"),
         ("source-path", "src/zeroth/dead_script.py"),
     }
 
@@ -200,14 +200,14 @@ def test_multiline_install_target_is_reported() -> None:
     markdown = """\
 ```bash
 pip install \\
-  "zeroth-core[missing-extra]"
+  "zeroth-platform[missing-extra]"
 ```
 """
 
     assert [
         (violation.line, violation.kind, violation.target)
         for violation in scan_markdown(markdown, "docs/install.md", REPO_ROOT)
-    ] == [(2, "install-target", "zeroth-core[missing-extra]")]
+    ] == [(2, "install-target", "zeroth-platform[missing-extra]")]
 
 
 def test_workspace_install_target_is_resolved() -> None:
@@ -218,6 +218,17 @@ pip install zeroth-sdk
 """
 
     assert scan_markdown(markdown, "docs/install.md", REPO_ROOT) == []
+
+
+def test_workspace_packaged_imports_are_resolved() -> None:
+    markdown = """\
+```python
+from zeroth.protocol import MigrationEvidence
+from zeroth.sdk import ZerothClient
+```
+"""
+
+    assert scan_markdown(markdown, "docs/sdk.md", REPO_ROOT) == []
 
 
 def test_allowlist_accepts_removals_but_rejects_additions() -> None:
@@ -305,7 +316,7 @@ def test_with_regulus_standalone_commands_are_protected() -> None:
 
     for command in (
         "uv run uvicorn zeroth.econ.plane.main:app --port 8000   # the Regulus backend",
-        "    image: zeroth-core:latest          # same image; runs zeroth.econ.plane.main:app",
+        "    image: zeroth-platform:latest          # same image; runs zeroth.econ.plane.main:app",
         "    command: uvicorn zeroth.econ.plane.main:app --host 0.0.0.0 --port 8000",
     ):
         assert command in lines

@@ -13,11 +13,11 @@ from release.check.release_evidence import _one_wheel, validate_artifact
 
 
 def _wheel(directory: Path, *, version: str = "0.23.8.1.3") -> Path:
-    path = directory / f"zeroth_core-{version}-py3-none-any.whl"
+    path = directory / f"zeroth_platform-{version}-py3-none-any.whl"
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            f"zeroth_core-{version}.dist-info/METADATA",
-            f"Metadata-Version: 2.4\nName: zeroth-core\nVersion: {version}\n",
+            f"zeroth_platform-{version}.dist-info/METADATA",
+            f"Metadata-Version: 2.4\nName: zeroth-platform\nVersion: {version}\n",
         )
         for name in (
             "zeroth/check/tape/models.py",

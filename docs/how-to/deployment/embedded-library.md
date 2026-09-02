@@ -3,7 +3,7 @@
 Embedded mode skips the HTTP surface entirely. You import `zeroth.runtime` into
 your own FastAPI app, CLI, worker, or notebook and drive the orchestrator
 directly. Use it when you already have a deployable process and just want
-`zeroth-core` as an in-process library.
+`zeroth-platform` as an in-process library.
 
 ## Use case
 
@@ -16,15 +16,15 @@ directly. Use it when you already have a deployable process and just want
 ## Prerequisites
 
 - Python 3.12+
-- `zeroth-core` installed in the host project's virtualenv
+- `zeroth-platform` installed in the host project's virtualenv
 - An async context to call the orchestrator from
 
 ## Install
 
 ```bash
-pip install zeroth-core
+pip install zeroth-platform
 # Or, with optional backends matching your host app
-pip install "zeroth-core[memory-pg]"
+pip install "zeroth-platform[memory-pg]"
 ```
 
 ## Minimal pattern
@@ -66,7 +66,7 @@ the full `Bootstrap` dataclass surface.
 
 ## FastAPI host app
 
-If your host app wants to expose the `zeroth-core` HTTP routes alongside its
+If your host app wants to expose the `zeroth-platform` HTTP routes alongside its
 own, mount the service sub-app:
 
 ```python
@@ -107,7 +107,7 @@ app.state.zeroth)`) or import individual routers from
   synchronous code, or you will churn the database pool.
 - **Double bootstrap:** build the `Bootstrap` once per process and share it.
   Each bootstrap opens its own DB connections.
-- **Logging:** `zeroth-core` uses the stdlib `logging` module. Configure the
+- **Logging:** `zeroth-platform` uses the stdlib `logging` module. Configure the
   root logger in your host app; do not fight it with a second handler set.
 - **Settings precedence:** env vars win over `.env`. If the host app already
   loads `.env` via `python-dotenv`, make sure `ZEROTH_*` vars are loaded

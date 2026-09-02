@@ -1,15 +1,15 @@
-"""The `zeroth-core` command-line interface.
+"""The `zeroth` command-line interface.
 
 Subcommands:
 
-- ``zeroth-core serve``      — run migrations (SQLite or Postgres) and start
+- ``zeroth serve``      — run migrations (SQLite or Postgres) and start
   the service on the deployment named by ``ZEROTH_DEPLOYMENT_REF``.
-- ``zeroth-core seed-demo``  — create the schema and seed a runnable demo
+- ``zeroth seed-demo``  — create the schema and seed a runnable demo
   deployment (contracts + published single-agent graph) so a fresh install
   can serve its first run without writing Python.
-- ``zeroth-core migrate``    — apply database migrations and exit.
-- ``zeroth-core migrate-econ`` — apply economic-plane migrations and exit.
-- ``zeroth-core mcp-import`` — pin a registered MCP server's tools into a
+- ``zeroth migrate``    — apply database migrations and exit.
+- ``zeroth migrate-econ`` — apply economic-plane migrations and exit.
+- ``zeroth mcp-import`` — pin a registered MCP server's tools into a
   draft graph as ``mcp_tool`` nodes, so an MCP tool has a contract at publish
   time instead of only at run time.
 """
@@ -94,7 +94,7 @@ def _cmd_seed_demo(args: argparse.Namespace) -> int:
             )
             print("\nNo API keys configured. To serve the demo:\n")
             print(f"  export ZEROTH_SERVICE_API_KEYS_JSON='{keys_json}'")
-            print(f"  zeroth-core serve --deployment-ref {args.deployment_ref}")
+            print(f"  zeroth serve --deployment-ref {args.deployment_ref}")
             print("\nThen call it (agent runs need e.g. OPENAI_API_KEY set):\n")
             print(
                 f'  curl -s -X POST http://localhost:8000/v1/runs -H "X-API-Key: {demo_key}" '
@@ -116,7 +116,6 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     entrypoint_main()
     return 0
-
 
 
 def _cmd_mcp_import(args: argparse.Namespace) -> int:
@@ -186,7 +185,7 @@ def _cmd_mcp_import(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="zeroth-core", description=__doc__)
+    parser = argparse.ArgumentParser(prog="zeroth", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
     serve = sub.add_parser("serve", help="run migrations and start the service")

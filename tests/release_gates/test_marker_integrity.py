@@ -1,7 +1,7 @@
 """A deselected test must still run somewhere, and a job may not widen the default.
 
 Two wheel-venv jobs -- ``release-gates.yml:package`` and
-``release-zeroth-core.yml:test-wheel`` -- install the built wheel into a clean
+``release-zeroth-platform.yml:test-wheel`` -- install the built wheel into a clean
 venv and run the suite there. They answer one question: *does the built wheel
 work?* Nightly, they answered a different one.
 
@@ -91,7 +91,7 @@ DEV_TOOLCHAIN_EXCLUSIONS = {
 #: also compared for equality: a third job appearing here is a visible diff.
 WHEEL_VENV_JOBS = {
     "release-gates.yml:package": "runs the suite inside a venv built from the wheel",
-    "release-zeroth-core.yml:test-wheel": "runs the suite inside a venv built from the wheel",
+    "release-zeroth-platform.yml:test-wheel": "runs the suite inside a venv built from the wheel",
 }
 
 
@@ -108,8 +108,17 @@ def collect(*arguments: str) -> set[str]:
     started with, and an in-process run inherits state from the current one.
     """
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "--no-header",
-         "-p", "no:cacheprovider", *arguments],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "--no-header",
+            "-p",
+            "no:cacheprovider",
+            *arguments,
+        ],
         cwd=ROOT,
         check=False,
         capture_output=True,
@@ -418,9 +427,7 @@ def test_the_shipped_expression_is_accepted_where_it_is_correct() -> None:
         if expression and not expression.startswith("not ")
     ]
 
-    assert misread == [], (
-        "a narrowing invocation was classified as a whole-tree run: " f"{misread}"
-    )
+    assert misread == [], f"a narrowing invocation was classified as a whole-tree run: {misread}"
     assert not collects_the_whole_tree(
         "uv run --frozen --group gateway-conformance pytest -o addopts= -q "
         "-m langgraph_conformance tests/langgraph_gateway/conformance"
@@ -451,9 +458,9 @@ def test_the_default_selection_does_not_itself_deselect_the_marker() -> None:
     """
     import tomllib
 
-    addopts = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
-        "tool"
-    ]["pytest"]["ini_options"]["addopts"]
+    addopts = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"][
+        "pytest"
+    ]["ini_options"]["addopts"]
 
     assert "dev_toolchain" not in addopts, addopts
 

@@ -281,9 +281,7 @@ def _seed_debugger_fixture(engine, tenant_id: str = "tenant-a") -> None:
         )
 
 
-def _client(
-    engine, tenant_id: str = "tenant-a", roles: list[str] | None = None
-) -> TestClient:
+def _client(engine, tenant_id: str = "tenant-a", roles: list[str] | None = None) -> TestClient:
     app = FastAPI()
     app.include_router(instrumentation_router, prefix="/v1")
 
@@ -544,9 +542,11 @@ def test_diagnostic_report_does_not_infer_success_without_an_outcome_definition(
             ),
         )
 
-    report = _client(econ_engine).get(
-        "/v1/debugger/report", params={"workflow_id": "invoice-processing"}
-    ).json()
+    report = (
+        _client(econ_engine)
+        .get("/v1/debugger/report", params={"workflow_id": "invoice-processing"})
+        .json()
+    )
 
     assert report["decision_state"] == "insufficient_evidence"
     assert report["successful_runs"] == 0
@@ -596,9 +596,11 @@ def test_versioned_outcome_definition_controls_business_success(econ_engine) -> 
             "target": False,
         },
     )
-    report = _client(econ_engine).get(
-        "/v1/debugger/report", params={"workflow_id": "invoice-processing"}
-    ).json()
+    report = (
+        _client(econ_engine)
+        .get("/v1/debugger/report", params={"workflow_id": "invoice-processing"})
+        .json()
+    )
 
     assert definition.status_code == 201
     assert report["successful_runs"] == 0
@@ -628,17 +630,20 @@ def test_outcome_definition_is_immutable_within_a_workflow_version(econ_engine) 
     assert replay.status_code == 200
     assert replay.json()["definition_digest"] == created.json()["definition_digest"]
     assert changed.status_code == 409
-    assert changed.json() == {
-        "detail": "Outcome definition is immutable for this workflow version"
-    }
+    assert changed.json() == {"detail": "Outcome definition is immutable for this workflow version"}
     assert client.get(
         "/v1/debugger/outcome-definitions",
         params={"workflow_id": "invoice-processing"},
     ).json() == [created.json()]
-    assert _client(econ_engine, tenant_id="tenant-b").get(
-        "/v1/debugger/outcome-definitions",
-        params={"workflow_id": "invoice-processing"},
-    ).json() == []
+    assert (
+        _client(econ_engine, tenant_id="tenant-b")
+        .get(
+            "/v1/debugger/outcome-definitions",
+            params={"workflow_id": "invoice-processing"},
+        )
+        .json()
+        == []
+    )
 
 
 def test_numeric_outcome_definition_applies_a_versioned_threshold(econ_engine) -> None:
@@ -683,9 +688,7 @@ def test_numeric_outcome_definition_applies_a_versioned_threshold(econ_engine) -
             "target": 0.05,
         },
     )
-    report = client.get(
-        "/v1/debugger/report", params={"workflow_id": "invoice-processing"}
-    ).json()
+    report = client.get("/v1/debugger/report", params={"workflow_id": "invoice-processing"}).json()
 
     assert created.status_code == 201
     assert report["failed_runs"] == 1
@@ -746,9 +749,7 @@ def test_debugger_spine_migration_backfills_existing_execution_identity(
 
     engine = create_engine(url, future=True)
     try:
-        columns = {
-            column["name"] for column in inspect(engine).get_columns("execution_events")
-        }
+        columns = {column["name"] for column in inspect(engine).get_columns("execution_events")}
         assert "outcome_definitions" in inspect(engine).get_table_names()
         assert {
             "workflow_id",
@@ -760,9 +761,9 @@ def test_debugger_spine_migration_backfills_existing_execution_identity(
             "dimensions",
         } <= columns
         with engine.connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-                "20260901_17"
-            )
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == ("20260902_20")
             identity = connection.execute(
                 text(
                     "SELECT workflow_id, workflow_version, run_id, attempt, dimensions "

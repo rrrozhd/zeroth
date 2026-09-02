@@ -96,8 +96,7 @@ def valid_environment_variables(repo_root: Path) -> set[str]:
     for path in sorted((repo_root / "frontend" / "scripts").glob("*.mjs")):
         source = path.read_text(encoding="utf-8")
         names.update(
-            match.group(1)
-            for match in re.finditer(r"process\.env\.(ZEROTH_[A-Z0-9_]+)", source)
+            match.group(1) for match in re.finditer(r"process\.env\.(ZEROTH_[A-Z0-9_]+)", source)
         )
     for path in sorted((repo_root / "src" / "zeroth").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -216,10 +215,19 @@ def install_projects(repo_root: Path) -> tuple[dict[str, object], ...]:
     )
 
 
+def _python_source_roots(repo_root: Path) -> tuple[Path, ...]:
+    """Return every first-party Python source root in distribution order."""
+    packaged = sorted((repo_root / "packaging").glob("*/src"))
+    return (repo_root / "src", *packaged)
+
+
 def _module_exists(module: str, repo_root: Path) -> bool:
     relative = Path(*module.split("."))
-    source = repo_root / "src" / relative
-    return _path_exists(source, repo_root) or _path_exists(source.with_suffix(".py"), repo_root)
+    return any(
+        _path_exists(source_root / relative, repo_root)
+        or _path_exists((source_root / relative).with_suffix(".py"), repo_root)
+        for source_root in _python_source_roots(repo_root)
+    )
 
 
 def _path_exists(path: Path, repo_root: Path) -> bool:
@@ -239,47 +247,49 @@ def _path_exists(path: Path, repo_root: Path) -> bool:
 @lru_cache
 def _module_members(module: str, repo_root: Path) -> frozenset[str]:
     """Read public module bindings without importing optional dependencies."""
-    source = repo_root / "src" / Path(*module.split("."))
-    path = source / "__init__.py" if source.is_dir() else source.with_suffix(".py")
-    if not path.is_file():
-        return frozenset()
-
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     members: set[str] = set()
-    for node in tree.body:
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            members.add(node.name)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            for alias in node.names:
-                members.add(alias.asname or alias.name.split(".", 1)[0])
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            members.update(target.id for target in targets if isinstance(target, ast.Name))
-    for node in ast.walk(tree):
-        targets = (
-            node.targets
-            if isinstance(node, ast.Assign)
-            else [node.target]
-            if isinstance(node, (ast.AnnAssign, ast.AugAssign))
-            else []
-        )
-        names = {target.id for target in targets if isinstance(target, ast.Name)}
-        if "__all__" in names:
-            members.update(
-                item.value
-                for item in ast.walk(node.value)
-                if isinstance(item, ast.Constant)
-                and isinstance(item.value, str)
-                and item.value.isidentifier()
+    relative = Path(*module.split("."))
+    for source_root in _python_source_roots(repo_root):
+        source = source_root / relative
+        path = source / "__init__.py" if source.is_dir() else source.with_suffix(".py")
+        if not path.is_file():
+            continue
+
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                members.add(node.name)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    members.add(alias.asname or alias.name.split(".", 1)[0])
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                members.update(target.id for target in targets if isinstance(target, ast.Name))
+        for node in ast.walk(tree):
+            targets = (
+                node.targets
+                if isinstance(node, ast.Assign)
+                else [node.target]
+                if isinstance(node, (ast.AnnAssign, ast.AugAssign))
+                else []
             )
-        if "_EXPORTS" in names and isinstance(node.value, ast.Dict):
-            members.update(
-                key.value
-                for key in node.value.keys
-                if isinstance(key, ast.Constant)
-                and isinstance(key.value, str)
-                and key.value.isidentifier()
-            )
+            names = {target.id for target in targets if isinstance(target, ast.Name)}
+            if "__all__" in names:
+                members.update(
+                    item.value
+                    for item in ast.walk(node.value)
+                    if isinstance(item, ast.Constant)
+                    and isinstance(item.value, str)
+                    and item.value.isidentifier()
+                )
+            if "_EXPORTS" in names and isinstance(node.value, ast.Dict):
+                members.update(
+                    key.value
+                    for key in node.value.keys
+                    if isinstance(key, ast.Constant)
+                    and isinstance(key.value, str)
+                    and key.value.isidentifier()
+                )
     return frozenset(members)
 
 

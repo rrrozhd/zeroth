@@ -1,4 +1,4 @@
-"""Self-contained demo seed for `zeroth-core seed-demo`.
+"""Self-contained demo seed for `zeroth seed-demo`.
 
 Registers demo contracts, publishes a minimal single-agent graph, and
 creates a deployment for it — everything the stock service entrypoint

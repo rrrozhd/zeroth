@@ -71,7 +71,9 @@ def test_declared_postgres_cannot_fall_back_to_ambient_sqlite(
     )._command("migrations")
 
     assert result.status == "failed"
-    assert "declared database backend postgres does not match runtime backend sqlite" in result.detail
+    assert (
+        "declared database backend postgres does not match runtime backend sqlite" in result.detail
+    )
 
 
 def test_callable_workflow_binds_or_rejects_the_declared_database_backend() -> None:
@@ -161,15 +163,13 @@ def test_scaffolded_runtime_executes_health_and_authenticated_smoke(tmp_path: Pa
 
 
 def _minimal_zeroth_wheel(path: Path) -> None:
-    distribution = "zeroth_core-0.23.9.16.dist-info"
+    distribution = "zeroth_platform-0.23.9.16.dist-info"
     members = {
         "zeroth/__init__.py": '__version__ = "0.23.9.16"\n',
         f"{distribution}/METADATA": (
-            "Metadata-Version: 2.1\nName: zeroth-core\nVersion: 0.23.9.16\n"
+            "Metadata-Version: 2.1\nName: zeroth-platform\nVersion: 0.23.9.16\n"
         ),
-        f"{distribution}/WHEEL": (
-            "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
-        ),
+        f"{distribution}/WHEEL": ("Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n"),
     }
     record = f"{distribution}/RECORD"
     members[record] = "".join(f"{name},,\n" for name in (*members, record))
@@ -250,7 +250,7 @@ def test_scaffolded_image_reaches_health_and_authenticated_smoke(tmp_path: Path)
     certifier = tmp_path / ".zeroth-certifier"
     certifier.mkdir()
     (certifier / "requirements-image.txt").write_text("", encoding="utf-8")
-    _minimal_zeroth_wheel(certifier / "zeroth_core-0.23.9.16-py3-none-any.whl")
+    _minimal_zeroth_wheel(certifier / "zeroth_platform-0.23.9.16-py3-none-any.whl")
     suffix = uuid.uuid4().hex
     image = f"app-cert-scaffold-audit18:{suffix}"
     container = f"app-cert-scaffold-audit18-{suffix}"

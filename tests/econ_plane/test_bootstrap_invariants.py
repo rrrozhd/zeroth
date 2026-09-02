@@ -114,3 +114,34 @@ def test_cloud_scheduler_requires_entitlement_enforcement(monkeypatch) -> None:
 
     with pytest.raises(config.EconConfigError, match="scheduler requires cloud entitlements"):
         config.validate_startup_settings()
+
+
+def test_report_email_requires_a_sender_and_smtp_host(monkeypatch) -> None:
+    assert "report_email_enabled" in config.Settings.model_fields
+    monkeypatch.setattr(config.settings, "jwt_secret", "configured-secret")
+    monkeypatch.setattr(config.settings, "report_email_enabled", True)
+    monkeypatch.setattr(config.settings, "report_email_from", "")
+    monkeypatch.setattr(config.settings, "report_smtp_host", "")
+
+    with pytest.raises(config.EconConfigError, match="ECP_REPORT_EMAIL_FROM"):
+        config.validate_startup_settings()
+
+
+def test_report_email_accepts_a_complete_transport_configuration(monkeypatch) -> None:
+    monkeypatch.setattr(config.settings, "jwt_secret", "configured-secret")
+    monkeypatch.setattr(config.settings, "report_email_enabled", True)
+    monkeypatch.setattr(config.settings, "report_email_from", "reports@example.com")
+    monkeypatch.setattr(config.settings, "report_smtp_host", "smtp.example.com")
+    monkeypatch.setattr(config.settings, "report_smtp_port", 587)
+    monkeypatch.setattr(config.settings, "report_smtp_timeout_seconds", 10.0)
+
+    config.validate_startup_settings()
+
+
+def test_report_smtp_password_is_redacted_from_settings_repr() -> None:
+    configured = config.Settings(
+        jwt_secret="configured-secret",
+        report_smtp_password="smtp-password-that-must-not-leak",
+    )
+
+    assert "smtp-password-that-must-not-leak" not in repr(configured)

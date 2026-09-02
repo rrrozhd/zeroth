@@ -147,13 +147,9 @@ _NODE_TYPES: list[NodeTypeResponse] = [
         label="If",
         category="flow",
         ports=[
-            PortDefinitionResponse(
-                id="input-data", type="data", direction="input", label="Input"
-            ),
+            PortDefinitionResponse(id="input-data", type="data", direction="input", label="Input"),
             PortDefinitionResponse(id="true", type="data", direction="output", label="True"),
-            PortDefinitionResponse(
-                id="false", type="data", direction="output", label="False"
-            ),
+            PortDefinitionResponse(id="false", type="data", direction="output", label="False"),
         ],
     ),
     NodeTypeResponse(
@@ -161,16 +157,10 @@ _NODE_TYPES: list[NodeTypeResponse] = [
         label="Loop",
         category="flow",
         ports=[
-            PortDefinitionResponse(
-                id="input-data", type="data", direction="input", label="Input"
-            ),
-            PortDefinitionResponse(
-                id="repeat", type="data", direction="output", label="Repeat"
-            ),
+            PortDefinitionResponse(id="input-data", type="data", direction="input", label="Input"),
+            PortDefinitionResponse(id="repeat", type="data", direction="output", label="Repeat"),
             PortDefinitionResponse(id="done", type="data", direction="output", label="Done"),
-            PortDefinitionResponse(
-                id="limit", type="data", direction="output", label="Limit"
-            ),
+            PortDefinitionResponse(id="limit", type="data", direction="output", label="Limit"),
         ],
     ),
     NodeTypeResponse(
@@ -180,7 +170,7 @@ _NODE_TYPES: list[NodeTypeResponse] = [
         # Attachment target only: an agent reaches it over a tool edge, and no
         # data flows through it, so it carries the tool input port alone.
         ports=[_TOOL_TARGET_PORT],
-        # Imported with `zeroth-core mcp-import`, never dragged from the palette:
+        # Imported with `zeroth mcp-import`, never dragged from the palette:
         # the node is pinned to a schema digest taken from a live server, which
         # canvas authoring has no way to produce.
     ),
@@ -348,11 +338,7 @@ def _build_edge(se: StudioEdgeInput, existing: Edge | None = None) -> Edge:
         metadata["target_handle"] = se.target_handle
     kind = "tool" if (se.kind == "tool" or se.source_handle == "tools") else "data"
     mapping = (
-        se.mapping
-        if "mapping" in se.model_fields_set
-        else existing.mapping
-        if existing
-        else None
+        se.mapping if "mapping" in se.model_fields_set else existing.mapping if existing else None
     )
     condition = (
         se.condition
@@ -626,9 +612,10 @@ async def update_workflow(
         updates["nodes"] = [
             _build_node(n, graph_version_ref, existing_nodes.get(n.id)) for n in body.nodes
         ]
-        updates["edges"] = canonicalize_if_route_edges(updates["nodes"], [
-            _build_edge(edge, existing_edges.get(edge.id)) for edge in (body.edges or [])
-        ])
+        updates["edges"] = canonicalize_if_route_edges(
+            updates["nodes"],
+            [_build_edge(edge, existing_edges.get(edge.id)) for edge in (body.edges or [])],
+        )
         # The entrypoint node owns the entry step: when the canvas has one,
         # entry_step is derived, never hand-picked.
         entry_nodes = [n for n in updates["nodes"] if isinstance(n, EntrypointNode)]
@@ -636,9 +623,9 @@ async def update_workflow(
             updates["entry_step"] = entry_nodes[0].node_id
     elif body.edges is not None:
         existing_edges = {edge.edge_id: edge for edge in graph.edges}
-        updates["edges"] = canonicalize_if_route_edges(graph.nodes, [
-            _build_edge(edge, existing_edges.get(edge.id)) for edge in body.edges
-        ])
+        updates["edges"] = canonicalize_if_route_edges(
+            graph.nodes, [_build_edge(edge, existing_edges.get(edge.id)) for edge in body.edges]
+        )
 
     # Visual metadata: positions + viewport live in graph.metadata["studio"].
     studio_meta = dict(graph.metadata.get("studio", {}))
@@ -869,8 +856,7 @@ async def preflight_workflow(
                     severity="error",
                     code="unresolved_manifest_ref",
                     message=(
-                        f"Executable unit {node.executable_unit.manifest_ref!r} "
-                        "is not registered."
+                        f"Executable unit {node.executable_unit.manifest_ref!r} is not registered."
                     ),
                     node_id=node.node_id,
                 )
@@ -995,9 +981,7 @@ async def verify_workflow_providers(
                     status_code=503,
                     detail="provider probe maximum cannot be priced; failing closed",
                 )
-            server_max_cost = estimator.estimate(
-                model, input_tokens=256, output_tokens=4
-            )
+            server_max_cost = estimator.estimate(model, input_tokens=256, output_tokens=4)
             if server_max_cost is None or server_max_cost <= 0:
                 raise HTTPException(
                     status_code=503,

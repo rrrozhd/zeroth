@@ -34,7 +34,9 @@ The boundary is deliberate:
 > **Current status:** authenticated SDK ingestion, workflow-version decisions,
 > recurring decision schedules, project API keys, enforced plan quotas,
 > provider-bill import, measured-cost allocation, and hosted backtest execution are
-> implemented for bounded model changes. WorkOS AuthKit activation and Paddle
+> implemented for bounded model changes. The advisory model-migration loop now harvests
+> case-level evidence, optimizes cohort routes, schedules fresh Monte Carlo/CVaR decisions,
+> and verifies randomized rollouts through `zeroth-sdk`. WorkOS AuthKit activation and Paddle
 > checkout, signed webhooks, and customer portal are implemented behind optional
 > hosted dependencies. Server-rendered `/` and `/account` routes provide
 > self-serve signup, key delivery, checkout, recovery, usage, billing, and
@@ -45,6 +47,7 @@ The boundary is deliberate:
 > enforced. Managed infrastructure, production vendor credentials, notifications,
 > and service terms are not yet live.
 > This is not yet a purchasable hosted service.
+> The SDK remains release-blocked on hosted operations and package release readiness.
 
 Intended self-serve activation after the release block is cleared:
 `pip install zeroth-sdk`.
@@ -57,11 +60,12 @@ unresolved outcomes separate; see the
 
 | Surface | Current role | Commercial boundary |
 |---|---|---|
-| Economic evidence and single-team debugging | Implemented, free, and self-hostable | Trust and adoption layer |
-| Workflow-version economic decisions and schedules | Implemented API; hosting and notifications planned | Initial recurring paid service boundary |
-| Provider-bill import and workflow/outcome allocation | Implemented API; hosting, connectors, and rollups planned | Supporting finance evidence and expansion tier |
-| Bounded model-change backtests | Hosted API replays 5–25 labeled, tool-free cases and retains a privacy-preserving decision | Initial proof-of-savings subscription surface |
-| Identity, checkout, and entitlement projection | WorkOS AuthKit activation plus Paddle checkout/portal and signed webhooks; normalized events are replay-safe | Production vendor projects and real-transaction acceptance remain required |
+| Economic evidence and debugging | Implemented and self-hostable | Trust and adoption layer |
+| Version decisions and schedules | API implemented; notifications planned | Initial recurring service |
+| Provider-bill allocation | API implemented; connectors planned | Supporting finance evidence |
+| Bounded model backtests | Replays 5–25 labeled, tool-free cases | Proof-of-savings surface |
+| Risk-calibrated model migration | Harvest, cohort routes, Monte Carlo/CVaR, fresh schedules, randomized verification, and recalibration | Advisory; notifications and broader optimization are planned |
+| Identity and commerce | WorkOS/Paddle flows implemented | Production acceptance remains required |
 | Structural workflow backtests and signed evidence | Not implemented | Expansion after model-change demand is proven |
 | Studio and console | Existing open-source UI; unchanged for this narrowing | Not the SaaS product |
 | `zeroth-sdk` | Execution, outcome, backtest, decision, schedule, and history routes are served and exercised end to end | Release-blocked on hosted operations and package release readiness, not a dangling route |
@@ -137,17 +141,17 @@ From a current source checkout, the CLI can seed and serve a runnable demo
 without writing an application first:
 
 ```bash
-uv run zeroth-core seed-demo   # creates schema + a deployed single-agent graph;
+uv run zeroth seed-demo   # creates schema + a deployed single-agent graph;
                                # prints the export + curl commands for your first run
-uv run zeroth-core serve
+uv run zeroth serve
 ```
 
 Or build the declared wheel before creating the container image:
 
 ```bash
 uv build --wheel
-docker build -t zeroth-core .
-docker run -p 8000:8000 -v zeroth-data:/data zeroth-core
+docker build -t zeroth-platform .
+docker run -p 8000:8000 -v zeroth-data:/data zeroth-platform
 ```
 
 See `Dockerfile` and `docker-compose.yml` for the image and multi-service paths.
@@ -195,11 +199,11 @@ published until the hosted endpoint and managed provider credentials exist and
 the release hold is deliberately cleared.
 
 The preserved local platform is a separate distribution. From a source
-checkout, use `uv sync` for development or build/install `zeroth-core`. The
+checkout, use `uv sync` for development or build/install `zeroth-platform`. The
 published `zeroth-core` package is still a stale `0.1.0` placeholder (verified
-2026-08-24), so do not use it for the current source tree.
+2026-09-02), so do not use it for the current source tree.
 
-The following extras belong to the preserved `zeroth-core` platform, not to
+The following extras belong to the preserved `zeroth-platform` platform, not to
 `zeroth-sdk`. Enable them in a source checkout with `uv sync --extra <name>`:
 
 ```bash
@@ -296,7 +300,7 @@ Zeroth enforces governance at multiple layers:
 
 - **Policy** — capability-based rules controlling what agents can do (network access, file writes, memory access, secret usage). Enforcement is **on by default and fail-closed**: a served node that invokes a tool or touches memory without declaring the matching capability is *denied* (agent tool calls and memory reads/writes are behaviorally gated, not merely audited); an agent-invoked executable unit runs under the calling agent's enforcement envelope, so the sandbox network/secret gate applies to it too. Behavioral **network and filesystem** isolation for executable units requires the Docker or sidecar backend — the local backend refuses network-bearing nodes under the strict/standard sandbox posture rather than running them unconstrained. Turn enforcement off (capabilities become advisory) with `ZEROTH_POLICY__ENFORCE_CAPABILITIES=false`.
 - **Guardrails** — rate limiting, quota enforcement, and dead-letter queues for failed operations
-- **Budgets** — per-tenant spend caps enforced through the bundled economic control plane. Enforcement requires the `regulus` extra (included in `[all]`): with it installed, the plane is mounted in-process at `/regulus` with no env flags required, so a default deploy reaches it over the app's own ASGI transport, not a separate host, and per-tenant caps trip with per-node cost attribution from the first run. A fresh deploy auto-generates a strong **ephemeral per-process signing secret** for the mount, so it boots with no configuration; set `ECP_JWT_SECRET` to a persistent value for **multi-worker or persistent deployments**. Prefer an external Regulus instead? Point at it with `ZEROTH_REGULUS__BASE_URL` (and skip the in-process mount). Turn the plane off entirely with `ZEROTH_REGULUS__ENABLED=false`. The pre-LLM tenant check **fails closed by default**: an unavailable, malformed, or incompletely measured authoritative response denies the run and logs at `WARNING`. Explicit `ZEROTH_REGULUS__FAIL_CLOSED=false` remains development/availability compatibility, but production rejects it. The tenant check is eventually consistent: it sees spend recorded *before* the current call (spend-to-date), so a single run can overshoot within one cycle. For a tighter, control-plane-independent guard, set a per-run cumulative ceiling with `ZEROTH_REGULUS__PER_RUN_CAP_USD` (USD) — enforced locally from the run's own audit cost, so it works even with the control plane disabled, halting a run on the next node once its accumulated cost crosses the cap. On a bare install (`pip install zeroth-core`, no extra), configure a reachable external control plane or explicitly disable Regulus; leaving it enabled without a backend denies admission rather than silently dropping caps.
+- **Budgets** — per-tenant spend caps enforced through the bundled economic control plane. Enforcement requires the `regulus` extra (included in `[all]`): with it installed, the plane is mounted in-process at `/regulus` with no env flags required, so a default deploy reaches it over the app's own ASGI transport, not a separate host, and per-tenant caps trip with per-node cost attribution from the first run. A fresh deploy auto-generates a strong **ephemeral per-process signing secret** for the mount, so it boots with no configuration; set `ECP_JWT_SECRET` to a persistent value for **multi-worker or persistent deployments**. Prefer an external Regulus instead? Point at it with `ZEROTH_REGULUS__BASE_URL` (and skip the in-process mount). Turn the plane off entirely with `ZEROTH_REGULUS__ENABLED=false`. The pre-LLM tenant check **fails closed by default**: an unavailable, malformed, or incompletely measured authoritative response denies the run and logs at `WARNING`. Explicit `ZEROTH_REGULUS__FAIL_CLOSED=false` remains development/availability compatibility, but production rejects it. The tenant check is eventually consistent: it sees spend recorded *before* the current call (spend-to-date), so a single run can overshoot within one cycle. For a tighter, control-plane-independent guard, set a per-run cumulative ceiling with `ZEROTH_REGULUS__PER_RUN_CAP_USD` (USD) — enforced locally from the run's own audit cost, so it works even with the control plane disabled, halting a run on the next node once its accumulated cost crosses the cap. On a bare install (`pip install zeroth-platform`, no extra), configure a reachable external control plane or explicitly disable Regulus; leaving it enabled without a backend denies admission rather than silently dropping caps.
 - **Audit** — per-node event tracking with secret redaction, timeline assembly, and evidence summaries
 - **Approvals** — human-in-the-loop gates with decision tracking
 - **Secrets** — resolved from secure providers and automatically redacted from logs
@@ -510,7 +514,7 @@ artifact.
 # Easiest: the [console] extra ships the pre-built UI as the zeroth-console
 # package — no Node toolchain required. Any Zeroth service then serves it
 # at http://<host>/console/ automatically.
-pip install "zeroth-core[console]"
+pip install "zeroth-platform[console]"
 
 # From a source checkout: build the static export yourself (requires Node;
 # produces frontend/out/, which takes precedence over the installed package)

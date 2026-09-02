@@ -1,6 +1,6 @@
 # Sandbox container
 
-`zeroth-core` ships as a Python library, not a runnable container. When you
+`zeroth-platform` ships as a Python library, not a runnable container. When you
 deploy, you build your own image (or compose stack). This page shows the
 minimal recipe for wiring up the **sandbox sidecar** — the isolated container
 backend `zeroth.runtime` uses to run untrusted executable units.
@@ -31,7 +31,7 @@ Configure the sandbox via `DockerSandboxSettings` (see
 
 Set `backend=docker` (or `sidecar` if you prefer the HTTP sidecar app at
 `zeroth.integrations.sandbox`) and make sure the named container is
-running and reachable from the `zeroth-core` process.
+running and reachable from the `zeroth-platform` process.
 
 HTTP sidecar mode fails closed unless `ZEROTH_SANDBOX_SIDECAR_SECRET` is set
 to the same non-empty value in both processes. Operational requests carry the
@@ -69,7 +69,7 @@ docker run -d \
   your-sandbox-image:latest sleep infinity
 ```
 
-`zeroth-core` will exec into this container for each unit and apply
+`zeroth-platform` will exec into this container for each unit and apply
 per-execution resource flags (`build_docker_resource_flags` in
 `zeroth.integrations.execution.constraints`) on top of your baseline.
 
@@ -85,7 +85,7 @@ per-execution resource flags (`build_docker_resource_flags` in
   the container level; per-unit caps compose with these.
 - **Orchestration**: on Kubernetes, run the sandbox as a sidecar pod or
   a dedicated node pool with the same hardening. The library only needs
-  a reachable `docker`-compatible CLI on the `zeroth-core` host.
+  a reachable `docker`-compatible CLI on the `zeroth-platform` host.
 
 ## Health check
 

@@ -7,7 +7,7 @@ Zeroth's economics layer answers two operational questions on every run:
 answered by wrapping any provider adapter in `InstrumentedProviderAdapter`;
 the second by consulting a `BudgetEnforcer` before each LLM call. Both use the
 bundled **Regulus** integration: `zeroth.econ.instrumentation` emits events to
-the `zeroth.econ.plane` backend shipped in `zeroth-core`. The backend can be
+the `zeroth.econ.plane` backend shipped in `zeroth-platform`. The backend can be
 mounted in-process or run separately.
 
 ## Minimal example
@@ -58,7 +58,7 @@ response = await adapter.complete(prompt="hello")
 1. **Missing Regulus service** — Without a reachable Regulus, no cost
    data is collected; the system runs, but invoices drift from reality.
 2. **Deployment version skew** — The client and backend ship together; run
-   standalone Regulus processes from the same `zeroth-core` version as callers.
+   standalone Regulus processes from the same `zeroth-platform` version as callers.
 3. **Double instrumentation** — Wrapping an already-instrumented adapter
    double-counts every token. Wrap exactly once at bootstrap.
 4. **Pricing drift** — LiteLLM updates pricing tables; stale `litellm`

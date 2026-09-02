@@ -734,7 +734,7 @@
     },
     {
       "operation": "GET /v1/mcp/servers/{ref}/tools",
-      "reason": "MCP tool discovery: driven by zeroth-core mcp-import"
+      "reason": "MCP tool discovery: driven by zeroth mcp-import"
     },
     {
       "operation": "POST /v1/enforcement/attestations",

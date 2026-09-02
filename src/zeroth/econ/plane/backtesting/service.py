@@ -116,6 +116,9 @@ def decide(
         savings_pct=computation.savings_pct,
         constraints=payload.constraints,
         reasons=reasons,
+        incumbent_observations=computation.incumbent_observations,
+        candidate_observations=computation.candidate_observations,
+        period_request_counts=computation.period_request_counts,
         evaluated_at=evaluated_at,
     )
 

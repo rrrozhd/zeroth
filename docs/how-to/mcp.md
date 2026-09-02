@@ -26,7 +26,7 @@ execution; production configuration rejects that flag.
 
 ## Install
 
-The `mcp` client is a core dependency of `zeroth-core`, not an optional extra.
+The `mcp` client is a core dependency of `zeroth-platform`, not an optional extra.
 Build and scan an image containing the approved MCP servers, record its digest,
 and configure the isolation profile before bootstrapping the service:
 
@@ -82,7 +82,7 @@ environment; `"env": {}` explicitly clears it.
 ## 2. Import the tools into a draft graph
 
 ```bash
-uv run zeroth-core mcp-import \
+uv run zeroth mcp-import \
   --server docs-search \
   --graph support-triage \
   --agent researcher \
@@ -257,7 +257,7 @@ of the inline path — an author who wants an unbounded server writes one inline
 and publishes over a warning. Do not describe the registry as a ceiling on a
 deployment that still admits inline servers without naming this exception.
 
-To migrate: register the server with an operator, run `zeroth-core mcp-import`
+To migrate: register the server with an operator, run `zeroth mcp-import`
 against the draft, then delete the inline entry.
 
 ## Pitfalls

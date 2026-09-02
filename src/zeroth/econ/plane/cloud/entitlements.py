@@ -227,12 +227,24 @@ def assert_schedule_allowed(db: ScopedSession, interval_minutes: int) -> None:
             f"{_effective_plan(subscription)} schedules must be at least "
             f"{limits.minimum_schedule_interval_minutes} minutes apart"
         )
-    from zeroth.econ.plane.decisioning.models import DecisionSchedule
+    from zeroth.econ.plane.decisioning.models import (
+        DecisionSchedule,
+        ProbabilisticDecisionSchedule,
+    )
 
     active = len(
         list(
             db.scalars(
                 select(DecisionSchedule).where(DecisionSchedule.active.is_(True))
+            )
+        )
+    )
+    active += len(
+        list(
+            db.scalars(
+                select(ProbabilisticDecisionSchedule).where(
+                    ProbabilisticDecisionSchedule.active.is_(True)
+                )
             )
         )
     )

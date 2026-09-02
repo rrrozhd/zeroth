@@ -1,6 +1,6 @@
 # Local development
 
-Local development mode runs `zeroth-core` as a single process against SQLite,
+Local development mode runs `zeroth-platform` as a single process against SQLite,
 with no external services required. Use it for hacking on graphs, running
 tutorials, or exercising the examples shipped with the repository.
 
@@ -29,28 +29,28 @@ uv sync
 ```
 
 For library use, the latest published package is available from
-[PyPI](https://pypi.org/project/zeroth-core/), but it can lag the current docs:
+[PyPI](https://pypi.org/project/zeroth-platform/), but it can lag the current docs:
 
 ```bash
-pip install zeroth-core
+pip install zeroth-platform
 ```
 
 ## Run
 
 ```bash
 # From the uv-managed checkout
-uv run zeroth-core serve
+uv run zeroth serve
 ```
 
 The service binds `0.0.0.0:8000` by default and stores state in a local
-SQLite database (`./zeroth.db`). `zeroth-core serve` applies migrations on
+SQLite database (`./zeroth.db`). `zeroth serve` applies migrations on
 boot for both SQLite and Postgres, so no manual Alembic step is required.
 
 A fresh database has no deployment to serve yet. Seed a runnable demo
 deployment (contracts + published single-agent graph) once:
 
 ```bash
-uv run zeroth-core seed-demo
+uv run zeroth seed-demo
 ```
 
 It prints the exact `export ZEROTH_SERVICE_API_KEYS_JSON=...` and `curl`

@@ -1,5 +1,6 @@
 from urllib.parse import urlsplit
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,6 +54,15 @@ class Settings(BaseSettings):
     cloud_entitlements_enabled: bool = False
     cloud_scheduler_enabled: bool = False
     cloud_scheduler_interval_seconds: float = 60.0
+    report_email_enabled: bool = False
+    report_email_from: str = ""
+    report_smtp_host: str = ""
+    report_smtp_port: int = 587
+    report_smtp_username: str = ""
+    report_smtp_password: SecretStr = SecretStr("")
+    report_smtp_starttls: bool = True
+    report_smtp_timeout_seconds: float = 10.0
+    report_public_base_url: str = ""
     # Hosted identity is optional so the open-source plane and SDK keep their
     # current dependency and startup surface. These are required only when the
     # AuthKit routes are enabled by a hosted deployment.
@@ -86,6 +96,22 @@ def validate_startup_settings() -> None:
         raise EconConfigError("cloud scheduler requires cloud entitlements")
     if settings.cloud_scheduler_interval_seconds <= 0:
         raise EconConfigError("ECP_CLOUD_SCHEDULER_INTERVAL_SECONDS must be positive")
+    if settings.report_email_enabled:
+        missing = [
+            env_name
+            for env_name, value in (
+                ("ECP_REPORT_EMAIL_FROM", settings.report_email_from),
+                ("ECP_REPORT_SMTP_HOST", settings.report_smtp_host),
+            )
+            if not value.strip()
+        ]
+        if missing:
+            raise EconConfigError(
+                "decision report email is enabled but required settings are missing: "
+                + ", ".join(missing)
+            )
+        if settings.report_smtp_port <= 0 or settings.report_smtp_timeout_seconds <= 0:
+            raise EconConfigError("decision report SMTP port and timeout must be positive")
     if settings.workos_authkit_enabled:
         missing = [
             env_name

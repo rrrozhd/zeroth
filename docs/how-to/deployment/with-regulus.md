@@ -1,7 +1,7 @@
 # With the Regulus economic control plane
 
 Regulus is the economics control plane that tracks LLM spend and exposes the
-cost/KPI data behind budget caps. It is **part of the `zeroth-core` package** —
+cost/KPI data behind budget caps. It is **part of the `zeroth-platform` package** —
 absorbed in-repo, Zeroth-owned, not a separate project:
 
 - the instrumentation SDK lives at `src/zeroth/econ/instrumentation`
@@ -27,7 +27,7 @@ only). To run the backend, install the `regulus` extra:
 ```bash
 uv sync --extra regulus        # or: uv sync --all-extras
 # pip equivalent:
-pip install "zeroth-core[regulus]"
+pip install "zeroth-platform[regulus]"
 ```
 
 This pulls the backend's extra runtime deps (`python-jose`, `email-validator`,
@@ -98,7 +98,7 @@ services:
       ZEROTH_REGULUS__BASE_URL: "http://regulus:8000/v1"
     depends_on: [regulus]
   regulus:
-    image: zeroth-core:latest          # same image; runs zeroth.econ.plane.main:app
+    image: zeroth-platform:latest          # same image; runs zeroth.econ.plane.main:app
     command: uvicorn zeroth.econ.plane.main:app --host 0.0.0.0 --port 8000
     environment:
       ECP_JWT_SECRET: "${ECP_JWT_SECRET}"

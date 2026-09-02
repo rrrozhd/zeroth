@@ -124,7 +124,7 @@ def test_report_validation_recomputes_hashes_and_subjects(tmp_path: Path) -> Non
         json.dumps(
             {
                 "spdxVersion": "SPDX-2.3",
-                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+                "packages": [{"name": "zeroth-platform", "versionInfo": candidate.zeroth_version}],
             }
         ),
         encoding="utf-8",
@@ -142,7 +142,7 @@ def test_report_validation_recomputes_hashes_and_subjects(tmp_path: Path) -> Non
         json.dumps(
             {
                 "spdxVersion": "SPDX-2.3",
-                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+                "packages": [{"name": "zeroth-platform", "versionInfo": candidate.zeroth_version}],
             }
         ),
         encoding="utf-8",
@@ -162,7 +162,7 @@ def test_signed_attestation_replaces_and_rebinds_unsigned_predicate(
         json.dumps(
             {
                 "spdxVersion": "SPDX-2.3",
-                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+                "packages": [{"name": "zeroth-platform", "versionInfo": candidate.zeroth_version}],
             }
         ),
         encoding="utf-8",

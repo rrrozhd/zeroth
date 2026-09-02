@@ -1,14 +1,14 @@
-# Zeroth service image. Runs `zeroth-core serve`: migrations (SQLite or
+# Zeroth service image. Runs `zeroth serve`: migrations (SQLite or
 # Postgres per ZEROTH_DATABASE__*) then uvicorn on :8000.
 #
 #   uv build --wheel
-#   docker build -t zeroth-core .
+#   docker build -t zeroth-platform .
 #   docker run -p 8000:8000 \
 #     -e ZEROTH_SERVICE_API_KEYS_JSON='[{"credential_id":"ops","secret":"<token>","subject":"ops","roles":["admin"]}]' \
-#     -v zeroth-data:/data zeroth-core
+#     -v zeroth-data:/data zeroth-platform
 #
 # Seed a runnable demo deployment first (same volume):
-#   docker run -v zeroth-data:/data zeroth-core zeroth-core seed-demo
+#   docker run -v zeroth-data:/data zeroth-platform zeroth seed-demo
 
 FROM python:3.12.13-slim-bookworm
 
@@ -19,10 +19,10 @@ LABEL org.opencontainers.image.version=0.23.0 \
 
 RUN useradd --create-home --uid 10001 zeroth
 COPY requirements-image.txt /tmp/requirements-image.txt
-COPY dist/zeroth_core-*.whl /opt/zeroth/wheel/
+COPY dist/zeroth_platform-*.whl /opt/zeroth/wheel/
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         -r /tmp/requirements-image.txt \
-    && pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_core-*.whl \
+    && pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_platform-*.whl \
     && rm /tmp/requirements-image.txt
 
 # Redis is disabled by default so the single-container image is
@@ -42,4 +42,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import json,urllib.request; p=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=4)); assert p['status'] in ('ok','degraded') and p['checks']"]
 
-CMD ["zeroth-core", "serve"]
+CMD ["zeroth", "serve"]

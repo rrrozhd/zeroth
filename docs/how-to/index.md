@@ -42,6 +42,7 @@ for understanding, Usage Guides for task-oriented instructions,
 - [Secrets](secrets.md)
 - [Dispatch](dispatch.md)
 - [Economics](econ.md)
+- [Probabilistic model migration](probabilistic-model-migration.md)
 - [Service](service.md)
 - [Webhooks](webhooks.md)
 - [MCP tools](mcp.md)

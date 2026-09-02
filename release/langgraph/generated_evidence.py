@@ -33,7 +33,7 @@ REQUIRED_TESTCASES = {
     ),
 }
 PACKAGE_KEYS = {
-    "zeroth-core": "zeroth_core",
+    "zeroth-platform": "zeroth_platform",
     "langchain": "langchain",
     "langgraph": "langgraph",
     "langgraph-checkpoint-sqlite": "langgraph_checkpoint_sqlite",
@@ -42,7 +42,7 @@ PACKAGE_KEYS = {
     "websockets": "websockets",
 }
 LABEL_KEYS = {
-    "org.opencontainers.image.version": "zeroth_core",
+    "org.opencontainers.image.version": "zeroth_platform",
     "io.zeroth.langgraph.adapter.version": "adapter_version",
     "io.zeroth.langgraph.compatibility.langgraph": "langgraph",
     "io.zeroth.langgraph.compatibility.agent-server": "agent_server",
@@ -100,7 +100,7 @@ def _digest_bound_to_the_daemon(image: dict[str, Any]) -> bool:
     """
     digest = str(image.get("digest"))
     repo_digests = image.get("repo_digests") or []
-    if str(image.get("reference", "")).startswith("zeroth-core:"):
+    if str(image.get("reference", "")).startswith("zeroth-platform:"):
         return not repo_digests and digest == str(image.get("id"))
     return any(str(entry).endswith(f"@{digest}") for entry in repo_digests)
 
@@ -124,13 +124,15 @@ def _validate_images(path: Path, errors: list[str]) -> dict[str, str] | None:
     )
     references = {str(image["reference"]) for image in images or [] if isinstance(image, dict)}
     application = [
-        item for item in images or [] if str(item.get("reference", "")).startswith("zeroth-core:")
+        item
+        for item in images or []
+        if str(item.get("reference", "")).startswith("zeroth-platform:")
     ]
     expected_bases = {"python:3.12.13-slim-bookworm", "postgres:16.9-bookworm"}
     valid_artifact = (
         isinstance(artifact, dict)
         and set(artifact) == {"path", "digest"}
-        and artifact.get("path") == "zeroth-core-image.tar"
+        and artifact.get("path") == "zeroth-platform-image.tar"
         and _sha256(artifact.get("digest"))
     )
     if value is None or (
@@ -141,7 +143,7 @@ def _validate_images(path: Path, errors: list[str]) -> dict[str, str] | None:
         or not valid_entries
         or not expected_bases.issubset(references)
         or len(application) != 1
-        or application[0]["reference"].removeprefix("zeroth-core:").removeprefix("v")
+        or application[0]["reference"].removeprefix("zeroth-platform:").removeprefix("v")
         != CURRENT_RELEASE
     ):
         errors.append("image compatibility evidence is invalid")
@@ -208,7 +210,7 @@ def _spdx_packages(
         item
         for item in packages
         if isinstance(item, dict)
-        and item.get("name") == "zeroth-core"
+        and item.get("name") == "zeroth-platform"
         and item.get("versionInfo") == CURRENT_RELEASE
     ]
     return roots[0] if len(roots) == 1 else {}, applications
@@ -248,7 +250,7 @@ def _validate_spdx(path: Path, image: dict[str, str] | None, errors: list[str]) 
         )
         and describes
         and len(applications) == 1
-        and _purl(applications[0], f"pkg:pypi/zeroth-core@{CURRENT_RELEASE}")
+        and _purl(applications[0], f"pkg:pypi/zeroth-platform@{CURRENT_RELEASE}")
     )
     if not valid:
         errors.append("SPDX is not bound to the built image and release package")

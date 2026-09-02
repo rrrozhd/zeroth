@@ -16,7 +16,7 @@ Install only the backend economic service dependencies and create a complete
 example pack in one command:
 
 ```bash
-pip install "zeroth-core[regulus]"
+pip install "zeroth-platform[regulus]"
 zeroth-econ demo
 ```
 

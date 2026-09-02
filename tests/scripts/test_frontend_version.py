@@ -20,7 +20,7 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
 def test_generator_writes_deterministic_typescript_and_checks_drift(tmp_path: Path) -> None:
     pyproject = tmp_path / "pyproject.toml"
     output = tmp_path / "version.ts"
-    pyproject.write_text('[project]\nname = "zeroth-core"\nversion = "9.8.7"\n')
+    pyproject.write_text('[project]\nname = "zeroth-platform"\nversion = "9.8.7"\n')
 
     generated = _run("--pyproject", str(pyproject), "--out", str(output))
 

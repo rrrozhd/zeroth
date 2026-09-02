@@ -1,10 +1,10 @@
-name: Promote zeroth-core
+name: Promote zeroth-platform
 
 on:
   workflow_dispatch:
     inputs:
       candidate_run_id:
-        description: Successful Release zeroth-core run containing promotion-candidate
+        description: Successful Release zeroth-platform run containing promotion-candidate
         required: true
         type: string
       candidate_digest:
@@ -59,7 +59,7 @@ jobs:
           python - <<'PY'
           import json, pathlib
           run = json.loads(pathlib.Path("/tmp/zeroth-candidate-run.json").read_text())
-          assert run["workflowName"] == "Release zeroth-core", run
+          assert run["workflowName"] == "Release zeroth-platform", run
           assert run["conclusion"] == "success", run
           PY
           gh run download "${CANDIDATE_RUN_ID}" \
@@ -82,7 +82,7 @@ jobs:
           from pathlib import Path
           names = {path.name for path in Path("dist").iterdir() if path.is_file()}
           assert len(names) == 2, names
-          assert all(name.startswith("zeroth_core-") for name in names), names
+          assert all(name.startswith("zeroth_platform-") for name in names), names
           assert any(name.endswith(".whl") for name in names), names
           assert any(name.endswith(".tar.gz") for name in names), names
           PY

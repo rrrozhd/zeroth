@@ -1,4 +1,4 @@
-"""Command handlers for ``zeroth-core check``."""
+"""Command handlers for ``zeroth check``."""
 
 from __future__ import annotations
 

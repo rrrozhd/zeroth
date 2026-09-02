@@ -163,7 +163,9 @@ def test_sdk_submits_and_reads_a_real_hosted_backtest_route(tmp_path: Path, monk
             instruction="Extract invoice fields.",
             candidate={"model": "openai/candidate"},
             cases=[
-                BacktestCase(id=str(index), input={"text": str(index)}, expected={"total": str(index)})
+                BacktestCase(
+                    id=str(index), input={"text": str(index)}, expected={"total": str(index)}
+                )
                 for index in range(5)
             ],
             constraints=EconomicConstraints(min_success_rate=0.95),
@@ -172,3 +174,119 @@ def test_sdk_submits_and_reads_a_real_hosted_backtest_route(tmp_path: Path, monk
 
     assert result["verdict"] == "pass"
     assert sdk.list_backtests() == [result]
+
+
+def test_sdk_submits_and_reads_a_probabilistic_model_migration_decision(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from zeroth.protocol import (
+        MigrationEvidence,
+        MigrationObservation,
+        MigrationRiskPolicy,
+        ProbabilisticMigrationRequest,
+        ForecastCalibrationObservation,
+    )
+    from zeroth.sdk import ZerothClient
+
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'sdk-probabilistic.db'}")
+    Base.metadata.create_all(engine)
+    app = FastAPI()
+    app.include_router(decisioning_router, prefix="/v1")
+
+    def scoped_db():
+        with Session(engine) as db:
+            yield ScopedSession(db, TenantWideScopeContext(tenant_id="tenant-a"))
+
+    app.dependency_overrides[get_current_scoped_db] = scoped_db
+    app.dependency_overrides[get_cloud_scoped_db] = scoped_db
+    monkeypatch.setattr(settings, "cloud_entitlements_enabled", False)
+    monkeypatch.setattr(settings, "service_principal_tenant_id", "tenant-a")
+    token = mint_econ_service_token()
+    assert token is not None
+    api = TestClient(app)
+
+    def dispatch(request: httpx.Request) -> httpx.Response:
+        response = api.request(
+            request.method,
+            request.url.path,
+            headers=dict(request.headers),
+            content=request.content,
+        )
+        return httpx.Response(
+            response.status_code,
+            headers=dict(response.headers),
+            content=response.content,
+            request=request,
+        )
+
+    sdk = ZerothClient(
+        api_key=token,
+        base_url="https://api.zeroth.test",
+        http_client=httpx.Client(transport=httpx.MockTransport(dispatch)),
+    )
+    incumbent = [
+        MigrationObservation(
+            case_id=f"case-{index}",
+            cost_usd=Decimal("1"),
+            latency_ms=800,
+            accepted=True,
+            critical_error=index == 0,
+            source="production",
+        )
+        for index in range(100)
+    ]
+    candidate = [
+        MigrationObservation(
+            case_id=f"case-{index}",
+            cost_usd=Decimal("0.5"),
+            latency_ms=700,
+            accepted=True,
+            critical_error=index == 0,
+            source="replay",
+        )
+        for index in range(100)
+    ]
+    request = ProbabilisticMigrationRequest(
+        evidence=MigrationEvidence(
+            workload="invoice-agent",
+            incumbent_model="model-a",
+            candidate_model="model-b",
+            incumbent=incumbent,
+            candidate=candidate,
+            period_request_counts=[100],
+        ),
+        policy=MigrationRiskPolicy(
+            candidate_shares=[1.0],
+            max_quality_drop=0.02,
+            max_p95_latency_ms=1_000,
+            max_critical_error_rate=0.05,
+            max_constraint_breach_probability=0.1,
+            max_cvar_loss_usd=Decimal("0"),
+        ),
+        calibration_observations=[
+            ForecastCalibrationObservation(
+                forecast_id=f"{metric}-{index}",
+                metric=metric,
+                predicted_mean=100,
+                predicted_low=90,
+                predicted_high=110,
+                observed=100,
+                observed_at=datetime(2026, index + 1, 1, tzinfo=UTC),
+            )
+            for metric in (
+                "monthly_cost_usd",
+                "success_rate",
+                "p95_latency_ms",
+                "critical_error_rate",
+            )
+            for index in range(6)
+        ],
+        simulations=400,
+        seed=17,
+    )
+
+    result = sdk.create_model_migration_decision(request)
+
+    assert result["recommended_action"] == "ship_candidate"
+    assert Decimal(result["actions"][0]["cvar_loss_usd"]) < 0
+    assert sdk.list_model_migration_decisions() == [result]

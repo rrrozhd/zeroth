@@ -10,13 +10,15 @@ def test_cloud_image_exposes_the_narrow_economic_plane_at_the_public_root() -> N
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
     assert (
-        'CMD ["uvicorn", "zeroth.econ.plane.main:app", "--host", "0.0.0.0", '
-        '"--port", "8000"]'
+        'CMD ["uvicorn", "zeroth.econ.plane.main:app", "--host", "0.0.0.0", "--port", "8000"]'
     ) in dockerfile
-    assert "zeroth-core serve" not in dockerfile
+    assert "zeroth serve" not in dockerfile
     assert "ZEROTH_DATABASE__" not in dockerfile
     assert "ZEROTH_REDIS__" not in dockerfile
     assert "ZEROTH_AUTO_AGENT_RUNNERS" not in dockerfile
+    assert "/dist/zeroth_platform-*.whl" in dockerfile
+    assert "/opt/zeroth/wheel/zeroth_platform-*.whl" in dockerfile
+    assert "zeroth_core-" not in dockerfile
     assert ".railway/" in gitignore
 
 
