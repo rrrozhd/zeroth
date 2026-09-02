@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "contract_sha256": "1ccc8604b6632c39fecb6fcaed4dd6e1b4648f520bb677e46311be4f4dbe04da",
+  "currency": "USD",
+  "horizon": "month",
+  "fixtures": [
+    {"id":"K01","demand":[[1000,"1"]],"incumbent_cost":"1","candidate_cost":"1","expected":{"savings":"0","loss":"0","choice":"hold"}},
+    {"id":"K02","demand":[[1000,"1"]],"incumbent_cost":"1","candidate_cost":"3/5","expected":{"cost":"600","savings":"400","loss":"-400"}},
+    {"id":"K03","demand":[[1000,"1/2"],[2000,"1/2"]],"incumbent_cost":"1","candidate_cost":"3/5","expected":{"savings_law":[["400","1/2"],["800","1/2"]],"savings":"600"}},
+    {"id":"K04","losses":["1","2","3","100"],"confidence":"3/4","expected":{"var":"3","cvar":"100"}},
+    {"id":"K05","losses":["1","2","3","100"],"confidence":"3/5","expected":{"var":"3","cvar":"509/8"}},
+    {"id":"K06","breaches":4,"scenarios":100,"expected":{"probability":"1/25"}},
+    {"id":"K07","actions":[["hold","100","0"],["A","80","1/100"],["B","60","1/10"]],"risk_limit":"1/20","expected":{"choice":"A"}},
+    {"id":"K08","actions":[["hold","100","0"],["A","110","0"],["B","60","1/10"]],"risk_limit":"1/20","expected":{"choice":"hold"}},
+    {"id":"K09","candidate_present":false,"calibration_present":false,"expected":{"choice":"collect_evidence","distribution":null}},
+    {"id":"K10","demand":[[1000,"1"]],"incumbent_cost":"1","candidate_cost":"3/5","incremental_errors":"2","penalty":"300","expected":{"savings":"400","loss":"200"}},
+    {"id":"K11","breaches":5,"scenarios":100,"risk_limit":"1/20","expected":{"probability":"1/20","feasible":true}}
+  ]
+}
