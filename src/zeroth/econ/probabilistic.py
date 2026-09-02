@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from decimal import Decimal
-from math import ceil, fsum, isfinite
+from math import ceil, fsum, isfinite, log, sqrt
 from statistics import fmean
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+
+FORECAST_ALGORITHM_VERSION = "nested-paired-monthly-v2-hoeffding99"
+MAX_SIMULATION_WORK = 50_000_000
 
 
 class MigrationObservation(BaseModel):
@@ -449,8 +452,16 @@ def recommend_model_migration(
         simulations=simulations,
         seed=seed,
     )
-    if diagnostic.verdict == "abstain":
-        return diagnostic
+    lineage = {
+        **diagnostic.evidence_lineage,
+        "forecast_algorithm_version": FORECAST_ALGORITHM_VERSION,
+        "forecast_status": "experimental",
+        "uncertainty_kind": "paired_bootstrap_monthly_demand_and_future_requests",
+        "future_request_variability_included": bool(diagnostic.actions),
+        "predictive_reliability": "unapproved",
+    }
+    if diagnostic.verdict == "abstain" and not diagnostic.actions:
+        return diagnostic.model_copy(update={"evidence_lineage": lineage})
     return diagnostic.model_copy(
         update={
             "verdict": "abstain",
@@ -459,15 +470,59 @@ def recommend_model_migration(
             "recommended_routing": {},
             "reason_codes": [
                 "experimental_predictive_reliability_unapproved",
-                "diagnostic_parameter_bootstrap_not_predictive",
+                "diagnostic_nested_bootstrap_not_validated",
+                *(diagnostic.reason_codes if diagnostic.verdict == "abstain" else []),
             ],
-            "evidence_lineage": {
-                "forecast_status": "experimental",
-                "uncertainty_kind": "paired_parameter_bootstrap_and_observed_demand",
-                "future_request_variability_included": False,
-                "predictive_reliability": "unapproved",
-            },
+            "evidence_lineage": lineage,
         }
+    )
+
+
+def _breach_probability_interval(
+    probability: float, *, simulations: int, action_count: int, limit: float
+) -> dict[str, float | str]:
+    """Fixed-N simultaneous numerical bounds, not predictive-risk certification."""
+    if simulations <= 0 or action_count <= 0 or not 0 <= probability <= 1 or not 0 <= limit <= 1:
+        raise ValueError("invalid probability-bound inputs")
+    radius = sqrt(log(2 * 3 * action_count / 0.01) / (2 * simulations))
+    lower, upper = max(0.0, probability - radius), min(1.0, probability + radius)
+    status = "qualified" if upper <= limit else "infeasible" if lower > limit else "indeterminate"
+    return {"lower": lower, "upper": upper, "radius": radius, "status": status}
+
+
+def _histogram_quantile(counts: dict[int, int], total: int, probability: float) -> int:
+    """Exact order statistic of integer request counts without expanding demand."""
+    cutoff = max(1, ceil(total * probability))
+    cumulative = 0
+    for value, count in sorted(counts.items()):
+        cumulative += count
+        if cumulative >= cutoff:
+            return value
+    raise ValueError("histogram does not contain requested count")
+
+
+def _counted_outcomes(rows, counts, demand):
+    cost = fsum(float(rows[index].cost_usd) * count for index, count in counts.items())
+    accepted = sum(rows[index].accepted * count for index, count in counts.items())
+    critical = sum(rows[index].critical_error * count for index, count in counts.items())
+    latencies: dict[int, int] = defaultdict(int)
+    for index, count in counts.items():
+        latencies[rows[index].latency_ms] += count
+    return cost, accepted, critical, _histogram_quantile(latencies, demand, 0.95)
+
+
+def _point_winner(actions):
+    """Minimum-cost mathematically feasible saving action; no numerical certificate."""
+    worthwhile = [a for a in actions if a.feasible and a.expected_monthly_savings_usd > 0]
+    return min(
+        worthwhile,
+        default=None,
+        key=lambda action: (
+            action.expected_monthly_cost_usd,
+            action.candidate_share,
+            tuple(sorted(action.cohort_candidate_shares.items())),
+            action.action_id,
+        ),
     )
 
 
@@ -596,7 +651,6 @@ def _diagnose_model_migration(
                         additional_cases_required=required_cases - len(cohort_rows),
                     )
 
-    rng = random.Random(seed)
     bootstrap_cases = paired_cases
     routing_specs: list[tuple[str, float, dict[str, float]]] = []
     if policy.routing_actions:
@@ -616,6 +670,28 @@ def _diagnose_model_migration(
             )
     else:
         routing_specs = [(f"global-{share:g}", share, {}) for share in policy.candidate_shares]
+    planned_work = simulations * (
+        paired_cases + max(evidence.period_request_counts) * (1 + len(routing_specs))
+    )
+    if planned_work > MAX_SIMULATION_WORK:
+        return _abstention(
+            evidence,
+            policy=policy,
+            simulations=simulations,
+            seed=seed,
+            reason="simulation_work_budget_exceeded",
+            additional_cases_required=0,
+        ).model_copy(
+            update={
+                "evidence_lineage": {
+                    "planned_simulation_work": planned_work,
+                    "simulation_work_limit": MAX_SIMULATION_WORK,
+                    "forecast_algorithm_version": FORECAST_ALGORITHM_VERSION,
+                }
+            }
+        )
+    rng = random.Random(seed)
+    paired_rows = incumbent + candidate
     scenario_results: dict[str, dict[str, list[float]]] = {
         action_id: {
             "cost": [],
@@ -632,32 +708,35 @@ def _diagnose_model_migration(
         for action_id, _, _ in routing_specs
     }
     for _ in range(simulations):
-        demand = rng.choice(evidence.period_request_counts)
         sampled_indices = [rng.randrange(paired_cases) for _ in range(bootstrap_cases)]
-        baseline_rows = [incumbent[index] for index in sampled_indices]
-        baseline_mean_cost = fmean(float(row.cost_usd) for row in baseline_rows)
-        baseline_cost = baseline_mean_cost * demand
-        baseline_success_rate = fmean(row.accepted for row in baseline_rows)
-        baseline_critical_rate = fmean(row.critical_error for row in baseline_rows)
-
-        # Common uniforms preserve each action's marginal routing law without
-        # letting enumeration order or additional actions consume different draws.
-        routing_uniforms = [rng.random() for _ in sampled_indices]
-        for action_id, share, cohort_shares in routing_specs:
+        demand = rng.choice(evidence.period_request_counts)
+        baseline_counts: Counter[int] = Counter()
+        routed_counts = [Counter() for _ in routing_specs]
+        # Each draw is one whole future request, from the paired outer law.
+        # A common routing uniform couples actions without changing their marginals.
+        for _request in range(demand):
+            index = sampled_indices[rng.randrange(bootstrap_cases)]
+            uniform = rng.random()
+            baseline_counts[index] += 1
+            for counts, (_, share, cohort_shares) in zip(routed_counts, routing_specs, strict=True):
+                threshold = (
+                    cohort_shares.get(incumbent[index].cohort, 0.0) if cohort_shares else share
+                )
+                counts[index + paired_cases if uniform < threshold else index] += 1
+        baseline_cost = fsum(float(incumbent[i].cost_usd) * n for i, n in baseline_counts.items())
+        baseline_accepted = sum(incumbent[i].accepted * n for i, n in baseline_counts.items())
+        baseline_critical = sum(incumbent[i].critical_error * n for i, n in baseline_counts.items())
+        for (action_id, _share, _cohort_shares), counts in zip(
+            routing_specs, routed_counts, strict=True
+        ):
             values = scenario_results[action_id]
-            action_rows = [
-                candidate[index]
-                if uniform
-                < (cohort_shares.get(incumbent[index].cohort, 0.0) if cohort_shares else share)
-                else incumbent[index]
-                for index, uniform in zip(sampled_indices, routing_uniforms, strict=True)
-            ]
-            action_mean_cost = fmean(float(row.cost_usd) for row in action_rows)
-            action_cost = action_mean_cost * demand
-            action_success_rate = fmean(row.accepted for row in action_rows)
-            action_critical_rate = fmean(row.critical_error for row in action_rows)
-            action_p95_latency = _quantile([float(row.latency_ms) for row in action_rows], 0.95)
-            incremental_critical_errors = (action_critical_rate - baseline_critical_rate) * demand
+            action_cost, action_accepted, action_critical, action_p95_latency = _counted_outcomes(
+                paired_rows, counts, demand
+            )
+            action_success_rate = action_accepted / demand
+            action_critical_rate = action_critical / demand
+            quality_drop = (baseline_accepted - action_accepted) / demand
+            incremental_critical_errors = action_critical - baseline_critical
             loss = (
                 action_cost
                 - baseline_cost
@@ -667,14 +746,12 @@ def _diagnose_model_migration(
             values["cost"].append(action_cost)
             values["savings"].append(baseline_cost - action_cost)
             values["loss"].append(loss)
-            values["quality_breach"].append(
-                float(baseline_success_rate - action_success_rate > policy.max_quality_drop)
-            )
+            values["quality_breach"].append(float(quality_drop > policy.max_quality_drop))
             values["latency_breach"].append(float(action_p95_latency > policy.max_p95_latency_ms))
             values["critical_breach"].append(
                 float(action_critical_rate > policy.max_critical_error_rate)
             )
-            values["quality_drop"].append(baseline_success_rate - action_success_rate)
+            values["quality_drop"].append(quality_drop)
             values["success_rate"].append(action_success_rate)
             values["p95_latency"].append(action_p95_latency)
             values["critical_rate"].append(action_critical_rate)
@@ -740,10 +817,40 @@ def _diagnose_model_migration(
             )
         )
 
-    worthwhile = [
-        action for action in actions if action.feasible and action.expected_monthly_savings_usd > 0
-    ]
-    if not worthwhile:
+    qualifications = {
+        action.action_id: {
+            metric: _breach_probability_interval(
+                probability,
+                simulations=simulations,
+                action_count=len(actions),
+                limit=policy.max_constraint_breach_probability,
+            )
+            for metric, probability in (
+                ("quality", action.probability_quality_breach),
+                ("latency", action.probability_latency_breach),
+                ("critical_error", action.probability_critical_error_breach),
+            )
+        }
+        for action in actions
+    }
+    lineage = {
+        "forecast_algorithm_version": FORECAST_ALGORITHM_VERSION,
+        "planned_simulation_work": planned_work,
+        "simulation_work_limit": MAX_SIMULATION_WORK,
+        "numerical_qualification": {
+            "method": "fixed_N_Hoeffding",
+            "familywise_confidence": 0.99,
+            "metric_action_comparisons": 3 * len(actions),
+            "simulations": simulations,
+            "actions": qualifications,
+            "scope": (
+                "per-metric MC probability only; excludes CVaR, model risk "
+                "and joint any-breach risk"
+            ),
+        },
+    }
+    point_winner = _point_winner(actions)
+    if point_winner is None:
         return ProbabilisticMigrationDecision(
             workload=evidence.workload,
             incumbent_model=evidence.incumbent_model,
@@ -756,16 +863,27 @@ def _diagnose_model_migration(
             seed=seed,
             actions=actions,
             forecast_readiness=evidence.readiness,
+            evidence_lineage=lineage,
         )
-    recommended = min(
-        worthwhile,
-        key=lambda action: (
-            action.expected_monthly_cost_usd,
-            action.candidate_share,
-            tuple(sorted(action.cohort_candidate_shares.items())),
-            action.action_id,
-        ),
+    recommended = _point_winner(
+        [
+            action
+            for action in actions
+            if all(
+                bound["status"] == "qualified"
+                for bound in qualifications[action.action_id].values()
+            )
+        ]
     )
+    if recommended is None:
+        return _abstention(
+            evidence,
+            policy=policy,
+            simulations=simulations,
+            seed=seed,
+            reason="mc_probability_indeterminate",
+            additional_cases_required=0,
+        ).model_copy(update={"actions": actions, "evidence_lineage": lineage})
     action = "ship_candidate" if recommended.candidate_share == 1 else "hybrid_route"
     if recommended.cohort_candidate_shares:
         action = "cohort_route"
@@ -782,6 +900,7 @@ def _diagnose_model_migration(
         seed=seed,
         actions=actions,
         forecast_readiness=evidence.readiness,
+        evidence_lineage=lineage,
     )
 
 

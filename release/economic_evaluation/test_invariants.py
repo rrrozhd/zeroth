@@ -152,7 +152,7 @@ class CandidateInvariantTests(unittest.TestCase):
 
         with patch.object(candidate.random, "Random", CountingRandom):
             self.run_world(evidence(501))
-        self.assertEqual(CountingRandom.draws, 501 * 100)
+        self.assertEqual(CountingRandom.draws, (501 + 1000) * 100)
 
     def test_tighter_policy_cannot_expand_feasible_set(self):
         world = evidence(12, heterogeneous=True)

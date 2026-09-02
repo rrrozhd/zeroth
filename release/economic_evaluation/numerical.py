@@ -1,5 +1,6 @@
 """Preregistered candidate-sampler checks against independently specified laws."""
 
+import hashlib
 import json
 import math
 from collections import Counter
@@ -9,6 +10,8 @@ from unittest.mock import patch
 
 from release.economic_evaluation.test_invariants import evidence, policy
 from zeroth.econ import probabilistic as candidate
+
+AMENDMENT_HASH = "0e543c2718e518e9655f3b1a65c23dd041bd720ccceb33638d56f44a9f651eac"
 
 
 def manifest():
@@ -60,18 +63,20 @@ def sample_candidate(law_name, seed, count):
             )
     elif law_name == "finite_breach":
         world = evidence(1)
+        # Approved v2 adapter: one future request keeps the frozen Bernoulli .04 law.
+        world.period_request_counts = [1]
         world.candidate[0].latency_ms = 200
         # Declared one-unit law, not evidence of real-world safety. A nonzero
         # critical indicator avoids the zero-observation evidence gate here.
         world.candidate[0].critical_error = True
-        original = candidate._quantile
+        original = candidate._counted_outcomes
 
-        def capture(values, probability):
-            result = original(values, probability)
-            observations.append(int(result > 150))
+        def capture(rows, counts, demand):
+            result = original(rows, counts, demand)
+            observations.append(int(result[3] > 150))
             return result
 
-        with patch.object(candidate, "_quantile", capture):
+        with patch.object(candidate, "_counted_outcomes", capture):
             candidate.recommend_model_migration(
                 world,
                 policy=policy(candidate_shares=[0.04], max_p95_latency_ms=150),
@@ -84,6 +89,9 @@ def sample_candidate(law_name, seed, count):
 
 
 def run():
+    amendment = Path(__file__).with_name("nested_adapter_amendment_v1.md").read_bytes()
+    if hashlib.sha256(amendment).hexdigest() != AMENDMENT_HASH:
+        raise ValueError("nested adapter amendment differs from independent approval")
     spec = manifest()
     results = []
     squared_error = {"prefix": 0.0, "full": 0.0}
@@ -104,6 +112,9 @@ def run():
     precision_passed = squared_error["full"] < squared_error["prefix"]
     checks = sum(len(result["checks"]) for result in results)
     return {
+        "adapter_version": "numerical-v2-nested",
+        "adapter_amendment_sha256": AMENDMENT_HASH,
+        "forecast_algorithm_version": candidate.FORECAST_ALGORITHM_VERSION,
         "passed": all(result["passed"] for result in results)
         and precision_passed
         and checks == spec["total_atom_checks_M"],

@@ -28,6 +28,7 @@ from zeroth.econ import rollout_verification as causal_candidate
 
 MANIFEST_HASH = "d459fa29237905fa5d90f0948a9d4190a746220bfc5051bc88aa1c69fa28ed74"
 SUPPLEMENT_HASH = "b3ddcd402c56259c4a18d7dc9e2fe6dc74cebf2008c1d02b67d01e460dbe8cd4"
+AMENDMENT_HASH = "0e543c2718e518e9655f3b1a65c23dd041bd720ccceb33638d56f44a9f651eac"
 INVENTORY = {
     "decisions": 360,
     "baseline_actions": 720,
@@ -782,6 +783,9 @@ def main():
     supplement_path = Path(__file__).with_name("predictive_manifest_v3_supplement.md")
     if sha(supplement_path.read_bytes()) != SUPPLEMENT_HASH:
         parser.error("supplement bytes differ from independent approval")
+    amendment_path = Path(__file__).with_name("nested_adapter_amendment_v1.md")
+    if sha(amendment_path.read_bytes()) != AMENDMENT_HASH:
+        parser.error("nested adapter amendment differs from independent approval")
     contract_hash = sha((ROOT / "docs/operations/economic-evaluation-contract-v1.md").read_bytes())
     if contract_hash != CONTRACT:
         parser.error("frozen contract identity mismatch")
@@ -833,7 +837,9 @@ def main():
             },
             "summaries": "9000000+10000*world+100*horizon+metric_index; paired per supplement",
         },
-        "adapter_version": "monthly-paired-v3",
+        "adapter_version": "monthly-paired-v4-nested",
+        "adapter_amendment_sha256": AMENDMENT_HASH,
+        "forecast_algorithm_version": candidate.FORECAST_ALGORITHM_VERSION,
         "metrics_version": "episode-summary-v3",
         "candidate": before,
         "candidate_after": after,
@@ -850,7 +856,7 @@ def main():
         "necessary_unnecessary_abstention": "unassessed",
         "deferred_worlds": "unexecuted",
         "aggregate_request_support": (
-            "known failing gate for parameter-bootstrap candidate; see separate exact test"
+            "see separate exact support gate in candidate evidence; no automatic predictive pass"
         ),
         **results,
     }

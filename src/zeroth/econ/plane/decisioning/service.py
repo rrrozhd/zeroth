@@ -22,6 +22,7 @@ from zeroth.econ.decisioning import (
 )
 from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.probabilistic import (
+    FORECAST_ALGORITHM_VERSION,
     ForecastCalibrationObservation,
     ProbabilisticMigrationDecision,
     assess_forecast_readiness,
@@ -309,6 +310,7 @@ def evaluate_and_retain_probabilistic_migration(
     derived_evidence = request.evidence.model_copy(update={"readiness": readiness})
     request_json = {
         "evidence": derived_evidence.model_dump(mode="json"),
+        "forecast_algorithm_version": FORECAST_ALGORITHM_VERSION,
         "policy": request.policy.model_dump(mode="json"),
         "calibration_observations": [
             observation.model_dump(mode="json")

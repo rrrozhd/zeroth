@@ -32,8 +32,8 @@ def run():
         ),
         (
             "choose_infeasible_action",
-            "action.feasible and action.expected_monthly_savings_usd > 0",
-            "action.expected_monthly_savings_usd > 0",
+            "a.feasible and a.expected_monthly_savings_usd > 0",
+            "a.expected_monthly_savings_usd > 0",
             "release.economic_evaluation.test_finite_adapters.FrozenCandidateAdapterTests."
             "test_k07_never_select_infeasible_cheaper_action",
         ),
@@ -65,15 +65,17 @@ def run():
     ]
     results = []
     for name, before, after, test in definitions:
+        function_name = (
+            "_point_winner" if name == "choose_infeasible_action" else "_diagnose_model_migration"
+        )
+        source = inspect.getsource(getattr(candidate, function_name))
         baseline, baseline_output = run_case(test)
         if before not in source:
             results.append({"fault": name, "status": "injection_failed", "target": before})
             continue
         namespace = dict(candidate.__dict__)
         exec(compile(source.replace(before, after), f"<fault:{name}>", "exec"), namespace)
-        with patch.object(
-            candidate, "_diagnose_model_migration", namespace["_diagnose_model_migration"]
-        ):
+        with patch.object(candidate, function_name, namespace[function_name]):
             result, output = run_case(test)
         detected = baseline.wasSuccessful() and bool(result.failures) and not result.errors
         results.append(

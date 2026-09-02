@@ -20,23 +20,30 @@ def replay(world, rules, *, breach_scenarios=None):
         def __init__(self, seed):
             self.scenario = -1
             self.position = 0
+            self.future = False
+            self.demand = 0
 
         def choice(self, values):
             self.scenario += 1
             self.position = 0
-            return values[self.scenario % len(values)]
+            self.future = True
+            self.demand = values[self.scenario % len(values)]
+            return self.demand
 
         def randrange(self, size):
             position = self.position
             self.position += 1
-            if breach_scenarios is None:
+            if not self.future or breach_scenarios is None:
                 return position % size
             # Input rows are sorted left/right, then safe/high latency by design.
             half = size // 2
-            side = int(position >= half)
+            side = int(position % size >= half)
             return side * half + (half - 1 if self.scenario < breach_scenarios[side] else 0)
 
         def random(self):
+            if self.position == self.demand:
+                self.future = False
+                self.position = 0
             return 0.5
 
     with patch.object(candidate.random, "Random", EnumeratedScenarios):
@@ -126,12 +133,9 @@ class FrozenCandidateAdapterTests(unittest.TestCase):
         self.assertEqual([row.expected_monthly_cost_usd for row in result.actions], [80, 60])
         self.assertEqual([row.probability_latency_breach for row in result.actions], [0.01, 0.10])
         self.assertEqual([row.feasible for row in result.actions], [True, False])
-        selected = next(
-            row
-            for row in result.actions
-            if row.cohort_candidate_shares == result.recommended_routing
-        )
+        selected = candidate._point_winner(result.actions)
         self.assertEqual(selected.action_id, self.expected("K07")["choice"])
+        self.assertEqual(result.recommended_action, "collect_evidence")
 
     def test_k08_hold_when_only_cheap_action_is_infeasible(self):
         world, rules = risk_world("1.2", "0")
@@ -173,6 +177,8 @@ class FrozenCandidateAdapterTests(unittest.TestCase):
             float(Fraction(self.expected("K11")["probability"])),
         )
         self.assertIs(result.actions[1].feasible, self.expected("K11")["feasible"])
+        bounds = result.evidence_lineage["numerical_qualification"]["actions"]["B"]
+        self.assertEqual(bounds["latency"]["status"], "indeterminate")
 
     def test_penalty_monotonicity_respects_incremental_error_sign(self):
         for increasing_errors, expected in (

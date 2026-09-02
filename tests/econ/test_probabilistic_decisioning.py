@@ -102,8 +102,11 @@ def test_probabilistic_recommendation_is_reproducible_for_a_seed() -> None:
     second = _diagnose_model_migration(evidence, policy=policy, simulations=400, seed=17)
 
     assert first == second
-    assert first.recommended_action == "ship_candidate"
-    assert first.recommended_candidate_share == 1.0
+    # Point-feasible is not numerically qualified with only 400 simulations.
+    assert first.actions[-1].feasible is True
+    assert first.recommended_action == "collect_evidence"
+    assert first.recommended_candidate_share == 0.0
+    assert "mc_probability_indeterminate" in first.reason_codes
     assert first.actions[-1].expected_monthly_savings_usd > 0
     assert first.actions[-1].cvar_loss_usd < 0
 

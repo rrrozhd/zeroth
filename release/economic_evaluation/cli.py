@@ -104,6 +104,7 @@ def build_bundle():
             ["release.economic_evaluation.test_horizon_and_missingness"],
         ),
         ("public_experimental_cutoff", ["release.economic_evaluation.test_experimental_cutoff"]),
+        ("mc_threshold_uncertainty", ["release.economic_evaluation.test_nested_predictive"]),
         (
             "aggregate_future_request_semantics",
             ["release.economic_evaluation.test_future_requests"],
@@ -143,11 +144,6 @@ def build_bundle():
             "Full predictive/causal stress worlds remain required and unexecuted.",
         ),
         (
-            "mc_threshold_uncertainty",
-            "untested",
-            "No safe-recommendation confidence-bound repair implemented.",
-        ),
-        (
             "production_predictive_validity",
             "blocked",
             "No approved production thresholds or customer evidence.",
@@ -178,6 +174,7 @@ def build_bundle():
             HERE / "predictive_manifest_proposal_v2.md",
             HERE / "predictive_manifest_proposal_v3.md",
             HERE / "predictive_manifest_v3_supplement.md",
+            HERE / "nested_adapter_amendment_v1.md",
         ]
     }
     baseline_hashes = {

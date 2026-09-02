@@ -87,6 +87,25 @@ def _request() -> dict[str, object]:
     return request
 
 
+def test_forecast_algorithm_version_changes_digest_without_rewriting_history(tmp_path, monkeypatch):
+    from zeroth.econ.plane.decisioning import service
+
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'versions.db'}")
+    Base.metadata.create_all(engine)
+    request = ProbabilisticMigrationRequest.model_validate(_request())
+    with Session(engine) as session:
+        db = ScopedSession(session, TenantWideScopeContext(tenant_id="tenant-version"))
+        first = service.evaluate_and_retain_probabilistic_migration(db, request, evaluated_by="test")
+        original = db.get(ProbabilisticMigrationDecisionRecord, first.decision_id)
+        original_json = dict(original.report_json)
+        monkeypatch.setattr(service, "FORECAST_ALGORITHM_VERSION", "future-test-version", raising=False)
+        second = service.evaluate_and_retain_probabilistic_migration(db, request, evaluated_by="test")
+        self_repeat = service.evaluate_and_retain_probabilistic_migration(db, request, evaluated_by="test")
+        assert first.decision_id != second.decision_id
+        assert second.decision_id == self_repeat.decision_id
+        assert db.get(ProbabilisticMigrationDecisionRecord, first.decision_id).report_json == original_json
+
+
 def test_model_migration_route_retains_an_immutable_tenant_decision(
     tmp_path: Path, monkeypatch
 ) -> None:

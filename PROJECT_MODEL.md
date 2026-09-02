@@ -50,10 +50,15 @@ Zeroth does not modify customer routing.
 3. The domain engine requires explicit monthly demand and measured critical outcomes,
    matching paired IDs, calibration, drift, paired sample size, and the rare-error upper
    bound. A failed gate returns `collect_evidence` without running scenarios.
-4. Each scenario resamples complete paired runs, samples observed demand, applies a global share or
-   explicit cohort route, and aggregates cost, quality, p95 latency, and critical errors.
-5. The private diagnostic tests each action against point-estimated chance constraints and
-   empirical CVaR. The public wrapper retains diagnostics but returns abstain/collect_evidence,
+4. Each scenario resamples n complete paired runs, samples monthly demand D, draws D
+   whole future paired requests from that outer empirical law, and uses common routing
+   uniforms across actions. Sparse integer counts aggregate spend, success, critical
+   errors and exact p95 latency without allocating D-row populations.
+5. The private diagnostic preserves point feasibility and separately computes fixed-N
+   99% simultaneous Hoeffding bounds for 3*A breach probabilities. A point-feasible
+   saving action cannot become the sampled diagnostic recommendation unless its
+   probability bounds qualify. These bounds do not certify CVaR or predictive validity.
+   The public wrapper retains diagnostics but returns abstain/collect_evidence,
    even when callers disable calibration requirements. Service storage retains this lineage.
 6. A schedule persists the selector and policy and rebuilds evidence on every due run.
 7. A randomized rollout persists sticky subject assignments. Post-assignment measured outcomes
@@ -139,12 +144,16 @@ reports, and calibration history, so export the applicable records before rollba
 - Missing critical outcomes survive API/SDK JSON round trips as missing, not false.
   Daily telemetry demand remains unknown-horizon and abstains; no automatic month conversion.
   Calibration deduplicates identical forecast IDs per metric and rejects conflicting copies.
-- The current private model resamples historical units then scales by demand. It omits actual
-  future-request variability and can produce fractional-request losses. The exact support
-  gate remains red. A nested future-request model and 50m work ceiling await owner approval.
+- The owner approved nested future-request sampling, the temporary 50m planned-work
+  ceiling and fixed-N 99% numerical bounds. The previous fractional-request support
+  witness now passes focused tests. Overflow abstains before RNG construction; no
+  demand/evidence truncation or runtime enable flag is provided. Algorithm version
+  `nested-paired-monthly-v2-hoeffding99` enters new request digests; old records remain unchanged.
 - The v3 descriptive synthetic protocol and its summary-stream supplement are independently
-  approved. The harness must be committed and identity-checked before its initial run.
-  The required 930 forecast summaries do not imply predictive acceptance.
+  approved. Initial run on 27e5f226 completed and was independently checked, but did not
+  establish predictive validity. New generative-law adapters require an independently
+  reviewed amendment and frozen source before rerunning numerical/descriptive suites.
+  All requested proof notebooks, graphs and generated raw evidence remain untracked.
 - Local SMTP acceptance followed by a crash currently loses the uncommitted audit
   attempt; partial recipient rejection is silently ignored. These are reproduced
   failing gates, not repaired behavior. No delivery-state schema change is approved.
