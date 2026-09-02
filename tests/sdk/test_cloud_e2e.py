@@ -254,6 +254,7 @@ def test_sdk_submits_and_reads_a_probabilistic_model_migration_decision(
             incumbent=incumbent,
             candidate=candidate,
             period_request_counts=[100],
+            demand_horizon="month",
         ),
         policy=MigrationRiskPolicy(
             candidate_shares=[1.0],
@@ -287,6 +288,8 @@ def test_sdk_submits_and_reads_a_probabilistic_model_migration_decision(
 
     result = sdk.create_model_migration_decision(request)
 
-    assert result["recommended_action"] == "ship_candidate"
+    assert result["recommended_action"] == "collect_evidence"
+    assert "experimental_predictive_reliability_unapproved" in result["reason_codes"]
+    assert result["evidence_lineage"]["predictive_reliability"] == "unapproved"
     assert Decimal(result["actions"][0]["cvar_loss_usd"]) < 0
     assert sdk.list_model_migration_decisions() == [result]

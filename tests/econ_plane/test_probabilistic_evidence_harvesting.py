@@ -223,3 +223,44 @@ def test_harvester_reads_an_explicit_case_level_artifact_from_a_retained_backtes
     assert len(result.evidence.candidate) == 30
     assert result.evidence.period_request_counts == [90, 100, 110]
     assert result.lineage.sources == ["backtest:model-a", "backtest:model-b"]
+
+
+def test_harvester_does_not_hide_missing_candidate_units_in_an_intersection(tmp_path: Path) -> None:
+    now = datetime(2026, 9, 2, tzinfo=UTC)
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'missing-pair.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as raw:
+        for index in range(3):
+            _seed_run(
+                raw,
+                tenant="tenant-a",
+                case=f"case-{index}",
+                model="model-a",
+                cost="1",
+                accepted=True,
+                cohort="default",
+                when=now,
+            )
+            if index != 2:
+                _seed_run(
+                    raw,
+                    tenant="tenant-a",
+                    case=f"case-{index}",
+                    model="model-b",
+                    cost="0.6",
+                    accepted=True,
+                    cohort="default",
+                    when=now,
+                )
+        raw.commit()
+        result = harvest_migration_evidence(
+            ScopedSession(raw, TenantWideScopeContext(tenant_id="tenant-a")),
+            MigrationEvidenceSource(
+                workload="invoice-agent", incumbent_model="model-a", candidate_model="model-b"
+            ),
+            now=now,
+        )
+        assert result.evidence is None
+        assert "paired_outcomes_missing" in result.gaps
+        assert result.lineage.incumbent_complete_cases == 3
+        assert result.lineage.candidate_complete_cases == 2

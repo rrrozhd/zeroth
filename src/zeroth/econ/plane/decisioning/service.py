@@ -337,7 +337,9 @@ def evaluate_and_retain_probabilistic_migration(
         seed=request.seed,
     )
     now = datetime.now(UTC)
-    decision = decision.model_copy(update={"evidence_lineage": evidence_lineage or {"kind": "client_snapshot"}})
+    combined_lineage = {**(evidence_lineage or {"kind": "client_snapshot"}),
+                        **decision.evidence_lineage}
+    decision = decision.model_copy(update={"evidence_lineage": combined_lineage})
     report_json = decision.model_dump(mode="json", exclude={"decision_id", "evaluated_at"})
     record = ProbabilisticMigrationDecisionRecord(
         decision_id=decision_id,
@@ -349,7 +351,7 @@ def evaluate_and_retain_probabilistic_migration(
         verdict=decision.verdict,
         recommended_action=decision.recommended_action,
         evidence_json=derived_evidence.model_dump(mode="json"),
-        evidence_lineage_json=evidence_lineage or {"kind": "client_snapshot"},
+        evidence_lineage_json=combined_lineage,
         policy_json=request.policy.model_dump(mode="json"),
         report_json=report_json,
         evaluated_at=now,

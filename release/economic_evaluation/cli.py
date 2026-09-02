@@ -93,7 +93,20 @@ def build_bundle():
                 "release.economic_evaluation.test_invariants",
                 "release.economic_evaluation.test_numerical",
                 "release.economic_evaluation.test_bundle",
+                "release.economic_evaluation.test_forecast_defects",
+                "release.economic_evaluation.test_named_boundary_faults",
+                "release.economic_evaluation.test_predictive_harness",
             ],
+        ),
+        ("full_K01_K11_candidate_adapter", ["release.economic_evaluation.test_finite_adapters"]),
+        (
+            "monthly_horizon_and_durable_missingness",
+            ["release.economic_evaluation.test_horizon_and_missingness"],
+        ),
+        ("public_experimental_cutoff", ["release.economic_evaluation.test_experimental_cutoff"]),
+        (
+            "aggregate_future_request_semantics",
+            ["release.economic_evaluation.test_future_requests"],
         ),
         ("local_smtp_faults", ["release.economic_evaluation.test_delivery_boundaries"]),
     ):
@@ -118,11 +131,6 @@ def build_bundle():
     )
     for name, status, reason in [
         (
-            "full_K01_K11_candidate_adapter",
-            "untested",
-            "All rational fixtures verified; candidate adapters cover only a subset.",
-        ),
-        (
             "full_output_fidelity",
             "untested",
             "Full engine/storage/API/PDF/MIME chain and visual QA are untested. "
@@ -130,10 +138,10 @@ def build_bundle():
         ),
         (
             "predictive_causal_harness",
-            "blocked",
-            "Independent reviewer requires manifest revisions; no predictive run authorized yet.",
+            "untested",
+            "V3 descriptive runner is separate; this bundle does not execute or certify it. "
+            "Full predictive/causal stress worlds remain required and unexecuted.",
         ),
-        ("monthly_horizon", "blocked", "Explicit evidence horizon needs approved public contract."),
         (
             "mc_threshold_uncertainty",
             "untested",
@@ -168,6 +176,8 @@ def build_bundle():
             HERE / "numerical_manifest_v1.json",
             HERE / "predictive_manifest_proposal_v1.json",
             HERE / "predictive_manifest_proposal_v2.md",
+            HERE / "predictive_manifest_proposal_v3.md",
+            HERE / "predictive_manifest_v3_supplement.md",
         ]
     }
     baseline_hashes = {

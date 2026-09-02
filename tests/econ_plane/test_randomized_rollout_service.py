@@ -20,7 +20,6 @@ from zeroth.econ.plane.decisioning.schemas import (
 from zeroth.econ.plane.decisioning.service import (
     assign_randomized_rollout,
     create_randomized_rollout,
-    evaluate_and_retain_probabilistic_migration,
     verify_retained_randomized_rollout,
 )
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
@@ -73,9 +72,71 @@ def test_randomized_rollout_is_sticky_verified_and_feeds_calibration_history(
     assigned_at = datetime(2026, 9, 2, 12, tzinfo=UTC)
     with Session(engine) as raw:
         db = ScopedSession(raw, TenantWideScopeContext(tenant_id="tenant-a"))
-        decision = evaluate_and_retain_probabilistic_migration(
-            db, _migration_request(), evaluated_by="analyst@example.com"
+        # Retained legacy/preauthorized fixture: do not bypass the new public
+        # experimental cutoff to create a fresh recommended decision.
+        request = _migration_request()
+        action = {
+            "action_id": "legacy-half",
+            "candidate_share": 0.5,
+            "expected_monthly_cost_usd": "75",
+            "monthly_cost_p05_usd": "75",
+            "monthly_cost_p95_usd": "75",
+            "expected_monthly_savings_usd": "25",
+            "monthly_savings_p05_usd": "25",
+            "monthly_savings_p95_usd": "25",
+            "probability_negative_savings": 0,
+            "probability_quality_breach": 0,
+            "probability_latency_breach": 0,
+            "probability_critical_error_breach": 0,
+            "value_at_risk_usd": "-25",
+            "cvar_loss_usd": "-25",
+            "minimum_quality_drop_tolerance": 0,
+            "minimum_p95_latency_limit_ms": 700,
+            "minimum_critical_error_rate_limit": 0.01,
+            "minimum_cvar_loss_limit_usd": "-25",
+            "feasible": True,
+            "violated_constraints": [],
+            "expected_success_rate": 1,
+            "success_rate_p05": 1,
+            "success_rate_p95": 1,
+            "expected_p95_latency_ms": 700,
+            "p95_latency_p05_ms": 700,
+            "p95_latency_p95_ms": 700,
+            "expected_critical_error_rate": 0.01,
+            "critical_error_rate_p05": 0.01,
+            "critical_error_rate_p95": 0.01,
+        }
+        report = {
+            "workload": "invoice-agent",
+            "incumbent_model": "model-a",
+            "candidate_model": "model-b",
+            "verdict": "recommend",
+            "recommended_action": "hybrid_route",
+            "recommended_candidate_share": 0.5,
+            "reason_codes": ["legacy_preapproved_fixture"],
+            "simulations": 200,
+            "seed": 7,
+            "actions": [action],
+            "forecast_readiness": {"calibration_state": "calibrated", "drift_state": "stable"},
+        }
+        decision = ProbabilisticMigrationDecisionRecord(
+            decision_id="legacy-approved-decision",
+            tenant_id="tenant-a",
+            request_digest="a" * 64,
+            workload="invoice-agent",
+            incumbent_model="model-a",
+            candidate_model="model-b",
+            verdict="recommend",
+            recommended_action="hybrid_route",
+            evidence_json=request.evidence.model_dump(mode="json"),
+            evidence_lineage_json={},
+            policy_json=request.policy.model_dump(mode="json"),
+            report_json=report,
+            evaluated_at=assigned_at - timedelta(days=1),
+            evaluated_by="legacy-approver@example.com",
         )
+        db.add(decision)
+        db.commit()
         rollout = create_randomized_rollout(
             db,
             RandomizedRolloutCreate(

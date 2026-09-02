@@ -1,4 +1,4 @@
-"""Candidate adapters and metamorphic checks; expected arithmetic is independent."""
+"""Private mathematical diagnostics; public authorization is tested separately."""
 
 import random
 import unittest
@@ -34,6 +34,7 @@ def evidence(count=6, heterogeneous=False):
         incumbent=rows,
         candidate=alternatives,
         period_request_counts=[1000],
+        demand_horizon="month",
         readiness=candidate.ForecastReadiness(calibration_state="calibrated", drift_state="stable"),
     )
 
@@ -54,7 +55,7 @@ def policy(**changes):
 
 class CandidateInvariantTests(unittest.TestCase):
     def run_world(self, world, rules=None, seed=7):
-        return candidate.recommend_model_migration(
+        return candidate._diagnose_model_migration(
             world, policy=rules or policy(), simulations=100, seed=seed
         )
 

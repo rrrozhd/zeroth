@@ -48,9 +48,9 @@ def _accepted(outcome: OutcomeEvent) -> bool | None:
     return None
 
 
-def _critical(outcome: OutcomeEvent) -> bool:
-    value = (outcome.outcome_payload_json or {}).get("critical_error", False)
-    return value if type(value) is bool else False
+def _critical(outcome: OutcomeEvent) -> bool | None:
+    value = (outcome.outcome_payload_json or {}).get("critical_error")
+    return value if type(value) is bool else None
 
 
 def harvest_migration_evidence(
@@ -130,14 +130,15 @@ def harvest_migration_evidence(
             ),
             Decimal("0"),
         )
+        critical = _critical(outcome)
         observations[model][case_id] = MigrationObservation(
             case_id=case_id,
             cohort=cohort,
             cost_usd=cost,
             latency_ms=sum(event.latency_ms for event in run_events),
             accepted=accepted,
-            critical_error=_critical(outcome),
             source="+".join(sorted(evidence_sources)),
+            **({"critical_error": critical} if critical is not None else {}),
         )
         if model == source.incumbent_model:
             case_dates[case_id] = max(event.timestamp for event in run_events).date()
@@ -175,6 +176,7 @@ def harvest_migration_evidence(
                     "incumbent": incumbent_artifact,
                     "candidate": candidate_artifact,
                     "period_request_counts": period_artifact,
+                    "demand_horizon": report.get("demand_horizon", "unknown"),
                 }
             )
             artifact_sources = sorted(
@@ -211,6 +213,8 @@ def harvest_migration_evidence(
         return EvidenceHarvestResult(
             gaps=["no_paired_case_level_evidence"], lineage=lineage
         )
+    if incumbent.keys() != candidate.keys():
+        return EvidenceHarvestResult(gaps=["paired_outcomes_missing"], lineage=lineage)
     counts: dict[date, int] = defaultdict(int)
     for case_id in incumbent:
         if case_id in case_dates:

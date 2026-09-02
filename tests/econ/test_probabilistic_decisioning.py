@@ -1,3 +1,5 @@
+"""Mathematical diagnostic tests; public authorization is tested in cutoff/API tests."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -12,7 +14,7 @@ from zeroth.econ.probabilistic import (
     MigrationObservation,
     MigrationRiskPolicy,
     empirical_var_cvar,
-    recommend_model_migration,
+    _diagnose_model_migration,
 )
 
 
@@ -65,6 +67,7 @@ def _evidence(
             critical_every=candidate_critical_every,
         ),
         period_request_counts=[90, 100, 110],
+        demand_horizon="month",
         readiness=ForecastReadiness(
             calibration_state="calibrated",
             drift_state="stable",
@@ -95,8 +98,8 @@ def test_probabilistic_recommendation_is_reproducible_for_a_seed() -> None:
         max_cvar_loss_usd=Decimal("0"),
     )
 
-    first = recommend_model_migration(evidence, policy=policy, simulations=400, seed=17)
-    second = recommend_model_migration(evidence, policy=policy, simulations=400, seed=17)
+    first = _diagnose_model_migration(evidence, policy=policy, simulations=400, seed=17)
+    second = _diagnose_model_migration(evidence, policy=policy, simulations=400, seed=17)
 
     assert first == second
     assert first.recommended_action == "ship_candidate"
@@ -117,7 +120,7 @@ def test_risk_constraints_select_a_feasible_hybrid_instead_of_full_migration() -
         max_cvar_loss_usd=Decimal("50"),
     )
 
-    report = recommend_model_migration(evidence, policy=policy, simulations=1_000, seed=3)
+    report = _diagnose_model_migration(evidence, policy=policy, simulations=1_000, seed=3)
 
     by_share = {action.candidate_share: action for action in report.actions}
     assert by_share[1.0].feasible is False
@@ -141,7 +144,7 @@ def test_action_forecast_exposes_inspectable_cost_and_savings_intervals() -> Non
         max_cvar_loss_usd=Decimal("0"),
     )
 
-    report = recommend_model_migration(evidence, policy=policy, simulations=400, seed=27)
+    report = _diagnose_model_migration(evidence, policy=policy, simulations=400, seed=27)
     action = report.actions[0]
 
     assert action.monthly_cost_p05_usd <= action.expected_monthly_cost_usd
@@ -169,7 +172,7 @@ def test_rare_error_constraint_abstains_when_zero_failures_do_not_bound_the_rate
         max_cvar_loss_usd=Decimal("100"),
     )
 
-    report = recommend_model_migration(evidence, policy=policy, simulations=200, seed=9)
+    report = _diagnose_model_migration(evidence, policy=policy, simulations=200, seed=9)
 
     assert report.verdict == "abstain"
     assert report.recommended_action == "collect_evidence"
@@ -191,10 +194,10 @@ def test_tightening_a_quality_constraint_cannot_make_full_migration_feasible() -
     )
     strict = permissive.model_copy(update={"max_quality_drop": 0.01})
 
-    permissive_report = recommend_model_migration(
+    permissive_report = _diagnose_model_migration(
         evidence, policy=permissive, simulations=1_000, seed=21
     )
-    strict_report = recommend_model_migration(evidence, policy=strict, simulations=1_000, seed=21)
+    strict_report = _diagnose_model_migration(evidence, policy=strict, simulations=1_000, seed=21)
 
     assert permissive_report.actions[-1].feasible is True
     assert strict_report.actions[-1].feasible is False
@@ -261,7 +264,7 @@ def test_optimizer_can_route_only_the_cohort_where_the_candidate_is_safe() -> No
         max_cvar_loss_usd=Decimal("100"),
     )
 
-    report = recommend_model_migration(evidence, policy=policy, simulations=1_000, seed=31)
+    report = _diagnose_model_migration(evidence, policy=policy, simulations=1_000, seed=31)
 
     by_id = {action.action_id: action for action in report.actions}
     assert by_id["enterprise-only"].feasible is True

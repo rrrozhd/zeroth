@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from math import isfinite
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 
 class ExecutionEvent(BaseModel):
@@ -128,6 +129,13 @@ class MigrationObservation(BaseModel):
     critical_error: bool = False
     source: str = Field(min_length=1, max_length=64)
 
+    @model_serializer(mode="wrap")
+    def _preserve_unmeasured_critical_error(self, handler):
+        values = handler(self)
+        if "critical_error" not in self.model_fields_set:
+            values.pop("critical_error", None)
+        return values
+
 
 class MetricForecastReadiness(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -161,7 +169,7 @@ class ForecastReadiness(BaseModel):
 class ForecastCalibrationObservation(BaseModel):
     """One forecast-versus-observed period used for server-side calibration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     forecast_id: str = Field(min_length=1, max_length=128)
     metric: str = Field(min_length=1, max_length=128)
@@ -173,8 +181,8 @@ class ForecastCalibrationObservation(BaseModel):
 
     @model_validator(mode="after")
     def _interval_is_ordered(self) -> ForecastCalibrationObservation:
-        if self.predicted_low > self.predicted_mean or self.predicted_mean > self.predicted_high:
-            raise ValueError("forecast interval must contain predicted_mean")
+        if self.predicted_low > self.predicted_high:
+            raise ValueError("forecast interval endpoints must be ordered")
         return self
 
 
@@ -189,6 +197,7 @@ class MigrationEvidence(BaseModel):
     incumbent: list[MigrationObservation] = Field(min_length=1, max_length=5_000)
     candidate: list[MigrationObservation] = Field(min_length=1, max_length=5_000)
     period_request_counts: list[int] = Field(min_length=1, max_length=366)
+    demand_horizon: Literal["month", "unknown"] = "unknown"
     readiness: ForecastReadiness = Field(default_factory=ForecastReadiness)
 
     @model_validator(mode="after")
@@ -221,7 +230,7 @@ class CohortRoutingAction(BaseModel):
     @model_validator(mode="after")
     def _shares_are_bounded(self) -> CohortRoutingAction:
         if any(
-            not cohort or share < 0 or share > 1
+            not cohort or not isfinite(share) or share < 0 or share > 1
             for cohort, share in self.cohort_candidate_shares.items()
         ):
             raise ValueError("cohort candidate shares must be between 0 and 1")
@@ -254,7 +263,7 @@ class MigrationRiskPolicy(BaseModel):
     def _shares_are_ordered_and_bounded(self) -> MigrationRiskPolicy:
         if not self.candidate_shares:
             raise ValueError("candidate_shares must not be empty")
-        if any(share <= 0 or share > 1 for share in self.candidate_shares):
+        if any(not isfinite(share) or share <= 0 or share > 1 for share in self.candidate_shares):
             raise ValueError("candidate_shares must be greater than 0 and at most 1")
         if self.candidate_shares != sorted(set(self.candidate_shares)):
             raise ValueError("candidate_shares must be unique and increasing")

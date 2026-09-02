@@ -89,6 +89,7 @@ def test_model_migration_abstains_when_calibration_drift_is_critical() -> None:
         incumbent=incumbent,
         candidate=candidate,
         period_request_counts=[100],
+        demand_horizon="month",
         readiness=readiness,
     )
     policy = subject.MigrationRiskPolicy(

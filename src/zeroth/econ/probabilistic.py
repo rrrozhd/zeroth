@@ -10,7 +10,7 @@ from math import ceil, fsum, isfinite
 from statistics import fmean
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 
 class MigrationObservation(BaseModel):
@@ -24,9 +24,16 @@ class MigrationObservation(BaseModel):
     critical_error: bool = False
     source: str = Field(min_length=1, max_length=64)
 
+    @model_serializer(mode="wrap")
+    def _preserve_unmeasured_critical_error(self, handler):
+        values = handler(self)
+        if "critical_error" not in self.model_fields_set:
+            values.pop("critical_error", None)
+        return values
+
 
 class ForecastCalibrationObservation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     forecast_id: str = Field(min_length=1, max_length=128)
     metric: str = Field(min_length=1, max_length=128)
@@ -38,8 +45,8 @@ class ForecastCalibrationObservation(BaseModel):
 
     @model_validator(mode="after")
     def _interval_is_ordered(self) -> ForecastCalibrationObservation:
-        if self.predicted_low > self.predicted_mean or self.predicted_mean > self.predicted_high:
-            raise ValueError("forecast interval must contain predicted_mean")
+        if self.predicted_low > self.predicted_high:
+            raise ValueError("forecast interval endpoints must be ordered")
         return self
 
 
@@ -79,6 +86,7 @@ class MigrationEvidence(BaseModel):
     incumbent: list[MigrationObservation] = Field(min_length=1, max_length=5_000)
     candidate: list[MigrationObservation] = Field(min_length=1, max_length=5_000)
     period_request_counts: list[int] = Field(min_length=1, max_length=366)
+    demand_horizon: Literal["month", "unknown"] = "unknown"
     readiness: ForecastReadiness = Field(default_factory=ForecastReadiness)
 
     @model_validator(mode="after")
@@ -111,7 +119,7 @@ class CohortRoutingAction(BaseModel):
     @model_validator(mode="after")
     def _shares_are_bounded(self) -> CohortRoutingAction:
         if any(
-            not cohort or share < 0 or share > 1
+            not cohort or not isfinite(share) or share < 0 or share > 1
             for cohort, share in self.cohort_candidate_shares.items()
         ):
             raise ValueError("cohort candidate shares must be between 0 and 1")
@@ -142,7 +150,7 @@ class MigrationRiskPolicy(BaseModel):
     def _shares_are_ordered_and_bounded(self) -> MigrationRiskPolicy:
         if not self.candidate_shares:
             raise ValueError("candidate_shares must not be empty")
-        if any(share <= 0 or share > 1 for share in self.candidate_shares):
+        if any(not isfinite(share) or share <= 0 or share > 1 for share in self.candidate_shares):
             raise ValueError("candidate_shares must be greater than 0 and at most 1")
         if self.candidate_shares != sorted(set(self.candidate_shares)):
             raise ValueError("candidate_shares must be unique and increasing")
@@ -245,7 +253,14 @@ def assess_forecast_readiness(
     if minimum_periods < 2:
         raise ValueError("minimum_periods must be at least 2")
     by_metric: dict[str, list[ForecastCalibrationObservation]] = {}
+    seen: dict[tuple[str, str], ForecastCalibrationObservation] = {}
     for observation in observations:
+        identity = (observation.metric, observation.forecast_id)
+        if identity in seen:
+            if seen[identity] != observation:
+                raise ValueError("conflicting observations for one forecast and metric")
+            continue
+        seen[identity] = observation
         by_metric.setdefault(observation.metric, []).append(observation)
     expected = required_metrics if required_metrics is not None else set(by_metric)
     missing_metrics = sorted(expected - by_metric.keys())
@@ -351,7 +366,8 @@ def _assess_metric_readiness(
 
 
 def _money(value: float) -> Decimal:
-    return Decimal(str(round(value, 6)))
+    # Presentation rounding belongs in renderers, not policy or action selection.
+    return Decimal(str(value))
 
 
 def _empirical_quantile(values: list[float], quantile: float) -> float:
@@ -426,9 +442,77 @@ def recommend_model_migration(
     simulations: int = 10_000,
     seed: int = 7,
 ) -> ProbabilisticMigrationDecision:
-    """Simulate paired model evidence and choose the cheapest risk-feasible rollout."""
+    """Return experimental diagnostics, never an unapproved predictive authorization."""
+    diagnostic = _diagnose_model_migration(
+        evidence,
+        policy=policy,
+        simulations=simulations,
+        seed=seed,
+    )
+    if diagnostic.verdict == "abstain":
+        return diagnostic
+    return diagnostic.model_copy(
+        update={
+            "verdict": "abstain",
+            "recommended_action": "collect_evidence",
+            "recommended_candidate_share": 0.0,
+            "recommended_routing": {},
+            "reason_codes": [
+                "experimental_predictive_reliability_unapproved",
+                "diagnostic_parameter_bootstrap_not_predictive",
+            ],
+            "evidence_lineage": {
+                "forecast_status": "experimental",
+                "uncertainty_kind": "paired_parameter_bootstrap_and_observed_demand",
+                "future_request_variability_included": False,
+                "predictive_reliability": "unapproved",
+            },
+        }
+    )
+
+
+def _diagnose_model_migration(
+    evidence: MigrationEvidence,
+    *,
+    policy: MigrationRiskPolicy,
+    simulations: int = 10_000,
+    seed: int = 7,
+) -> ProbabilisticMigrationDecision:
+    """Internal mathematical diagnostic; not a public migration authorization."""
     if simulations < 100:
         raise ValueError("simulations must be at least 100")
+    if evidence.demand_horizon != "month":
+        return _abstention(
+            evidence,
+            policy=policy,
+            simulations=simulations,
+            seed=seed,
+            reason="demand_horizon_unknown",
+            additional_cases_required=0,
+        )
+    incumbent_ids = {row.case_id for row in evidence.incumbent}
+    candidate_ids = {row.case_id for row in evidence.candidate}
+    if incumbent_ids != candidate_ids:
+        return _abstention(
+            evidence,
+            policy=policy,
+            simulations=simulations,
+            seed=seed,
+            reason="paired_outcomes_missing",
+            additional_cases_required=len(incumbent_ids ^ candidate_ids),
+        )
+    if any(
+        "critical_error" not in row.model_fields_set
+        for row in [*evidence.incumbent, *evidence.candidate]
+    ):
+        return _abstention(
+            evidence,
+            policy=policy,
+            simulations=simulations,
+            seed=seed,
+            reason="critical_error_measurement_missing",
+            additional_cases_required=0,
+        )
     readiness = evidence.readiness
     if readiness.drift_state == "critical":
         return _abstention(

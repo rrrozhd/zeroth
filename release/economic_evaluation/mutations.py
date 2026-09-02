@@ -8,14 +8,7 @@ from unittest.mock import patch
 
 from zeroth.econ import probabilistic as candidate
 
-PENDING = [
-    "omit_critical_error_penalties",
-    "break_pairing_cohorts",
-    "choose_infeasible_action",
-    "treat_missing_as_measured",
-    "substitute_report_action",
-    "bypass_tenant_ownership",
-]
+PENDING = []
 
 
 def run_case(test_name):
@@ -28,8 +21,29 @@ def run_case(test_name):
 
 def run():
     base = "release.economic_evaluation.test_invariants.CandidateInvariantTests."
-    source = inspect.getsource(candidate.recommend_model_migration)
+    source = inspect.getsource(candidate._diagnose_model_migration)
     definitions = [
+        (
+            "omit_critical_error_penalties",
+            "float(policy.critical_error_penalty_usd) * incremental_critical_errors",
+            "0.0",
+            "release.economic_evaluation.test_finite_adapters.FrozenCandidateAdapterTests."
+            "test_k10_signed_penalized_loss_keeps_savings_separate",
+        ),
+        (
+            "choose_infeasible_action",
+            "action.feasible and action.expected_monthly_savings_usd > 0",
+            "action.expected_monthly_savings_usd > 0",
+            "release.economic_evaluation.test_finite_adapters.FrozenCandidateAdapterTests."
+            "test_k07_never_select_infeasible_cheaper_action",
+        ),
+        (
+            "treat_missing_as_measured",
+            '"critical_error" not in row.model_fields_set',
+            "False",
+            "release.economic_evaluation.test_forecast_defects.ForecastDefectTests."
+            "test_missing_critical_measurement_is_not_measured_false",
+        ),
         (
             "reverse_savings_sign",
             'values["savings"].append(baseline_cost - action_cost)',
@@ -58,7 +72,7 @@ def run():
         namespace = dict(candidate.__dict__)
         exec(compile(source.replace(before, after), f"<fault:{name}>", "exec"), namespace)
         with patch.object(
-            candidate, "recommend_model_migration", namespace["recommend_model_migration"]
+            candidate, "_diagnose_model_migration", namespace["_diagnose_model_migration"]
         ):
             result, output = run_case(test)
         detected = baseline.wasSuccessful() and bool(result.failures) and not result.errors
@@ -66,6 +80,90 @@ def run():
             {
                 "fault": name,
                 "status": "detected" if detected else "survived_or_error",
+                "test": test,
+                "baseline_passed": baseline.wasSuccessful(),
+                "baseline_output": baseline_output,
+                "fault_output": output,
+            }
+        )
+
+    pairing_source = inspect.getsource(candidate._paired_observations)
+    before = "[candidate_by_id[case_id] for case_id in paired_ids]"
+    if before not in pairing_source:
+        results.append({"fault": "break_pairing_cohorts", "status": "injection_failed"})
+    else:
+        namespace = dict(candidate.__dict__)
+        exec(
+            compile(
+                pairing_source.replace(
+                    before, "[candidate_by_id[paired_ids[0]] for case_id in paired_ids]"
+                ),
+                "<fault:break-pairing>",
+                "exec",
+            ),
+            namespace,
+        )
+        test = (
+            "release.economic_evaluation.test_forecast_defects.ForecastDefectTests."
+            "test_identical_paired_heterogeneous_outcomes_have_zero_incremental_loss"
+        )
+        baseline, baseline_output = run_case(test)
+        with patch.object(candidate, "_paired_observations", namespace["_paired_observations"]):
+            result, output = run_case(test)
+        results.append(
+            {
+                "fault": "break_pairing_cohorts",
+                "status": "detected"
+                if baseline.wasSuccessful() and result.failures and not result.errors
+                else "survived_or_error",
+                "test": test,
+                "baseline_passed": baseline.wasSuccessful(),
+                "baseline_output": baseline_output,
+                "fault_output": output,
+            }
+        )
+
+    from zeroth.econ.plane.reports import pdf, service
+
+    boundary_specs = [
+        (
+            "substitute_report_action",
+            pdf,
+            "render_decision_report_pdf",
+            '    share = _percent(report.get("recommended_candidate_share", 0))',
+            "    selected = actions[-1]\n"
+            '    share = _percent(report.get("recommended_candidate_share", 0))',
+            "test_report_tree_uses_selected_fixture_not_substituted_action",
+        ),
+        (
+            "bypass_tenant_ownership",
+            service,
+            "_require_scope",
+            "if type(db) is not ScopedSession or db.scope is None:",
+            "if False:",
+            "test_unscoped_report_access_cannot_bypass_tenant_ownership",
+        ),
+    ]
+    for name, module, function_name, before, after, method in boundary_specs:
+        source_text = inspect.getsource(getattr(module, function_name))
+        test = (
+            "release.economic_evaluation.test_named_boundary_faults.NamedBoundaryFaultTests."
+            + method
+        )
+        baseline, baseline_output = run_case(test)
+        if before not in source_text:
+            results.append({"fault": name, "status": "injection_failed"})
+            continue
+        namespace = dict(module.__dict__)
+        exec(compile(source_text.replace(before, after), f"<fault:{name}>", "exec"), namespace)
+        with patch.object(module, function_name, namespace[function_name]):
+            result, output = run_case(test)
+        results.append(
+            {
+                "fault": name,
+                "status": "detected"
+                if baseline.wasSuccessful() and result.failures and not result.errors
+                else "survived_or_error",
                 "test": test,
                 "baseline_passed": baseline.wasSuccessful(),
                 "baseline_output": baseline_output,

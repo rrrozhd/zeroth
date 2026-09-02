@@ -186,7 +186,10 @@ def test_probabilistic_schedule_uses_retained_rollout_calibration(tmp_path: Path
 
     assert len(decisions) == 1
     assert decisions[0].forecast_readiness.calibration_state == "calibrated"
-    assert decisions[0].verdict == "recommend"
+    # Telemetry counts are daily, not silently converted into monthly demand.
+    assert decisions[0].verdict == "abstain"
+    assert decisions[0].recommended_action == "collect_evidence"
+    assert decisions[0].reason_codes == ["demand_horizon_unknown"]
 
 
 def test_cloud_worker_discovers_and_runs_probabilistic_schedules(

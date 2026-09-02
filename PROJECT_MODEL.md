@@ -7,9 +7,10 @@ runtime orchestrates graphs, agents, tools, memory, approvals, and executable un
 policy and audit boundaries. Its economic layer captures versioned execution, cost, latency,
 outcome, and provenance evidence, then turns that evidence into inspectable change recommendations.
 
-The first probabilistic paid decision is whether a workload should move from an incumbent model
-to a candidate. It is advisory: Zeroth recommends a full migration, hybrid share, hold, or more
-evidence; it does not modify customer routing.
+The first probabilistic decision concerns moving a workload from an incumbent model
+to a candidate. Currently every public forecast remains experimental and abstains;
+its action distributions are diagnostics, not permission to ship or reroute.
+Zeroth does not modify customer routing.
 
 ## Relevant architecture
 
@@ -46,12 +47,14 @@ evidence; it does not modify customer routing.
 2. Cloud derives per-metric calibration and drift state for cost, success rate, p95 latency, and
    critical-error rate; it does not trust a caller-provided readiness claim. The weakest or
    missing metric controls overall readiness.
-3. The domain engine checks calibration, drift, paired sample size, and the rare-error upper
+3. The domain engine requires explicit monthly demand and measured critical outcomes,
+   matching paired IDs, calibration, drift, paired sample size, and the rare-error upper
    bound. A failed gate returns `collect_evidence` without running scenarios.
 4. Each scenario resamples complete paired runs, samples observed demand, applies a global share or
    explicit cohort route, and aggregates cost, quality, p95 latency, and critical errors.
-5. Each action is tested against quality, latency, and reliability chance constraints plus an
-   empirical CVaR loss ceiling. The lowest-cost feasible action is recommended.
+5. The private diagnostic tests each action against point-estimated chance constraints and
+   empirical CVaR. The public wrapper retains diagnostics but returns abstain/collect_evidence,
+   even when callers disable calibration requirements. Service storage retains this lineage.
 6. A schedule persists the selector and policy and rebuilds evidence on every due run.
 7. A randomized rollout persists sticky subject assignments. Post-assignment measured outcomes
    produce conservative causal effects; contamination invalidates the causal label.
@@ -133,6 +136,15 @@ reports, and calibration history, so export the applicable records before rollba
   count; runtime scales with that count (the previous 500-case cap is removed).
 - CVaR integrates fractional tail mass; quantiles reject empty/nonfinite inputs and
   invalid probabilities. Numerical agreement alone does not establish calibration.
+- Missing critical outcomes survive API/SDK JSON round trips as missing, not false.
+  Daily telemetry demand remains unknown-horizon and abstains; no automatic month conversion.
+  Calibration deduplicates identical forecast IDs per metric and rejects conflicting copies.
+- The current private model resamples historical units then scales by demand. It omits actual
+  future-request variability and can produce fractional-request losses. The exact support
+  gate remains red. A nested future-request model and 50m work ceiling await owner approval.
+- The v3 descriptive synthetic protocol and its summary-stream supplement are independently
+  approved. The harness must be committed and identity-checked before its initial run.
+  The required 930 forecast summaries do not imply predictive acceptance.
 - Local SMTP acceptance followed by a crash currently loses the uncommitted audit
   attempt; partial recipient rejection is silently ignored. These are reproduced
   failing gates, not repaired behavior. No delivery-state schema change is approved.
