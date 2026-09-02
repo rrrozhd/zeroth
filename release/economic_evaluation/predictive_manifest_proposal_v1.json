@@ -1,0 +1,42 @@
+{
+  "version": "1-proposal",
+  "status": "BLOCKED_PENDING_INDEPENDENT_APPROVAL",
+  "executed": false,
+  "release_predictive_validity_thresholds": null,
+  "customer_data_sufficiency_minimum": null,
+  "purpose": "Synthetic diagnostics only until separately approved; never establishes customer validity",
+  "generator_owner": "evaluation harness, independent of fitted candidate output",
+  "generators": [
+    {"id":"constant", "law":"monthly demand 1000; incumbent/candidate costs 1/0.6, latency 100/100, accepted true, critical false"},
+    {"id":"two_state_demand", "law":"constant request outcomes as above; independent monthly demand 1000/2000 with mass 1/2 each"},
+    {"id":"correlated", "law":"shared case state easy/hard with mass 4/5,1/5; easy incumbent/candidate (cost,latency,accepted,critical)=(1,100,1,0)/(0.6,80,1,0); hard=(3,400,1,0)/(2,800,0,1)"},
+    {"id":"rare_catastrophe", "law":"constant world except candidate has state (20,5000,0,1) with probability 1/1000, independently by case"},
+    {"id":"heterogeneous", "law":"cohort left/right mass 1/2 each; incumbent (1,100,1,0); candidate left (0.6,80,1,0), right (0.4,300,0,1)"},
+    {"id":"gradual_drift", "law":"constant costs; candidate failure probability rises linearly from 0 at month 0 to 1/5 at month 35"},
+    {"id":"abrupt_drift", "law":"constant world through month 23; candidate cost 1.2 and failure probability 1/5 from month 24"},
+    {"id":"small_samples", "law":"correlated world with only 12 independent training units per month"},
+    {"id":"missing_outcomes", "law":"correlated world; hide all hard candidate outcomes; missing values stay missing"}
+  ],
+  "training": {"months":24,"independent_paired_cases_per_month":500,"holdout_policy":"chronological; fit only months 0..23; calibration predictions made before each observed calibration month"},
+  "test": {"future_months":12,"independent_cases_per_month":1000,"reuse_training_units":false},
+  "replications": {"seeds":"1000..1199 inclusive", "training_stream":"random.Random(3*seed)", "future_stream":"random.Random(3*seed+1)", "candidate_stream":"3*seed+2"},
+  "nominal_prediction_interval":0.90,
+  "metrics":["signed cost bias","interval coverage","interval width","per-metric breach probability absolute error","unsafe recommendation rate against known finite law","regret versus exact feasible oracle","necessary abstention","unnecessary abstention"],
+  "baselines":["hold incumbent","measured deterministic paired comparison with no predictive assurances"],
+  "uncertainty": {"proportions":"two-sided 95% Wilson interval over independent replication-level indicators", "continuous":"replication-level mean, sample SD, and 95% Student-t interval; no pooling months as independent", "widths":"report mean, median, min, max"},
+  "multiplicity":"Descriptive intervals are explicitly unadjusted and cannot be release gates; any confirmatory family and thresholds need a separately approved version before execution",
+  "calibration_controls":["true-law intervals","biased mean plus 25% of true mean with unchanged width","interval width reduced to 10% around true mean"],
+  "causal": {
+    "assignment":"independent Bernoulli 1/2 before outcomes, stored unit IDs",
+    "units_per_replication":1000,
+    "seeds":"2000..2199 inclusive",
+    "potential_outcomes":"baseline cost 1 or 2 with equal mass; null Y1=Y0; known-effect Y1=Y0-0.2",
+    "nominal_interval":0.95,
+    "metrics":["ATE bias","interval coverage","null false positive rate","known-effect power"],
+    "integrity_variants":["10% treatment noncompliance","duplicate 10% unit IDs","unrecorded concurrent treatment-arm cost change +0.5","90/10 assignment imbalance","hide highest-cost 20% treated outcomes"],
+    "supported":"known randomized assignment with independent complete units and no contamination",
+    "unsupported":"unrecorded concurrent changes and MNAR cannot be identified from observed outcomes alone; report explicit limitation rather than passing integrity"
+  },
+  "expected_behavior":"Missing evidence and unsupported integrity cannot silently yield safe assurances. Drift/small-sample outputs are diagnostic, not a calibrated-forecast certification.",
+  "adversarial_review":"Synthetic generators may miss real dependence and label errors; safer fallback is measured deterministic comparison and explicit abstention. Numerical thresholds and sample counts here are experiment design choices, not customer sufficiency claims."
+}
