@@ -520,6 +520,14 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     steps:
+      - name: Install Git for exact-source receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+          git --version
+
       - name: Checkout
         uses: actions/checkout@v4
 

@@ -25,10 +25,17 @@ GATES_WORKFLOW = WORKFLOWS / "release-gates.yml"
 CI_WORKFLOW = WORKFLOWS / "ci.yml"
 EVIDENCE_WORKFLOWS = (RELEASE_WORKFLOW, GATES_WORKFLOW, PROMOTION_WORKFLOW)
 
-#: Workflows that ran on pull requests before this change. Fast PR checks are
-#: preserved by keeping this set exactly as it was.
+#: Reviewed workflows with fast pull-request checks. SDK publishing jobs are
+#: manual-only; their guards are checked separately below.
 BASE_PULL_REQUEST_WORKFLOWS = frozenset(
-    {"ci.yml", "docs.yml", "examples.yml", "langgraph-compatibility.yml", "verify-extras.yml"}
+    {
+        "ci.yml",
+        "docs.yml",
+        "examples.yml",
+        "langgraph-compatibility.yml",
+        "verify-extras.yml",
+        "release-zeroth-sdk.yml",
+    }
 )
 
 #: Work that belongs to a release candidate and must never reach a PR.
@@ -509,13 +516,19 @@ def _pull_request_workflows() -> list[Path]:
 def test_pull_request_checks_stay_fast():
     """The complete matrix belongs to release candidates, not to every push."""
     for path in _pull_request_workflows():
-        script = "\n".join(_scripts(path).values())
-        uses = " ".join(
-            str(step.get("uses", "")) for job in _jobs(path).values() for step in _steps(job)
-        )
-        haystack = f"{script}\n{uses}"
-        for expensive in RELEASE_ONLY_WORK:
-            assert expensive not in haystack, f"{path.name} runs {expensive} on pull requests"
+        for job in _jobs(path).values():
+            # Recognize only this strict manual-dispatch guard. Unknown or
+            # broader conditions remain subject to the PR-cost restriction.
+            if re.fullmatch(
+                r"github\.event_name == 'workflow_dispatch' && inputs\.target == '(testpypi|pypi)'",
+                str(job.get("if", "")),
+            ):
+                continue
+            haystack = "\n".join(
+                str(step.get("run", "")) + "\n" + str(step.get("uses", "")) for step in _steps(job)
+            )
+            for expensive in RELEASE_ONLY_WORK:
+                assert expensive not in haystack, f"{path.name} runs {expensive} on pull requests"
 
 
 def test_the_gate_matrix_never_runs_on_pull_requests():
@@ -616,3 +629,34 @@ def test_every_workflow_parses_and_declares_jobs(path: Path):
 
     assert document["on"], f"{path.name} declares no trigger"
     assert document["jobs"], f"{path.name} declares no job"
+
+
+def test_load_receipt_has_git_before_checkout() -> None:
+    """A slim runner must produce a Git checkout for exact-source load receipts."""
+    steps = _steps(_jobs(GATES_WORKFLOW)["load-recovery"])
+    checkout = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    preparation = "\n".join(str(step.get("run", "")) for step in steps[:checkout])
+    assert re.search(r"apt-get\s+install[^\n]*\bgit\b", preparation), (
+        "install Git before checkout; the REST fallback cannot supply receipt Git metadata"
+    )
+    assert "git --version" in preparation, "fail before checkout if Git provisioning failed"
+
+
+@pytest.mark.parametrize("guard", ["", "always()", "github.event_name == 'pull_request'"])
+def test_pr_cost_check_rejects_sdk_publish_guard_regression(monkeypatch, guard) -> None:
+    """Removing or broadening a publisher guard must make the PR-cost audit fail."""
+    original = _jobs
+
+    def mutated(path: Path) -> dict:
+        jobs = original(path)
+        if path.name == "release-zeroth-sdk.yml":
+            jobs["publish-pypi"]["if"] = guard
+        return jobs
+
+    monkeypatch.setitem(globals(), "_jobs", mutated)
+    with pytest.raises(AssertionError, match="release-zeroth-sdk.yml runs"):
+        test_pull_request_checks_stay_fast()
