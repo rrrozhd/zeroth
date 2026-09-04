@@ -60,7 +60,6 @@ def test_container_and_compatibility_contract() -> None:
         encoding="utf-8"
     )
 
-    assert f"org.opencontainers.image.version={evidence_version}" in dockerfile
     assert compose_config["services"]["zeroth"]["image"] == (
         f"zeroth-core:${{ZEROTH_IMAGE_TAG:-{evidence_version}}}"
     )
@@ -123,6 +122,15 @@ def test_container_and_compatibility_contract() -> None:
         "langgraph-checkpoint-sqlite>=3.0,<4"
         in compatibility["deployment_artifacts"]["adapter"]["dependencies"]
     )
+
+
+def test_active_image_version_matches_packaged_project() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    # Retained compatibility evidence describes its original release. The
+    # image built today must identify the package actually being shipped.
+    assert f"org.opencontainers.image.version={project['project']['version']}" in dockerfile
 
 
 def test_installed_image_packages_are_compared_with_compatibility(
