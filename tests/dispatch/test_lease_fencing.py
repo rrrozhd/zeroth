@@ -1105,3 +1105,120 @@ async def test_worker_refuses_overlapping_generations_for_the_same_run(
     await asyncio.wait_for(first_execution, timeout=5)
     assert await manager.current_holder(run_id) == WORKER_B
     assert await manager.current_generation(run_id) == 3
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_status_conflict_does_not_report_loss_of_a_live_lease(dual_database) -> None:
+    """A refused status CAS is not evidence that the worker lost its lease."""
+    repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database)
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    await repository.transition(run_id, RunStatus.RUNNING)
+    generation = await manager.current_generation(run_id)
+    assert generation is not None
+    repository.install_fence(run_id, WORKER_A, generation)
+    proposed = await repository.get(run_id)
+    assert proposed is not None
+    proposed.status = RunStatus.FAILED
+
+    with pytest.raises(ValueError, match="no longer has status"):
+        await repository.put_if_status(proposed, RunStatus.PENDING)
+
+    persisted = await repository.get(run_id)
+    assert persisted is not None and persisted.status is RunStatus.RUNNING
+    assert await manager.current_holder(run_id) == WORKER_A
+    assert await manager.current_generation(run_id) == generation
+
+
+@requires_docker
+@pytest.mark.asyncio
+@pytest.mark.parametrize("takeover", [False, True])
+async def test_status_conflict_cannot_mask_expired_or_displaced_lease(
+    dual_database, takeover
+) -> None:
+    """Lease failure takes precedence when both status and ownership tests fail."""
+    from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
+
+    repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database)
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    generation = await manager.current_generation(run_id)
+    assert generation is not None
+    repository.install_fence(run_id, WORKER_A, generation)
+    proposed = await repository.get(run_id)
+    assert proposed is not None
+    proposed.status = RunStatus.FAILED
+    await _expire_lease(dual_database, run_id)
+    if takeover:
+        assert await manager.claim_pending(DEPLOYMENT, WORKER_B) == run_id
+
+    with pytest.raises(FencedRunWriteRejectedError):
+        await repository.put_if_status(proposed, RunStatus.RUNNING)
+    persisted = await repository.get(run_id)
+    assert persisted is not None and persisted.status is RunStatus.PENDING
+    if takeover:
+        assert await manager.current_holder(run_id) == WORKER_B
+        assert await manager.current_generation(run_id) == generation + 1
+
+
+@requires_docker
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_dead_letter", [False, True])
+@pytest.mark.parametrize("interrupted", [False, True])
+async def test_status_conflict_preserves_operator_interrupt(
+    dual_database, with_dead_letter, interrupted
+) -> None:
+    """A live worker's refused status write must not fail an operator-paused run."""
+    from zeroth.governance.guardrails.dead_letter import DeadLetterManager
+
+    repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=60)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repository,
+        orchestrator=_RecordingOrchestrator(),
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        worker_id=WORKER_A,
+        dead_letter_manager=(
+            DeadLetterManager(repository, max_failure_count=1) if with_dead_letter else None
+        ),
+    )
+
+    async def interrupted_drive(run_id: str, *, is_recovery: bool) -> None:
+        del is_recovery
+        stale = await repository.transition(run_id, RunStatus.RUNNING)
+        if interrupted:
+            await repository.interrupt(run_id, DEPLOYMENT)
+        stale.status = RunStatus.COMPLETED
+        await repository.put_if_status(
+            stale, RunStatus.RUNNING if interrupted else RunStatus.PENDING
+        )
+
+    worker._drive_run = interrupted_drive  # type: ignore[method-assign]
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    await worker._execute_leased_run(run_id, is_recovery=False)
+
+    final = await repository.get(run_id)
+    assert final is not None
+    async with dual_database.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT failure_count FROM runs WHERE run_id = ?", (run_id,)
+        )
+    assert row is not None
+    if interrupted:
+        assert final.status is RunStatus.WAITING_INTERRUPT
+        assert row["failure_count"] == 0
+        assert final.failure_state is None
+    else:
+        assert final.status is RunStatus.FAILED
+        assert row["failure_count"] == (1 if with_dead_letter else 0)
+        assert final.failure_state is not None
+        assert final.failure_state.reason == (
+            "dead_letter" if with_dead_letter else "worker_exception"
+        )
+    assert await manager.current_holder(run_id) is None

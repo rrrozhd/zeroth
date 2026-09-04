@@ -414,6 +414,32 @@ class _RunThreadStore:
             raise KeyError(f"run already exists: {run.run_id}")
         if fence is not None and not written:
             worker_id, generation = fence
+            if expected_status is not None:
+                # A status CAS refusal alone does not imply lease loss. Recheck
+                # the fence under a row lock without retrying the refused write.
+                current = await runs.select_one(
+                    where={
+                        "run_id": run.run_id,
+                        "lease_worker_id": worker_id,
+                        "lease_generation": generation,
+                    },
+                    columns=("lease_expires_at",),
+                    for_update=True,
+                )
+                if current is not None:
+                    try:
+                        expires_at = datetime.fromisoformat(current["lease_expires_at"])
+                    except (TypeError, ValueError):
+                        expires_at = None
+                    now = await runs._database_now()  # noqa: SLF001 - bound transaction clock
+                    if (
+                        expires_at is not None
+                        and expires_at.tzinfo is not None
+                        and expires_at >= now
+                    ):
+                        raise ValueError(
+                            f"run {run.run_id!r} no longer has status {expected_status.value}"
+                        )
             raise FencedRunWriteRejectedError(run.run_id, worker_id, generation)
         if expected_status is not None and not written:
             raise ValueError(f"run {run.run_id!r} no longer has status {expected_status.value}")

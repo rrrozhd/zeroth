@@ -603,6 +603,12 @@ class RunWorker:
         except TokenSnapshotConcurrencyError:
             await self._handle_snapshot_contention(run_id, generation)
             return False
+        except ValueError:
+            # An operator interrupt can win a status CAS while our lease is
+            # still live. Preserve that pause instead of counting a failure.
+            current = await self.run_repository.get(run_id)
+            if current is None or current.status is not RunStatus.WAITING_INTERRUPT:
+                await self._handle_run_exception(run_id)
         except Exception:
             await self._handle_run_exception(run_id)
         return True
