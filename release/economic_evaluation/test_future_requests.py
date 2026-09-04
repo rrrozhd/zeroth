@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-from release.economic_evaluation.test_invariants import evidence, policy
+from release.economic_evaluation.test_invariants import evidence, policy, qualified_diagnose
 from zeroth.econ import probabilistic as candidate
 
 
@@ -19,8 +19,8 @@ class FutureRequestTests(unittest.TestCase):
             return original(values, confidence=confidence)
 
         with patch.object(candidate, "empirical_var_cvar", capture):
-            candidate._diagnose_model_migration(
-                world, policy=policy(candidate_shares=[0.5]), simulations=100, seed=7
+            qualified_diagnose(
+                world, policy(candidate_shares=[0.5]), simulations=100, seed=7
             )
         self.assertEqual(len(losses), 100)
         self.assertEqual(

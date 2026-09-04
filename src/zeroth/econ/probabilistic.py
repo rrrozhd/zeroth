@@ -4,16 +4,124 @@ from __future__ import annotations
 
 import random
 from collections import Counter, defaultdict
-from datetime import datetime
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
+from fractions import Fraction
+from itertools import combinations
 from math import ceil, fsum, isfinite, log, sqrt
-from statistics import fmean
+from statistics import fmean, stdev
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
-FORECAST_ALGORITHM_VERSION = "nested-paired-monthly-v2-hoeffding99"
+FORECAST_ALGORITHM_VERSION = "nested-paired-monthly-v2-hoeffding99-math1"
 MAX_SIMULATION_WORK = 50_000_000
+_BOUNDED_RATE_METRICS = frozenset({"success_rate", "critical_error_rate"})
+_CVAR_BATCH_COUNT = 20
+_MINIMUM_EFFECTIVE_TAIL_SAMPLES = 100
+_MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES = 30
+# For 20 independent batches this exceeds the two-sided Student-t critical
+# needed for 99% familywise coverage across the policy maximum of 32 tests.
+_CVAR_STUDENTIZED_CRITICAL_VALUE = 5.0
+_EXPERIMENTAL_METRICS = (
+    "monthly_cost_usd",
+    "p95_latency_ms",
+    "success_rate",
+    "critical_error_rate",
+)
+
+
+@dataclass(frozen=True)
+class _ExperimentalRiskQualification:
+    qualification_id: str
+    workload: str
+    incumbent_model: str
+    candidate_model: str
+    action_ids: tuple[str, ...]
+    metric_supports: tuple[tuple[str, tuple[float, float]], ...]
+    loss_support: tuple[float, float]
+    currency: str
+    loss_formula_version: str
+    independent_unit: str
+    dependence_kind: str
+    artifact_sha256: str
+    issuer: str
+    valid_from: datetime
+    valid_until: datetime
+    active: bool
+
+
+@dataclass(frozen=True)
+class _ExperimentalForecastCell:
+    metric: str
+    predicted_mean: float
+    predicted_low: float
+    predicted_high: float
+    observed: float
+
+
+@dataclass(frozen=True)
+class _ExperimentalCalibrationBundle:
+    period_id: str
+    forecast_origin_at: datetime
+    period_start: datetime
+    period_end: datetime
+    finalized_at: datetime
+    coverage_kind: str
+    qualification_id: str
+    algorithm_id: str
+    action_id: str
+    predicted_request_count_mean: float
+    predicted_request_count_low: float
+    predicted_request_count_high: float
+    observed_request_count: int
+    cells: tuple[_ExperimentalForecastCell, ...]
+
+
+@dataclass(frozen=True)
+class _ExperimentalDemandFit:
+    metric: str
+    coefficient_unclipped: float
+    coefficient: float
+    intercept: float
+
+
+@dataclass(frozen=True)
+class _ExperimentalMonitoringBatch:
+    metric: str
+    batch_index: int
+    effect: float
+    p_value: float
+    alpha: float
+    critical: bool
+
+
+@dataclass(frozen=True)
+class _ExperimentalReadiness:
+    state: Literal["unknown", "calibrated", "critical"]
+    reason: str | None
+    fit_periods: int
+    calibration_periods: int
+    demand_fits: tuple[_ExperimentalDemandFit, ...] = ()
+    monitoring_batches: tuple[_ExperimentalMonitoringBatch, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ExperimentalSimulationSample:
+    draw_index: int
+    action_id: str
+    demand: int
+    loss: float
+    quality_breach: bool
+    latency_breach: bool
+    critical_error_breach: bool
+    monthly_cost_usd: float
+    success_rate: float
+    p95_latency_ms: float
+    critical_error_rate: float
+    qualification_id: str
 
 
 class MigrationObservation(BaseModel):
@@ -223,8 +331,32 @@ class ProbabilisticMigrationDecision(BaseModel):
     evaluated_at: datetime | None = None
 
 
+def _empirical_rank(size: int, probability: float) -> int:
+    """One-based left empirical rank; probability zero selects the minimum.
+
+    Probability means its shortest round-trip decimal spelling, so .07 is
+    exactly 7/100, while either nextafter neighbor remains distinct. Integer
+    arithmetic avoids multiplication rounding and preserves replication of an
+    empirical distribution. Decimal conversion does not use context precision.
+    """
+    if size <= 0:
+        raise ValueError("sample size must be positive")
+    if not isfinite(probability) or not 0 <= probability <= 1:
+        raise ValueError("probability must be finite and between 0 and 1")
+    numerator, denominator = Decimal(str(probability)).as_integer_ratio()
+    return max(1, (size * numerator + denominator - 1) // denominator)
+
+
 def empirical_var_cvar(losses: list[float], *, confidence: float) -> tuple[float, float]:
-    """Return the empirical loss cutoff and average of the declared worst tail."""
+    """Return left empirical VaR and the mean of exactly the worst 1-alpha mass.
+
+    Alpha uses the same decimal-probability convention as all empirical ranks.
+    Losses are finite binary floats. Accumulate their exact rational values and
+    fractional boundary weight before converting the normalized mean to float.
+    This avoids overflowing a finite mean, or losing small cancellation terms
+    by scaling/rounding intermediate contributions. Only the final result rounds
+    (and may correctly underflow); no epsilon or magnitude cutoff is applied.
+    """
     if not losses:
         raise ValueError("losses must not be empty")
     if not isfinite(confidence) or confidence <= 0 or confidence >= 1:
@@ -232,15 +364,21 @@ def empirical_var_cvar(losses: list[float], *, confidence: float) -> tuple[float
     ordered = sorted(float(loss) for loss in losses)
     if not all(isfinite(loss) for loss in ordered):
         raise ValueError("losses must be finite")
-    value_at_risk_index = max(0, min(len(ordered) - 1, ceil(confidence * len(ordered)) - 1))
+    value_at_risk_index = _empirical_rank(len(ordered), confidence) - 1
     # Integrate exactly the declared upper-tail mass, including its boundary atom.
-    tail_mass = (1 - confidence) * len(ordered)
-    whole_rows = int(tail_mass)
-    boundary_mass = tail_mass - whole_rows
-    tail_sum = fsum(ordered[len(ordered) - whole_rows :])
+    numerator, denominator = Decimal(str(confidence)).as_integer_ratio()
+    tail_numerator = len(ordered) * (denominator - numerator)
+    whole_rows, boundary_mass = divmod(tail_numerator, denominator)
+    tail_sum = (
+        sum(
+            (Fraction.from_float(value) for value in ordered[len(ordered) - whole_rows :]),
+            Fraction(0),
+        )
+        * denominator
+    )
     if boundary_mass:
-        tail_sum += boundary_mass * ordered[len(ordered) - whole_rows - 1]
-    return ordered[value_at_risk_index], tail_sum / tail_mass
+        tail_sum += boundary_mass * Fraction.from_float(ordered[len(ordered) - whole_rows - 1])
+    return ordered[value_at_risk_index], float(tail_sum / tail_numerator)
 
 
 def assess_forecast_readiness(
@@ -331,7 +469,14 @@ def _assess_metric_readiness(
         )
     coverage = fmean(row.predicted_low <= row.observed <= row.predicted_high for row in ordered)
     residuals = [row.observed - row.predicted_mean for row in ordered]
-    scale = max(fmean(abs(row.observed) for row in ordered), 1e-9)
+    # These metrics are bounded probabilities, but calibration observations do
+    # not carry trial denominators. A binomial standard error therefore cannot
+    # be reconstructed. Use probability-point residuals instead of dividing by
+    # the observed event rate, which is unstable as a rare-event rate tends to
+    # zero. The legacy response field names remain unchanged for compatibility.
+    scale = 1.0 if metric in _BOUNDED_RATE_METRICS else max(
+        fmean(abs(row.observed) for row in ordered), 1e-9
+    )
     relative_bias = fmean(residuals) / scale
     split = len(ordered) // 2
     historical_bias = fmean(residuals[:split]) / scale
@@ -368,6 +513,248 @@ def _assess_metric_readiness(
     )
 
 
+def _experimental_drift_alpha(batch_index: int) -> float:
+    if type(batch_index) is not int or batch_index < 1:
+        raise ValueError("batch_index must be a positive integer")
+    return (0.01 / 4) / (batch_index * (batch_index + 1))
+
+
+def _exact_experimental_permutation_pvalue(
+    calibration: list[float], monitoring: list[float]
+) -> float:
+    """Exact two-group permutation p-value; ties are at least as extreme."""
+    if len(calibration) != 24 or len(monitoring) != 3:
+        raise ValueError("exact drift test requires 24 calibration and 3 monitoring values")
+    values = [*calibration, *monitoring]
+    if not all(isfinite(value) for value in values):
+        raise ValueError("permutation values must be finite")
+    exact_values = [Fraction.from_float(value) for value in values]
+    total_sum = sum(exact_values, start=Fraction())
+    observed_monitoring_sum = sum(exact_values[24:], start=Fraction())
+    observed = abs((total_sum - observed_monitoring_sum) / 24 - observed_monitoring_sum / 3)
+    extreme = 0
+    total = 0
+    for selected in combinations(range(27), 3):
+        monitoring_sum = sum((exact_values[index] for index in selected), start=Fraction())
+        statistic = abs((total_sum - monitoring_sum) / 24 - monitoring_sum / 3)
+        extreme += statistic >= observed
+        total += 1
+    return extreme / total
+
+
+def _experimental_unknown(reason: str) -> _ExperimentalReadiness:
+    return _ExperimentalReadiness(
+        state="unknown", reason=reason, fit_periods=12, calibration_periods=24
+    )
+
+
+def _experimental_bundle_contract(
+    bundles: list[_ExperimentalCalibrationBundle],
+    qualification: _ExperimentalRiskQualification,
+) -> str | None:
+    if len(bundles) < 36:
+        return "demand_calibration_insufficient"
+    supports = dict(qualification.metric_supports)
+    if set(supports) != set(_EXPERIMENTAL_METRICS):
+        return "risk_law_unqualified"
+    expected_identity = None
+    seen: set[str] = set()
+    previous_end = None
+    for bundle in bundles:
+        identity = (bundle.qualification_id, bundle.algorithm_id, bundle.action_id)
+        expected_identity = expected_identity or identity
+        if (
+            identity != expected_identity
+            or bundle.qualification_id != qualification.qualification_id
+        ):
+            return "risk_qualification_scope_mismatch"
+        if bundle.period_id in seen:
+            return "demand_calibration_insufficient"
+        seen.add(bundle.period_id)
+        if (
+            bundle.coverage_kind != "census"
+            or bundle.forecast_origin_at >= bundle.period_start
+            or bundle.period_start >= bundle.period_end
+            or bundle.finalized_at < bundle.period_end
+            or (previous_end is not None and bundle.period_start < previous_end)
+        ):
+            return "demand_calibration_insufficient"
+        previous_end = bundle.period_end
+        if (
+            type(bundle.observed_request_count) is not int
+            or bundle.observed_request_count <= 0
+            or not all(
+                isfinite(value)
+                for value in (
+                    bundle.predicted_request_count_mean,
+                    bundle.predicted_request_count_low,
+                    bundle.predicted_request_count_high,
+                )
+            )
+            or bundle.predicted_request_count_low > bundle.predicted_request_count_mean
+            or bundle.predicted_request_count_mean > bundle.predicted_request_count_high
+        ):
+            return "demand_calibration_insufficient"
+        keyed = {cell.metric: cell for cell in bundle.cells}
+        if len(bundle.cells) != 4 or set(keyed) != set(_EXPERIMENTAL_METRICS):
+            return "demand_calibration_insufficient"
+        for metric, cell in keyed.items():
+            support = supports[metric]
+            if (
+                len(support) != 2
+                or not all(isfinite(value) for value in support)
+                or support[0] >= support[1]
+                or not all(
+                    isfinite(value)
+                    for value in (
+                        cell.predicted_mean,
+                        cell.predicted_low,
+                        cell.predicted_high,
+                        cell.observed,
+                    )
+                )
+                or cell.predicted_low > cell.predicted_high
+                or not all(
+                    support[0] <= value <= support[1]
+                    for value in (
+                        cell.predicted_mean,
+                        cell.predicted_low,
+                        cell.predicted_high,
+                        cell.observed,
+                    )
+                )
+            ):
+                return "risk_law_unqualified"
+    return None
+
+
+def _assess_experimental_demand_readiness(
+    bundles: list[_ExperimentalCalibrationBundle],
+    *,
+    qualification: _ExperimentalRiskQualification,
+) -> _ExperimentalReadiness:
+    """Private fixed-epoch demand-conditioned readiness candidate for E8."""
+    problem = _experimental_bundle_contract(bundles, qualification)
+    if problem:
+        return _experimental_unknown(problem)
+    fit, calibration, monitoring = bundles[:12], bundles[12:36], bundles[36:]
+
+    def demand_innovation(bundle: _ExperimentalCalibrationBundle) -> float:
+        width = max(
+            bundle.predicted_request_count_high - bundle.predicted_request_count_low,
+            1.0,
+        )
+        return (bundle.observed_request_count - bundle.predicted_request_count_mean) / width
+
+    fit_demand = [demand_innovation(bundle) for bundle in fit]
+    if len(set(fit_demand)) < 6 or max(fit_demand) == min(fit_demand):
+        return _experimental_unknown("demand_calibration_insufficient")
+    fit_low, fit_high = min(fit_demand), max(fit_demand)
+    margin = 0.10 * (fit_high - fit_low)
+    if any(
+        not fit_low - margin <= demand_innovation(bundle) <= fit_high + margin
+        for bundle in monitoring
+    ):
+        return _experimental_unknown("demand_extrapolation_unqualified")
+    if monitoring and len(monitoring) % 3:
+        return _experimental_unknown("monitoring_batch_incomplete")
+
+    supports = dict(qualification.metric_supports)
+    demand_mean = fmean(fit_demand)
+    denominator = fsum((value - demand_mean) ** 2 for value in fit_demand)
+    fits = []
+    batches = []
+    calibration_adjusted: dict[str, list[float]] = {}
+    for metric in _EXPERIMENTAL_METRICS:
+        support_low, support_high = supports[metric]
+        span = support_high - support_low
+
+        def residual(
+            bundle: _ExperimentalCalibrationBundle,
+            metric: str = metric,
+            span: float = span,
+        ) -> float:
+            cell = next(cell for cell in bundle.cells if cell.metric == metric)
+            return (cell.observed - cell.predicted_mean) / span
+
+        fit_residual = [residual(bundle) for bundle in fit]
+        residual_mean = fmean(fit_residual)
+        coefficient_unclipped = (
+            fsum(
+                (demand - demand_mean) * (value - residual_mean)
+                for demand, value in zip(fit_demand, fit_residual, strict=True)
+            )
+            / denominator
+        )
+        coefficient = max(-1.0, min(1.0, coefficient_unclipped))
+        intercept = residual_mean - coefficient * demand_mean
+        fits.append(
+            _ExperimentalDemandFit(
+                metric=metric,
+                coefficient_unclipped=coefficient_unclipped,
+                coefficient=coefficient,
+                intercept=intercept,
+            )
+        )
+
+        def adjusted(
+            bundle: _ExperimentalCalibrationBundle,
+            intercept: float = intercept,
+            coefficient: float = coefficient,
+        ) -> float:
+            return residual(bundle) - intercept - coefficient * demand_innovation(bundle)
+
+        values = [adjusted(bundle) for bundle in calibration]
+        calibration_adjusted[metric] = values
+        covered = sum(
+            (cell := next(cell for cell in bundle.cells if cell.metric == metric)).predicted_low
+            <= cell.observed
+            <= cell.predicted_high
+            for bundle in calibration
+        )
+        if covered / 24 < 0.90 or abs(fmean(values)) > 0.10:
+            return _ExperimentalReadiness(
+                state="unknown",
+                reason="forecast_not_calibrated",
+                fit_periods=12,
+                calibration_periods=24,
+                demand_fits=tuple(fits),
+            )
+
+        for offset in range(0, len(monitoring), 3):
+            batch_index = offset // 3 + 1
+            recent = [adjusted(bundle) for bundle in monitoring[offset : offset + 3]]
+            exact_calibration_mean = sum(
+                (Fraction.from_float(value) for value in values), start=Fraction()
+            ) / len(values)
+            exact_monitoring_mean = sum(
+                (Fraction.from_float(value) for value in recent), start=Fraction()
+            ) / len(recent)
+            effect = float(abs(exact_calibration_mean - exact_monitoring_mean))
+            p_value = _exact_experimental_permutation_pvalue(values, recent)
+            alpha = _experimental_drift_alpha(batch_index)
+            batches.append(
+                _ExperimentalMonitoringBatch(
+                    metric=metric,
+                    batch_index=batch_index,
+                    effect=effect,
+                    p_value=p_value,
+                    alpha=alpha,
+                    critical=p_value <= alpha and effect > 0.20,
+                )
+            )
+
+    critical = any(batch.critical for batch in batches)
+    return _ExperimentalReadiness(
+        state="critical" if critical else "calibrated",
+        reason="calibration_drift_critical" if critical else None,
+        fit_periods=12,
+        calibration_periods=24,
+        demand_fits=tuple(fits),
+        monitoring_batches=tuple(batches),
+    )
+
+
 def _money(value: float) -> Decimal:
     # Presentation rounding belongs in renderers, not policy or action selection.
     return Decimal(str(value))
@@ -381,7 +768,7 @@ def _empirical_quantile(values: list[float], quantile: float) -> float:
     if not all(isfinite(value) for value in values):
         raise ValueError("values must be finite")
     ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, ceil(quantile * len(ordered)) - 1))
+    index = _empirical_rank(len(ordered), quantile) - 1
     return ordered[index]
 
 
@@ -451,6 +838,7 @@ def recommend_model_migration(
         policy=policy,
         simulations=simulations,
         seed=seed,
+        _qualification=None,
     )
     lineage = {
         **diagnostic.evidence_lineage,
@@ -461,7 +849,12 @@ def recommend_model_migration(
         "predictive_reliability": "unapproved",
     }
     if diagnostic.verdict == "abstain" and not diagnostic.actions:
-        return diagnostic.model_copy(update={"evidence_lineage": lineage})
+        reason_codes = diagnostic.reason_codes
+        if "risk_law_unqualified" in reason_codes:
+            reason_codes = ["experimental_predictive_reliability_unapproved", *reason_codes]
+        return diagnostic.model_copy(
+            update={"evidence_lineage": lineage, "reason_codes": reason_codes}
+        )
     return diagnostic.model_copy(
         update={
             "verdict": "abstain",
@@ -478,21 +871,109 @@ def recommend_model_migration(
     )
 
 
+def _upper_bound_status(lower: float, upper: float, *, limit: float) -> str:
+    """Classify a simultaneous interval against an upper-bounded policy limit."""
+    if not all(isfinite(value) for value in (lower, upper, limit)) or lower > upper:
+        raise ValueError("invalid upper-bound interval")
+    if upper <= limit:
+        return "qualified"
+    if lower > limit:
+        return "infeasible"
+    return "indeterminate"
+
+
 def _breach_probability_interval(
     probability: float, *, simulations: int, action_count: int, limit: float
 ) -> dict[str, float | str]:
     """Fixed-N simultaneous numerical bounds, not predictive-risk certification."""
     if simulations <= 0 or action_count <= 0 or not 0 <= probability <= 1 or not 0 <= limit <= 1:
         raise ValueError("invalid probability-bound inputs")
-    radius = sqrt(log(2 * 3 * action_count / 0.01) / (2 * simulations))
+    radius = sqrt(log(2 * 4 * action_count / 0.01) / (2 * simulations))
     lower, upper = max(0.0, probability - radius), min(1.0, probability + radius)
-    status = "qualified" if upper <= limit else "infeasible" if lower > limit else "indeterminate"
+    status = _upper_bound_status(lower, upper, limit=limit)
     return {"lower": lower, "upper": upper, "radius": radius, "status": status}
+
+
+def _cvar_monte_carlo_interval(
+    losses: list[float],
+    *,
+    confidence: float,
+    action_count: int,
+    limit: float,
+    source_observations: int | None = None,
+) -> dict[str, float | int | str | None]:
+    """Qualify empirical CVaR with fixed independent simulation batches.
+
+    The 20 batch CVaR estimates preserve draw order and are studentized across
+    independent outer simulation draws. A fixed critical value of 5 is
+    conservative for 99% familywise coverage over all four constraints and the
+    policy maximum of eight actions. At least 100 simulated tail draws and 30
+    source-tail units are required; resampling does not create new evidence.
+    """
+    if (
+        len(losses) < _CVAR_BATCH_COUNT
+        or action_count <= 0
+        or action_count > 8
+        or not 0 < confidence < 1
+        or (source_observations is not None and source_observations <= 0)
+        or not isfinite(limit)
+        or not all(isfinite(loss) for loss in losses)
+    ):
+        raise ValueError("invalid CVaR interval inputs")
+    tail_probability = Decimal(1) - Decimal(str(confidence))
+    tail_numerator, tail_denominator = tail_probability.as_integer_ratio()
+    effective_tail_samples = (
+        len(losses) * tail_numerator + tail_denominator - 1
+    ) // tail_denominator
+    source_observations = source_observations or len(losses)
+    effective_source_tail_samples = (
+        source_observations * tail_numerator + tail_denominator - 1
+    ) // tail_denominator
+    common = {
+        "batch_count": _CVAR_BATCH_COUNT,
+        "effective_tail_samples": effective_tail_samples,
+        "minimum_effective_tail_samples": _MINIMUM_EFFECTIVE_TAIL_SAMPLES,
+        "effective_source_tail_samples": effective_source_tail_samples,
+        "minimum_effective_source_tail_samples": _MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES,
+        "critical_value": _CVAR_STUDENTIZED_CRITICAL_VALUE,
+    }
+    if (
+        effective_tail_samples < _MINIMUM_EFFECTIVE_TAIL_SAMPLES
+        or effective_source_tail_samples < _MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES
+    ):
+        return {
+            **common,
+            "estimate": None,
+            "standard_error": None,
+            "lower": None,
+            "upper": None,
+            "status": "insufficient",
+        }
+
+    batch_cvars = []
+    for batch_index in range(_CVAR_BATCH_COUNT):
+        start = batch_index * len(losses) // _CVAR_BATCH_COUNT
+        end = (batch_index + 1) * len(losses) // _CVAR_BATCH_COUNT
+        _, batch_cvar = empirical_var_cvar(losses[start:end], confidence=confidence)
+        batch_cvars.append(batch_cvar)
+    estimate = fmean(batch_cvars)
+    standard_error = stdev(batch_cvars) / sqrt(_CVAR_BATCH_COUNT)
+    half_width = _CVAR_STUDENTIZED_CRITICAL_VALUE * standard_error
+    lower, upper = estimate - half_width, estimate + half_width
+    status = _upper_bound_status(lower, upper, limit=limit)
+    return {
+        **common,
+        "estimate": estimate,
+        "standard_error": standard_error,
+        "lower": lower,
+        "upper": upper,
+        "status": status,
+    }
 
 
 def _histogram_quantile(counts: dict[int, int], total: int, probability: float) -> int:
     """Exact order statistic of integer request counts without expanding demand."""
-    cutoff = max(1, ceil(total * probability))
+    cutoff = _empirical_rank(total, probability)
     cumulative = 0
     for value, count in sorted(counts.items()):
         cumulative += count
@@ -526,12 +1007,75 @@ def _point_winner(actions):
     )
 
 
+def _experimental_action_ids(policy: MigrationRiskPolicy) -> tuple[str, ...]:
+    if policy.routing_actions:
+        return tuple(action.action_id for action in policy.routing_actions)
+    return tuple(f"global-{share:g}" for share in policy.candidate_shares)
+
+
+def _experimental_qualification_reason(
+    qualification: _ExperimentalRiskQualification | None,
+    evidence: MigrationEvidence,
+    policy: MigrationRiskPolicy,
+    checked_at: datetime,
+) -> str | None:
+    if qualification is None or not isinstance(qualification, _ExperimentalRiskQualification):
+        return "risk_law_unqualified"
+    if not qualification.active:
+        return "risk_law_unqualified"
+    if (
+        checked_at.tzinfo is None
+        or qualification.valid_from.tzinfo is None
+        or qualification.valid_until.tzinfo is None
+    ):
+        return "risk_law_unqualified"
+    if not qualification.valid_from <= checked_at <= qualification.valid_until:
+        return "risk_law_unqualified"
+    if (
+        qualification.workload != evidence.workload
+        or qualification.incumbent_model != evidence.incumbent_model
+        or qualification.candidate_model != evidence.candidate_model
+        or qualification.action_ids != _experimental_action_ids(policy)
+        or qualification.currency != "USD"
+        or qualification.loss_formula_version != "incremental-cost-critical-penalty-v1"
+        or qualification.independent_unit != "paired-request-and-independent-month"
+    ):
+        return "risk_qualification_scope_mismatch"
+    if qualification.dependence_kind != "independent_paired_requests_and_periods":
+        return "dependence_unqualified"
+    if (
+        len(qualification.artifact_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in qualification.artifact_sha256)
+        or not qualification.issuer
+    ):
+        return "risk_law_unqualified"
+    supports = dict(qualification.metric_supports)
+    if len(qualification.metric_supports) != 4 or set(supports) != set(_EXPERIMENTAL_METRICS):
+        return "loss_support_unqualified"
+    if any(
+        len(bounds) != 2 or not all(isfinite(value) for value in bounds) or bounds[0] >= bounds[1]
+        for bounds in supports.values()
+    ):
+        return "loss_support_unqualified"
+    loss_support = qualification.loss_support
+    if (
+        len(loss_support) != 2
+        or not all(isfinite(value) for value in loss_support)
+        or loss_support[0] >= loss_support[1]
+    ):
+        return "loss_support_unqualified"
+    return None
+
+
 def _diagnose_model_migration(
     evidence: MigrationEvidence,
     *,
     policy: MigrationRiskPolicy,
     simulations: int = 10_000,
     seed: int = 7,
+    _qualification: _ExperimentalRiskQualification | None = None,
+    _qualification_checked_at: datetime | None = None,
+    _observer: Callable[[_ExperimentalSimulationSample], None] | None = None,
 ) -> ProbabilisticMigrationDecision:
     """Internal mathematical diagnostic; not a public migration authorization."""
     if simulations < 100:
@@ -690,6 +1234,21 @@ def _diagnose_model_migration(
                 }
             }
         )
+    qualification_reason = _experimental_qualification_reason(
+        _qualification,
+        evidence,
+        policy,
+        _qualification_checked_at or datetime.now(UTC),
+    )
+    if qualification_reason is not None:
+        return _abstention(
+            evidence,
+            policy=policy,
+            simulations=simulations,
+            seed=seed,
+            reason=qualification_reason,
+            additional_cases_required=0,
+        )
     rng = random.Random(seed)
     paired_rows = incumbent + candidate
     scenario_results: dict[str, dict[str, list[float]]] = {
@@ -707,7 +1266,7 @@ def _diagnose_model_migration(
         }
         for action_id, _, _ in routing_specs
     }
-    for _ in range(simulations):
+    for draw_index in range(simulations):
         sampled_indices = [rng.randrange(paired_cases) for _ in range(bootstrap_cases)]
         demand = rng.choice(evidence.period_request_counts)
         baseline_counts: Counter[int] = Counter()
@@ -755,6 +1314,26 @@ def _diagnose_model_migration(
             values["success_rate"].append(action_success_rate)
             values["p95_latency"].append(action_p95_latency)
             values["critical_rate"].append(action_critical_rate)
+            if _observer is not None:
+                assert isinstance(_qualification, _ExperimentalRiskQualification)
+                _observer(
+                    _ExperimentalSimulationSample(
+                        draw_index=draw_index,
+                        action_id=action_id,
+                        demand=demand,
+                        loss=loss,
+                        quality_breach=quality_drop > policy.max_quality_drop,
+                        latency_breach=action_p95_latency > policy.max_p95_latency_ms,
+                        critical_error_breach=(
+                            action_critical_rate > policy.max_critical_error_rate
+                        ),
+                        monthly_cost_usd=action_cost,
+                        success_rate=action_success_rate,
+                        p95_latency_ms=float(action_p95_latency),
+                        critical_error_rate=action_critical_rate,
+                        qualification_id=_qualification.qualification_id,
+                    )
+                )
 
     actions: list[MigrationActionForecast] = []
     for action_id, share, cohort_shares in routing_specs:
@@ -817,8 +1396,9 @@ def _diagnose_model_migration(
             )
         )
 
-    qualifications = {
-        action.action_id: {
+    qualifications = {}
+    for action in actions:
+        action_qualification = {
             metric: _breach_probability_interval(
                 probability,
                 simulations=simulations,
@@ -831,20 +1411,26 @@ def _diagnose_model_migration(
                 ("critical_error", action.probability_critical_error_breach),
             )
         }
-        for action in actions
-    }
+        action_qualification["cvar"] = _cvar_monte_carlo_interval(
+            scenario_results[action.action_id]["loss"],
+            confidence=policy.cvar_confidence,
+            action_count=len(actions),
+            limit=float(policy.max_cvar_loss_usd),
+            source_observations=paired_cases,
+        )
+        qualifications[action.action_id] = action_qualification
     lineage = {
         "forecast_algorithm_version": FORECAST_ALGORITHM_VERSION,
         "planned_simulation_work": planned_work,
         "simulation_work_limit": MAX_SIMULATION_WORK,
         "numerical_qualification": {
-            "method": "fixed_N_Hoeffding",
+            "method": "fixed_N_Hoeffding_and_fixed_20_batch_studentized_CVaR",
             "familywise_confidence": 0.99,
-            "metric_action_comparisons": 3 * len(actions),
+            "metric_action_comparisons": 4 * len(actions),
             "simulations": simulations,
             "actions": qualifications,
             "scope": (
-                "per-metric MC probability only; excludes CVaR, model risk "
+                "per-metric chance and CVaR Monte Carlo error; excludes model risk "
                 "and joint any-breach risk"
             ),
         },
@@ -876,12 +1462,28 @@ def _diagnose_model_migration(
         ]
     )
     if recommended is None:
+        saving_actions = [
+            action
+            for action in actions
+            if action.feasible and action.expected_monthly_savings_usd > 0
+        ]
+        chance_indeterminate = any(
+            any(
+                qualifications[action.action_id][metric]["status"] != "qualified"
+                for metric in ("quality", "latency", "critical_error")
+            )
+            for action in saving_actions
+        )
         return _abstention(
             evidence,
             policy=policy,
             simulations=simulations,
             seed=seed,
-            reason="mc_probability_indeterminate",
+            reason=(
+                "mc_probability_indeterminate"
+                if chance_indeterminate
+                else "mc_cvar_indeterminate"
+            ),
             additional_cases_required=0,
         ).model_copy(update={"actions": actions, "evidence_lineage": lineage})
     action = "ship_candidate" if recommended.candidate_share == 1 else "hybrid_route"

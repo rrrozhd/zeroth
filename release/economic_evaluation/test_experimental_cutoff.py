@@ -21,8 +21,9 @@ class ExperimentalCutoffTests(unittest.TestCase):
             self.assertEqual(result.recommended_routing, {})
             self.assertIn("experimental_predictive_reliability_unapproved", result.reason_codes)
             self.assertNotIn("risk_constraints_satisfied", result.reason_codes)
-            self.assertEqual(result.actions[0].expected_monthly_savings_usd, 400)
-            self.assertIs(result.evidence_lineage["future_request_variability_included"], True)
+            self.assertEqual(result.actions, [])
+            self.assertIn("risk_law_unqualified", result.reason_codes)
+            self.assertIs(result.evidence_lineage["future_request_variability_included"], False)
 
     def test_unapproved_reliability_not_solved_by_more_mc_draws(self):
         for count in (100, 1000):

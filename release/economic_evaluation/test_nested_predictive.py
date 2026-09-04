@@ -5,7 +5,7 @@ import random
 import unittest
 from unittest.mock import patch
 
-from release.economic_evaluation.test_invariants import evidence, policy
+from release.economic_evaluation.test_invariants import evidence, policy, qualified_diagnose
 from zeroth.econ import probabilistic as candidate
 
 
@@ -31,7 +31,7 @@ class NestedPredictiveTests(unittest.TestCase):
             return original(values, confidence=confidence)
 
         with patch.object(candidate, "empirical_var_cvar", capture):
-            candidate._diagnose_model_migration(world, policy=policy(), simulations=100, seed=7)
+            qualified_diagnose(world, policy(), simulations=100, seed=7)
         self.assertEqual(len(losses), 100)
         self.assertTrue(
             all(min(abs(value - atom) for atom in (-0.8, -0.7, -0.6)) < 1e-9 for value in losses)
@@ -50,14 +50,14 @@ class NestedPredictiveTests(unittest.TestCase):
         world = evidence(501, heterogeneous=True)
         world.period_request_counts = [2]
         with patch.object(candidate.random, "Random", CountingRandom):
-            candidate._diagnose_model_migration(world, policy=policy(), simulations=100)
+            qualified_diagnose(world, policy(), simulations=100)
         self.assertEqual(CountingRandom.draws, (501 + 2) * 100)
 
     def test_approved_familywise_radius_and_boundary_classification(self):
         interval = getattr(candidate, "_breach_probability_interval", None)
         self.assertIsNotNone(interval, "missing approved fixed-N numerical interval")
         result = interval(0.05, simulations=10_000, action_count=2, limit=0.05)
-        radius = math.sqrt(math.log(2 * 3 * 2 / 0.01) / 20_000)
+        radius = math.sqrt(math.log(2 * 4 * 2 / 0.01) / 20_000)
         self.assertAlmostEqual(result["lower"], 0.05 - radius)
         self.assertAlmostEqual(result["upper"], 0.05 + radius)
         self.assertEqual(result["status"], "indeterminate")
@@ -71,8 +71,8 @@ class NestedPredictiveTests(unittest.TestCase):
     def test_point_feasible_is_not_sampled_qualified_at_small_n(self):
         world = evidence(3)
         world.period_request_counts = [2]
-        result = candidate._diagnose_model_migration(
-            world, policy=policy(max_constraint_breach_probability=0.05), simulations=100
+        result = qualified_diagnose(
+            world, policy(max_constraint_breach_probability=0.05), simulations=100
         )
         self.assertTrue(result.actions[0].feasible)
         self.assertEqual(result.recommended_action, "collect_evidence")
@@ -83,9 +83,6 @@ class NestedPredictiveTests(unittest.TestCase):
         world.period_request_counts = [2]
         result = candidate.recommend_model_migration(world, policy=policy(), simulations=100)
         self.assertEqual(result.recommended_action, "collect_evidence")
-        self.assertIs(result.evidence_lineage.get("future_request_variability_included"), True)
+        self.assertIs(result.evidence_lineage.get("future_request_variability_included"), False)
         self.assertEqual(result.evidence_lineage.get("predictive_reliability"), "unapproved")
-        qualification = result.evidence_lineage.get("numerical_qualification")
-        self.assertIsNotNone(qualification)
-        self.assertEqual(qualification["familywise_confidence"], 0.99)
-        self.assertEqual(qualification["metric_action_comparisons"], 3)
+        self.assertIn("risk_law_unqualified", result.reason_codes)

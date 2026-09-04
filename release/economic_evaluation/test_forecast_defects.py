@@ -4,7 +4,7 @@ import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from release.economic_evaluation.test_invariants import evidence, policy
+from release.economic_evaluation.test_invariants import evidence, policy, qualified_diagnose
 from zeroth.econ import probabilistic as candidate
 
 
@@ -22,7 +22,7 @@ class ForecastDefectTests(unittest.TestCase):
         self.assertEqual(row.predicted_mean, 4)
 
     def run_world(self, world):
-        return candidate._diagnose_model_migration(world, policy=policy(), simulations=100, seed=7)
+        return qualified_diagnose(world, policy(), simulations=100, seed=7)
 
     def test_missing_candidate_units_abstains_instead_of_complete_case_forecast(self):
         world = evidence(6)
@@ -43,7 +43,8 @@ class ForecastDefectTests(unittest.TestCase):
         for row in world.candidate:
             row.cost_usd = Decimal("0.9999999999")
         result = self.run_world(world)
-        self.assertEqual(result.recommended_action, "ship_candidate")
+        self.assertEqual(result.recommended_action, "collect_evidence")
+        self.assertEqual(candidate._point_winner(result.actions), result.actions[0])
         self.assertAlmostEqual(
             float(result.actions[0].expected_monthly_savings_usd), 1e-7, delta=1e-9
         )

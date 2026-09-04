@@ -2,10 +2,13 @@
 
 import random
 import unittest
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
 from zeroth.econ import probabilistic as candidate
+
+QUALIFICATION_TIME = datetime(2026, 9, 3, tzinfo=UTC)
 
 
 def evidence(count=6, heterogeneous=False):
@@ -53,11 +56,49 @@ def policy(**changes):
     return candidate.MigrationRiskPolicy(**values)
 
 
+def qualified_diagnose(world, rules, *, simulations=100, seed=7, **kwargs):
+    action_ids = (
+        tuple(action.action_id for action in rules.routing_actions)
+        if rules.routing_actions
+        else tuple(f"global-{share:g}" for share in rules.candidate_shares)
+    )
+    qualification = candidate._ExperimentalRiskQualification(
+        qualification_id="frozen-adapter-test-qualification",
+        workload=world.workload,
+        incumbent_model=world.incumbent_model,
+        candidate_model=world.candidate_model,
+        action_ids=action_ids,
+        metric_supports=(
+            ("monthly_cost_usd", (0.0, 1_000_000.0)),
+            ("p95_latency_ms", (0.0, 1_000_000.0)),
+            ("success_rate", (0.0, 1.0)),
+            ("critical_error_rate", (0.0, 1.0)),
+        ),
+        loss_support=(-1_000_000.0, 1_000_000.0),
+        currency="USD",
+        loss_formula_version="incremental-cost-critical-penalty-v1",
+        independent_unit="paired-request-and-independent-month",
+        dependence_kind="independent_paired_requests_and_periods",
+        artifact_sha256="c" * 64,
+        issuer="frozen-conformance-suite",
+        valid_from=QUALIFICATION_TIME,
+        valid_until=QUALIFICATION_TIME,
+        active=True,
+    )
+    return candidate._diagnose_model_migration(
+        world,
+        policy=rules,
+        simulations=simulations,
+        seed=seed,
+        _qualification=qualification,
+        _qualification_checked_at=QUALIFICATION_TIME,
+        **kwargs,
+    )
+
+
 class CandidateInvariantTests(unittest.TestCase):
     def run_world(self, world, rules=None, seed=7):
-        return candidate._diagnose_model_migration(
-            world, policy=rules or policy(), simulations=100, seed=seed
-        )
+        return qualified_diagnose(world, rules or policy(), simulations=100, seed=seed)
 
     def test_k02_and_model_swap(self):
         world = evidence()
@@ -65,7 +106,8 @@ class CandidateInvariantTests(unittest.TestCase):
         action = decision.actions[0]
         self.assertEqual(decision.incumbent_model, "incumbent")
         self.assertEqual(decision.candidate_model, "candidate")
-        self.assertEqual(decision.recommended_action, "ship_candidate")
+        self.assertEqual(decision.recommended_action, "collect_evidence")
+        self.assertEqual(candidate._point_winner(decision.actions), action)
         self.assertEqual(action.expected_monthly_cost_usd, Decimal("600"))
         self.assertEqual(action.expected_monthly_savings_usd, Decimal("400"))
         self.assertEqual(action.cvar_loss_usd, Decimal("-400"))

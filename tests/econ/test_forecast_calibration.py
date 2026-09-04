@@ -41,6 +41,62 @@ def test_calibration_assessment_accepts_covered_unbiased_history() -> None:
     assert readiness.calibration_periods == 8
 
 
+def test_rare_event_rate_uses_absolute_probability_point_calibration() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    rows = [
+        subject.ForecastCalibrationObservation(
+            forecast_id=f"rare-{index}",
+            metric="critical_error_rate",
+            predicted_mean=0.001,
+            predicted_low=0.0,
+            predicted_high=0.004,
+            observed=0.002,
+            observed_at=start + timedelta(days=30 * index),
+        )
+        for index in range(8)
+    ]
+
+    readiness = subject.assess_forecast_readiness(
+        rows,
+        required_metrics={"critical_error_rate"},
+        minimum_periods=6,
+        minimum_interval_coverage=0.9,
+        max_relative_bias=0.1,
+        max_relative_residual_shift=0.2,
+    )
+
+    assert readiness.calibration_state == "calibrated"
+    assert readiness.drift_state == "stable"
+    # The legacy field name is retained for compatibility; bounded rates are
+    # expressed in absolute probability points because no denominator exists.
+    assert readiness.relative_bias == 0.001
+
+
+def test_rare_event_rate_still_fails_closed_for_large_absolute_miss() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    rows = [
+        subject.ForecastCalibrationObservation(
+            forecast_id=f"poisoned-{index}",
+            metric="critical_error_rate",
+            predicted_mean=0.001,
+            predicted_low=0.0,
+            predicted_high=0.004,
+            observed=0.251,
+            observed_at=start + timedelta(days=30 * index),
+        )
+        for index in range(8)
+    ]
+
+    readiness = subject.assess_forecast_readiness(
+        rows,
+        required_metrics={"critical_error_rate"},
+        minimum_periods=6,
+    )
+
+    assert readiness.calibration_state == "critical"
+    assert readiness.relative_bias == 0.25
+
+
 def test_calibration_assessment_marks_a_large_recent_residual_shift_critical() -> None:
     readiness = subject.assess_forecast_readiness(
         _calibration_observations(recent_shift=50.0),

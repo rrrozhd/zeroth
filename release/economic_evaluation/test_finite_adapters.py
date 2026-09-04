@@ -10,7 +10,7 @@ from decimal import Decimal
 from fractions import Fraction
 from unittest.mock import patch
 
-from release.economic_evaluation.test_invariants import evidence, policy
+from release.economic_evaluation.test_invariants import evidence, policy, qualified_diagnose
 from release.economic_evaluation.test_known_answers import FIXTURES
 from zeroth.econ import probabilistic as candidate
 
@@ -47,7 +47,7 @@ def replay(world, rules, *, breach_scenarios=None):
             return 0.5
 
     with patch.object(candidate.random, "Random", EnumeratedScenarios):
-        return candidate._diagnose_model_migration(world, policy=rules, simulations=100, seed=0)
+        return qualified_diagnose(world, rules, simulations=100, seed=0)
 
 
 def risk_world(left_price="0.6", right_price="0.6"):
