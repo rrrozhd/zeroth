@@ -498,6 +498,15 @@ class ApprovalService:
         child.  The transactional CAS and deterministic audit id in
         ``schedule_ancestor_continuation`` make concurrent workers safe.
         """
+        # Idle worker sweeps must not repeatedly deserialize the deployment's
+        # entire approval history. This scoped read is only an empty-work hint:
+        # a waiter arriving afterward is handled by the next periodic sweep.
+        if not await self.run_repository.list_runs(
+            deployment_ref,
+            status=RunStatus.WAITING_APPROVAL.value,
+            limit=1,
+        ):
+            return []
         scheduled: list[Run] = []
         for record in await self.list_visible_to_deployment(
             deployment_ref=deployment_ref,
