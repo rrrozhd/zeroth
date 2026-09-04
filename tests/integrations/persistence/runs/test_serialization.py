@@ -12,6 +12,9 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
+
 from zeroth.integrations.persistence.runs import serialization
 from zeroth.platform.storage.json import to_json_value
 from zeroth.runtime.runs import (
@@ -202,3 +205,57 @@ def test_dump_list_serializes_each_model_in_json_mode() -> None:
 
     assert "node-a" in dumped
     assert dumped.startswith("[")
+
+
+def test_row_conversion_reuses_domain_validation(monkeypatch) -> None:
+    """Reading stored rows must not compile per-field Pydantic schemas."""
+    from zeroth.platform.storage import json as storage_json
+
+    def unexpected_adapter(*args, **kwargs):
+        raise AssertionError("row read compiled a fresh field schema")
+
+    monkeypatch.setattr(storage_json, "TypeAdapter", unexpected_adapter)
+    assert serialization.row_to_run(_run_row()).run_id == "run-1"
+    assert serialization.row_to_thread(_thread_row()).thread_id == "thread-1"
+
+
+@pytest.mark.parametrize("raw", ["false", "0", '""', "{}"])
+@pytest.mark.parametrize("field", ["current_node_ids", "execution_history", "condition_results"])
+def test_run_row_rejects_invalid_falsy_lists(field, raw) -> None:
+    """Only null receives an empty default; malformed stored values fail closed."""
+    with pytest.raises(ValidationError):
+        serialization.row_to_run(_run_row(**{field: raw}))
+
+
+@pytest.mark.parametrize("raw", ["false", "0", '""', "[]"])
+@pytest.mark.parametrize("field", ["metadata", "node_visit_counts", "artifacts"])
+def test_run_row_rejects_invalid_falsy_maps(field, raw) -> None:
+    """JSON decoding must not erase invalid map values before domain validation."""
+    with pytest.raises(ValidationError):
+        serialization.row_to_run(_run_row(**{field: raw}))
+
+
+@pytest.mark.parametrize("raw", [None, "null"])
+@pytest.mark.parametrize(
+    "field, empty",
+    [
+        ("current_node_ids", "[]"),
+        ("execution_history", "[]"),
+        ("condition_results", "[]"),
+        ("metadata", "{}"),
+        ("node_visit_counts", "{}"),
+    ],
+)
+def test_run_row_retains_null_collection_defaults(field, empty, raw) -> None:
+    """SQL and JSON null keep the established empty collection interpretation."""
+    row = _run_row(**{field: raw})
+    expected = dict(row)
+    expected[field] = empty
+    assert serialization.row_to_run(row) == serialization.row_to_run(expected)
+
+
+@pytest.mark.parametrize("raw", ["false", "0", '""', "{}", '[{"connector_id": "x"}]'])
+def test_thread_row_rejects_malformed_memory_bindings(raw) -> None:
+    """Nested required fields remain enforced by the canonical thread model."""
+    with pytest.raises(ValidationError):
+        serialization.row_to_thread(_thread_row(memory_bindings=raw))
