@@ -11,12 +11,12 @@ from decimal import Decimal
 from fractions import Fraction
 from itertools import combinations
 from math import ceil, fsum, isfinite, log, sqrt
-from statistics import fmean, stdev
+from statistics import NormalDist, fmean, stdev
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
-FORECAST_ALGORITHM_VERSION = "nested-paired-monthly-v2-hoeffding99-math1"
+FORECAST_ALGORITHM_VERSION = "nested-paired-monthly-v2-hoeffding99-math1-predictive1"
 MAX_SIMULATION_WORK = 50_000_000
 _BOUNDED_RATE_METRICS = frozenset({"success_rate", "critical_error_rate"})
 _CVAR_BATCH_COUNT = 20
@@ -882,6 +882,91 @@ def _upper_bound_status(lower: float, upper: float, *, limit: float) -> str:
     return "indeterminate"
 
 
+def _wilson_score_interval(
+    successes: float, *, trials: int, confidence: float
+) -> tuple[float, float]:
+    """Finite-sample Wilson score interval, including boundary counts."""
+    if (
+        trials <= 0
+        or not isfinite(successes)
+        or successes < 0
+        or successes > trials
+        or not 0 < confidence < 1
+    ):
+        raise ValueError("invalid Wilson interval inputs")
+    probability = successes / trials
+    z = NormalDist().inv_cdf((1 + confidence) / 2)
+    z_squared = z * z
+    denominator = 1 + z_squared / trials
+    center = (probability + z_squared / (2 * trials)) / denominator
+    half_width = (
+        z
+        * sqrt(
+            probability * (1 - probability) / trials
+            + z_squared / (4 * trials * trials)
+        )
+        / denominator
+    )
+    return max(0.0, center - half_width), min(1.0, center + half_width)
+
+
+def _routed_rate_predictive_interval(
+    incumbent: list[MigrationObservation],
+    candidate: list[MigrationObservation],
+    *,
+    share: float,
+    cohort_shares: dict[str, float],
+    attribute: Literal["accepted", "critical_error"],
+    future_trials: int,
+    confidence: float = 0.90,
+) -> tuple[float, float]:
+    """Compose literal arm/cohort counts into a routed predictive envelope."""
+    cohorts = sorted({row.cohort for row in incumbent})
+    components = []
+    total = len(incumbent)
+    for cohort in cohorts:
+        incumbent_rows = [row for row in incumbent if row.cohort == cohort]
+        candidate_rows = [row for row in candidate if row.cohort == cohort]
+        threshold = cohort_shares.get(cohort, 0.0) if cohort_shares else share
+        cohort_weight = len(incumbent_rows) / total
+        if threshold < 1:
+            components.append(
+                (
+                    cohort_weight * (1 - threshold),
+                    sum(bool(getattr(row, attribute)) for row in incumbent_rows),
+                    len(incumbent_rows),
+                )
+            )
+        if threshold > 0:
+            components.append(
+                (
+                    cohort_weight * threshold,
+                    sum(bool(getattr(row, attribute)) for row in candidate_rows),
+                    len(candidate_rows),
+                )
+            )
+    alpha = (1 - confidence) / (len(components) + 1)
+    source_low = 0.0
+    source_high = 0.0
+    for weight, successes, trials in components:
+        low, high = _wilson_score_interval(
+            successes, trials=trials, confidence=1 - alpha
+        )
+        source_low += weight * low
+        source_high += weight * high
+    future_low, _ = _wilson_score_interval(
+        source_low * future_trials,
+        trials=future_trials,
+        confidence=1 - alpha,
+    )
+    _, future_high = _wilson_score_interval(
+        source_high * future_trials,
+        trials=future_trials,
+        confidence=1 - alpha,
+    )
+    return future_low, future_high
+
+
 def _breach_probability_interval(
     probability: float, *, simulations: int, action_count: int, limit: float
 ) -> dict[str, float | str]:
@@ -929,12 +1014,20 @@ def _cvar_monte_carlo_interval(
     effective_source_tail_samples = (
         source_observations * tail_numerator + tail_denominator - 1
     ) // tail_denominator
+    required_source_observations = (
+        _MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES * tail_denominator
+        + tail_numerator
+        - 1
+    ) // tail_numerator
     common = {
         "batch_count": _CVAR_BATCH_COUNT,
         "effective_tail_samples": effective_tail_samples,
         "minimum_effective_tail_samples": _MINIMUM_EFFECTIVE_TAIL_SAMPLES,
         "effective_source_tail_samples": effective_source_tail_samples,
         "minimum_effective_source_tail_samples": _MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES,
+        "additional_source_observations_required": max(
+            0, required_source_observations - source_observations
+        ),
         "critical_value": _CVAR_STUDENTIZED_CRITICAL_VALUE,
     }
     if (
@@ -1335,6 +1428,7 @@ def _diagnose_model_migration(
                     )
                 )
 
+    predictive_rate_intervals = {}
     actions: list[MigrationActionForecast] = []
     for action_id, share, cohort_shares in routing_specs:
         values = scenario_results[action_id]
@@ -1342,6 +1436,27 @@ def _diagnose_model_migration(
         probability_latency_breach = fmean(values["latency_breach"])
         probability_critical_breach = fmean(values["critical_breach"])
         value_at_risk, cvar = empirical_var_cvar(values["loss"], confidence=policy.cvar_confidence)
+        future_trials = min(evidence.period_request_counts)
+        success_rate_low, success_rate_high = _routed_rate_predictive_interval(
+            incumbent,
+            candidate,
+            share=share,
+            cohort_shares=cohort_shares,
+            attribute="accepted",
+            future_trials=future_trials,
+        )
+        critical_rate_low, critical_rate_high = _routed_rate_predictive_interval(
+            incumbent,
+            candidate,
+            share=share,
+            cohort_shares=cohort_shares,
+            attribute="critical_error",
+            future_trials=future_trials,
+        )
+        predictive_rate_intervals[action_id] = {
+            "success": (success_rate_low, success_rate_high),
+            "critical_error": (critical_rate_low, critical_rate_high),
+        }
         admissible_quantile = 1 - policy.max_constraint_breach_probability
         violated: list[str] = []
         breach_limit = policy.max_constraint_breach_probability
@@ -1368,14 +1483,22 @@ def _diagnose_model_migration(
                     float(savings < 0) for savings in values["savings"]
                 ),
                 expected_success_rate=fmean(values["success_rate"]),
-                success_rate_p05=_empirical_quantile(values["success_rate"], 0.05),
-                success_rate_p95=_empirical_quantile(values["success_rate"], 0.95),
+                success_rate_p05=min(
+                    _empirical_quantile(values["success_rate"], 0.05), success_rate_low
+                ),
+                success_rate_p95=max(
+                    _empirical_quantile(values["success_rate"], 0.95), success_rate_high
+                ),
                 expected_p95_latency_ms=fmean(values["p95_latency"]),
                 p95_latency_p05_ms=_empirical_quantile(values["p95_latency"], 0.05),
                 p95_latency_p95_ms=_empirical_quantile(values["p95_latency"], 0.95),
                 expected_critical_error_rate=fmean(values["critical_rate"]),
-                critical_error_rate_p05=_empirical_quantile(values["critical_rate"], 0.05),
-                critical_error_rate_p95=_empirical_quantile(values["critical_rate"], 0.95),
+                critical_error_rate_p05=min(
+                    _empirical_quantile(values["critical_rate"], 0.05), critical_rate_low
+                ),
+                critical_error_rate_p95=max(
+                    _empirical_quantile(values["critical_rate"], 0.95), critical_rate_high
+                ),
                 probability_quality_breach=probability_quality_breach,
                 probability_latency_breach=probability_latency_breach,
                 probability_critical_error_breach=probability_critical_breach,
@@ -1396,6 +1519,14 @@ def _diagnose_model_migration(
             )
         )
 
+    _, baseline_success_high = _routed_rate_predictive_interval(
+        incumbent,
+        candidate,
+        share=0.0,
+        cohort_shares={},
+        attribute="accepted",
+        future_trials=min(evidence.period_request_counts),
+    )
     qualifications = {}
     for action in actions:
         action_qualification = {
@@ -1411,6 +1542,36 @@ def _diagnose_model_migration(
                 ("critical_error", action.probability_critical_error_breach),
             )
         }
+        success_low, success_high = predictive_rate_intervals[action.action_id]["success"]
+        critical_low, critical_high = predictive_rate_intervals[action.action_id][
+            "critical_error"
+        ]
+        action_qualification["quality"].update(
+            {
+                "predictive_success_rate_lower": success_low,
+                "predictive_success_rate_upper": success_high,
+                "predictive_quality_drop_upper": max(
+                    0.0, baseline_success_high - success_low
+                ),
+            }
+        )
+        if (
+            action_qualification["quality"]["status"] == "qualified"
+            and action_qualification["quality"]["predictive_quality_drop_upper"]
+            > policy.max_quality_drop
+        ):
+            action_qualification["quality"]["status"] = "indeterminate"
+        action_qualification["critical_error"].update(
+            {
+                "predictive_rate_lower": critical_low,
+                "predictive_rate_upper": critical_high,
+            }
+        )
+        if (
+            action_qualification["critical_error"]["status"] == "qualified"
+            and critical_high > policy.max_critical_error_rate
+        ):
+            action_qualification["critical_error"]["status"] = "indeterminate"
         action_qualification["cvar"] = _cvar_monte_carlo_interval(
             scenario_results[action.action_id]["loss"],
             confidence=policy.cvar_confidence,
@@ -1474,6 +1635,18 @@ def _diagnose_model_migration(
             )
             for action in saving_actions
         )
+        additional_cases_required = max(
+            (
+                int(
+                    qualifications[action.action_id]["cvar"][
+                        "additional_source_observations_required"
+                    ]
+                )
+                for action in saving_actions
+                if qualifications[action.action_id]["cvar"]["status"] == "insufficient"
+            ),
+            default=0,
+        )
         return _abstention(
             evidence,
             policy=policy,
@@ -1484,7 +1657,7 @@ def _diagnose_model_migration(
                 if chance_indeterminate
                 else "mc_cvar_indeterminate"
             ),
-            additional_cases_required=0,
+            additional_cases_required=additional_cases_required,
         ).model_copy(update={"actions": actions, "evidence_lineage": lineage})
     action = "ship_candidate" if recommended.candidate_share == 1 else "hybrid_route"
     if recommended.cohort_candidate_shares:

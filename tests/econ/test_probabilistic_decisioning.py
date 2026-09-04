@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from zeroth.econ.probabilistic import (
     CohortRoutingAction,
+    FORECAST_ALGORITHM_VERSION,
     ForecastReadiness,
     MigrationEvidence,
     MigrationObservation,
@@ -174,7 +175,91 @@ def test_cvar_qualification_does_not_treat_resampling_as_new_source_evidence() -
     assert result["effective_tail_samples"] == 100
     assert result["effective_source_tail_samples"] == 20
     assert result["minimum_effective_source_tail_samples"] == 30
+    assert result["additional_source_observations_required"] == 200
     assert result["status"] == "insufficient"
+
+
+def test_zero_event_rate_has_finite_sample_predictive_upper_bound() -> None:
+    assert FORECAST_ALGORITHM_VERSION.endswith("-predictive1")
+    evidence = _evidence(count=400)
+    evidence.period_request_counts = [1_000]
+    policy = MigrationRiskPolicy(
+        min_paired_cases=30,
+        candidate_shares=[1.0],
+        max_quality_drop=1.0,
+        max_p95_latency_ms=10_000,
+        max_critical_error_rate=1.0,
+        max_constraint_breach_probability=1.0,
+        max_cvar_loss_usd=Decimal("0"),
+    )
+    report = _qualified_diagnose(evidence, policy=policy, simulations=100, seed=7)
+
+    assert report.actions[0].critical_error_rate_p05 == 0.0
+    assert report.actions[0].critical_error_rate_p95 == pytest.approx(0.017680380334649776)
+
+
+def test_cvar_abstention_reports_exact_paired_case_shortfall() -> None:
+    evidence = _evidence(count=400)
+    policy = MigrationRiskPolicy(
+        min_paired_cases=30,
+        candidate_shares=[1.0],
+        max_quality_drop=1.0,
+        max_p95_latency_ms=10_000,
+        max_critical_error_rate=1.0,
+        max_constraint_breach_probability=1.0,
+        max_cvar_loss_usd=Decimal("0"),
+    )
+
+    report = _qualified_diagnose(evidence, policy=policy, simulations=2_000, seed=13)
+
+    assert report.reason_codes == ["mc_cvar_indeterminate"]
+    assert report.additional_cases_required == 200
+
+
+def test_zero_observed_critical_events_cannot_numerically_authorize_action() -> None:
+    evidence = _evidence(count=600)
+    evidence.period_request_counts = [1_000] * 12
+    policy = MigrationRiskPolicy(
+        min_paired_cases=30,
+        candidate_shares=[1.0],
+        max_quality_drop=1.0,
+        max_p95_latency_ms=10_000,
+        max_critical_error_rate=0.01,
+        max_constraint_breach_probability=0.10,
+        max_cvar_loss_usd=Decimal("0"),
+    )
+
+    report = _qualified_diagnose(evidence, policy=policy, simulations=2_000, seed=19)
+
+    critical = report.evidence_lineage["numerical_qualification"]["actions"]["global-1"][
+        "critical_error"
+    ]
+    assert critical["predictive_rate_upper"] > policy.max_critical_error_rate
+    assert critical["status"] == "indeterminate"
+    assert report.recommended_action == "collect_evidence"
+
+
+def test_all_success_bootstrap_cannot_authorize_zero_quality_drop_limit() -> None:
+    evidence = _evidence(count=600)
+    evidence.period_request_counts = [1_000] * 12
+    policy = MigrationRiskPolicy(
+        min_paired_cases=30,
+        candidate_shares=[1.0],
+        max_quality_drop=0.0,
+        max_p95_latency_ms=10_000,
+        max_critical_error_rate=1.0,
+        max_constraint_breach_probability=0.10,
+        max_cvar_loss_usd=Decimal("0"),
+    )
+
+    report = _qualified_diagnose(evidence, policy=policy, simulations=2_000, seed=23)
+
+    quality = report.evidence_lineage["numerical_qualification"]["actions"]["global-1"][
+        "quality"
+    ]
+    assert quality["predictive_quality_drop_upper"] > 0
+    assert quality["status"] == "indeterminate"
+    assert report.recommended_action == "collect_evidence"
 
 
 def test_cvar_boundary_crossing_interval_is_indeterminate() -> None:
@@ -277,6 +362,7 @@ def test_probabilistic_recommendation_is_reproducible_for_a_seed() -> None:
 
 def test_risk_constraints_select_a_feasible_hybrid_instead_of_full_migration() -> None:
     evidence = _evidence(count=600, incumbent_accepted=600, candidate_accepted=480)
+    evidence.period_request_counts = [1_000] * 12
     policy = MigrationRiskPolicy(
         min_paired_cases=30,
         candidate_shares=[0.25, 1.0],
@@ -325,6 +411,40 @@ def test_action_forecast_exposes_inspectable_cost_and_savings_intervals() -> Non
     assert action.expected_p95_latency_ms <= action.p95_latency_p95_ms
     assert action.critical_error_rate_p05 <= action.expected_critical_error_rate
     assert action.expected_critical_error_rate <= action.critical_error_rate_p95
+
+
+def test_predictive_intervals_include_future_request_outcome_variation() -> None:
+    evidence = _evidence(count=100)
+    evidence.period_request_counts = [1]
+    evidence.candidate = [
+        row.model_copy(
+            update={
+                "cost_usd": Decimal("0") if index < 50 else Decimal("2"),
+                "latency_ms": 100 if index < 50 else 300,
+                "accepted": index < 50,
+            }
+        )
+        for index, row in enumerate(evidence.candidate)
+    ]
+    policy = MigrationRiskPolicy(
+        min_paired_cases=30,
+        candidate_shares=[1.0],
+        max_quality_drop=1.0,
+        max_p95_latency_ms=10_000,
+        max_critical_error_rate=1.0,
+        max_constraint_breach_probability=1.0,
+        max_cvar_loss_usd=Decimal("10"),
+    )
+
+    report = _qualified_diagnose(evidence, policy=policy, simulations=2_000, seed=29)
+    action = report.actions[0]
+
+    assert action.monthly_cost_p05_usd == 0
+    assert action.monthly_cost_p95_usd == 2
+    assert action.p95_latency_p05_ms == 100
+    assert action.p95_latency_p95_ms == 300
+    assert action.success_rate_p05 == 0
+    assert action.success_rate_p95 == 1
 
 
 def test_rare_error_constraint_abstains_when_zero_failures_do_not_bound_the_rate() -> None:
@@ -395,9 +515,9 @@ def test_optimizer_can_route_only_the_cohort_where_the_candidate_is_safe() -> No
     candidate = [
         row.model_copy(
             update={
-                "cohort": "enterprise" if index < 50 else "self-serve",
+                "cohort": "enterprise" if index < count // 2 else "self-serve",
                 "cost_usd": Decimal("0.40"),
-                "accepted": index < 50,
+                "accepted": index < count // 2,
             }
         )
         for index, row in enumerate(
@@ -405,10 +525,13 @@ def test_optimizer_can_route_only_the_cohort_where_the_candidate_is_safe() -> No
         )
     ]
     incumbent = [
-        row.model_copy(update={"cohort": "enterprise" if index < 50 else "self-serve"})
+        row.model_copy(
+            update={"cohort": "enterprise" if index < count // 2 else "self-serve"}
+        )
         for index, row in enumerate(incumbent)
     ]
     evidence = _evidence().model_copy(update={"incumbent": incumbent, "candidate": candidate})
+    evidence.period_request_counts = [1_000] * 12
     policy = MigrationRiskPolicy(
         min_paired_cases=30,
         candidate_shares=[1.0],
