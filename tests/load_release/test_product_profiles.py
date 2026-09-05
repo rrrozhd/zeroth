@@ -38,6 +38,11 @@ async def test_real_product_fairness_fault_and_overload_evidence(
     from tests.load_release.product_probe import collect_product_observations
     from release.load.report import evidence_errors
 
+    if diagnostic_output := os.environ.get("ZEROTH_LOAD_DIAGNOSTICS"):
+        from tests.load_release.approval_diagnostics import install
+
+        install(monkeypatch, ROOT / diagnostic_output, postgres_dsn)
+
     profiles = _profiles()
     rows = await collect_product_observations(
         profiles, postgres_dsn=postgres_dsn, redis_url=redis_url
