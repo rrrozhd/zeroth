@@ -646,6 +646,22 @@ def test_load_receipt_has_git_before_checkout() -> None:
     assert "git --version" in preparation, "fail before checkout if Git provisioning failed"
 
 
+def test_load_receipt_verifies_checkout_in_the_regular_step_environment() -> None:
+    steps = _steps(_jobs(GATES_WORKFLOW)["load-recovery"])
+    checkout = next(i for i, step in enumerate(steps)
+                    if str(step.get("uses", "")).startswith("actions/checkout@"))
+    verify = next((i for i, step in enumerate(steps)
+                   if step.get("name") == "Verify source receipt checkout"), None)
+    assert verify is not None, "verify Git outside checkout's temporary HOME"
+    assert verify == checkout + 1
+    command = steps[verify]["run"]
+    assert 'git config --global --add safe.directory "$GITHUB_WORKSPACE"' in command
+    assert 'git -C "$GITHUB_WORKSPACE" rev-parse HEAD' in command
+    assert '"$GITHUB_SHA"' in command
+    assert "set -euo pipefail" in command
+    assert "*" not in command, "do not trust unrelated repositories"
+
+
 @pytest.mark.parametrize("guard", ["", "always()", "github.event_name == 'pull_request'"])
 def test_pr_cost_check_rejects_sdk_publish_guard_regression(monkeypatch, guard) -> None:
     """Removing or broadening a publisher guard must make the PR-cost audit fail."""
