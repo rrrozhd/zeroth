@@ -356,6 +356,10 @@ jobs:
           uv sync --all-groups --all-extras
           export ZEROTH_TEST_DOCKER_IMAGE="python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
           docker pull "$ZEROTH_TEST_DOCKER_IMAGE" || exit 1
+          docker build --file tests/runtime/mcp_fixtures/Dockerfile \
+            --iidfile release/evidence/untrusted-mcp-image.txt . || exit 1
+          export ZEROTH_TEST_MCP_IMAGE="$(cat release/evidence/untrusted-mcp-image.txt)"
+          [[ "$ZEROTH_TEST_MCP_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
           run_suite() {
             uv run pytest -q "$1" "${@:3}" --junitxml="$2"
           }
@@ -364,7 +368,9 @@ jobs:
           run_suite tests/execution_units/test_sandbox_hardening.py \
             release/evidence/untrusted-hardening.xml \
             tests/execution_units/test_docker_lifecycle.py \
-            tests/execution_units/test_runner_cancellation.py; HARDENING=$?
+            tests/execution_units/test_runner_cancellation.py \
+            tests/runtime/test_mcp_docker_transport.py \
+            tests/runtime/test_mcp_owned_transport.py; HARDENING=$?
           run_suite tests/execution_units/test_sandbox_strict_network.py \
             release/evidence/untrusted-network.xml; NETWORK=$?
           run_suite tests/sandbox_sidecar \

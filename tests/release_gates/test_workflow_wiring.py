@@ -660,3 +660,41 @@ def test_pr_cost_check_rejects_sdk_publish_guard_regression(monkeypatch, guard) 
     monkeypatch.setitem(globals(), "_jobs", mutated)
     with pytest.raises(AssertionError, match="release-zeroth-sdk.yml runs"):
         test_pull_request_checks_stay_fast()
+
+
+def test_untrusted_gate_executes_mcp_and_records_failure(tmp_path):
+    """Exercise the shell so an omitted/skipped MCP case cannot look green."""
+    import os
+
+    script = "\n".join(
+        step.get("run", "") for step in _steps(_jobs(GATES_WORKFLOW)["untrusted-code"])
+    )
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    log = tmp_path / "calls"
+    stubs = {
+        "docker": '#!/bin/bash\nif [[ "$1" == build ]]; then echo "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" > "$MCP_IID_PATH"; fi\n',
+        "uv": '#!/bin/bash\necho "uv $* image=${ZEROTH_TEST_MCP_IMAGE:-missing}" >> "$CALL_LOG"\nif [[ "$*" == *test_mcp_docker_transport.py* ]]; then [[ "${ZEROTH_TEST_MCP_IMAGE:-}" == sha256:* ]] || exit 99; exit 42; fi\n',
+        "python": '#!/bin/bash\necho "python $*" >> "$CALL_LOG"\n',
+    }
+    for name, body in stubs.items():
+        executable = commands / name
+        executable.write_text(body)
+        executable.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{commands}:{os.environ['PATH']}",
+            "CALL_LOG": str(log),
+            "MCP_IID_PATH": str(tmp_path / "release/evidence/untrusted-mcp-image.txt"),
+        },
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    calls = log.read_text()
+    assert "test_mcp_docker_transport.py" in calls, (result, calls)
+    assert "image=sha256:" in calls
+    assert "sandbox-hardening=failed" in calls
