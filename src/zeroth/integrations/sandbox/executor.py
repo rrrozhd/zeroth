@@ -17,6 +17,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from zeroth.integrations.execution.constraints import (
     ResourceConstraints,
@@ -65,6 +66,7 @@ def _resolved_timeout(requested: float | None) -> float:
         raise ValueError("timeout_seconds must be positive and finite")
     return requested
 
+
 #: Deadline for a ``docker`` helper invocation (network create/rm, ``info``).
 #: These run outside the container's own bounded wait -- and the first of them
 #: runs before it -- so they need a bound of their own.
@@ -101,6 +103,8 @@ class _ExecutionState:
     cancel_requested: bool = False
     stop_started: bool = False
     owns_network: bool = False
+    container_name: str | None = None
+    owns_container: bool = False
     terminal: bool = False
     cleanup_task: asyncio.Task[None] | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -219,16 +223,12 @@ class SidecarExecutor:
                 helper_image = validate_docker_image_reference(
                     self._helper_image or resolve_helper_image()
                 )
-                await self._run_staging_cmd(
-                    self._docker_binary, "volume", "create", main_volume
-                )
+                await self._run_staging_cmd(self._docker_binary, "volume", "create", main_volume)
                 state.owned_volumes.append(main_volume)
                 ro_routes: list[tuple[str, str]] = []
                 for index, ro_path in enumerate(request.read_only_paths):
                     ro_volume = f"{main_volume}-ro{index}"
-                    await self._run_staging_cmd(
-                        self._docker_binary, "volume", "create", ro_volume
-                    )
+                    await self._run_staging_cmd(self._docker_binary, "volume", "create", ro_volume)
                     state.owned_volumes.append(ro_volume)
                     ro_routes.append((ro_path, ro_volume))
                 await self._populate_workspace_volumes(
@@ -246,10 +246,13 @@ class SidecarExecutor:
             for key, value in request.environment.items():
                 env_flags.extend(["-e", f"{key}={value}"])
 
+            state.container_name = f"zeroth-sidecar-workload-{uuid4().hex}"
             cmd = [
                 self._docker_binary,
-                "run",
-                "--rm",
+                "create",
+                "--name",
+                state.container_name,
+                *(["--interactive"] if request.input_text is not None else []),
                 *build_docker_hardening_flags(),
                 f"--network={network_name}",
                 *resource_flags,
@@ -261,12 +264,29 @@ class SidecarExecutor:
                 *request.command,
             ]
 
+            # Creation is acknowledged before this call can start any workload.
+            # A cancellation during creation therefore cannot race a late start.
+            try:
+                await self._run_cmd(*cmd)
+            except Exception:
+                # Creation argv may contain secret environment values or private
+                # source. The generic control helper's exception must not escape.
+                raise RuntimeError("sandbox workload creation failed") from None
+            state.owns_container = True
+            if state.cancel_requested:
+                await self._stop_process(state)
+                return self._persist_cancelled(request.execution_id, started_at)
+
             # Step 3: Execute with timeout
             timed_out = False
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdin=asyncio.subprocess.PIPE if request.input_text else None,
+                    self._docker_binary,
+                    "start",
+                    "--attach",
+                    *(["--interactive"] if request.input_text is not None else []),
+                    state.container_name,
+                    stdin=asyncio.subprocess.PIPE if request.input_text is not None else None,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -275,7 +295,9 @@ class SidecarExecutor:
                 if state.cancel_requested:
                     await self._stop_process(state)
                     return self._persist_cancelled(request.execution_id, started_at)
-                stdin_bytes = request.input_text.encode() if request.input_text else None
+                stdin_bytes = (
+                    request.input_text.encode() if request.input_text is not None else None
+                )
                 (
                     stdout_bytes,
                     stderr_bytes,
@@ -400,13 +422,14 @@ class SidecarExecutor:
         if state is None:
             return execution_id in self._executions
         async with state.lock:
-            if state.terminal or (
+            finished = state.terminal or (
                 state.process is not None and state.process.returncode is not None
-            ):
-                return True
-            state.cancel_requested = True
-        await self._stop_process(state)
-        self._persist_cancelled(execution_id, time.perf_counter())
+            )
+            if not finished:
+                state.cancel_requested = True
+        if not finished:
+            await self._stop_process(state)
+            self._persist_cancelled(execution_id, time.perf_counter())
         if state.task is not asyncio.current_task():
             with suppress(asyncio.CancelledError):
                 await asyncio.shield(state.task)
@@ -414,24 +437,30 @@ class SidecarExecutor:
         return True
 
     async def _finalize(self, execution_id: str, state: _ExecutionState, network_name: str) -> None:
-        """Remove owned network state and retire the active execution entry."""
-        if state.owns_network:
-            try:
-                await self._run_cmd(self._docker_binary, "network", "rm", network_name)
-            except Exception:  # noqa: BLE001
-                logger.warning("Failed to remove network %s", network_name)
-        # ZER-37: owned volumes and the claimed spool go on every path --
-        # _finalize runs from execute()'s ``finally``, so success, timeout,
-        # cancellation and error all pass through here.
-        for volume in state.owned_volumes:
-            await self._remove_volume(volume)
-        if state.claimed_spool is not None:
-            with suppress(OSError):
-                state.claimed_spool.unlink(missing_ok=True)
-        state.cleanup_done.set()
-        async with self._registry_lock:
-            if self._states.get(execution_id) is state:
-                self._states.pop(execution_id, None)
+        """Remove the owned workload before retiring its network and volumes."""
+        try:
+            await self._remove_owned_container(state)
+            if state.owns_network:
+                try:
+                    await self._run_cmd(self._docker_binary, "network", "rm", network_name)
+                except Exception:  # noqa: BLE001
+                    logger.warning("Failed to remove network %s", network_name)
+            # ZER-37: owned volumes and the claimed spool go on every path --
+            # _finalize runs from execute()'s ``finally``, so success, timeout,
+            # cancellation and error all pass through here.
+            for volume in state.owned_volumes:
+                await self._remove_volume(volume)
+            if state.claimed_spool is not None:
+                with suppress(OSError):
+                    state.claimed_spool.unlink(missing_ok=True)
+        except BaseException:
+            self._persist_failed(execution_id, time.perf_counter())
+            raise
+        finally:
+            state.cleanup_done.set()
+            async with self._registry_lock:
+                if self._states.get(execution_id) is state:
+                    self._states.pop(execution_id, None)
 
     @staticmethod
     async def _await_shielded_task(
@@ -452,14 +481,23 @@ class SidecarExecutor:
             raise asyncio.CancelledError
 
     async def _stop_process(self, state: _ExecutionState) -> None:
-        """Kill and reap an active child at most once."""
+        """Reap the attached client and remove its owned daemon workload."""
         async with state.lock:
             process = state.process
-            if state.stop_started or process is None or process.returncode is not None:
+            if not state.stop_started and process is not None and process.returncode is None:
+                state.stop_started = True
+                process.kill()
+                await process.wait()
+        await self._remove_owned_container(state)
+
+    async def _remove_owned_container(self, state: _ExecutionState) -> None:
+        """Serialize removal and retain ownership when the daemon refuses cleanup."""
+        async with state.lock:
+            if not state.owns_container:
                 return
-            state.stop_started = True
-            process.kill()
-            await process.wait()
+            assert state.container_name is not None
+            await self._run_cmd(self._docker_binary, "rm", "--force", state.container_name)
+            state.owns_container = False
 
     def _persist_cancelled(self, execution_id: str, started_at: float) -> SidecarExecuteResponse:
         """Persist an immutable cancelled execution result."""
@@ -670,9 +708,7 @@ class SidecarExecutor:
             raise RuntimeError(msg)
         return stdout, stderr
 
-    async def _run_capture_cmd(
-        self, *args: str, max_bytes: int
-    ) -> tuple[bytes, bool, int | None]:
+    async def _run_capture_cmd(self, *args: str, max_bytes: int) -> tuple[bytes, bool, int | None]:
         """Run a capture helper, retaining at most ``max_bytes`` of stdout.
 
         Returns ``(stdout, overflowed, returncode)`` under the staging
@@ -686,9 +722,7 @@ class SidecarExecutor:
         stdout_task = asyncio.create_task(self._read_bounded(proc.stdout, cap=max_bytes))
         stderr_task = asyncio.create_task(self._read_bounded(proc.stderr, cap=4096))
         try:
-            await asyncio.wait_for(
-                proc.wait(), timeout=self._staging_command_timeout_seconds
-            )
+            await asyncio.wait_for(proc.wait(), timeout=self._staging_command_timeout_seconds)
             (data, overflowed), _ = await asyncio.gather(stdout_task, stderr_task)
         except BaseException:
             stdout_task.cancel()
@@ -766,9 +800,7 @@ class SidecarExecutor:
         drops the payload and reports ``(None, True)``.
         """
         cap = self._max_output_file_bytes
-        helper_image = validate_docker_image_reference(
-            self._helper_image or resolve_helper_image()
-        )
+        helper_image = validate_docker_image_reference(self._helper_image or resolve_helper_image())
         try:
             data, overflowed, returncode = await self._run_capture_cmd(
                 self._docker_binary,
@@ -799,9 +831,7 @@ class SidecarExecutor:
         """Force-remove an owned volume, retrying once before giving up."""
         for attempt in (0, 1):
             try:
-                await self._run_staging_cmd(
-                    self._docker_binary, "volume", "rm", "-f", volume
-                )
+                await self._run_staging_cmd(self._docker_binary, "volume", "rm", "-f", volume)
                 return
             except Exception:  # noqa: BLE001
                 if attempt:

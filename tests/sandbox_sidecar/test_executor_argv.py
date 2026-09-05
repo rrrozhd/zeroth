@@ -31,12 +31,18 @@ async def test_execute_argv_has_exactly_one_network_flag(monkeypatch, network_ac
     captured: dict[str, list[str]] = {}
 
     async def _fake_exec(*cmd, **_kwargs):
-        captured["cmd"] = list(cmd)
+        captured["start"] = list(cmd)
         return _FakeProc()
 
     executor = SidecarExecutor()
+
     # Skip the real `docker network create/rm` calls.
-    monkeypatch.setattr(executor, "_run_cmd", AsyncMock(return_value=(0, "", "")))
+    async def control(*cmd):
+        if cmd[1] == "create":
+            captured["cmd"] = list(cmd)
+        return b"", b""
+
+    monkeypatch.setattr(executor, "_run_cmd", control)
     monkeypatch.setattr(
         "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
         _fake_exec,
@@ -66,11 +72,17 @@ async def test_execute_argv_applies_shared_hardening_without_host_mounts(monkeyp
     captured: dict[str, list[str]] = {}
 
     async def _fake_exec(*cmd, **_kwargs):
-        captured["cmd"] = list(cmd)
+        captured["start"] = list(cmd)
         return _FakeProc()
 
     executor = SidecarExecutor()
-    monkeypatch.setattr(executor, "_run_cmd", AsyncMock(return_value=(b"", b"")))
+
+    async def control(*cmd):
+        if cmd[1] == "create":
+            captured["cmd"] = list(cmd)
+        return b"", b""
+
+    monkeypatch.setattr(executor, "_run_cmd", control)
     monkeypatch.setattr(
         "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
         _fake_exec,
@@ -98,10 +110,11 @@ async def test_execute_argv_applies_shared_hardening_without_host_mounts(monkeyp
     ]
     # ZER-37 pins the whole argv: a request that stages no workspace must
     # assemble a byte-identical command line, with no volume tokens at all.
-    assert cmd == [
+    assert cmd[2] == "--name"
+    assert cmd[3].startswith("zeroth-sidecar-workload-")
+    assert cmd[:2] + cmd[4:] == [
         "docker",
-        "run",
-        "--rm",
+        "create",
         "--read-only",
         "--cap-drop",
         "ALL",

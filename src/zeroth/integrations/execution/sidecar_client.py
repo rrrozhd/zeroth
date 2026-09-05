@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import AsyncIterable
+from typing import Any
 
 import httpx
 
@@ -48,11 +49,15 @@ class SandboxSidecarClient:
         shared_secret = os.getenv("ZEROTH_SANDBOX_SIDECAR_SECRET", "")
         if not shared_secret:
             raise ValueError("ZEROTH_SANDBOX_SIDECAR_SECRET must be configured")
-        self._client = httpx.AsyncClient(
-            base_url=base_url,
-            timeout=timeout,
-            headers={"X-Zeroth-Sandbox-Secret": shared_secret},
-        )
+        # The synchronous sandbox bridge may use a different worker event loop
+        # for every call. Do not retain loop-bound HTTP connections on this object.
+        self._client_options = {
+            "base_url": base_url,
+            "timeout": timeout,
+            "headers": {"X-Zeroth-Sandbox-Secret": shared_secret},
+        }
+        self._client: httpx.AsyncClient | None = None
+        self._closed = False
 
     async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
         """Submit an execution request and wait for the result.
@@ -61,7 +66,8 @@ class SandboxSidecarClient:
         rather than the client-wide default, which is shorter than the default
         execution bound and used to abandon still-running executions.
         """
-        resp = await self._client.post(
+        resp = await self._request(
+            "POST",
             "/execute",
             content=request.model_dump_json(),
             headers={"Content-Type": "application/json"},
@@ -80,7 +86,8 @@ class SandboxSidecarClient:
         :class:`WorkspaceUploadConflictError` when the id was already staged
         (409) -- regenerate the workspace id and retry.
         """
-        resp = await self._client.put(
+        resp = await self._request(
+            "PUT",
             f"/workspaces/{workspace_id}",
             content=tar_content,
             headers={"Content-Type": "application/x-tar"},
@@ -91,31 +98,42 @@ class SandboxSidecarClient:
             )
         if resp.status_code == 409:
             raise WorkspaceUploadConflictError(
-                "workspace id already staged on the sidecar; regenerate the "
-                "workspace id and retry"
+                "workspace id already staged on the sidecar; regenerate the workspace id and retry"
             )
         resp.raise_for_status()
 
     async def get_status(self, execution_id: str) -> SidecarStatusResponse:
         """Retrieve the status of a submitted execution."""
-        resp = await self._client.get(f"/executions/{execution_id}")
+        resp = await self._request("GET", f"/executions/{execution_id}")
         resp.raise_for_status()
         return SidecarStatusResponse.model_validate_json(resp.content)
 
     async def cancel(self, execution_id: str) -> None:
         """Cancel a running execution."""
-        resp = await self._client.post(f"/executions/{execution_id}/cancel")
+        resp = await self._request("POST", f"/executions/{execution_id}/cancel")
         resp.raise_for_status()
 
     async def health(self) -> SidecarHealthResponse:
         """Check sidecar health."""
-        resp = await self._client.get("/health")
+        resp = await self._request("GET", "/health")
         resp.raise_for_status()
         return SidecarHealthResponse.model_validate_json(resp.content)
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""
-        await self._client.aclose()
+        self._closed = True
+        if self._client is not None:
+            await self._client.aclose()
+
+    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        """Own default transport connections entirely within the calling event loop."""
+        if getattr(self, "_closed", False):
+            raise RuntimeError("sandbox sidecar client is closed")
+        if self._client is not None:
+            # Explicitly injected transports remain owned by their injecting caller.
+            return await self._client.request(method, url, **kwargs)
+        async with httpx.AsyncClient(**self._client_options) as client:
+            return await client.request(method, url, **kwargs)
 
 
 __all__ = ["SandboxSidecarClient", "WorkspaceUploadConflictError"]
