@@ -8,6 +8,8 @@ from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from tests.load_release.cpu_sampling import CPUSampler
+
 
 def await_chain(task):
     """Describe suspended code locations without frame locals or arguments."""
@@ -38,13 +40,15 @@ class Diagnostics:
         self.loop_max_lag = 0
         self.loop_started = time.perf_counter()
         self.cpu_started = time.process_time()
+        self.cpu_sampler = CPUSampler()
 
     def loop_snapshot(self):
         """Report elapsed CPU and scheduler delays without inspecting application data."""
         return {"elapsed_seconds": time.perf_counter() - self.loop_started,
                 "cpu_seconds": time.process_time() - self.cpu_started,
                 "max_lag_ms": self.loop_max_lag,
-                "samples": self.loop_count, "recent_lag": list(self.loop_samples)}
+                "samples": self.loop_count, "recent_lag": list(self.loop_samples),
+                "cpu_samples": self.cpu_sampler.snapshot()}
 
     @asynccontextmanager
     async def monitor_loop(self, profile):
@@ -70,8 +74,10 @@ class Diagnostics:
             observer = loop.call_later(.05, sample)
 
         observer = loop.call_later(.05, sample)
+        self.cpu_sampler = CPUSampler()
         try:
-            yield
+            with self.cpu_sampler:
+                yield
         finally:
             observer.cancel()
             self.record({"operation": "profile_timing", "profile": profile,
