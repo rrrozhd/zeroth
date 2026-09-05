@@ -62,6 +62,11 @@ jobs:
           name: ${{ inputs.dist_artifact }}
           path: dist
 
+      - name: Measure current compatibility snapshot
+        run: |
+          uv run --frozen --group gateway-conformance python -m release.langgraph.candidate_compatibility snapshot \
+            --output release/evidence/langgraph-compatibility.json
+
       - name: Measure candidate identity
         shell: bash
         run: |
@@ -72,7 +77,7 @@ jobs:
           done
           python release/gates/cli.py identity \
             "${ARGS[@]}" \
-            --compatibility release/langgraph/compatibility.json \
+            --compatibility release/evidence/langgraph-compatibility.json \
             --output release/evidence/candidate-identity.json
           cat release/evidence/candidate-identity.json
 
@@ -80,7 +85,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: candidate-identity
-          path: release/evidence/candidate-identity.json
+          path: |
+            release/evidence/candidate-identity.json
+            release/evidence/langgraph-compatibility.json
 
       - name: Upload dist
         if: inputs.dist_artifact == ''
@@ -280,26 +287,23 @@ jobs:
           # the recorded result was decided by whichever command failed first.
           set +e
           mkdir -p release/evidence
-          uv run --frozen --group gateway-conformance pytest -o addopts= -q \
+          uv sync --frozen --group gateway-conformance; SYNC=$?
+          if [ "${SYNC}" -ne 0 ]; then exit "${SYNC}"; fi
+          uv run --no-sync python -m release.langgraph.candidate_compatibility verify \
+            --snapshot release/evidence/langgraph-compatibility.json \
+            --identity release/evidence/candidate-identity.json; MATRIX=$?
+          # A drifted environment must not generate apparently current test evidence.
+          if [ "${MATRIX}" -ne 0 ]; then exit "${MATRIX}"; fi
+          uv run --no-sync pytest -o addopts= -q \
             -m langgraph_conformance tests/langgraph_gateway/conformance \
             --junitxml=release/evidence/langgraph-junit.xml; CONFORMANCE=$?
-          uv run python release/langgraph/harness.py validate --phase source \
-            --manifest release/langgraph/release-manifest.json; MATRIX=$?
-          uv run python release/langgraph/harness.py benchmark \
+          uv run --no-sync python release/langgraph/harness.py benchmark \
             --output release/evidence/langgraph-benchmark.json; BENCH=$?
-          # The legacy harness validates its manifest against CURRENT_RELEASE,
-          # a hand-edited constant, so it cannot notice that its evidence
-          # describes an older release than the candidate. Cross-check the
-          # declared release against the measured one, otherwise this gate
-          # would report compatibility "passed" using stale evidence -- the
-          # exact defect this ticket exists to close.
-          COMPAT=$(python -c "import json;print(json.load(open('release/langgraph/compatibility.json'))['release'])")
-          MEASURED=$(python -c "import json;print(json.load(open('release/evidence/candidate-identity.json'))['package']['version'])")
-          echo "compatibility evidence: ${COMPAT}; candidate: ${MEASURED}"
-          [ "${COMPAT}" = "${MEASURED}" ]; CURRENT=$?
-          # Everything the record cites must travel with it, so copy the
-          # committed compatibility set into the evidence directory.
-          cp release/langgraph/compatibility.json release/evidence/langgraph-compatibility.json
+          uv run --no-sync python -m release.langgraph.candidate_compatibility results \
+            --snapshot release/evidence/langgraph-compatibility.json \
+            --identity release/evidence/candidate-identity.json \
+            --junit release/evidence/langgraph-junit.xml \
+            --benchmark release/evidence/langgraph-benchmark.json; CURRENT=$?
           set -e
           status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
           python release/gates/cli.py record --gate langgraph \

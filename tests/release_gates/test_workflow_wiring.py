@@ -698,3 +698,35 @@ def test_untrusted_gate_executes_mcp_and_records_failure(tmp_path):
     assert "test_mcp_docker_transport.py" in calls, (result, calls)
     assert "image=sha256:" in calls
     assert "sandbox-hardening=failed" in calls
+
+
+def test_current_compatibility_snapshot_is_shared_and_verified():
+    jobs = _jobs(GATES_WORKFLOW)
+    candidate_script = "\n".join(step.get("run", "") for step in _steps(jobs["candidate"]))
+    langgraph_script = "\n".join(step.get("run", "") for step in _steps(jobs["langgraph"]))
+    snapshot = "release/evidence/langgraph-compatibility.json"
+    assert "candidate_compatibility snapshot" in candidate_script
+    assert f"--compatibility {snapshot}" in candidate_script
+    upload = next(
+        step
+        for step in _steps(jobs["candidate"])
+        if step.get("name") == "Upload candidate identity"
+    )
+    assert snapshot in upload["with"]["path"]
+    assert any(
+        step.get("with", {}).get("name") == "candidate-identity"
+        and "download-artifact" in step.get("uses", "")
+        for step in _steps(jobs["langgraph"])
+    )
+    assert "candidate_compatibility verify" in langgraph_script
+    assert "candidate_compatibility results" in langgraph_script
+    assert f"--snapshot {snapshot}" in langgraph_script
+    assert "--identity release/evidence/candidate-identity.json" in langgraph_script
+    assert "cp release/langgraph/compatibility.json" not in langgraph_script
+    assert "--manifest release/langgraph/release-manifest.json" not in langgraph_script
+    assert langgraph_script.index("candidate_compatibility verify") < langgraph_script.index(
+        "-m langgraph_conformance"
+    )
+    assert langgraph_script.index("candidate_compatibility results") > langgraph_script.index(
+        "harness.py benchmark"
+    )
