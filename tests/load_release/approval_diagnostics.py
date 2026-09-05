@@ -266,7 +266,7 @@ def install(monkeypatch, path, postgres_dsn):
 
     sink = Diagnostics(path)
     sink.instrument_transactions(monkeypatch, AsyncPostgresDatabase)
-    for name in ("_wait_for_worker_run", "_require_visible_approval", "_wake_worker"):
+    for name in ("_require_visible_approval", "_wake_worker"):
         sink.instrument(monkeypatch, approval_api, name)
     for name in ("resolve", "schedule_continuation"):
         sink.instrument(monkeypatch, ApprovalService, name)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,7 +27,7 @@ from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 from zeroth.service.bootstrap import bootstrap_app
 
 #: Statuses a run can still leave on its own. Anything else is terminal.
-_NON_TERMINAL = frozenset({"pending", "running", "paused_for_approval"})
+_NON_TERMINAL = frozenset({"queued", "running", "paused_for_approval", "waiting_interrupt"})
 
 
 def _is_terminal(client, run_id: str) -> bool:
@@ -235,6 +234,7 @@ async def test_parent_approval_api_discovers_and_resumes_child_gate(sqlite_db) -
     assert response.status_code == 200
     assert response.json()["approval"]["run_id"] != run_id
     assert response.json()["run"]["run_id"] == run_id
+    assert response.json()["run"]["status"] == "queued"
     assert settled["status"] == "succeeded"
 
     child_runs = await service.run_repository.list_child_runs(run_id)
@@ -244,17 +244,24 @@ async def test_parent_approval_api_discovers_and_resumes_child_gate(sqlite_db) -
 
 
 @pytest.mark.parametrize(
-    ("decision", "edited_payload", "expected_status", "expected_output"),
+    (
+        "decision",
+        "edited_payload",
+        "expected_response_status",
+        "expected_status",
+        "expected_output",
+    ),
     [
-        ("approve", None, "succeeded", {"value": 4}),
-        ("reject", None, "failed", None),
-        ("edit_and_approve", {"value": 4}, "succeeded", {"value": 5}),
+        ("approve", None, "queued", "succeeded", {"value": 4}),
+        ("reject", None, "failed", "failed", None),
+        ("edit_and_approve", {"value": 4}, "queued", "succeeded", {"value": 5}),
     ],
 )
 async def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
     sqlite_db,
     decision,
     edited_payload,
+    expected_response_status,
     expected_status,
     expected_output,
 ) -> None:
@@ -295,15 +302,8 @@ async def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
             json=payload,
             headers=reviewer_headers(),
         )
-        # Resolving hands the resume to the durable worker; the endpoint only waits for it
-        # best-effort (~5 s) before returning whatever the run currently is. So a terminal
-        # status in the resolve response is not guaranteed, and asserting one made this
-        # test fail under load with a value mismatch rather than a timeout (ZER-21).
-        #
-        # Wait for the run to become TERMINAL -- not for the expected status. Waiting for
-        # the expected value would never be satisfied by a wrong terminal outcome, so the
-        # test would burn the whole deadline and then report a timeout instead of the
-        # wrong status it actually observed.
+        # Durable approvals return the queued continuation immediately. Rejection is
+        # terminal at resolution time and preserves that state in the response.
         wait_for(
             lambda: _is_terminal(client, run_id),
             describe=_describe(client, run_id, "terminal_resume"),
@@ -313,6 +313,7 @@ async def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
     assert response.status_code == 200
     assert response.json()["approval"]["resolution"]["decision"] == decision
     assert response.json()["run"]["run_id"] == run_id
+    assert response.json()["run"]["status"] == expected_response_status
     assert run_payload["status"] == expected_status
     assert run_payload["terminal_output"] == expected_output
     if decision == "reject":
@@ -330,6 +331,8 @@ async def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> Non
     )
     finish_runner = CountingFinishRunner()
     service.orchestrator.agent_runners["finish-step"] = finish_runner
+    schedule_continuation = AsyncMock(wraps=service.approval_service.schedule_continuation)
+    service.approval_service.schedule_continuation = schedule_continuation
     app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
@@ -366,8 +369,8 @@ async def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> Non
             json=payload,
             headers=reviewer_headers(),
         )
-        # Same reason as above: the resolve response carries a best-effort view of the
-        # run, so settle on the observable terminal state before asserting on it.
+        # A replay may observe queued, running, or terminal state, but it must not
+        # schedule the already-resolved approval a second time.
         wait_for(
             lambda: _is_terminal(client, run_id),
             describe=_describe(client, run_id, "terminal_resume"),
@@ -377,34 +380,17 @@ async def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> Non
     assert first_response.status_code == 200
     assert second_response.status_code == 200
     assert first_response.json()["approval"] == second_response.json()["approval"]
+    assert schedule_continuation.await_count == 1
     assert run_payload["status"] == "succeeded"
     assert run_payload["terminal_output"] == {"value": 9}
     assert finish_runner.call_count == 1
 
 
-async def test_resolve_returns_a_best_effort_run_view_not_a_terminal_guarantee(sqlite_db) -> None:
-    """Pin what the resolve endpoint actually promises about the run it returns.
-
-    It hands the resume to the durable worker and waits only best-effort (~5 s) before
-    returning whatever the run currently is, so the response may still carry a
-    non-terminal status. Nothing pinned that contract, which is how the approval tests
-    came to assert a terminal status straight out of the response and flake under load
-    (ZER-21). Making a slow resume outlast that budget shows the real behaviour.
-    """
+async def test_durable_resolve_returns_queued_then_clients_poll_completion(sqlite_db) -> None:
     service, _ = await deploy_service(
         sqlite_db, approval_resume_graph(graph_id="graph-approval-contract")
     )
-
-    class SlowFinishRunner(CountingFinishRunner):
-        async def run(self, input_payload, *, thread_id=None, runtime_context=None):
-            # Must await, not block: a blocking sleep stalls the loop the endpoint's own
-            # poll runs on, which serialises everything and hides the behaviour.
-            await asyncio.sleep(8.0)
-            return await super().run(
-                input_payload, thread_id=thread_id, runtime_context=runtime_context
-            )
-
-    service.orchestrator.agent_runners["finish-step"] = SlowFinishRunner()
+    service.orchestrator.agent_runners["finish-step"] = CountingFinishRunner()
     app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
@@ -429,10 +415,9 @@ async def test_resolve_returns_a_best_effort_run_view_not_a_terminal_guarantee(s
             headers=reviewer_headers(),
         )
 
-        # The approval resolution itself IS guaranteed; the run's terminal state is not.
         assert response.status_code == 200
         assert response.json()["approval"]["resolution"]["decision"] == "approve"
-        assert response.json()["run"]["status"] in _NON_TERMINAL
+        assert response.json()["run"]["status"] == "queued"
 
         wait_for(
             lambda: _is_terminal(client, run_id),
@@ -442,3 +427,38 @@ async def test_resolve_returns_a_best_effort_run_view_not_a_terminal_guarantee(s
 
     assert settled["status"] == "succeeded"
     assert settled["terminal_output"] == {"value": 4}
+
+
+async def test_resolve_without_durable_worker_remains_synchronous(sqlite_db) -> None:
+    service, _ = await deploy_service(
+        sqlite_db, approval_resume_graph(graph_id="graph-approval-inline-contract")
+    )
+    service.orchestrator.agent_runners["finish-step"] = CountingFinishRunner()
+    app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        run_id = client.post(
+            "/runs", json={"input_payload": {"value": 3}}, headers=operator_headers()
+        ).json()["run_id"]
+        wait_for(
+            lambda: (
+                client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
+                == "paused_for_approval"
+            ),
+            describe=_describe(client, run_id, "approval_pause"),
+        )
+        approval_id = client.get(f"/runs/{run_id}", headers=operator_headers()).json()[
+            "approval_paused_state"
+        ]["approval_id"]
+        service.worker = None
+
+        response = client.post(
+            f"/deployments/{service.deployment.deployment_ref}/approvals/{approval_id}/resolve",
+            json={"decision": "approve"},
+            headers=reviewer_headers(),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["run"]["status"] == "succeeded"
+    assert response.json()["run"]["terminal_output"] == {"value": 4}

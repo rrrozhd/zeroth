@@ -65,6 +65,13 @@ async def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite
             json={"decision": "approve"},
             headers=reviewer_headers(),
         )
+        wait_for(
+            lambda: (
+                client.get(f"/runs/{first_run_id}", headers=operator_headers()).json()["status"]
+                == "succeeded"
+            )
+        )
+        first_settled = client.get(f"/runs/{first_run_id}", headers=operator_headers()).json()
 
         second_run = client.post(
             "/runs",
@@ -93,18 +100,25 @@ async def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite
             },
             headers=reviewer_headers(),
         )
+        wait_for(
+            lambda: (
+                client.get(f"/runs/{second_run_id}", headers=operator_headers()).json()["status"]
+                == "succeeded"
+            )
+        )
+        second_settled = client.get(f"/runs/{second_run_id}", headers=operator_headers()).json()
 
     assert input_contract.status_code == 200
     assert metadata.status_code == 200
     assert metadata.json()["graph_version"] == 1
     assert first_resolution.status_code == 200
-    assert first_resolution.json()["run"]["status"] == "succeeded"
-    assert first_resolution.json()["run"]["terminal_output"] == {"value": 4}
+    assert first_resolution.json()["run"]["status"] == "queued"
+    assert first_settled["terminal_output"] == {"value": 4}
     assert second_run.status_code == 202
     assert second_run.json()["thread_id"] == thread_id
     assert second_resolution.status_code == 200
-    assert second_resolution.json()["run"]["status"] == "succeeded"
-    assert second_resolution.json()["run"]["terminal_output"] == {"value": 10}
+    assert second_resolution.json()["run"]["status"] == "queued"
+    assert second_settled["terminal_output"] == {"value": 10}
 
     graph_repository = GraphRepository(sqlite_db)
     draft_v2 = await graph_repository.clone_published_to_draft(service.deployment.graph_id, 1)
@@ -177,11 +191,18 @@ async def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite
             json={"decision": "approve"},
             headers=reviewer_headers(),
         )
+        wait_for(
+            lambda: (
+                client.get(f"/runs/{rollback_run_id}", headers=operator_headers()).json()["status"]
+                == "succeeded"
+            )
+        )
+        rollback_settled = client.get(f"/runs/{rollback_run_id}", headers=operator_headers()).json()
 
     assert rolled_back.graph_version == 1
     assert rollback_metadata.status_code == 200
     assert rollback_metadata.json()["graph_version"] == 1
     assert rollback_metadata.json()["deployment_version"] == rolled_back.version
     assert rollback_resolution.status_code == 200
-    assert rollback_resolution.json()["run"]["status"] == "succeeded"
-    assert rollback_resolution.json()["run"]["terminal_output"] == {"value": 3}
+    assert rollback_resolution.json()["run"]["status"] == "queued"
+    assert rollback_settled["terminal_output"] == {"value": 3}
