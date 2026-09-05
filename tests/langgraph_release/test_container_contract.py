@@ -355,3 +355,40 @@ def test_release_image_consumes_and_compares_the_candidate_wheel() -> None:
     assert "docker cp" in comparison["run"]
     assert "/opt/zeroth/wheel" in comparison["run"]
     assert "cmp " in comparison["run"]
+
+
+@pytest.mark.parametrize("label", ["9.8.7", None, ""])
+def test_resolved_image_release_comes_from_application_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, label: str | None
+) -> None:
+    from release.langgraph import runtime_smoke
+
+    digest = "sha256:" + "a" * 64
+    labels = {} if label is None else {"org.opencontainers.image.version": label}
+    monkeypatch.setattr(
+        runtime_smoke,
+        "_inspect_image",
+        lambda reference: {
+            "Id": digest,
+            "Config": {"Labels": labels if reference == "app" else {}},
+        },
+    )
+    sbom = tmp_path / "image.spdx.json"
+    sbom.write_text(
+        json.dumps(
+            {
+                "packages": [
+                    {"name": "app", "primaryPackagePurpose": "CONTAINER", "versionInfo": digest}
+                ]
+            }
+        )
+    )
+    artifact = tmp_path / "image.tar"
+    artifact.write_bytes(b"test artifact")
+    if not label:
+        with pytest.raises(RuntimeError, match="version label"):
+            runtime_smoke.resolved_image_evidence(["app", "base"], sbom=sbom, artifact=artifact)
+        return
+    report = runtime_smoke.resolved_image_evidence(["app", "base"], sbom=sbom, artifact=artifact)
+    assert report["release"] == label
+    assert report["images"][0]["digest"] == digest

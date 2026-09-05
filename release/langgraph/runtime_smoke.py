@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from release.langgraph.generated_evidence import LABEL_KEYS, PACKAGE_KEYS
-from release.langgraph.langgraph_benchmark import CURRENT_RELEASE
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -127,8 +126,12 @@ def _file_digest(path: Path) -> str:
 def resolved_image_evidence(references: list[str], *, sbom: Path, artifact: Path) -> dict[str, Any]:
     """Record immutable image and exported-artifact digests."""
     images = []
+    release = None
     for index, reference in enumerate(references):
         inspected = _inspect_image(reference)
+        if index == 0:
+            labels = inspected.get("Config", {}).get("Labels") or {}
+            release = labels.get("org.opencontainers.image.version")
         images.append(
             {
                 "reference": reference,
@@ -139,9 +142,11 @@ def resolved_image_evidence(references: list[str], *, sbom: Path, artifact: Path
                 "repo_digests": inspected.get("RepoDigests") or [],
             }
         )
+    if not isinstance(release, str) or not release.strip():
+        raise RuntimeError("application image must have a nonempty version label")
     return {
         "schema_version": 2,
-        "release": CURRENT_RELEASE,
+        "release": release,
         "artifact": {"path": artifact.name, "digest": _file_digest(artifact)},
         "images": images,
     }
