@@ -47,7 +47,7 @@ def test_container_and_compatibility_contract() -> None:
 
     assert "--uid 10001" in dockerfile and "USER zeroth" in dockerfile
     assert "HEALTHCHECK" in dockerfile and "/health/ready" in dockerfile
-    assert "io.zeroth.langgraph.adapter.version=1.0" in dockerfile
+    assert f"io.zeroth.langgraph.adapter.version={compatibility['adapter_version']}" in dockerfile
     assert "io.zeroth.langgraph.compatibility.langgraph=1.2.9" in dockerfile
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
     assert "ARG ZEROTH_EXTRAS" not in dockerfile
