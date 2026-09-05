@@ -706,6 +706,14 @@ def test_current_compatibility_snapshot_is_shared_and_verified():
     langgraph_script = "\n".join(step.get("run", "") for step in _steps(jobs["langgraph"]))
     snapshot = "release/evidence/langgraph-compatibility.json"
     assert "candidate_compatibility snapshot" in candidate_script
+    assert (
+        "--group gateway-conformance --extra langgraph --extra langgraph-gateway"
+        in candidate_script
+    )
+    assert (
+        "uv sync --frozen --group gateway-conformance --extra langgraph --extra langgraph-gateway"
+        in langgraph_script
+    )
     assert f"--compatibility {snapshot}" in candidate_script
     upload = next(
         step

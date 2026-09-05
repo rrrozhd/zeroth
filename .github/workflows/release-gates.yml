@@ -64,7 +64,7 @@ jobs:
 
       - name: Measure current compatibility snapshot
         run: |
-          uv run --frozen --group gateway-conformance python -m release.langgraph.candidate_compatibility snapshot \
+          uv run --frozen --group gateway-conformance --extra langgraph --extra langgraph-gateway python -m release.langgraph.candidate_compatibility snapshot \
             --output release/evidence/langgraph-compatibility.json
 
       - name: Measure candidate identity
@@ -287,7 +287,7 @@ jobs:
           # the recorded result was decided by whichever command failed first.
           set +e
           mkdir -p release/evidence
-          uv sync --frozen --group gateway-conformance; SYNC=$?
+          uv sync --frozen --group gateway-conformance --extra langgraph --extra langgraph-gateway; SYNC=$?
           if [ "${SYNC}" -ne 0 ]; then exit "${SYNC}"; fi
           uv run --no-sync python -m release.langgraph.candidate_compatibility verify \
             --snapshot release/evidence/langgraph-compatibility.json \
