@@ -70,7 +70,6 @@ ALLOWED_DIRECT_CONSTRUCTION: frozenset[str] = frozenset(
         "econ/plane/connectors/registry.py::HttpJsonAdapter.send::httpx.Client",
         "governance/approvals/notifications.py::SlackNotifier.notify::httpx.AsyncClient",
         "governance/audit/redis.py::RedisAuditEmitter._client::aioredis.from_url",
-        "integrations/execution/sidecar_client.py::SandboxSidecarClient.__init__::httpx.AsyncClient",
         "integrations/langgraph/_gateway_client.py::LangGraphGatewayClient.__init__::httpx.Client",
         "integrations/langgraph/_tool_decision_http.py::HttpToolDecisionClient.__init__::httpx.Client",
         "platform/artifacts/store.py::RedisArtifactStore.__init__::aioredis.from_url",

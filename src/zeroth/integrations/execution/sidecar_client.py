@@ -9,11 +9,13 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import AsyncIterable
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 
 from zeroth.integrations.execution.sandbox import SandboxBackendUnavailableError
+from zeroth.integrations.http.factory import aclose_all, governed_async_client
 from zeroth.integrations.sandbox.models import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     SidecarExecuteRequest,
@@ -132,8 +134,21 @@ class SandboxSidecarClient:
         if self._client is not None:
             # Explicitly injected transports remain owned by their injecting caller.
             return await self._client.request(method, url, **kwargs)
-        async with httpx.AsyncClient(**self._client_options) as client:
-            return await client.request(method, url, **kwargs)
+        # Use an explicit short-lived cache owner: the process cache is keyed
+        # by loop id, which can be recycled after the worker loop closes.
+        owner = SimpleNamespace(state=SimpleNamespace())
+        try:
+            client = await governed_async_client(
+                purpose="sandbox-sidecar",
+                timeout=self._client_options["timeout"],
+                base_url=self._client_options["base_url"],
+                app=owner,
+            )
+            headers = dict(self._client_options["headers"])
+            headers.update(kwargs.pop("headers", {}))
+            return await client.request(method, url, headers=headers, **kwargs)
+        finally:
+            await aclose_all(owner)
 
 
 __all__ = ["SandboxSidecarClient", "WorkspaceUploadConflictError"]
