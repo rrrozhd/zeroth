@@ -495,6 +495,17 @@ class LeaseManager:
         if tenant_id is None or workspace_id is _UNSCOPED_WORKSPACE:
             raise ValueError("distributed concurrency requires an exact tenant/workspace scope")
         workspace_scope = "null" if workspace_id is None else f"value:{workspace_id}"
+        lock_suffix = " FOR UPDATE" if self._is_postgres() else ""
+        lock_sql = (
+            """SELECT deployment_ref FROM guardrail_admission_state
+               WHERE tenant_id = ? AND workspace_scope = ? AND deployment_ref = ?"""
+            + lock_suffix
+        )
+        lock_params = (tenant_id, workspace_scope, deployment_ref)
+        if await connection.fetch_one(lock_sql, lock_params) is not None:
+            return
+        # Only cold scopes need seeding. A concurrent creator may win the
+        # insert; re-read with the same lock before sampling decision time.
         created_at = (
             "CAST(clock_timestamp() AS TEXT)" if self._is_postgres() else "CURRENT_TIMESTAMP"
         )
@@ -505,13 +516,7 @@ class LeaseManager:
                ON CONFLICT (tenant_id, workspace_scope, deployment_ref) DO NOTHING""",
             (tenant_id, workspace_id, workspace_scope, deployment_ref),
         )
-        lock_suffix = " FOR UPDATE" if self._is_postgres() else ""
-        locked = await connection.fetch_one(
-            """SELECT deployment_ref FROM guardrail_admission_state
-               WHERE tenant_id = ? AND workspace_scope = ? AND deployment_ref = ?"""
-            + lock_suffix,
-            (tenant_id, workspace_scope, deployment_ref),
-        )
+        locked = await connection.fetch_one(lock_sql, lock_params)
         assert locked is not None
 
     async def claim_orphaned(
