@@ -138,8 +138,14 @@ def test_installed_image_packages_are_compared_with_compatibility(
 ) -> None:
     from release.langgraph.runtime_smoke import installed_package_evidence
 
-    compatibility_path = ROOT / "release/langgraph/compatibility.json"
-    compatibility = json.loads(compatibility_path.read_text(encoding="utf-8"))
+    compatibility = json.loads(
+        (ROOT / "release/langgraph/compatibility.json").read_text(encoding="utf-8")
+    )
+    # Exercise a new image version without rewriting retained historical evidence.
+    compatibility["release"] = "9.8.7"
+    compatibility["resolved"]["zeroth_core"] = "9.8.7"
+    compatibility_path = tmp_path / "compatibility.json"
+    compatibility_path.write_text(json.dumps(compatibility), encoding="utf-8")
     resolved = compatibility["resolved"]
     packages = {
         "zeroth-core": resolved["zeroth_core"],
@@ -184,6 +190,7 @@ def test_installed_image_packages_are_compared_with_compatibility(
         f"zeroth-core:v{resolved['zeroth_core']}", compatibility_path, image_path
     )
     assert evidence["packages"] == packages
+    assert evidence["release"] == packages["zeroth-core"]
 
     packages["langgraph"] = "0.0.0"
     with pytest.raises(RuntimeError, match="installed image packages"):

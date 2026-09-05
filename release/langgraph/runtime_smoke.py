@@ -188,7 +188,7 @@ def installed_package_evidence(
         raise RuntimeError("image labels do not match compatibility evidence")
     return {
         "schema_version": 1,
-        "release": CURRENT_RELEASE,
+        "release": packages["zeroth-core"],
         "image": {"reference": image, "digest": identity["digest"]},
         "packages": packages,
         "labels": selected_labels,
