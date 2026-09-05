@@ -17,6 +17,8 @@ from zeroth.service.api.authorization import (
 )
 from zeroth.service.api.run_api import RunStatusResponse, _serialize_run
 
+_WORKER_WAIT_SECONDS = 5.0
+
 
 class ApprovalApiBootstrapLike(Protocol):
     """Minimal bootstrap contract needed by the approval API."""
@@ -307,13 +309,18 @@ async def _wait_for_worker_run(bootstrap: ApprovalApiBootstrapLike, run: Any) ->
     """Wait briefly for a scheduled run, returning the latest durable view."""
     import asyncio as _asyncio
 
-    for _ in range(100):  # up to ~5 s
-        await _asyncio.sleep(0.05)
-        current = await bootstrap.run_repository.get(run.run_id)
-        if current is not None and current.status not in {
-            RunStatus.PENDING,
-            RunStatus.RUNNING,
-        }:
-            return current
-    current = await bootstrap.run_repository.get(run.run_id)
-    return current if current is not None else run
+    latest = run
+    budget = _asyncio.timeout(_WORKER_WAIT_SECONDS)
+    try:
+        async with budget:
+            while True:
+                await _asyncio.sleep(0.05)
+                current = await bootstrap.run_repository.get(run.run_id)
+                if current is not None:
+                    latest = current
+                    if current.status not in {RunStatus.PENDING, RunStatus.RUNNING}:
+                        return current
+    except TimeoutError:
+        if not budget.expired():
+            raise
+    return latest
