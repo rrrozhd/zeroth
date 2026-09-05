@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 
@@ -30,6 +31,38 @@ class Diagnostics:
         self.captured = False
         self.active = {}
         self.sequence = 0
+        self.transactions = {}
+
+    def instrument_transactions(self, monkeypatch, owner):
+        """Associate PostgreSQL backend IDs with tasks without reading SQL or locals."""
+        original = owner.transaction
+
+        @asynccontextmanager
+        async def measured(database, *, write_lock=False):
+            token = object()
+            state = {"started": time.perf_counter(), "task": asyncio.current_task(),
+                     "pid": None, "phase": "acquiring", "write_lock": write_lock}
+            self.transactions[token] = state
+            try:
+                async with original(database, write_lock=write_lock) as connection:
+                    state.update(pid=connection._conn.info.backend_pid, phase="acquired")
+                    try:
+                        yield connection
+                    finally:
+                        state["phase"] = "exiting"
+            finally:
+                self.transactions.pop(token, None)
+
+        monkeypatch.setattr(owner, "transaction", measured)
+
+    def transaction_snapshot(self):
+        """Capture pending acquisitions and holders, including bounded owner stacks."""
+        now = time.perf_counter()
+        return [{"pid": state["pid"], "phase": state["phase"],
+                 "write_lock": state["write_lock"],
+                 "elapsed_ms": (now-state["started"])*1000,
+                 "owner": await_chain(state["task"]) if state["task"] else []}
+                for state in list(self.transactions.values())[:512]]
 
     def record(self, row):
         """Diagnostic output failure must not replace the product failure."""
@@ -83,6 +116,7 @@ class Diagnostics:
         row = {"operation": "settle_failure", "error": type(error).__name__,
                "profile": profile, "sequence": sequence,
                "tasks": [await_chain(task) for task in list(asyncio.all_tasks())[:256]],
+               "transactions": self.transaction_snapshot(),
                "active": [{"operation": name, "elapsed_ms": (now-started)*1000}
                           for name, started in self.active.values()]}
         # Retain the captured stack even if the bounded database query fails.
@@ -99,8 +133,10 @@ def install(monkeypatch, path, postgres_dsn):
     from zeroth.service.api import approval_api
     from zeroth.governance.approvals.service import ApprovalService
     from tests.load_release import workload_probe
+    from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
     sink = Diagnostics(path)
+    sink.instrument_transactions(monkeypatch, AsyncPostgresDatabase)
     for name in ("_wait_for_worker_run", "_require_visible_approval", "_wake_worker"):
         sink.instrument(monkeypatch, approval_api, name)
     for name in ("resolve", "schedule_continuation"):
