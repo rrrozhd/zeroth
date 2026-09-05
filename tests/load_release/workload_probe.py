@@ -24,6 +24,7 @@ from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 _CLAIMED_BY: dict[str, str] = {}
 _SETTLEMENT_POLL_SECONDS = 0.05
 _WORKER_POLL_SECONDS = 0.04
+_OWNERSHIP_POLL_SECONDS = 0.05
 
 
 @dataclass(slots=True)
@@ -109,12 +110,11 @@ def _graph(surface: str, graph_id: str):
 
 
 def install_runner(service: Any, surface: str) -> None:
-    if surface == "approvals":
-        return
-    service.orchestrator.agent_runners["agent-step"] = _Runner(
-        delay=0.1,
-        fails=surface == "failing-script",
-    )
+    if surface != "approvals":
+        service.orchestrator.agent_runners["agent-step"] = _Runner(
+            delay=0.1,
+            fails=surface == "failing-script",
+        )
     # Eighteen load workers share one database. A 5 ms idle poll manufactured
     # thousands of admission-lock queries per second and overwhelmed the
     # 30-request/s profile the gate was intended to measure.
@@ -305,7 +305,10 @@ async def _observed_worker(service: Any, run_id: str) -> str:
         )
         if worker is not None:
             return str(worker)
-        await asyncio.sleep(0.001)
+        # First-claim capture retains short executions after lease release.
+        # This fallback observes ownership, rather than scheduled traffic, and
+        # must not manufacture thousands of database reads per second.
+        await asyncio.sleep(_OWNERSHIP_POLL_SECONDS)
     raise AssertionError(f"run {run_id} executor was not observed")
 
 
