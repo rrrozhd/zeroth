@@ -36,10 +36,12 @@ def docker(*args):
 
 
 def owned():
+    # Ancestor matches include other aliases of this same image. Read IDs and
+    # configured image names together so an unrelated disappearing container
+    # cannot fail a later inspect between snapshots.
+    rows = docker("ps", "-a", "--filter", f"ancestor={tag}", "--format", "{{.ID}} {{.Image}}")
     return [
-        c
-        for c in docker("ps", "-aq", "--filter", f"ancestor={tag}").split()
-        if docker("inspect", "-f", "{{.Config.Image}}", c) == tag
+        parts[0] for row in rows.splitlines() if len(parts := row.split()) == 2 and parts[1] == tag
     ]
 
 
