@@ -209,7 +209,9 @@ jobs:
           source /tmp/gate-venv/bin/activate
           pip install --upgrade pip >/dev/null
           test -f "${WHEEL}"; BUILD=$?
-          pip install "${WHEEL}[all,langgraph]" pytest pytest-asyncio \
+          # Tape identity/normalization property tests import Hypothesis during
+          # collection; it is test tooling, not a wheel runtime dependency.
+          pip install "${WHEEL}[all,langgraph]" pytest pytest-asyncio hypothesis \
             "testcontainers[postgres]"; INSTALL=$?
           python -c "import zeroth.runtime; print(zeroth.runtime.__path__)"; SMOKE=$?
           if [ "${INSTALL}" -ne 0 ]; then SMOKE=1; fi
