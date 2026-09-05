@@ -92,7 +92,10 @@ async def test_repeated_cancellation_retains_workspace_until_worker_exits(
 
 
 @pytest.mark.asyncio
-async def test_real_docker_cancellation_waits_for_removal_before_workspace_cleanup() -> None:
+@pytest.mark.parametrize("startup_delay", [0.0, 2.1])
+async def test_real_docker_cancellation_waits_for_removal_before_workspace_cleanup(
+    startup_delay: float,
+) -> None:
     image = os.environ.get("ZEROTH_TEST_DOCKER_IMAGE")
     if not image:
         pytest.skip("set ZEROTH_TEST_DOCKER_IMAGE for real Docker cancellation")
@@ -106,6 +109,9 @@ async def test_real_docker_cancellation_waits_for_removal_before_workspace_clean
         return subprocess.check_output(["docker", *args], text=True, timeout=30).strip()
 
     def command_runner(command, **kwargs):
+        if command[1] == "create":
+            # Cancellation ordering must not depend on Docker starting within 2 s.
+            threading.Event().wait(startup_delay)
         if command[1] == "rm":
             cleanup_entered.set()
             assert release_cleanup.wait(5), "test did not release container removal"
@@ -147,12 +153,12 @@ async def test_real_docker_cancellation_waits_for_removal_before_workspace_clean
                 )
 
         task = asyncio.create_task(execute())
-        for _ in range(200):
-            if roots and (roots[0] / "started").exists():
-                break
-            if task.done():
-                await task
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(10):
+            while not (roots and (roots[0] / "started").exists()):
+                if task.done():
+                    await task
+                    pytest.fail("workload exited without its startup marker")
+                await asyncio.sleep(0.01)
         assert roots and (roots[0] / "started").exists(), "workload did not start"
         task.cancel()
         for _ in range(100):
