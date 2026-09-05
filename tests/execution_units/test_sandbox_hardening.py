@@ -126,7 +126,7 @@ def test_run_in_docker_applies_resource_constraint_flags() -> None:
         calls.append(list(command))
         if command[:4] == ["docker", "inspect", "-f", "{{.Config.Image}}"]:
             return subprocess.CompletedProcess(command, 0, stdout="python:3.12\n", stderr="")
-        if command[:2] == ["docker", "run"]:
+        if command[:2] == ["docker", "create"]:
             return subprocess.CompletedProcess(command, 0, stdout="docker-ok", stderr="")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
@@ -153,12 +153,12 @@ def test_run_in_docker_applies_resource_constraint_flags() -> None:
     )
 
     assert result.backend == "docker"
-    docker_run = next(command for command in calls if command[:2] == ["docker", "run"])
-    assert "--cpus" in docker_run
-    assert "--memory" in docker_run
-    assert "--pids-limit" in docker_run
-    assert "--network" in docker_run
-    assert "python:3.12" in docker_run
+    docker_create = next(command for command in calls if command[:2] == ["docker", "create"])
+    assert "--cpus" in docker_create
+    assert "--memory" in docker_create
+    assert "--pids-limit" in docker_create
+    assert "--network" in docker_create
+    assert "python:3.12" in docker_create
 
 
 @pytest.mark.parametrize(
@@ -194,10 +194,10 @@ def test_strict_docker_denies_network_unless_explicitly_authorized(
 
     manager.run(["echo", "ok"], resource_constraints=constraints)
 
-    docker_run = next(command for command in calls if command[:2] == ["docker", "run"])
-    index = docker_run.index("--network")
-    assert docker_run[index + 1] == expected_network
-    assert docker_run.count("--network") == 1
+    docker_create = next(command for command in calls if command[:2] == ["docker", "create"])
+    index = docker_create.index("--network")
+    assert docker_create[index + 1] == expected_network
+    assert docker_create.count("--network") == 1
 
 
 class _FakeDockerProcess:
@@ -213,7 +213,7 @@ class _FakeDockerProcess:
     def wait(self, timeout=None) -> int:
         self.wait_calls += 1
         if self.times_out and not self.killed:
-            raise subprocess.TimeoutExpired(["docker", "run"], timeout)
+            raise subprocess.TimeoutExpired(["docker", "create"], timeout)
         self.returncode = -9 if self.killed else 0
         return self.returncode
 
@@ -398,8 +398,8 @@ def test_docker_hardening_flags_disabled_and_user_override() -> None:
     assert flags == ["--user", "65534:65534"]
 
 
-def _docker_run_argv(*, hardened: bool = True, run_as_user: str | None = None) -> list[str]:
-    """The argv the manager really hands to ``docker run``."""
+def _docker_create_argv(*, hardened: bool = True, run_as_user: str | None = None) -> list[str]:
+    """The argv the manager really hands to ``docker create``."""
     calls: list[list[str]] = []
     process = _FakeDockerProcess(stdout=b"ok", stderr=b"")
 
@@ -422,7 +422,7 @@ def _docker_run_argv(*, hardened: bool = True, run_as_user: str | None = None) -
 
     manager.run(["echo", "ok"])
 
-    return next(command for command in calls if command[:2] == ["docker", "run"])
+    return next(command for command in calls if command[:2] == ["docker", "create"])
 
 
 def test_docker_hardening_flags_reach_the_argv_the_sandbox_executes() -> None:
@@ -435,7 +435,7 @@ def test_docker_hardening_flags_reach_the_argv_the_sandbox_executes() -> None:
     would execute writable, with every capability, in a container that could
     gain privileges.
     """
-    argv = _docker_run_argv()
+    argv = _docker_create_argv()
 
     assert "--read-only" in argv
     assert argv[argv.index("--cap-drop") + 1] == "ALL"
@@ -445,7 +445,7 @@ def test_docker_hardening_flags_reach_the_argv_the_sandbox_executes() -> None:
 
 def test_docker_hardening_flags_precede_the_image_and_the_workload() -> None:
     """A flag after the image reference is an argument to the workload, not to Docker."""
-    argv = _docker_run_argv()
+    argv = _docker_create_argv()
     image = argv.index("python:3.12")
 
     for flag in ("--read-only", "--cap-drop", "--security-opt", "--tmpfs"):
@@ -454,7 +454,7 @@ def test_docker_hardening_flags_precede_the_image_and_the_workload() -> None:
 
 def test_the_run_as_user_override_reaches_the_argv() -> None:
     """The configured user is applied where it takes effect."""
-    argv = _docker_run_argv(run_as_user="10001:10001")
+    argv = _docker_create_argv(run_as_user="10001:10001")
 
     assert argv[argv.index("--user") + 1] == "10001:10001"
     assert "--read-only" in argv
@@ -466,7 +466,7 @@ def test_disabling_hardening_really_removes_the_flags_from_the_argv() -> None:
     A test that only checks flags are present passes against an argv that always
     contains them regardless of configuration.
     """
-    argv = _docker_run_argv(hardened=False)
+    argv = _docker_create_argv(hardened=False)
 
     assert "--read-only" not in argv
     assert "--cap-drop" not in argv

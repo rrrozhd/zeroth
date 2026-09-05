@@ -196,7 +196,7 @@ def test_sandbox_manager_auto_selects_provisioned_docker_backend() -> None:
         calls.append(list(command))
         if command[:4] == ["docker", "inspect", "-f", "{{.Config.Image}}"]:
             return subprocess.CompletedProcess(command, 0, stdout="python:3.12\n", stderr="")
-        if command[:2] == ["docker", "run"]:
+        if command[:2] == ["docker", "create"]:
             return subprocess.CompletedProcess(command, 0, stdout="docker-ok", stderr="")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
@@ -220,13 +220,13 @@ def test_sandbox_manager_auto_selects_provisioned_docker_backend() -> None:
 
     assert result.backend == "docker"
     assert result.container_name == "zeroth-sandbox"
-    run_calls = [command for command in calls if command[:2] == ["docker", "run"]]
-    assert len(run_calls) == 1
-    run_command = run_calls[0]
-    assert "-w" in run_command
-    assert "python:3.12" in run_command
-    assert "python" in run_command
-    assert "-e" in run_command
+    create_calls = [command for command in calls if command[:2] == ["docker", "create"]]
+    assert len(create_calls) == 1
+    create_command = create_calls[0]
+    assert "-w" in create_command
+    assert "python:3.12" in create_command
+    assert "python" in create_command
+    assert "-e" in create_command
 
 
 def test_sandbox_manager_raises_when_docker_backend_is_requested_but_missing() -> None:
