@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import subprocess
-from uuid import uuid4
 from io import BytesIO
+from uuid import uuid4
 
 import pytest
 
@@ -191,3 +191,25 @@ def test_real_docker_timeout_removes_started_workload() -> None:
                 if docker("inspect", "-f", "{{.Config.Image}}", container_id) == tag:
                     docker("rm", "--force", container_id)
             docker("image", "rm", tag)
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, OSError])
+def test_interrupted_wait_reaps_client_and_removes_workload(monkeypatch, error_type) -> None:
+    calls = []
+    manager, process = manager_for(calls)
+    waits = []
+    error = error_type("interrupted wait")
+
+    def interrupted_wait(timeout=None):
+        waits.append(timeout)
+        if len(waits) == 1:
+            raise error
+        return 0
+
+    monkeypatch.setattr(process, "wait", interrupted_wait)
+    with pytest.raises(error_type) as caught:
+        manager.run(["sleep", "30"])
+    assert caught.value is error
+    assert_owned_cleanup(calls)
+    assert process.killed
+    assert len(waits) == 2

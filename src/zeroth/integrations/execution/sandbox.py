@@ -926,7 +926,9 @@ class SandboxManager:
             stdin_thread.start()
         try:
             process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired as exc:
+        except BaseException as exc:
+            # An interrupted wait must reap the attached CLI as well as letting
+            # the caller's finally block remove the daemon-owned workload.
             process.kill()
             if process.stdin is not None:
                 with suppress(OSError):
@@ -936,8 +938,9 @@ class SandboxManager:
                 stdin_thread.join()
             stdout_thread.join()
             stderr_thread.join()
-            exc.stdout = stdout_result[0][0] if stdout_result else b""
-            exc.stderr = stderr_result[0][0] if stderr_result else b""
+            if isinstance(exc, subprocess.TimeoutExpired):
+                exc.stdout = stdout_result[0][0] if stdout_result else b""
+                exc.stderr = stderr_result[0][0] if stderr_result else b""
             raise
         if stdin_thread is not None:
             stdin_thread.join()
