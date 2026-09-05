@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from tests.conftest import requires_docker
 from zeroth.platform.dispatch.lease import LeaseManager
 
@@ -33,7 +35,8 @@ async def test_existing_admission_row_is_locked_without_a_seed_write(dual_databa
 
 
 @requires_docker
-async def test_concurrent_cold_scopes_lock_the_single_created_row(postgres_database):
+@pytest.mark.parametrize("sample_time", [False, True])
+async def test_concurrent_cold_scopes_lock_the_single_created_row(postgres_database, sample_time):
     import asyncio
 
     manager = LeaseManager(postgres_database)
@@ -59,9 +62,11 @@ async def test_concurrent_cold_scopes_lock_the_single_created_row(postgres_datab
                 return row
 
             observed = SimpleNamespace(execute=connection.execute, fetch_one=fetch_one)
-            await manager._lock_admission_scope(
-                observed, "cold-admission-race", tenant_id="default", workspace_id=None
+            sampled = await manager._lock_admission_scope(
+                observed, "cold-admission-race", tenant_id="default", workspace_id=None,
+                sample_time=sample_time,
             )
+            assert (sampled is not None) is sample_time
             assert active == 0
             active += 1
             await asyncio.sleep(.01)

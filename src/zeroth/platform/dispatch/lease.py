@@ -15,7 +15,7 @@ executing.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from zeroth.platform.storage import AsyncConnection, AsyncDatabase
@@ -394,14 +394,17 @@ class LeaseManager:
         """
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
+            now = None
             if max_concurrency is not None:
-                await self._lock_admission_scope(
+                now = await self._lock_admission_scope(
                     conn,
                     deployment_ref,
                     tenant_id=tenant_id,
                     workspace_id=workspace_id,
+                    sample_time=True,
                 )
-            now = await _database_now(conn, postgres=True)
+            if now is None:
+                now = await _database_now(conn, postgres=True)
             expires_at = now + timedelta(seconds=self.lease_duration_seconds)
             availability = await self._available_concurrency_slots(
                 conn,
@@ -490,7 +493,8 @@ class LeaseManager:
         *,
         tenant_id: str | None,
         workspace_id: str | None | object,
-    ) -> None:
+        sample_time: bool = False,
+    ) -> datetime | None:
         """Acquire the deployment admission lock before sampling decision time."""
         if tenant_id is None or workspace_id is _UNSCOPED_WORKSPACE:
             raise ValueError("distributed concurrency requires an exact tenant/workspace scope")
@@ -501,9 +505,20 @@ class LeaseManager:
                WHERE tenant_id = ? AND workspace_scope = ? AND deployment_ref = ?"""
             + lock_suffix
         )
+        if sample_time and self._is_postgres():
+            # A clock in the FOR UPDATE target list runs before a lock wait.
+            # Materialize the locked row first so decision time is post-lock.
+            lock_sql = (
+                f"WITH locked AS MATERIALIZED ({lock_sql}) "
+                "SELECT deployment_ref, clock_timestamp() AS current_time FROM locked"
+            )
         lock_params = (tenant_id, workspace_scope, deployment_ref)
-        if await connection.fetch_one(lock_sql, lock_params) is not None:
-            return
+        locked = await connection.fetch_one(lock_sql, lock_params)
+        if locked is not None:
+            return (
+                locked["current_time"].astimezone(UTC)
+                if sample_time and self._is_postgres() else None
+            )
         # Only cold scopes need seeding. A concurrent creator may win the
         # insert; re-read with the same lock before sampling decision time.
         created_at = (
@@ -518,6 +533,10 @@ class LeaseManager:
         )
         locked = await connection.fetch_one(lock_sql, lock_params)
         assert locked is not None
+        return (
+            locked["current_time"].astimezone(UTC)
+            if sample_time and self._is_postgres() else None
+        )
 
     async def claim_orphaned(
         self,
