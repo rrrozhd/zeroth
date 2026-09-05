@@ -59,3 +59,64 @@ def test_unavailable_fault_does_not_write_and_restart_preserves_receipt(tmp_path
     assert replay.duplicate
     assert replay.receipt == original.receipt
     assert restarted.marker_count() == 1
+
+
+def test_wal_startup_busy_retries_without_repeating_the_effect(tmp_path, monkeypatch):
+    import sqlite3
+    import release.live_evaluation.action_sink as module
+
+    original_connect = sqlite3.connect
+    attempts = []
+
+    class RacingConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql == "PRAGMA journal_mode=WAL":
+                attempts.append(sql)
+                if len(attempts) == 1:
+                    error = sqlite3.OperationalError("database is locked")
+                    error.sqlite_errorcode = sqlite3.SQLITE_BUSY
+                    raise error
+            return super().execute(sql, *args, **kwargs)
+
+    monkeypatch.setattr(module.sqlite3, "connect", lambda *args, **kwargs:
+                        original_connect(*args, factory=RacingConnection, **kwargs))
+    sink = EvaluationActionSink(tmp_path)
+    first = sink.execute("shared", {"synthetic": 1})
+    assert sink.execute("shared", {"synthetic": 1}).receipt == first.receipt
+    assert sink.marker_count() == 1
+    assert len(attempts) >= 2
+
+
+@pytest.mark.parametrize("code", [5, 10])
+def test_wal_startup_failure_closes_connection_and_stops_at_budget(tmp_path, monkeypatch, code):
+    import sqlite3
+    import release.live_evaluation.action_sink as module
+
+    original_connect = sqlite3.connect
+    attempts = []
+    closed = []
+    error = sqlite3.OperationalError("controlled failure")
+    error.sqlite_errorcode = code
+
+    class FailingConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql == "PRAGMA journal_mode=WAL":
+                attempts.append(sql)
+                raise error
+            return super().execute(sql, *args, **kwargs)
+
+        def close(self):
+            closed.append(True)
+            return super().close()
+
+    monkeypatch.setattr(module.sqlite3, "connect", lambda *args, **kwargs:
+                        original_connect(*args, factory=FailingConnection, **kwargs))
+    # Expire the retry budget immediately after the first attempt.
+    import time
+    readings = iter([0.0, 0.0, 31.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(readings, 31.0))
+    with pytest.raises(sqlite3.OperationalError) as captured:
+        EvaluationActionSink(tmp_path)
+    assert captured.value is error
+    assert len(attempts) == 1
+    assert closed == [True]

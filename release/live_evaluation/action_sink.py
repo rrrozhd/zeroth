@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -43,8 +44,29 @@ class EvaluationActionSink:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=30)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
+        try:
+            # Concurrent first-time WAL conversions can return SQLITE_BUSY
+            # without invoking SQLite's busy handler. Retry only setup, within
+            # the existing connection budget; never replay an action write.
+            deadline = time.monotonic() + 30
+            while True:
+                remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+                connection.execute(f"PRAGMA busy_timeout={remaining_ms}")
+                try:
+                    connection.execute("PRAGMA journal_mode=WAL")
+                    break
+                except sqlite3.OperationalError as error:
+                    remaining = deadline - time.monotonic()
+                    if getattr(error, "sqlite_errorcode", 0) & 255 != sqlite3.SQLITE_BUSY:
+                        raise
+                    if remaining <= 0:
+                        raise
+                    time.sleep(min(0.005, remaining))
+            connection.execute("PRAGMA busy_timeout=30000")
+            connection.execute("PRAGMA synchronous=FULL")
+        except BaseException:
+            connection.close()
+            raise
         return connection
 
     def _initialize(self) -> None:
