@@ -104,6 +104,7 @@ async def test_real_docker_cancellation_waits_for_removal_before_workspace_clean
     template = f"zeroth-cancellation-template-{token}"
     cleanup_entered = threading.Event()
     release_cleanup = threading.Event()
+    cancellation_requested = threading.Event()
 
     def docker(*args):
         return subprocess.check_output(["docker", *args], text=True, timeout=30).strip()
@@ -112,7 +113,7 @@ async def test_real_docker_cancellation_waits_for_removal_before_workspace_clean
         if command[1] == "create":
             # Cancellation ordering must not depend on Docker starting within 2 s.
             threading.Event().wait(startup_delay)
-        if command[1] == "rm":
+        if command[1] == "rm" and cancellation_requested.is_set():
             cleanup_entered.set()
             assert release_cleanup.wait(5), "test did not release container removal"
         return subprocess.run(command, **kwargs)
@@ -127,7 +128,10 @@ async def test_real_docker_cancellation_waits_for_removal_before_workspace_clean
             config=SandboxConfig(
                 backend=SandboxBackendMode.DOCKER,
                 strictness_mode=SandboxStrictnessMode.STRICT,
-                docker=DockerSandboxConfig(container_name=template),
+                docker=DockerSandboxConfig(
+                    container_name=template,
+                    run_as_user=f"{os.getuid()}:{os.getgid()}",
+                ),
             ),
             command_runner=command_runner,
         )
@@ -160,6 +164,7 @@ async def test_real_docker_cancellation_waits_for_removal_before_workspace_clean
                     pytest.fail("workload exited without its startup marker")
                 await asyncio.sleep(0.01)
         assert roots and (roots[0] / "started").exists(), "workload did not start"
+        cancellation_requested.set()
         task.cancel()
         for _ in range(100):
             if cleanup_entered.is_set():
