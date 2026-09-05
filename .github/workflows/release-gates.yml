@@ -100,6 +100,8 @@ jobs:
     name: Gate — source
     needs: [candidate]
     runs-on: ubuntu-latest
+    env:
+      ZEROTH_REQUIRE_DOCKER: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
