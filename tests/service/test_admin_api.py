@@ -309,16 +309,10 @@ async def test_cancel_run_fences_existing_token_snapshot(sqlite_db) -> None:
         sqlite_db, "graph-cancel-token", DEPLOYMENT + "-cancel-token"
     )
 
-    with TestClient(app) as client:
-        created = client.post(
-            "/runs", json={"input_payload": {"value": 1}}, headers=operator_headers()
-        )
-        run_id = created.json()["run_id"]
-        snapshot = initialize_token_snapshot(run_id=run_id, root_node_id="agent-step", payload={})
-        await service.run_repository.compare_and_swap_token_snapshot(
-            run_id, expected_revision=None, snapshot=snapshot
-        )
+    # Seed before lifespan startup so the worker cannot win snapshot creation.
+    run_id, _ = await _contended_running_run(service)
 
+    with TestClient(app) as client:
         response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
 
     persisted = await service.run_repository.get_token_snapshot(run_id)
@@ -577,19 +571,11 @@ async def test_interrupt_run_pauses_existing_token_snapshot(sqlite_db) -> None:
         "graph-admin-token-interrupt",
         DEPLOYMENT + "-token-interrupt",
     )
-    service.worker = None
+
+    # Seed before lifespan startup so the worker cannot win snapshot creation.
+    run_id, _ = await _contended_running_run(service)
 
     with TestClient(app) as client:
-        created = client.post(
-            "/runs", json={"input_payload": {"value": 1}}, headers=operator_headers()
-        )
-        run_id = created.json()["run_id"]
-        await service.run_repository.transition(run_id, RunStatus.RUNNING)
-        snapshot = initialize_token_snapshot(run_id=run_id, root_node_id="agent-step", payload={})
-        await service.run_repository.compare_and_swap_token_snapshot(
-            run_id, expected_revision=None, snapshot=snapshot
-        )
-
         response = client.post(f"/admin/runs/{run_id}/interrupt", headers=admin_headers())
 
     persisted = await service.run_repository.get_token_snapshot(run_id)
