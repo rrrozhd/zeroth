@@ -87,6 +87,7 @@ class Diagnostics:
     def __init__(self, path: Path):
         self.path = path
         self.captured = False
+        self.failure_timeline_count = 0
         self.active = {}
         self.sequence = 0
         self.transactions = {}
@@ -224,6 +225,14 @@ class Diagnostics:
                 return await cursor.fetchall()
 
     async def capture_failure(self, error, profile, sequence, dsn, *, settlement=None):
+        if settlement is not None:
+            self.failure_timeline_count += 1
+            if self.failure_timeline_count <= 64:
+                self.record({"operation": "settlement_failure_timeline",
+                             "error": type(error).__name__, "profile": profile,
+                             "sequence": sequence, "settlement": settlement})
+            elif self.failure_timeline_count == 65:
+                self.record({"operation": "settlement_timeline_limit", "retained": 64})
         if self.captured:
             return
         self.captured = True

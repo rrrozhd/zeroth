@@ -249,3 +249,40 @@ async def test_loop_monitor_preserves_cancellation_and_stops_its_timer(tmp_path)
     await asyncio.sleep(.06)
     assert sink.loop_count == completed_samples
     assert json.loads(sink.path.read_text())["profile"] == "cancelled-probe"
+
+
+async def test_later_failure_timelines_survive_without_extra_database_snapshots(tmp_path, monkeypatch):
+    from tests.load_release.approval_diagnostics import Diagnostics
+
+    sink = Diagnostics(tmp_path / 'trace.jsonl')
+    queries = []
+
+    async def database(dsn):
+        queries.append(dsn)
+        return []
+
+    monkeypatch.setattr(sink, 'database_waits', database)
+    for sequence in [7, 6]:
+        await sink.capture_failure(AssertionError('secret-canary'), 'overload', sequence, 'dsn',
+                                   settlement={'last_state': 'queued', 'recent': []})
+    rows = [json.loads(line) for line in sink.path.read_text().splitlines()]
+    timelines = [row for row in rows if row['operation'] == 'settlement_failure_timeline']
+    assert [row['sequence'] for row in timelines] == [7, 6]
+    assert len([row for row in rows if row['operation'] == 'settle_failure']) == 1
+    assert queries == ['dsn']
+    assert 'secret-canary' not in sink.path.read_text()
+
+
+async def test_failure_timeline_retention_has_an_explicit_limit(tmp_path, monkeypatch):
+    from tests.load_release.approval_diagnostics import Diagnostics
+
+    sink = Diagnostics(tmp_path / 'trace.jsonl')
+    sink.captured = True
+    for sequence in range(70):
+        await sink.capture_failure(AssertionError(), 'overload', sequence, 'dsn',
+                                   settlement={'recent': []})
+    rows = [json.loads(line) for line in sink.path.read_text().splitlines()]
+    assert len([row for row in rows if row['operation'] == 'settlement_failure_timeline']) == 64
+    limits = [row for row in rows if row['operation'] == 'settlement_timeline_limit']
+    assert len(limits) == 1
+    assert limits[0]['retained'] == 64

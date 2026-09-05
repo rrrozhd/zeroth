@@ -105,7 +105,8 @@ async def test_install_attaches_only_failing_settlement_timeline(tmp_path, monke
     assert results[1] is error
     assert original_targets == [client, client]
     assert target.client is client
-    row = json.loads(path.read_text())
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    row = next(record for record in records if record['operation'] == 'settle_failure')
     assert row['sequence'] == 1
     assert row['settlement']['request_count'] == 2
     assert row['settlement']['last_state'] == 'running'
