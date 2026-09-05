@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from jose import jwt
+import jwt
 from sqlalchemy import select
 
 from zeroth.econ.plane.auth.models import User
@@ -42,5 +42,20 @@ def issue_token(payload: ScopedLoginRequest, db: ScopedSession) -> str:
 
 
 def decode_token(token: str) -> ScopedUserClaims:
-    payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    payload = jwt.decode(
+        token,
+        settings.jwt_secret,
+        algorithms=[settings.jwt_algorithm],
+        options={"verify_iat": False},
+    )
+    # This internal issuer does not support audience or access-token binding.
+    # Preserve python-jose's rejection even for empty-valued claims.
+    if "aud" in payload or "at_hash" in payload:
+        raise jwt.InvalidTokenError("unsupported token binding claim")
+    # Legacy tokens require numeric iat when present, but do not reject future iat.
+    if "iat" in payload:
+        try:
+            int(payload["iat"])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise jwt.InvalidTokenError("issued-at claim must be numeric") from exc
     return ScopedUserClaims(**payload)

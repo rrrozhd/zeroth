@@ -16,7 +16,7 @@ These tests assert the two things the design hinges on:
 The explicit compatibility fail-open boundary is also exercised: a bad econ
 token allows only when the test opts into ``fail_closed=False``.
 
-Skips cleanly when the ``regulus`` extra (econ_plane + python-jose) is absent.
+Skips cleanly when the ``regulus`` extra (econ_plane + email-validator) is absent.
 """
 
 from __future__ import annotations
@@ -846,7 +846,7 @@ async def test_non_default_tenant_budget_without_monkeypatch(monkeypatch) -> Non
 def test_self_auth_token_claims_the_requested_tenant() -> None:
     """mint_econ_service_token(tenant) claims that tenant; zero-arg falls back to
     the configured default."""
-    from jose import jwt
+    import jwt
 
     from zeroth.econ.plane.config import settings as ecp_settings
 

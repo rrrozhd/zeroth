@@ -23,6 +23,8 @@ COPY dist/zeroth_core-*.whl /opt/zeroth/wheel/
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         -r /tmp/requirements-image.txt \
     && pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_core-*.whl \
+    && python -m pip uninstall --yes pip \
+    && rm -rf /usr/local/lib/python3.12/ensurepip \
     && rm /tmp/requirements-image.txt
 
 # Redis is disabled by default so the single-container image is

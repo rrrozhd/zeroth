@@ -13,7 +13,7 @@ outright. There is no upstream re-sync; edit it in place like any first-party mo
 ## Dependencies
 
 Runtime deps to import + boot live in the `regulus` optional-extra
-(`pyproject.toml`): `python-jose[cryptography]`, `email-validator`, `numpy`,
+(`pyproject.toml`): `email-validator`, `numpy`,
 `dramatiq`. fastapi/uvicorn/httpx/sqlalchemy/pydantic-settings/redis are already core.
 Install with `uv sync --extra regulus` (or `--all-extras`). Optional / not needed to
 boot: `psycopg` (Postgres only), `kafka-python` (lazy), `prometheus-client` (lazy),
