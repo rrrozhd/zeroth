@@ -10,6 +10,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from tests.load_release.cpu_sampling import CPUSampler
+from zeroth.service.api.run_api import RunPublicStatus
+
+_PUBLIC_STATES = frozenset(state.value for state in RunPublicStatus)
 
 
 class SettlementTrace:
@@ -35,10 +38,8 @@ class SettlementTrace:
                 except ValueError:
                     body = None
                 state = body.get("status") if isinstance(body, dict) else None
-                if isinstance(state, str) and state in {
-                    "pending", "running", "paused_for_approval", "succeeded",
-                    "failed", "cancelled", "dead_letter", "completed",
-                }:
+                self.last_state = None
+                if isinstance(state, str) and state in _PUBLIC_STATES:
                     self.last_state = state
                     row["state"] = state
             return response

@@ -110,3 +110,39 @@ async def test_install_attaches_only_failing_settlement_timeline(tmp_path, monke
     assert row['settlement']['request_count'] == 2
     assert row['settlement']['last_state'] == 'running'
     assert 'canary' not in path.read_text()
+
+
+@pytest.mark.parametrize('state', [
+    'queued', 'running', 'paused_for_approval', 'waiting_interrupt', 'succeeded',
+    'failed', 'terminated_by_policy', 'terminated_by_loop_guard', 'dead_letter',
+])
+async def test_trace_covers_public_status_contract(state):
+    from tests.load_release.approval_diagnostics import SettlementTrace
+    from zeroth.service.api.run_api import RunPublicStatus
+
+    assert state in {item.value for item in RunPublicStatus}
+
+    class Client:
+        async def get(self, *args, **kwargs):
+            return httpx.Response(200, json={'status': state})
+
+    trace = SettlementTrace(Client())
+    await trace.get('/runs/example')
+    assert trace.snapshot()['last_state'] == state
+    assert trace.snapshot()['recent'][-1]['state'] == state
+
+
+async def test_unknown_state_clears_previous_observation():
+    from tests.load_release.approval_diagnostics import SettlementTrace
+
+    states = iter(['paused_for_approval', 'secret-canary'])
+
+    class Client:
+        async def get(self, *args, **kwargs):
+            return httpx.Response(200, json={'status': next(states)})
+
+    trace = SettlementTrace(Client())
+    await trace.get('/runs/example')
+    await trace.get('/runs/example')
+    assert trace.snapshot()['last_state'] is None
+    assert 'secret-canary' not in json.dumps(trace.snapshot())
