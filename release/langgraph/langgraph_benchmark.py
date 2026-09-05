@@ -11,10 +11,13 @@ import time
 import tracemalloc
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypedDict
 
 ROOT = Path(__file__).resolve().parents[2]
+# Retained historical evidence identity used by the legacy validators.
+# New benchmark runs measure the installed package version independently.
 CURRENT_RELEASE = "0.23.0"
 PREVIOUS_RELEASE = "0.16.1.7"
 BASELINE_PATH = ROOT / "release/langgraph/benchmark-baseline-0.16.1.7.json"
@@ -315,7 +318,7 @@ def benchmark(samples: int, *, inject_regression: bool = False) -> dict[str, Any
     evaluation = evaluate(observed)
     return {
         "schema_version": 2,
-        "release": CURRENT_RELEASE,
+        "release": version("zeroth-core"),
         "methodology": {
             "kind": "langgraph-local-vs-loopback-sidecar",
             "description": (

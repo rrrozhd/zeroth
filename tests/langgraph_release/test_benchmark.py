@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,6 +21,7 @@ def test_benchmark_records_release_metrics_and_rejects_regression(tmp_path: Path
     )
     assert result.returncode == 0, result.stderr
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["release"] == version("zeroth-core")
     assert report["methodology"]["kind"] == "langgraph-local-vs-loopback-sidecar"
     assert report["methodology"]["model_latency_included"] is False
     assert report["methodology"]["external_network_included"] is False
