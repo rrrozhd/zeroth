@@ -6,9 +6,63 @@ import logging
 import time
 from collections import deque
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from tests.load_release.cpu_sampling import CPUSampler
+
+
+class SettlementTrace:
+    """Observe one settlement client's calls without retaining request data."""
+
+    def __init__(self, client):
+        self.client = client
+        self.started = time.perf_counter()
+        self.recent = deque(maxlen=64)
+        self.totals = {}
+        self.last_state = None
+
+    async def _call(self, method, *args, **kwargs):
+        started = time.perf_counter()
+        row = {"method": method, "at_ms": (started-self.started)*1000,
+               "outcome": "returned"}
+        try:
+            response = await getattr(self.client, method)(*args, **kwargs)
+            row["http_status"] = response.status_code
+            if method == "get":
+                try:
+                    body = response.json()
+                except ValueError:
+                    body = None
+                state = body.get("status") if isinstance(body, dict) else None
+                if isinstance(state, str) and state in {
+                    "pending", "running", "paused_for_approval", "succeeded",
+                    "failed", "cancelled", "dead_letter", "completed",
+                }:
+                    self.last_state = state
+                    row["state"] = state
+            return response
+        except BaseException as error:
+            row["outcome"] = type(error).__name__
+            raise
+        finally:
+            row["elapsed_ms"] = (time.perf_counter()-started)*1000
+            total = self.totals.setdefault(method, {"count": 0, "elapsed_ms": 0})
+            total["count"] += 1
+            total["elapsed_ms"] += row["elapsed_ms"]
+            self.recent.append(row)
+
+    async def get(self, *args, **kwargs):
+        return await self._call("get", *args, **kwargs)
+
+    async def post(self, *args, **kwargs):
+        return await self._call("post", *args, **kwargs)
+
+    def snapshot(self):
+        return {"elapsed_ms": (time.perf_counter()-self.started)*1000,
+                "request_count": sum(item["count"] for item in self.totals.values()),
+                "last_state": self.last_state, "totals": self.totals,
+                "recent": list(self.recent)}
 
 
 def await_chain(task):
@@ -168,7 +222,7 @@ class Diagnostics:
                 )
                 return await cursor.fetchall()
 
-    async def capture_failure(self, error, profile, sequence, dsn):
+    async def capture_failure(self, error, profile, sequence, dsn, *, settlement=None):
         if self.captured:
             return
         self.captured = True
@@ -182,6 +236,8 @@ class Diagnostics:
                            "cancelling": task.cancelling() if task else 0,
                            "owner": await_chain(task) if task else []}
                           for name, started, task in self.active.values()]}
+        if settlement is not None:
+            row["settlement"] = settlement
         # Retain the captured stack even if the bounded database query fails.
         try:
             row["database_waits"] = await self.database_waits(dsn)
@@ -207,10 +263,13 @@ def install(monkeypatch, path, postgres_dsn):
     original = workload_probe._settle_run
 
     async def settle(*args, **kwargs):
+        trace = SettlementTrace(args[0].client)
+        target = replace(args[0], client=trace)
         try:
-            return await original(*args, **kwargs)
+            return await original(target, *args[1:], **kwargs)
         except Exception as error:
-            await sink.capture_failure(error, args[1], args[2], postgres_dsn)
+            await sink.capture_failure(error, args[1], args[2], postgres_dsn,
+                                       settlement=trace.snapshot())
             raise
 
     monkeypatch.setattr(workload_probe, "_settle_run", settle)
