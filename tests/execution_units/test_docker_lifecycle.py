@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 from io import BytesIO
 from uuid import uuid4
 
@@ -17,6 +18,7 @@ from zeroth.integrations.execution.sandbox import (
     SandboxManager,
     SandboxStrictnessMode,
     SandboxTimeoutError,
+    _SandboxExecutionCancelledError,
 )
 
 
@@ -213,3 +215,37 @@ def test_interrupted_wait_reaps_client_and_removes_workload(monkeypatch, error_t
     assert_owned_cleanup(calls)
     assert process.killed
     assert len(waits) == 2
+
+
+@pytest.mark.parametrize("cancel_during_create", [False, True])
+def test_cancellation_before_start_does_not_launch_workload(tmp_path, cancel_during_create) -> None:
+    calls = []
+    manager, _ = manager_for(calls)
+    event = threading.Event()
+    if cancel_during_create:
+        original_runner = manager._command_runner
+
+        def create_then_cancel(command, **kwargs):
+            result = original_runner(command, **kwargs)
+            if command[1] == "create":
+                event.set()
+            return result
+
+        manager._command_runner = create_then_cancel
+    else:
+        event.set()
+    with pytest.raises(_SandboxExecutionCancelledError):
+        manager._run_in_docker(
+            command=["true"],
+            input_text=None,
+            timeout_seconds=5,
+            sandbox_root=tmp_path,
+            relative_cwd=None,
+            environment=manager.prepare_environment(allowed_env_keys=[]),
+            cancellation_event=event,
+        )
+    assert all(command[1] != "start" for command, _ in calls)
+    if cancel_during_create:
+        assert_owned_cleanup(calls)
+    else:
+        assert all(command[1] not in {"create", "rm"} for command, _ in calls)

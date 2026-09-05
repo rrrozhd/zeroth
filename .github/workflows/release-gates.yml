@@ -363,7 +363,8 @@ jobs:
             release/evidence/untrusted-surface.xml; SURFACE=$?
           run_suite tests/execution_units/test_sandbox_hardening.py \
             release/evidence/untrusted-hardening.xml \
-            tests/execution_units/test_docker_lifecycle.py; HARDENING=$?
+            tests/execution_units/test_docker_lifecycle.py \
+            tests/execution_units/test_runner_cancellation.py; HARDENING=$?
           run_suite tests/execution_units/test_sandbox_strict_network.py \
             release/evidence/untrusted-network.xml; NETWORK=$?
           run_suite tests/sandbox_sidecar \

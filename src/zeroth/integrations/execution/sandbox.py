@@ -16,6 +16,7 @@ import ipaddress
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import tarfile
@@ -27,6 +28,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import partial
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -375,6 +377,10 @@ class SandboxTimeoutError(TimeoutError):
         return f"sandbox command {' '.join(self.command)} timed out after {timeout}"
 
 
+class _SandboxExecutionCancelledError(Exception):
+    """Internal signal: the owning async task requested execution cleanup."""
+
+
 class SandboxBackendUnavailableError(RuntimeError):
     """Raised when the requested backend (e.g., Docker) is not running or accessible."""
 
@@ -677,6 +683,7 @@ class SandboxManager:
         environment: SandboxEnvironment,
         resource_constraints: ResourceConstraints | None = None,
         read_only_paths: Sequence[str] = (),
+        cancellation_event: threading.Event | None = None,
     ) -> SandboxExecutionResult:
         """Run a command as a local subprocess with the prepared environment."""
         self._warn_about_unenforced_local_constraints(
@@ -685,7 +692,12 @@ class SandboxManager:
         )
         started_at = time.perf_counter()
         try:
-            started = self._command_runner(
+            runner = self._command_runner
+            if cancellation_event is not None:
+                runner = partial(
+                    self._run_cancellable_local_process, cancellation_event=cancellation_event
+                )
+            started = runner(
                 list(command),
                 input=input_text,
                 text=True,
@@ -714,6 +726,61 @@ class SandboxManager:
             backend=SandboxBackendMode.LOCAL.value,
         )
 
+    def _run_cancellable_local_process(
+        self,
+        command: list[str],
+        *,
+        input: str | None,
+        timeout: float | None,
+        cwd: str,
+        env: Mapping[str, str],
+        cancellation_event: threading.Event,
+        **_options: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        """Own and reap a local process when its async caller can cancel it."""
+        if cancellation_event.is_set():
+            raise _SandboxExecutionCancelledError()
+        deadline = None if timeout is None else time.perf_counter() + timeout
+        process = self._process_factory(
+            command,
+            stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=cwd,
+            env=env,
+            start_new_session=os.name == "posix",
+        )
+        pending_input = input
+        try:
+            while True:
+                if cancellation_event.is_set():
+                    raise _SandboxExecutionCancelledError()
+                remaining = None if deadline is None else deadline - time.perf_counter()
+                if remaining is not None and remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                try:
+                    stdout, stderr = process.communicate(
+                        input=pending_input,
+                        timeout=0.1 if remaining is None else min(0.1, remaining),
+                    )
+                    break
+                except subprocess.TimeoutExpired:
+                    pending_input = None
+        except BaseException as exc:
+            if os.name == "posix":
+                # Stop ordinary descendants along with the command, before
+                # joining pipes that those descendants may still hold open.
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+            stdout, stderr = process.communicate()
+            if isinstance(exc, subprocess.TimeoutExpired):
+                exc.stdout, exc.stderr = stdout, stderr
+            raise
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
     def _run_in_docker(
         self,
         *,
@@ -725,6 +792,7 @@ class SandboxManager:
         environment: SandboxEnvironment,
         resource_constraints: ResourceConstraints | None = None,
         read_only_paths: Sequence[str] = (),
+        cancellation_event: threading.Event | None = None,
     ) -> SandboxExecutionResult:
         """Run a command inside a Docker container.
 
@@ -799,6 +867,8 @@ class SandboxManager:
         ]
         created = False
         try:
+            if cancellation_event is not None and cancellation_event.is_set():
+                raise _SandboxExecutionCancelledError()
             creation = self._command_runner(
                 docker_command,
                 text=True,
@@ -809,6 +879,8 @@ class SandboxManager:
             if creation.returncode != 0:
                 raise SandboxBackendUnavailableError("docker sandbox creation failed")
             created = True
+            if cancellation_event is not None and cancellation_event.is_set():
+                raise _SandboxExecutionCancelledError()
             remaining = (
                 None
                 if timeout_seconds is None
@@ -834,6 +906,7 @@ class SandboxManager:
                     input_text=input_text,
                     timeout_seconds=remaining,
                     max_output_bytes=docker.max_output_bytes,
+                    cancellation_event=cancellation_event,
                 )
             )
         except subprocess.TimeoutExpired as exc:
@@ -885,6 +958,7 @@ class SandboxManager:
         input_text: str | None,
         timeout_seconds: float | None,
         max_output_bytes: int,
+        cancellation_event: threading.Event | None = None,
     ) -> tuple[bytes, bytes, bool, bool]:
         """Drain Docker output concurrently while retaining bounded byte prefixes."""
         assert process.stdout is not None
@@ -925,7 +999,23 @@ class SandboxManager:
             )
             stdin_thread.start()
         try:
-            process.wait(timeout=timeout_seconds)
+            if cancellation_event is None:
+                process.wait(timeout=timeout_seconds)
+            else:
+                deadline = (
+                    None if timeout_seconds is None else time.perf_counter() + timeout_seconds
+                )
+                while True:
+                    if cancellation_event.is_set():
+                        raise _SandboxExecutionCancelledError()
+                    remaining = None if deadline is None else deadline - time.perf_counter()
+                    if remaining is not None and remaining <= 0:
+                        raise subprocess.TimeoutExpired("sandbox workload", timeout_seconds)
+                    try:
+                        process.wait(timeout=0.1 if remaining is None else min(0.1, remaining))
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
         except BaseException as exc:
             # An interrupted wait must reap the attached CLI as well as letting
             # the caller's finally block remove the daemon-owned workload.
@@ -980,6 +1070,7 @@ class SandboxManager:
         relative_cwd: str | Path | PurePosixPath | None = None,
         read_only_paths: Sequence[str] = (),
         capture_output_file: str | None = None,
+        cancellation_event: threading.Event | None = None,
     ) -> SandboxExecutionResult:
         """Dispatch execution to the sandbox sidecar over HTTP.
 
@@ -1078,9 +1169,49 @@ class SandboxManager:
             # Fail-closed ordering: the upload must complete before /execute
             # is attempted, so an upload failure raises here and no execution
             # request is ever sent.
+            if cancellation_event is not None and cancellation_event.is_set():
+                raise _SandboxExecutionCancelledError()
             if workspace_tar is not None:
                 await client.upload_workspace(workspace_id, workspace_tar)
-            return await client.execute(request)
+            if cancellation_event is None:
+                return await client.execute(request)
+            if cancellation_event.is_set():
+                raise _SandboxExecutionCancelledError()
+            import httpx
+
+            execution = asyncio.create_task(client.execute(request))
+            while not execution.done():
+                await asyncio.wait({execution}, timeout=0.1)
+                if not cancellation_event.is_set() or execution.done():
+                    continue
+                try:
+                    await asyncio.wait_for(client.cancel(execution_id), timeout=10)
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 404:
+                        # /execute may still be in flight before registration.
+                        # Retain the original request and retry the same id.
+                        continue
+                    try:
+                        await execution
+                    finally:
+                        raise SandboxBackendUnavailableError(
+                            f"sidecar cancellation failed for {execution_id}"
+                        ) from exc
+                except Exception as exc:
+                    # Never abandon the outstanding request merely because the
+                    # separate cancel request failed. Its deadline remains in force.
+                    try:
+                        await execution
+                    finally:
+                        raise SandboxBackendUnavailableError(
+                            f"sidecar cancellation failed for {execution_id}"
+                        ) from exc
+                await execution
+                raise _SandboxExecutionCancelledError()
+            response = execution.result()
+            if cancellation_event.is_set():
+                raise _SandboxExecutionCancelledError()
+            return response
 
         response = asyncio.run(_dispatch())
 

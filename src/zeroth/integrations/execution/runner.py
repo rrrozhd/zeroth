@@ -13,6 +13,7 @@ import hashlib
 import inspect
 import math
 import tempfile
+import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -51,6 +52,7 @@ from zeroth.integrations.execution.sandbox import (
     SandboxManager,
     SandboxPolicyViolationError,
     SandboxStrictnessMode,
+    _SandboxExecutionCancelledError,
 )
 from zeroth.integrations.sandbox.models import DEFAULT_EXECUTION_TIMEOUT_SECONDS
 from zeroth.platform.secrets import SecretResolver
@@ -468,9 +470,7 @@ class ExecutableUnitRunner:
             # The whole checkout subtree rides read-only on every backend: v1
             # repo manifests only offer json_stdin/json_stdout/exit_code_only,
             # so no IO file is ever written inside the tree.
-            read_only_paths = tuple(
-                dict.fromkeys((*read_only_paths, REPOSITORY_CHECKOUT_DIRNAME))
-            )
+            read_only_paths = tuple(dict.fromkeys((*read_only_paths, REPOSITORY_CHECKOUT_DIRNAME)))
         enforcement = dict(enforcement_context or {})
         manifest_env, secret_env_keys = await self._manifest_environment(manifest)
         secret_filtered_env = self._apply_allowed_secrets(
@@ -692,14 +692,14 @@ class ExecutableUnitRunner:
         if untrusted_code and hasattr(sandbox_manager, "_resolve_backend"):
             backend = sandbox_manager._resolve_backend(resource_constraints)  # noqa: SLF001
             config = getattr(sandbox_manager, "_config", None)
-            if (
-                backend is SandboxBackendMode.LOCAL
-                and not bool(getattr(config, "allow_untrusted_local_development", False))
+            if backend is SandboxBackendMode.LOCAL and not bool(
+                getattr(config, "allow_untrusted_local_development", False)
             ):
                 raise SandboxPolicyViolationError(
                     "untrusted code cannot run on the local backend; configure an isolated "
                     "docker/sidecar backend or the explicit local-development escape hatch"
                 )
+        cancellation_event = threading.Event()
         if hasattr(sandbox_manager, "_resolve_backend") and hasattr(
             sandbox_manager,
             "_run_locally",
@@ -708,7 +708,7 @@ class ExecutableUnitRunner:
                 allowed_env_keys=allowed_env_keys,
                 overlay=overlay_env,
             )
-            return await asyncio.to_thread(
+            work = asyncio.to_thread(
                 self._run_with_prepared_environment,
                 sandbox_manager,
                 command,
@@ -721,8 +721,10 @@ class ExecutableUnitRunner:
                 resource_constraints,
                 read_only_paths,
                 capture_output_file,
+                cancellation_event,
             )
-        return await asyncio.to_thread(
+            return await _await_sandbox_execution(work, cancellation_event)
+        work = asyncio.to_thread(
             sandbox_manager.run,
             command,
             input_text=input_text,
@@ -731,6 +733,7 @@ class ExecutableUnitRunner:
             overlay_env=overlay_env,
             resource_constraints=resource_constraints,
         )
+        return await _await_sandbox_execution(work, cancellation_event)
 
     def _sandbox_manager_with_strictness(
         self,
@@ -764,6 +767,7 @@ class ExecutableUnitRunner:
         resource_constraints: ResourceConstraints | None,
         read_only_paths: Sequence[str] = (),
         capture_output_file: str | None = None,
+        cancellation_event: threading.Event | None = None,
     ) -> SandboxExecutionResult:
         """Dispatch execution through SandboxManager internals using a prepared sandbox root."""
         backend = sandbox_manager._resolve_backend(resource_constraints)  # noqa: SLF001
@@ -783,6 +787,7 @@ class ExecutableUnitRunner:
                 relative_cwd=relative_cwd,
                 read_only_paths=read_only_paths,
                 capture_output_file=capture_output_file,
+                cancellation_event=cancellation_event,
             )
         if backend.value == "docker":
             return sandbox_manager._run_in_docker(  # noqa: SLF001
@@ -794,6 +799,7 @@ class ExecutableUnitRunner:
                 environment=environment,
                 resource_constraints=resource_constraints,
                 read_only_paths=read_only_paths,
+                cancellation_event=cancellation_event,
             )
         return sandbox_manager._run_locally(  # noqa: SLF001
             command=command,
@@ -803,6 +809,7 @@ class ExecutableUnitRunner:
             environment=environment,
             resource_constraints=resource_constraints,
             read_only_paths=read_only_paths,
+            cancellation_event=cancellation_event,
         )
 
     def _apply_allowed_secrets(
@@ -965,3 +972,27 @@ __all__ = [
     "ExecutableUnitRunner",
     "ProjectMaterializer",
 ]
+
+
+async def _await_sandbox_execution(
+    work: Awaitable[SandboxExecutionResult], cancellation_event: threading.Event
+) -> SandboxExecutionResult:
+    """Signal cancellation without releasing the caller's workspace before cleanup."""
+    worker = asyncio.create_task(work)
+    cancellation: asyncio.CancelledError | None = None
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError as exc:
+            cancellation = exc
+            cancellation_event.set()
+        except _SandboxExecutionCancelledError:
+            break
+    try:
+        result = worker.result()
+    except _SandboxExecutionCancelledError:
+        if cancellation is None:
+            raise
+    if cancellation is not None:
+        raise cancellation
+    return result
