@@ -103,6 +103,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -159,6 +161,8 @@ jobs:
             --kind ui=release/evidence/source-ui-junit.xml \
             --output release/evidence/source.json
           cat release/evidence/source.json
+          python release/gates/cli.py validate --gate source \
+            --identity release/evidence/candidate-identity.json
 
       - name: Upload source evidence
         if: always()
@@ -174,6 +178,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # On the runner, not in the wheel venv. tests/architecture/test_wheel_packaging.py
       # shells out to `uv build` to inspect what the distribution actually ships --
@@ -247,6 +253,8 @@ jobs:
             --kind junit=release/evidence/package-junit.xml \
             --output release/evidence/package.json
           cat release/evidence/package.json
+          python release/gates/cli.py validate --gate package \
+            --identity release/evidence/candidate-identity.json
 
       - name: Upload package evidence
         if: always()
@@ -317,6 +325,8 @@ jobs:
             --kind benchmark=release/evidence/langgraph-benchmark.json \
             --output release/evidence/langgraph.json
           cat release/evidence/langgraph.json
+          python release/gates/cli.py validate --gate langgraph \
+            --identity release/evidence/candidate-identity.json
 
       - name: Upload LangGraph evidence
         if: always()
@@ -390,6 +400,8 @@ jobs:
             --kind junit=release/evidence/untrusted-code-junit.xml \
             --output release/evidence/untrusted-code.json
           cat release/evidence/untrusted-code.json
+          python release/gates/cli.py validate --gate untrusted-code \
+            --identity release/evidence/candidate-identity.json
 
       - name: Upload untrusted-code evidence
         if: always()

@@ -1,7 +1,9 @@
 """Current evidence must fail on drift without relabeling historical records."""
 
 import json
+import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +16,16 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture
 def snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(candidate, "source_identity", lambda root: {"commit": "a" * 40})
+    # These are verifier unit tests. The dedicated conformance gate measures
+    # real installed distributions; a wheel consumer need not install its server.
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    versions = {package["name"]: package["version"] for package in lock["package"]}
+    names = (*candidate.PACKAGES, "idna")
+    monkeypatch.setattr(candidate, "version", versions.__getitem__)
+    monkeypatch.setattr(
+        candidate, "distributions",
+        lambda: [SimpleNamespace(metadata={"Name": name}) for name in names],
+    )
     value = candidate.measure(ROOT)
     path = tmp_path / "snapshot.json"
     path.write_text(json.dumps(value))
@@ -40,7 +52,7 @@ def test_current_snapshot_verifies(snapshot):
 
 
 @pytest.mark.parametrize(
-    "change", ["release", "installed", "declarations", "bytes", "missing", "source"]
+    "change", ["release", "installed", "additional-installed", "declarations", "bytes", "missing", "source"]
 )
 def test_candidate_drift_is_rejected(snapshot, monkeypatch, change):
     path, identity = snapshot
@@ -50,10 +62,11 @@ def test_candidate_drift_is_rejected(snapshot, monkeypatch, change):
         path.write_text(path.read_text() + "\n")
     elif change == "source":
         monkeypatch.setattr(candidate, "source_identity", lambda root: {"commit": "b" * 40})
-    elif change == "installed":
+    elif change in {"installed", "additional-installed"}:
         original = candidate.version
+        changed = "h2" if change == "installed" else "idna"
         monkeypatch.setattr(
-            candidate, "version", lambda name: "0.0.0" if name == "h2" else original(name)
+            candidate, "version", lambda name: "0.0.0" if name == changed else original(name)
         )
     else:
         data = json.loads(path.read_text())

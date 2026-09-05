@@ -646,6 +646,21 @@ def test_load_receipt_has_git_before_checkout() -> None:
     assert "git --version" in preparation, "fail before checkout if Git provisioning failed"
 
 
+@pytest.mark.parametrize("job", ["source", "package"])
+def test_full_suite_gate_fetches_baseline_source_history(job):
+    checkout = next(step for step in _steps(_jobs(GATES_WORKFLOW)[job])
+                    if str(step.get("uses", "")).startswith("actions/checkout@"))
+    assert checkout.get("with", {}).get("fetch-depth") == 0
+
+
+@pytest.mark.parametrize("gate", ["source", "package", "langgraph", "untrusted-code"])
+def test_gate_job_validates_its_record_after_writing_it(gate):
+    _, script = _record_script(gate)
+    validation = f"python release/gates/cli.py validate --gate {gate}"
+    assert validation in script
+    assert script.index(validation) > script.index(f"cat release/evidence/{gate}.json")
+
+
 def test_load_receipt_verifies_checkout_in_the_regular_step_environment() -> None:
     steps = _steps(_jobs(GATES_WORKFLOW)["load-recovery"])
     checkout = next(i for i, step in enumerate(steps)
