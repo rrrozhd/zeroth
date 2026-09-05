@@ -363,6 +363,7 @@ def run_matrix(root: Path) -> Matrix:
     sink_pass = (
         sink_exit_codes == [0] * _WORKER_COUNT
         and len(sink_observations) == _WORKER_COUNT
+        and all(item.get("status") == "pass" for item in sink_observations)
         and len(result_pairs) == 1
         and restarted_sink.marker_count() == 1
         and conflict_rejected

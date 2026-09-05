@@ -107,3 +107,21 @@ def test_nonpassing_matrix_cannot_become_a_supported_sqlite_pass(
     by_id = {item["criterion_id"]: item for item in acceptance["criteria"]}
     assert by_id["SQLITE-NATIVE-SINGLE-HOST-MULTIPROCESS"]["status"] == "fail"
     assert "bounded_lock_contention" in by_id["SQLITE-NATIVE-SINGLE-HOST-MULTIPROCESS"]["note"]
+
+
+def test_failed_sink_worker_cannot_produce_a_passing_matrix(tmp_path, monkeypatch) -> None:
+    module = _module()
+    original = module._queue_get
+
+    def one_failed_worker(results, *, label):
+        observation = original(results, label=label)
+        if label == "sink-0":
+            return {"worker_id": observation["worker_id"], "status": "fail",
+                    "error_type": "OperationalError"}
+        return observation
+
+    monkeypatch.setattr(module, "_queue_get", one_failed_worker)
+    result = module.run_matrix(tmp_path / "matrix")
+    assert result["scenarios"]["idempotent_sink_restart"]["matching_results"] == 3
+    assert result["scenarios"]["idempotent_sink_restart"]["status"] == "fail"
+    assert result["all_passed"] is False
