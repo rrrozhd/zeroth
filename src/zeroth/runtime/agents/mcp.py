@@ -13,9 +13,15 @@ import logging
 from contextlib import AsyncExitStack
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from zeroth.governance.policy.models import Capability
+from zeroth.runtime.agents._mcp_docker_transport import (
+    DockerStdioWorkload as _DockerStdioWorkload,
+)
+from zeroth.runtime.agents._mcp_docker_transport import (
+    owned_docker_stdio as _owned_docker_stdio,
+)
 from zeroth.runtime.agents.tools import ToolAttachmentManifest
 
 logger = logging.getLogger(__name__)
@@ -100,6 +106,7 @@ class MCPServerConfig(BaseModel):
     command: str  # e.g. "python", "node", "npx"
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] | None = None
+    _docker_workload: _DockerStdioWorkload | None = PrivateAttr(default=None)
 
 
 class RegisteredMCPServerConfig(MCPServerConfig):
@@ -180,7 +187,12 @@ class MCPClientManager:
                 args=config.args,
                 env=config.env,
             )
-            transport = await self._exit_stack.enter_async_context(stdio_client(params))
+            context = (
+                stdio_client(params)
+                if config._docker_workload is None
+                else _owned_docker_stdio(config._docker_workload, params, stdio_client)
+            )
+            transport = await self._exit_stack.enter_async_context(context)
             session = await self._exit_stack.enter_async_context(
                 ClientSession(transport[0], transport[1])
             )
