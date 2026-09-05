@@ -271,22 +271,28 @@ def run_matrix(root: Path) -> Matrix:
         name="sqlite-lock-holder",
     )
     holder.start()
-    if not lock_entered.wait(5):
-        holder.terminate()
-        holder.join(5)
-        raise TimeoutError("SQLite lock holder did not enter its transaction")
-    contender_results = context.Queue()
-    contender = context.Process(
-        target=_lock_contender_process,
-        args=(str(coordination_path), contender_results),
-        name="sqlite-lock-contender",
-    )
-    contender.start()
-    contender_exit = _join(contender, label=contender.name)
-    contender_observation = dict(_queue_get(contender_results, label=contender.name))
-    before_release_rows = _table_count(coordination_path, "lock_recovery")
-    lock_release.set()
-    holder_exit = _join(holder, label=holder.name)
+    contender = None
+    try:
+        if not lock_entered.wait(_SPAWN_TIMEOUT_SECONDS):
+            holder.terminate()
+            holder.join(5)
+            raise TimeoutError("SQLite lock holder did not enter its transaction")
+        contender_results = context.Queue()
+        contender = context.Process(
+            target=_lock_contender_process,
+            args=(str(coordination_path), contender_results),
+            name="sqlite-lock-contender",
+        )
+        contender.start()
+        contender_exit = _join(contender, label=contender.name)
+        contender_observation = dict(_queue_get(contender_results, label=contender.name))
+        before_release_rows = _table_count(coordination_path, "lock_recovery")
+    finally:
+        lock_release.set()
+        if contender is not None and contender.is_alive():
+            contender.terminate()
+            contender.join(5)
+        holder_exit = _join(holder, label=holder.name)
     recovery = context.Process(
         target=_recovery_writer_process,
         args=(str(coordination_path),),
@@ -445,7 +451,11 @@ def _run_matrix_subprocess(
     ]
     completed = subprocess.run(argv, capture_output=True, text=True, check=False)
     if not output.is_file():
-        raise RuntimeError("SQLite multiprocess subprocess did not persist its result")
+        detail = completed.stderr.strip()[-4000:] or "(no stderr)"
+        raise RuntimeError(
+            "SQLite multiprocess subprocess did not persist its result "
+            f"(exit {completed.returncode}): {detail}"
+        )
     matrix = json.loads(output.read_text())
     if not isinstance(matrix, dict):
         raise RuntimeError("SQLite multiprocess subprocess result is invalid")
