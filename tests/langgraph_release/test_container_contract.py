@@ -133,8 +133,9 @@ def test_active_image_version_matches_packaged_project() -> None:
     assert f"org.opencontainers.image.version={project['project']['version']}" in dockerfile
 
 
+@pytest.mark.parametrize("mismatch", [None, "id", "digest"])
 def test_installed_image_packages_are_compared_with_compatibility(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mismatch: str | None
 ) -> None:
     from release.langgraph.runtime_smoke import installed_package_evidence
 
@@ -163,12 +164,28 @@ def test_installed_image_packages_are_compared_with_compatibility(
         "io.zeroth.langgraph.compatibility.agent-server": resolved["agent_server"],
     }
 
+    image_id = "sha256:" + "a" * 64
+    digest = "sha256:" + "d" * 64
+    inspected = False
+
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        output = (
-            json.dumps(packages)
-            if command[1] == "run"
-            else json.dumps([{"Config": {"Labels": labels}}])
-        )
+        nonlocal inspected
+        if command[1] == "run":
+            # A mutable tag may move after inspect; only the captured ID is safe.
+            assert inspected
+            assert command[5] == image_id
+            output = json.dumps(packages)
+        else:
+            inspected = True
+            output = json.dumps(
+                [
+                    {
+                        "Id": image_id,
+                        "RepoDigests": [f"example/image@{digest}"],
+                        "Config": {"Labels": labels},
+                    }
+                ]
+            )
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
     monkeypatch.setattr("release.langgraph.runtime_smoke.subprocess.run", fake_run)
@@ -179,13 +196,21 @@ def test_installed_image_packages_are_compared_with_compatibility(
                 "images": [
                     {
                         "reference": f"zeroth-core:v{resolved['zeroth_core']}",
-                        "digest": "sha256:" + "d" * 64,
+                        "id": "sha256:" + "b" * 64 if mismatch == "id" else image_id,
+                        "digest": "sha256:" + "b" * 64 if mismatch == "digest" else digest,
                     }
                 ]
             }
         ),
         encoding="utf-8",
     )
+    if mismatch:
+        with pytest.raises(RuntimeError, match="image identity"):
+            installed_package_evidence(
+                f"zeroth-core:v{resolved['zeroth_core']}", compatibility_path, image_path
+            )
+        return
+
     evidence = installed_package_evidence(
         f"zeroth-core:v{resolved['zeroth_core']}", compatibility_path, image_path
     )
