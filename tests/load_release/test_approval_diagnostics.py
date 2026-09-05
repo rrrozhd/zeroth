@@ -160,3 +160,92 @@ async def test_transaction_snapshot_distinguishes_acquisition_from_cleanup(tmp_p
         release.set()
         await task
     assert sink.transaction_snapshot() == []
+
+
+async def test_cancelled_transaction_identifies_cleanup_wait(tmp_path, monkeypatch):
+    from contextlib import asynccontextmanager
+    from tests.load_release.approval_diagnostics import Diagnostics
+
+    body = asyncio.Event()
+    cleaning = asyncio.Event()
+    release = asyncio.Event()
+    connection = SimpleNamespace(_conn=SimpleNamespace(info=SimpleNamespace(backend_pid=789)))
+
+    class Database:
+        @asynccontextmanager
+        async def transaction(self, *, write_lock=False):
+            try:
+                yield connection
+            finally:
+                cleaning.set()
+                await release.wait()
+
+    sink = Diagnostics(tmp_path / "trace.jsonl")
+    sink.instrument_transactions(monkeypatch, Database)
+
+    async def owner():
+        async with Database().transaction():
+            body.set()
+            await asyncio.Event().wait()
+
+    task = asyncio.create_task(owner())
+    await body.wait()
+    task.cancel()
+    await cleaning.wait()
+    try:
+        row, = sink.transaction_snapshot()
+        assert row["phase"] == "exiting"
+        assert row["cancelling"] == 1
+        assert row["cancellation_cleanup_ms"] >= 0
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    record = json.loads(sink.path.read_text())
+    assert record["operation"] == "transaction_cancellation_cleanup"
+    assert record["elapsed_ms"] >= 0
+
+
+async def test_loop_monitor_records_blocking_delay_and_closes(tmp_path):
+    import time
+    from tests.load_release.approval_diagnostics import Diagnostics
+
+    sink = Diagnostics(tmp_path / "trace.jsonl")
+    before = asyncio.all_tasks()
+    async with sink.monitor_loop("controlled-probe"):
+        await asyncio.sleep(.06)
+        time.sleep(.08)
+        await asyncio.sleep(.06)
+    assert asyncio.all_tasks() == before
+    row = json.loads(sink.path.read_text())
+    assert row["operation"] == "profile_timing"
+    assert row["profile"] == "controlled-probe"
+    assert row["max_lag_ms"] >= 20
+    assert row["cpu_seconds"] >= 0
+    assert row["elapsed_seconds"] >= .2
+    assert row["samples"] >= 2
+    completed_samples = sink.loop_count
+    await asyncio.sleep(.06)
+    assert sink.loop_count == completed_samples
+
+
+async def test_loop_monitor_preserves_cancellation_and_stops_its_timer(tmp_path):
+    from tests.load_release.approval_diagnostics import Diagnostics
+
+    sink = Diagnostics(tmp_path / "trace.jsonl")
+    entered = asyncio.Event()
+
+    async def owner():
+        async with sink.monitor_loop("cancelled-probe"):
+            entered.set()
+            await asyncio.Event().wait()
+
+    task = asyncio.create_task(owner())
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    completed_samples = sink.loop_count
+    await asyncio.sleep(.06)
+    assert sink.loop_count == completed_samples
+    assert json.loads(sink.path.read_text())["profile"] == "cancelled-probe"

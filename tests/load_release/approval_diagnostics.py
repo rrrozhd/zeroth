@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -32,6 +33,49 @@ class Diagnostics:
         self.active = {}
         self.sequence = 0
         self.transactions = {}
+        self.loop_samples = deque(maxlen=128)
+        self.loop_count = 0
+        self.loop_max_lag = 0
+        self.loop_started = time.perf_counter()
+        self.cpu_started = time.process_time()
+
+    def loop_snapshot(self):
+        """Report elapsed CPU and scheduler delays without inspecting application data."""
+        return {"elapsed_seconds": time.perf_counter() - self.loop_started,
+                "cpu_seconds": time.process_time() - self.cpu_started,
+                "max_lag_ms": self.loop_max_lag,
+                "samples": self.loop_count, "recent_lag": list(self.loop_samples)}
+
+    @asynccontextmanager
+    async def monitor_loop(self, profile):
+        """Own one low-frequency timing observer for the exact profile lifetime."""
+        self.loop_samples.clear()
+        self.loop_count = 0
+        self.loop_max_lag = 0
+        self.loop_started = time.perf_counter()
+        self.cpu_started = time.process_time()
+
+        loop = asyncio.get_running_loop()
+        previous = time.perf_counter()
+
+        def sample():
+            nonlocal previous, observer
+            now = time.perf_counter()
+            lag = max(0, (now - previous - .05) * 1000)
+            self.loop_count += 1
+            self.loop_max_lag = max(self.loop_max_lag, lag)
+            self.loop_samples.append({"at_ms": (now-self.loop_started)*1000,
+                                      "lag_ms": lag})
+            previous = now
+            observer = loop.call_later(.05, sample)
+
+        observer = loop.call_later(.05, sample)
+        try:
+            yield
+        finally:
+            observer.cancel()
+            self.record({"operation": "profile_timing", "profile": profile,
+                         **self.loop_snapshot()})
 
     def instrument_transactions(self, monkeypatch, owner):
         """Associate PostgreSQL backend IDs with tasks without reading SQL or locals."""
@@ -48,10 +92,17 @@ class Diagnostics:
                     state.update(pid=connection._conn.info.backend_pid, phase="acquired")
                     try:
                         yield connection
+                    except asyncio.CancelledError:
+                        state["cancel_started"] = time.perf_counter()
+                        raise
                     finally:
                         state["phase"] = "exiting"
             finally:
                 self.transactions.pop(token, None)
+                if "cancel_started" in state:
+                    self.record({"operation": "transaction_cancellation_cleanup",
+                                 "pid": state["pid"],
+                                 "elapsed_ms": (time.perf_counter()-state["cancel_started"])*1000})
 
         monkeypatch.setattr(owner, "transaction", measured)
 
@@ -61,6 +112,9 @@ class Diagnostics:
         return [{"pid": state["pid"], "phase": state["phase"],
                  "write_lock": state["write_lock"],
                  "elapsed_ms": (now-state["started"])*1000,
+                 "cancelling": state["task"].cancelling() if state["task"] else 0,
+                 "cancellation_cleanup_ms": (now-state["cancel_started"])*1000
+                 if "cancel_started" in state else None,
                  "owner": await_chain(state["task"]) if state["task"] else []}
                 for state in list(self.transactions.values())[:512]]
 
@@ -80,7 +134,7 @@ class Diagnostics:
             started = time.perf_counter()
             self.sequence += 1
             token = self.sequence
-            self.active[token] = (name, started)
+            self.active[token] = (name, started, asyncio.current_task())
             outcome = "returned"
             try:
                 return await original(*args, **kwargs)
@@ -117,8 +171,11 @@ class Diagnostics:
                "profile": profile, "sequence": sequence,
                "tasks": [await_chain(task) for task in list(asyncio.all_tasks())[:256]],
                "transactions": self.transaction_snapshot(),
-               "active": [{"operation": name, "elapsed_ms": (now-started)*1000}
-                          for name, started in self.active.values()]}
+               "event_loop": self.loop_snapshot(),
+               "active": [{"operation": name, "elapsed_ms": (now-started)*1000,
+                           "cancelling": task.cancelling() if task else 0,
+                           "owner": await_chain(task) if task else []}
+                          for name, started, task in self.active.values()]}
         # Retain the captured stack even if the bounded database query fails.
         try:
             row["database_waits"] = await self.database_waits(dsn)
@@ -151,3 +208,10 @@ def install(monkeypatch, path, postgres_dsn):
             raise
 
     monkeypatch.setattr(workload_probe, "_settle_run", settle)
+    original_profile = workload_probe._run_profile
+
+    async def profile(targets, name, settings):
+        async with sink.monitor_loop(name):
+            return await original_profile(targets, name, settings)
+
+    monkeypatch.setattr(workload_probe, "_run_profile", profile)
