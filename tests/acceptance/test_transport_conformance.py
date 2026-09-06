@@ -91,8 +91,8 @@ def _fixture_app() -> FastAPI:
         "/regulus/health": {
             "status": "ok",
             "schema_revision": {
-                "applied": "20260906_18",
-                "head": "20260906_18",
+                "applied": "20260906_19",
+                "head": "20260906_19",
                 "state": "current",
             },
         },

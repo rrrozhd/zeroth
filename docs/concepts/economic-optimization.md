@@ -182,13 +182,31 @@ confidence. Full input snapshots, source closure, outcome definition versions
 and an independently reproducible evidence window remain acceptance work.
 
 Hosted comparisons bind each version to a `source_evidence` fingerprint tagged
-`stored-assertions/1`, with selected execution and outcome counts. The digest
+`stored-assertions/1` (v2 for records with a capture-window identity), with selected
+execution and outcome counts. The digest
 covers immutable assertions and their multiplicity, independent of record order,
 database row IDs and receipt times. A later selected outcome or zero-cost step
 creates a new retained revision even when the totals do not change. No raw
 payload is copied into the report. A fingerprint cannot prove missing streams
 were delivered, reconstruct erased source records, or serve as a signature.
 Historical reports keep an empty source binding.
+
+Comparisons can also receive caller-owned source inventories for both versions.
+Executions carry an immutable `source_window_id`; each inventory declares its
+inclusive capture interval, terminal runs, and expected event counts/ID digests.
+The producer must construct this inventory independently of successful delivery.
+Entirely missing runs remain visible with unknown cost. Partial runs, unexpected
+records and mismatched IDs cannot pass the comparison. Reports retain the inventory
+digest and reconciliation counts in `source_delivery`; a changed inventory or
+selected record set creates another immutable report revision. They do not retain
+another list of customer run IDs.
+
+This is bounded reconciliation of received executions with a supplied declaration.
+It does not freeze business outcomes, prove physical charge ownership, or verify
+that all source windows were declared. A matched inventory retains the existing
+source-completeness limitation. Fixed inventories are optional for direct
+comparisons; recurring schedules retain their observed-history behavior. See the
+standalone SDK README for the wire format and independent producer-ledger example.
 
 Paid project keys and WorkOS browser sessions cannot authenticate the legacy
 `/v1/evaluations/*` routes. Those retain the legacy JWT boundary for self-hosted

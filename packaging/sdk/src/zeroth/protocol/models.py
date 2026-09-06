@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from zeroth.protocol.source_inventory import SourceWindowInventory, validate_source_windows
 
 
 class ExecutionEvent(BaseModel):
@@ -17,6 +18,7 @@ class ExecutionEvent(BaseModel):
     run_id: str = Field(min_length=1)
     step: str = Field(min_length=1)
     attempt: int = Field(default=1, ge=1)
+    source_window_id: str | None = Field(default=None, min_length=1, max_length=128)
     event_id: str | None = Field(default=None, min_length=1, max_length=128)
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     model_version: str = Field(default="unknown", min_length=1)
@@ -29,6 +31,15 @@ class ExecutionEvent(BaseModel):
 
     @model_validator(mode="after")
     def _cost_matches_measurement(self) -> ExecutionEvent:
+        if self.source_window_id is not None:
+            self.source_window_id.encode("utf-8")
+            if not 1 <= len(self.run_id) <= 128:
+                raise ValueError("windowed executions require a run_id of 1–128 characters")
+            if self.event_id is None:
+                raise ValueError("windowed executions require an explicit event_id")
+            if self.recorded_at.tzinfo is None or self.recorded_at.utcoffset() is None:
+                raise ValueError("windowed executions require an aware recorded_at")
+            self.recorded_at = self.recorded_at.astimezone(UTC)
         # Preserve explicit-amount callers without inventing an omitted amount.
         if "cost_measurement" not in self.model_fields_set and self.cost_usd is not None:
             self.cost_measurement = "measured"
@@ -100,15 +111,24 @@ class DecisionPolicy(BaseModel):
 class VersionComparisonRequest(BaseModel):
     """Request an evidence-gated comparison of two exact workflow versions."""
 
+    model_config = ConfigDict(extra="forbid")
+
     workflow: str = Field(min_length=1)
     baseline_version: str = Field(min_length=1)
     candidate_version: str = Field(min_length=1)
     outcome_type: str = Field(default="accepted", min_length=1)
     policy: DecisionPolicy = Field(default_factory=DecisionPolicy)
 
+    source_windows: dict[Literal["baseline", "candidate"], SourceWindowInventory] = Field(
+        default_factory=dict
+    )
+    _paired_windows = field_validator("source_windows")(validate_source_windows)
+
 
 class DecisionScheduleRequest(BaseModel):
     """Create a recurring economic comparison for two workflow versions."""
+
+    model_config = ConfigDict(extra="forbid")
 
     workflow: str = Field(min_length=1)
     baseline_version: str = Field(min_length=1)

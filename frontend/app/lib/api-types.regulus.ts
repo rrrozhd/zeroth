@@ -2311,6 +2311,10 @@ export interface components {
              * @enum {string}
              */
             recommended_action: "approve" | "review_candidate" | "hold" | "investigate" | "collect_evidence";
+            /** Source Delivery */
+            source_delivery?: {
+                [key: string]: components["schemas"]["SourceDelivery"];
+            };
             /** Source Evidence */
             source_evidence?: {
                 [key: string]: components["schemas"]["EvidenceFingerprint"];
@@ -2493,9 +2497,9 @@ export interface components {
             /**
              * Version
              * @default stored-assertions/1
-             * @constant
+             * @enum {string}
              */
-            version: "stored-assertions/1";
+            version: "stored-assertions/1" | "stored-assertions/2";
         };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {
@@ -2553,6 +2557,8 @@ export interface components {
             provider_request_id?: string | null;
             /** Run Id */
             run_id?: string | null;
+            /** Source Window Id */
+            source_window_id?: string | null;
             /** Step Id */
             step_id?: string | null;
             /** Subject Id */
@@ -3225,6 +3231,20 @@ export interface components {
              */
             status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "DEAD_LETTER";
         };
+        /** RunInventory */
+        RunInventory: {
+            /** Execution Count */
+            execution_count: number;
+            /** Execution Ids Digest */
+            execution_ids_digest: string;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Terminal State
+             * @enum {string}
+             */
+            terminal_state: "completed" | "failed" | "cancelled";
+        };
         /** ScopedLoginRequest */
         ScopedLoginRequest: {
             /**
@@ -3306,6 +3326,8 @@ export interface components {
             recorded_at?: string;
             /** Run Id */
             run_id: string;
+            /** Source Window Id */
+            source_window_id?: string | null;
             /** Step */
             step: string;
             /** Subject Id */
@@ -3361,6 +3383,71 @@ export interface components {
              * @default unversioned
              */
             workflow_version: string;
+        };
+        /**
+         * SourceDelivery
+         * @description Reconciliation with caller inventory; no guarantee of physical source truth.
+         */
+        SourceDelivery: {
+            /** Expected Executions */
+            expected_executions: number;
+            /** Expected Runs */
+            expected_runs: number;
+            /** Inventory Digest */
+            inventory_digest: string;
+            /**
+             * Inventory Version
+             * @default source-inventory/1
+             * @constant
+             */
+            inventory_version: "source-inventory/1";
+            /** Mismatched Runs */
+            mismatched_runs: number;
+            /** Missing Runs */
+            missing_runs: number;
+            /** Observed Executions */
+            observed_executions: number;
+            /** Observed Runs */
+            observed_runs: number;
+            /** Out Of Window Executions */
+            out_of_window_executions: number;
+            /**
+             * Scan Truncated
+             * @default false
+             */
+            scan_truncated: boolean;
+            /** Source Window Id */
+            source_window_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "matched" | "mismatch";
+            /** Unexpected Runs */
+            unexpected_runs: number;
+        };
+        /** SourceWindowInventory */
+        SourceWindowInventory: {
+            /**
+             * Closed At
+             * Format: date-time
+             */
+            closed_at: string;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Runs */
+            runs: components["schemas"]["RunInventory"][];
+            /** Source Window Id */
+            source_window_id: string;
+            /**
+             * Version
+             * @default source-inventory/1
+             * @constant
+             */
+            version: "source-inventory/1";
         };
         /** TenantBudgetUpsert */
         TenantBudgetUpsert: {
@@ -3534,6 +3621,10 @@ export interface components {
              */
             outcome_type: string;
             policy?: components["schemas"]["DecisionPolicy"];
+            /** Source Windows */
+            source_windows?: {
+                [key: string]: components["schemas"]["SourceWindowInventory"];
+            };
             /** Workflow */
             workflow: string;
         };

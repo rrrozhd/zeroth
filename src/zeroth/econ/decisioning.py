@@ -43,10 +43,30 @@ class EvidenceFingerprint(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal["stored-assertions/1"] = "stored-assertions/1"
+    version: Literal["stored-assertions/1", "stored-assertions/2"] = "stored-assertions/1"
     digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     execution_records: int = Field(ge=0)
     outcome_records: int = Field(ge=0)
+
+
+class SourceDelivery(BaseModel):
+    """Reconciliation with caller inventory; no guarantee of physical source truth."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_window_id: str
+    inventory_version: Literal["source-inventory/1"] = "source-inventory/1"
+    inventory_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Literal["matched", "mismatch"]
+    expected_runs: int = Field(ge=0)
+    observed_runs: int = Field(ge=0)
+    expected_executions: int = Field(ge=0)
+    observed_executions: int = Field(ge=0)
+    missing_runs: int = Field(ge=0)
+    unexpected_runs: int = Field(ge=0)
+    mismatched_runs: int = Field(ge=0)
+    out_of_window_executions: int = Field(ge=0)
+    scan_truncated: bool = False
 
 
 class VersionEvidence(BaseModel):
@@ -58,6 +78,7 @@ class VersionEvidence(BaseModel):
     version: str = Field(min_length=1)
     runs: list[RunEvidence] = Field(default_factory=list)
     source_fingerprint: EvidenceFingerprint | None = None
+    source_delivery: SourceDelivery | None = None
 
 
 class DecisionPolicy(BaseModel):
@@ -120,6 +141,9 @@ class EconomicDecision(BaseModel):
     method_version: str = "legacy_unversioned"
     limitations: list[str] = Field(default_factory=list)
     source_evidence: dict[Literal["baseline", "candidate"], EvidenceFingerprint] = Field(
+        default_factory=dict
+    )
+    source_delivery: dict[Literal["baseline", "candidate"], SourceDelivery] = Field(
         default_factory=dict
     )
 
@@ -228,6 +252,13 @@ def compare_workflow_versions(
             )
             if evidence.source_fingerprint is not None
         },
+        "source_delivery": {
+            label: evidence.source_delivery
+            for label, evidence in (
+                ("baseline", baseline_evidence), ("candidate", candidate_evidence)
+            )
+            if evidence.source_delivery is not None
+        },
     }
     baseline = _summarize(
         baseline_evidence, allow_estimated_cost=active_policy.allow_estimated_cost
@@ -240,6 +271,9 @@ def compare_workflow_versions(
         *_evidence_reasons("baseline", baseline, active_policy),
         *_evidence_reasons("candidate", candidate, active_policy),
     ]
+    for label, evidence in (("baseline", baseline_evidence), ("candidate", candidate_evidence)):
+        if evidence.source_delivery is not None and evidence.source_delivery.status != "matched":
+            evidence_reasons.append(f"{label}_source_delivery_mismatch")
     if active_policy.min_success_rate is None:
         evidence_reasons.insert(0, "policy.min_success_rate")
     if baseline.accepted_runs == 0:

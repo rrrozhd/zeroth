@@ -2333,6 +2333,19 @@
             "title": "Recommended Action",
             "type": "string"
           },
+          "source_delivery": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SourceDelivery"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Source Delivery",
+            "type": "object"
+          },
           "source_evidence": {
             "additionalProperties": {
               "$ref": "#/components/schemas/EvidenceFingerprint"
@@ -2813,8 +2826,11 @@
             "type": "integer"
           },
           "version": {
-            "const": "stored-assertions/1",
             "default": "stored-assertions/1",
+            "enum": [
+              "stored-assertions/1",
+              "stored-assertions/2"
+            ],
             "title": "Version",
             "type": "string"
           }
@@ -2998,6 +3014,19 @@
               }
             ],
             "title": "Run Id"
+          },
+          "source_window_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Window Id"
           },
           "step_id": {
             "anyOf": [
@@ -4647,6 +4676,45 @@
         "title": "RetryOutboxResponse",
         "type": "object"
       },
+      "RunInventory": {
+        "additionalProperties": false,
+        "properties": {
+          "execution_count": {
+            "maximum": 50000.0,
+            "minimum": 0.0,
+            "title": "Execution Count",
+            "type": "integer"
+          },
+          "execution_ids_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Execution Ids Digest",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "terminal_state": {
+            "enum": [
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Terminal State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "terminal_state",
+          "execution_count",
+          "execution_ids_digest"
+        ],
+        "title": "RunInventory",
+        "type": "object"
+      },
       "ScopedLoginRequest": {
         "properties": {
           "email": {
@@ -4837,6 +4905,19 @@
             "title": "Run Id",
             "type": "string"
           },
+          "source_window_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Window Id"
+          },
           "step": {
             "minLength": 1,
             "title": "Step",
@@ -4988,6 +5069,138 @@
           "accepted"
         ],
         "title": "SdkOutcomeEvent",
+        "type": "object"
+      },
+      "SourceDelivery": {
+        "additionalProperties": false,
+        "description": "Reconciliation with caller inventory; no guarantee of physical source truth.",
+        "properties": {
+          "expected_executions": {
+            "minimum": 0.0,
+            "title": "Expected Executions",
+            "type": "integer"
+          },
+          "expected_runs": {
+            "minimum": 0.0,
+            "title": "Expected Runs",
+            "type": "integer"
+          },
+          "inventory_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Inventory Digest",
+            "type": "string"
+          },
+          "inventory_version": {
+            "const": "source-inventory/1",
+            "default": "source-inventory/1",
+            "title": "Inventory Version",
+            "type": "string"
+          },
+          "mismatched_runs": {
+            "minimum": 0.0,
+            "title": "Mismatched Runs",
+            "type": "integer"
+          },
+          "missing_runs": {
+            "minimum": 0.0,
+            "title": "Missing Runs",
+            "type": "integer"
+          },
+          "observed_executions": {
+            "minimum": 0.0,
+            "title": "Observed Executions",
+            "type": "integer"
+          },
+          "observed_runs": {
+            "minimum": 0.0,
+            "title": "Observed Runs",
+            "type": "integer"
+          },
+          "out_of_window_executions": {
+            "minimum": 0.0,
+            "title": "Out Of Window Executions",
+            "type": "integer"
+          },
+          "scan_truncated": {
+            "default": false,
+            "title": "Scan Truncated",
+            "type": "boolean"
+          },
+          "source_window_id": {
+            "title": "Source Window Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "matched",
+              "mismatch"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unexpected_runs": {
+            "minimum": 0.0,
+            "title": "Unexpected Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_window_id",
+          "inventory_digest",
+          "status",
+          "expected_runs",
+          "observed_runs",
+          "expected_executions",
+          "observed_executions",
+          "missing_runs",
+          "unexpected_runs",
+          "mismatched_runs",
+          "out_of_window_executions"
+        ],
+        "title": "SourceDelivery",
+        "type": "object"
+      },
+      "SourceWindowInventory": {
+        "additionalProperties": false,
+        "properties": {
+          "closed_at": {
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunInventory"
+            },
+            "maxItems": 5000,
+            "title": "Runs",
+            "type": "array"
+          },
+          "source_window_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Source Window Id",
+            "type": "string"
+          },
+          "version": {
+            "const": "source-inventory/1",
+            "default": "source-inventory/1",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_window_id",
+          "opened_at",
+          "closed_at",
+          "runs"
+        ],
+        "title": "SourceWindowInventory",
         "type": "object"
       },
       "TenantBudgetUpsert": {
@@ -5391,6 +5604,19 @@
           },
           "policy": {
             "$ref": "#/components/schemas/DecisionPolicy"
+          },
+          "source_windows": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SourceWindowInventory"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Source Windows",
+            "type": "object"
           },
           "workflow": {
             "minLength": 1,

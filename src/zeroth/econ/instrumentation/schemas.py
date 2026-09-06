@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal, Union
 from uuid import uuid4
@@ -46,6 +46,7 @@ class ExecutionEvent(BaseModel):
     cleanup_status: str | None = None
     workflow_id: str | None = None
     workflow_version: str | None = None
+    source_window_id: str | None = Field(default=None, min_length=1, max_length=128)
     run_id: str | None = None
     step_id: str | None = None
     attempt: int = Field(default=1, ge=1, le=1000)
@@ -68,6 +69,15 @@ class ExecutionEvent(BaseModel):
 
     @model_validator(mode="after")
     def _measurement_values_agree(self) -> ExecutionEvent:
+        if self.source_window_id is not None:
+            self.source_window_id.encode("utf-8")
+            if not 1 <= len(self.execution_id) <= 128:
+                raise ValueError("windowed executions require an execution_id of 1–128 characters")
+            if not self.run_id or len(self.run_id) > 128:
+                raise ValueError("windowed executions require an explicit run_id")
+            if self.timestamp.tzinfo is None or self.timestamp.utcoffset() is None:
+                raise ValueError("windowed executions require an aware timestamp")
+            self.timestamp = self.timestamp.astimezone(UTC)
         costs = (self.token_cost_usd, self.tool_cost_usd, self.compute_cost_usd)
         if self.cost_measurement is None:
             self.cost_measurement = (
@@ -105,6 +115,7 @@ ExecutionEvent.__signature__ = _execution_event_signature.replace(
             "usage_measurement",
             "workflow_id",
             "workflow_version",
+            "source_window_id",
             "run_id",
             "step_id",
             "attempt",

@@ -80,11 +80,83 @@ causal or forecast claims. Older records load as `legacy_unclassified` /
 meaning based on the current SDK version.
 
 Hosted version reports include `source_evidence.baseline` and `.candidate` with
-a `stored-assertions/1` digest and selected execution/outcome record counts.
+a `stored-assertions/1` digest and selected execution/outcome record counts
+(`stored-assertions/2` when selected executions carry a source window).
 Changed selected inputs create a new retained revision even when the totals are
 unchanged. These fingerprints are not signatures or proof of delivery completeness;
 they cannot recover erased inputs. Historical reports without a binding return
 an empty `source_evidence` map.
+
+### Reconcile a closed capture window
+
+For delivery checks, assign `source_window_id` and an explicit, tenant-wide unique
+`event_id` before sending each execution. Record every intended execution ID and every run's
+technical terminal state in your own producer ledger. Build the inventory from
+that ledger, including failed/cancelled runs and delivery failures. An inventory
+derived from successful responses cannot reveal what was lost. Run IDs identify
+whole runs within a workflow version; do not recycle them for another window.
+
+For each run, supply its `execution_count` and `execution_ids_digest(ids)` from
+`zeroth.protocol`. Supply a `SourceWindowInventory` for each side in the existing
+`VersionComparisonRequest.source_windows` map:
+
+```python
+from zeroth.protocol import SourceWindowInventory, VersionComparisonRequest, execution_ids_digest
+
+# This is a producer ledger entry, prepared independently of HTTP acknowledgements.
+candidate_inventory = SourceWindowInventory.model_validate({
+    "source_window_id": "candidate-batch-1",
+    "opened_at": "2026-09-06T00:00:00Z",
+    "closed_at": "2026-09-06T01:00:00Z",
+    "runs": [{
+        "run_id": "run-1",
+        "terminal_state": "completed",
+        "execution_count": 2,
+        "execution_ids_digest": execution_ids_digest(["v2:run-1:model:1", "v2:run-1:tool:1"]),
+    }],
+})
+# Prepare baseline_inventory from the baseline producer ledger in the same way.
+# request = VersionComparisonRequest(
+#     workflow="invoice-processing", baseline_version="v1", candidate_version="v2",
+#     policy={"min_success_rate": 0.95},
+#     source_windows={"baseline": baseline_inventory, "candidate": candidate_inventory},
+# )
+# report = client.compare_versions(request)
+```
+
+Both sides are required when using inventories. A window includes executions with
+that exact ID, workflow version and tenant, whose asserted timestamp lies within
+the inclusive interval. Timestamps must include an offset. The limit is 5,000 runs
+and 50,000 expected executions per side. A larger received window returns a
+mismatch with `scan_truncated=true`; its observed counts describe the bounded read,
+not the full window. Existing schedules compare observed history and reject these
+fixed inventories.
+
+`source_delivery` reports inventory digests, expected/observed counts and mismatch
+counts. Missing runs stay in the denominator. Missing or substituted steps make a
+run's full cost unknown; an empty declared run also has unknown cost. A mismatch
+forces abstention. A delayed event with its original in-window timestamp can
+resolve a mismatch; an unexpected event after closure creates one. Rerunning with
+changed evidence or an amended inventory creates a new retained report revision.
+Keep the original inventories to reconstruct their report digests; Zeroth retains
+digests and counts, not a second copy of the run/ID lists.
+
+`matched` means received execution IDs agree with the supplied inventory. It does
+not establish complete provider charges, inventory independence, mature business
+outcomes, or a causal/statistical savings claim. `terminal_state` describes
+application execution and does not set `accepted`. Without inventories,
+`source_delivery` is empty and source completeness remains unverified.
+
+For explicit HTTP clients, the event-ID digest is SHA-256 of compact UTF-8 JSON
+containing distinct nonempty IDs sorted by UTF-8 bytes. Do not normalize Unicode or
+escape non-ASCII. Node's ordinary string sort uses a different ordering:
+
+```javascript
+import { createHash } from "node:crypto";
+const ids = ["v2:run-1:model:1", "v2:run-1:tool:1"];
+const ordered = [...ids].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+const digest = createHash("sha256").update(JSON.stringify(ordered), "utf8").digest("hex");
+```
 
 Outcome delivery retries must preserve the original value, provenance, metadata
 and timestamps. Changed assertions return a conflict instead of `duplicate`;

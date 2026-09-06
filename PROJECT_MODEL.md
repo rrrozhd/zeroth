@@ -47,6 +47,19 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   prove source completeness, or establish a frozen time window. Old reports keep
   an empty source binding. Debug a changed revision from its source counts/digest
   before comparing totals; original source rows are still needed to reconstruct it.
+  Optional `source_windows` on comparison requests reconcile caller-owned run
+  inventories against received executions selected by tenant, workflow, version
+  and immutable `source_window_id`. The SDK helper hashes unique execution IDs in
+  UTF-8 byte order; the inventory must originate in the producer before delivery.
+  Missing runs enter the denominator and incomplete run costs become unknown.
+  A delivery mismatch or scan overflow forces abstention in the shared domain
+  decision rule. `source_delivery` retains digests and counts, not raw run lists;
+  altered inventories yield new report revisions through existing retention.
+  Debug from its missing/unexpected/mismatched counts, then compare the caller's
+  ledger with source execution rows. No new manifest endpoint/store, quota,
+  dependency or queue exists. Schedules still read observed history without an
+  inventory binding. Technical closure never sets a business outcome or proves
+  provider charge completeness; source and outcome maturity remain separate.
 - Experiments: `src/zeroth/econ/plane/backtesting/` owns bounded execution,
   reservation/metering and retained results; analytics owns model evaluation.
   Hosted replays reuse the correctness evaluator, then price captured input/output
@@ -100,6 +113,14 @@ before running the new service against PostgreSQL; startup refuses missing colum
 SQLite compatibility uses the same migration. After new outcomes exist, downgrade
 refuses to discard their public identity. A rollback build must retain these columns
 and the compatible reader; local mixed-history tests do not certify a rollback image.
+
+Migration `20260906_19` adds nullable execution `source_window_id` and its tenant
+index. Apply the economic migration chain before starting PostgreSQL replicas;
+SQLite compatibility uses the same migration. Old records remain unwindowed.
+Downgrade refuses to discard populated window identities. A rollback image must
+understand `source_delivery` and `stored-assertions/2` reports and retain the new
+column. Existing source-row erasure removes window IDs with those rows; the
+retained digests cannot reconstruct erased source evidence or the caller's ledger.
 
 ## Current risks and unfinished work
 

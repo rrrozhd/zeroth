@@ -211,6 +211,20 @@ def test_record_order_is_irrelevant_but_multiplicity_is_preserved():
     assert duplicated.digest != before.digest
 
 
+def test_unwindowed_fingerprint_preserves_v1_and_window_identity_uses_v2():
+    event, outcome = _assertions()
+    # Evaluated independently on accepted 417aa945's assertion/fingerprint functions.
+    legacy = _source_fingerprint("tenant-a", [event], [outcome])
+    assert legacy.version == "stored-assertions/1"
+    assert legacy.digest == "5df390e68ff452eb7a8c52051f63cada7eb3774a0683c755324882ac1dff1da3"
+    event.source_window_id = "window-a"
+    windowed = _source_fingerprint("tenant-a", [event], [outcome])
+    assert windowed.version == "stored-assertions/2"
+    assert windowed.digest != legacy.digest
+    event.source_window_id = "window-b"
+    assert _source_fingerprint("tenant-a", [event], [outcome]).digest != windowed.digest
+
+
 def test_historical_reports_do_not_acquire_a_source_binding():
     from zeroth.econ.decisioning import EconomicDecision, VersionEvidence, compare_workflow_versions
 

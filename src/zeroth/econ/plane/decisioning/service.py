@@ -15,10 +15,14 @@ from zeroth.econ.decisioning import (
     EconomicDecision,
     EvidenceFingerprint,
     RunEvidence,
+    SourceDelivery,
     VersionEvidence,
     compare_workflow_versions,
 )
 from zeroth.econ.measurement import MeasurementState
+from zeroth.econ.source_inventory import (
+    MAX_WINDOW_EXECUTIONS, SourceWindowInventory, execution_ids_digest,
+)
 from zeroth.econ.plane.cloud.entitlements import release_usage, reserve_usage
 from zeroth.econ.plane.decisioning.schemas import (
     DecisionScheduleCreate,
@@ -28,7 +32,9 @@ from zeroth.econ.plane.decisioning.schemas import (
 from zeroth.econ.plane.decisioning.models import DecisionSchedule, EconomicDecisionRecord
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.instrumentation.identity import outcomes_for_events, run_identity, workflow_filter
-from zeroth.econ.plane.instrumentation.service import _execution_identity_fields, _outcome_assertions
+from zeroth.econ.plane.instrumentation.service import (
+    _datetime_identity, _execution_identity_fields, _outcome_assertions,
+)
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 
@@ -64,6 +70,8 @@ def _outcome_measurement(outcome: OutcomeEvent | None) -> MeasurementState:
 
 
 def _run_cost(events: list[ExecutionEvent]) -> tuple[Decimal | None, MeasurementState]:
+    if not events:
+        return None, MeasurementState.UNMEASURED
     states = {_measurement(event.cost_measurement) for event in events}
     if MeasurementState.UNMEASURED in states:
         return None, MeasurementState.UNMEASURED
@@ -106,11 +114,21 @@ def _source_fingerprint(
         ).encode()
         return hashlib.sha256(encoded).hexdigest()
 
+    version = (
+        "stored-assertions/2" if any(row.source_window_id is not None for row in executions)
+        else "stored-assertions/1"
+    )
+    execution_assertions = [_execution_identity_fields(row) for row in executions]
+    if version == "stored-assertions/1":
+        # Keep historical v1 bytes stable when the new field carries no assertion.
+        for assertion in execution_assertions:
+            assertion.pop("source_window_id")
     return EvidenceFingerprint(
+        version=version,
         digest=digest({
-            "version": "stored-assertions/1",
+            "version": version,
             "tenant_id": tenant_id,
-            "executions": sorted(digest(_execution_identity_fields(row)) for row in executions),
+            "executions": sorted(digest(assertion) for assertion in execution_assertions),
             "outcomes": sorted(digest(_outcome_assertions(row)) for row in outcomes),
         }),
         execution_records=len(executions), outcome_records=len(outcomes),
@@ -123,17 +141,55 @@ def _version_from_store(
     workflow: str,
     version: str,
     outcome_type: str,
+    source_window: SourceWindowInventory | None = None,
 ) -> VersionEvidence:
-    executions = list(
-        db.scalars(
-            select(ExecutionEvent).where(
-                workflow_filter(ExecutionEvent, workflow, version),
-            )
-        )
-    )
+    statement = select(ExecutionEvent).where(workflow_filter(ExecutionEvent, workflow, version))
+    if source_window is not None:
+        statement = statement.where(
+            ExecutionEvent.source_window_id == source_window.source_window_id,
+        ).order_by(ExecutionEvent.id).limit(MAX_WINDOW_EXECUTIONS + 1)
+    executions = list(db.scalars(statement))
     executions_by_run: dict[str, list[ExecutionEvent]] = defaultdict(list)
     for event in executions:
         executions_by_run[run_identity(event)[2]].append(event)
+    delivery = None
+    incomplete_runs: set[str] = set()
+    if source_window is not None:
+        expected = {run.run_id: run for run in source_window.runs}
+        observed = set(executions_by_run)
+        # Zero-record runs are declarations of technical closure, not missing dollars.
+        missing = sum(run.execution_count > 0 and run.run_id not in observed
+                      for run in source_window.runs)
+        unexpected = len(observed - expected.keys())
+        mismatched = {
+            run_id for run_id, run in expected.items()
+            if len(executions_by_run.get(run_id, [])) != run.execution_count
+            or execution_ids_digest([
+                event.execution_id for event in executions_by_run.get(run_id, [])
+            ]) != run.execution_ids_digest
+        }
+        opened = source_window.opened_at.replace(tzinfo=None)
+        closed = source_window.closed_at.replace(tzinfo=None)
+        outside = [event for event in executions
+                   if not opened <= _datetime_identity(event.timestamp) <= closed]
+        truncated = len(executions) > MAX_WINDOW_EXECUTIONS
+        incomplete_runs = mismatched | (observed - expected.keys()) | {
+            run_identity(event)[2] for event in outside
+        }
+        if truncated:
+            incomplete_runs |= observed
+        delivery = SourceDelivery(
+            source_window_id=source_window.source_window_id,
+            inventory_digest=source_window.digest(),
+            status="mismatch" if missing or unexpected or mismatched or outside or truncated else "matched",
+            expected_runs=len(expected), observed_runs=len(observed),
+            expected_executions=sum(run.execution_count for run in source_window.runs),
+            observed_executions=len(executions), missing_runs=missing,
+            unexpected_runs=unexpected, mismatched_runs=len(mismatched),
+            out_of_window_executions=len(outside), scan_truncated=truncated,
+        )
+        for run_id in expected:
+            executions_by_run.setdefault(run_id, [])
     outcome_by_run = {}
     selected_outcomes = outcomes_for_events(db, executions, outcome_type=outcome_type)
     for key, outcome in selected_outcomes:
@@ -141,7 +197,7 @@ def _version_from_store(
 
     runs: list[RunEvidence] = []
     for run_id, run_events in sorted(executions_by_run.items()):
-        cost, cost_measurement = _run_cost(run_events)
+        cost, cost_measurement = _run_cost([] if run_id in incomplete_runs else run_events)
         outcome = outcome_by_run.get(run_id)
         runs.append(
             RunEvidence(
@@ -154,6 +210,7 @@ def _version_from_store(
         )
     return VersionEvidence(
         workflow=workflow, version=version, runs=runs,
+        source_delivery=delivery,
         source_fingerprint=_source_fingerprint(
             db.scope.tenant_id, executions, [outcome for _, outcome in selected_outcomes],
         ),
@@ -173,12 +230,14 @@ def compare_versions_from_store(
         workflow=request.workflow,
         version=request.baseline_version,
         outcome_type=request.outcome_type,
+        source_window=request.source_windows.get("baseline"),
     )
     candidate = _version_from_store(
         db,
         workflow=request.workflow,
         version=request.candidate_version,
         outcome_type=request.outcome_type,
+        source_window=request.source_windows.get("candidate"),
     )
     return compare_workflow_versions(baseline, candidate, policy=request.policy)
 

@@ -101,6 +101,10 @@ def record_execution(
         implementation_id=implementation_id,
         workflow_id=payload.workflow,
         workflow_version=payload.workflow_version,
+        source_window_id=payload.source_window_id,
+        # Window inventories bind the public run ID; retain old debugger mapping
+        # for unwindowed clients so historical retries do not change assertions.
+        run_id=payload.run_id if payload.source_window_id is not None else None,
         model_version=payload.model_version,
         token_cost_usd=payload.cost_usd if measured else None,
         tool_cost_usd=None,

@@ -36,6 +36,7 @@ class ExecutionEvent(Base):
             "workflow_id",
             "timestamp",
         ),
+        Index("ix_execution_events_tenant_source_window", "tenant_id", "source_window_id"),
         Index("ix_execution_events_tenant_subject", "tenant_id", "subject_id"),
     )
 
@@ -49,6 +50,7 @@ class ExecutionEvent(Base):
     cleanup_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     workflow_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
     workflow_version: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
+    source_window_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     run_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     step_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, default=1)

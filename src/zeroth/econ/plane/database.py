@@ -83,6 +83,7 @@ _CHAIN_OWNED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("execution_events", "dimensions", "20260830_11"),
     ("outcome_events", "workflow_id", "20260906_18"),
     ("outcome_events", "workflow_version", "20260906_18"),
+    ("execution_events", "source_window_id", "20260906_19"),
     ("cost_reservations", "deployment_ref", "20260823_09"),
     ("cost_reservations", "evidence_kind", "20260823_09"),
     ("policy_actions", "enforcement_action_id", "20260812_06"),
@@ -352,6 +353,7 @@ def _ensure_sqlite_compat() -> None:
         ).upgrade()
         ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         _load_compat_migration(conn, "20260906_18_outcome_workflow_identity.py").upgrade()
+        _load_compat_migration(conn, "20260906_19_source_window.py").upgrade()
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")  # noqa: E501

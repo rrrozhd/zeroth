@@ -10,8 +10,16 @@ from zeroth.protocol.models import (
     OutcomeEvent,
     VersionComparisonRequest,
 )
+from zeroth.protocol.source_inventory import (
+    RunInventory,
+    SourceWindowInventory,
+    execution_ids_digest,
+)
 
 __all__ = [
+    "RunInventory",
+    "SourceWindowInventory",
+    "execution_ids_digest",
     "BacktestCase",
     "BacktestRequest",
     "DecisionPolicy",
