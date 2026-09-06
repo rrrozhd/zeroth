@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -71,12 +73,15 @@ def _seed_version(
         )
 
 
-def test_compare_route_reads_only_the_authenticated_tenant(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("baseline_cost,candidate_cost", [("1", "0.6"), ("0.00000005", "0.00000003")])
+def test_compare_route_reads_only_the_authenticated_tenant(
+    tmp_path: Path, monkeypatch, baseline_cost, candidate_cost,
+) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'decisions.db'}")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
-        _seed_version(db, tenant_id="tenant-a", version="v1", cost="1", accepted=9)
-        _seed_version(db, tenant_id="tenant-a", version="v2", cost="0.6", accepted=9)
+        _seed_version(db, tenant_id="tenant-a", version="v1", cost=baseline_cost, accepted=9)
+        _seed_version(db, tenant_id="tenant-a", version="v2", cost=candidate_cost, accepted=9)
         _seed_version(db, tenant_id="tenant-b", version="v2", cost="99", accepted=1)
         db.commit()
 

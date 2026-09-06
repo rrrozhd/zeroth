@@ -9,14 +9,13 @@ never becomes a confident approval by default.
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.econ.measurement import MeasurementState
-
-_MONEY_QUANTUM = Decimal("0.000001")
 
 
 class RunEvidence(BaseModel):
@@ -105,10 +104,6 @@ class EconomicDecision(BaseModel):
     evaluated_at: datetime | None = None
 
 
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(_MONEY_QUANTUM, rounding=ROUND_HALF_UP)
-
-
 def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> VersionEconomics:
     runs = len(evidence.runs)
     labeled = [run for run in evidence.runs if run.accepted is not None]
@@ -124,14 +119,14 @@ def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> Vers
     ]
     measured_cost = sum((run.cost_usd or Decimal("0") for run in measured), Decimal("0"))
     estimated_cost = sum((run.cost_usd or Decimal("0") for run in estimated), Decimal("0"))
-    coverage = round(len(labeled) / runs, 6) if runs else 0.0
-    success_rate = round(accepted / len(labeled), 6) if labeled else None
+    coverage = len(labeled) / runs if runs else 0.0
+    success_rate = accepted / len(labeled) if labeled else None
 
     comparable_cost: Decimal | None = None
-    if coverage == 1 and not unmeasured and (allow_estimated_cost or not estimated):
+    if len(labeled) == runs and not unmeasured and (allow_estimated_cost or not estimated):
         comparable_cost = measured_cost + (estimated_cost if allow_estimated_cost else Decimal("0"))
     cost_per_outcome = (
-        _money(comparable_cost / accepted) if comparable_cost is not None and accepted else None
+        comparable_cost / accepted if comparable_cost is not None and accepted else None
     )
 
     return VersionEconomics(
@@ -144,8 +139,8 @@ def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> Vers
         inferred_outcome_runs=inferred_outcomes,
         outcome_coverage=coverage,
         success_rate=success_rate,
-        measured_cost_usd=_money(measured_cost),
-        estimated_cost_usd=_money(estimated_cost),
+        measured_cost_usd=measured_cost,
+        estimated_cost_usd=estimated_cost,
         measured_runs=len(measured),
         estimated_runs=len(estimated),
         unmeasured_runs=len(unmeasured),
@@ -161,7 +156,8 @@ def _evidence_reasons(
     reasons: list[str] = []
     if summary.runs < policy.min_runs:
         reasons.append(f"{label}_runs_below_minimum")
-    if summary.outcome_coverage < policy.min_outcome_coverage:
+    coverage = Fraction(summary.labeled_runs, summary.runs) if summary.runs else Fraction(0)
+    if coverage < Fraction(str(policy.min_outcome_coverage)):
         reasons.append(f"{label}_outcome_coverage_below_minimum")
     if not policy.allow_inferred_outcomes and summary.inferred_outcome_runs:
         reasons.append(f"{label}_contains_inferred_outcomes")
@@ -170,6 +166,16 @@ def _evidence_reasons(
     if summary.unmeasured_runs:
         reasons.append(f"{label}_contains_unmeasured_cost")
     return reasons
+
+
+def _cost_per_outcome(summary: VersionEconomics, *, allow_estimated_cost: bool) -> Fraction | None:
+    """Use exact totals and counts; a displayed decimal quotient is not a policy input."""
+    if summary.cost_per_accepted_outcome_usd is None:
+        return None
+    total = Fraction(summary.measured_cost_usd)
+    if allow_estimated_cost:
+        total += Fraction(summary.estimated_cost_usd)
+    return total / summary.accepted_runs
 
 
 def compare_workflow_versions(
@@ -201,6 +207,17 @@ def compare_workflow_versions(
     ]
     if baseline.accepted_runs == 0:
         evidence_reasons.append("baseline_has_no_accepted_outcomes")
+    baseline_cpo = _cost_per_outcome(
+        baseline, allow_estimated_cost=active_policy.allow_estimated_cost,
+    )
+    candidate_cpo = _cost_per_outcome(
+        candidate, allow_estimated_cost=active_policy.allow_estimated_cost,
+    )
+    if not evidence_reasons and (
+        baseline_cpo in {None, 0}
+        or (candidate_cpo is None and candidate.accepted_runs > 0)
+    ):
+        evidence_reasons.append("cost_per_outcome_comparison_unavailable")
     if evidence_reasons:
         return EconomicDecision(
             workflow=baseline.workflow,
@@ -214,31 +231,36 @@ def compare_workflow_versions(
             policy=active_policy,
         )
 
-    success_change = (
-        round(candidate.success_rate - baseline.success_rate, 6)
-        if candidate.success_rate is not None and baseline.success_rate is not None
+    candidate_success = (
+        Fraction(candidate.accepted_runs, candidate.labeled_runs)
+        if candidate.labeled_runs else None
+    )
+    baseline_success = (
+        Fraction(baseline.accepted_runs, baseline.labeled_runs) if baseline.labeled_runs else None
+    )
+    exact_success_change = (
+        candidate_success - baseline_success
+        if candidate_success is not None and baseline_success is not None
         else None
     )
-    cost_change = (
-        round(
-            float(
-                (candidate.cost_per_accepted_outcome_usd - baseline.cost_per_accepted_outcome_usd)
-                / baseline.cost_per_accepted_outcome_usd
-            ),
-            6,
-        )
-        if candidate.cost_per_accepted_outcome_usd is not None
-        and baseline.cost_per_accepted_outcome_usd not in {None, Decimal("0")}
+    exact_cost_change = (
+        (candidate_cpo - baseline_cpo) / baseline_cpo
+        if candidate_cpo is not None and baseline_cpo not in {None, 0}
         else None
     )
+    success_change = float(exact_success_change) if exact_success_change is not None else None
+    cost_change = float(exact_cost_change) if exact_cost_change is not None else None
 
     outcome_failures: list[str] = []
-    if candidate.success_rate is None or candidate.accepted_runs == 0:
+    if candidate_success is None or candidate.accepted_runs == 0:
         outcome_failures.append("candidate_has_no_accepted_outcomes")
     else:
-        if candidate.success_rate < active_policy.min_success_rate:
+        if candidate_success < Fraction(str(active_policy.min_success_rate)):
             outcome_failures.append("candidate_success_rate_below_minimum")
-        if success_change is not None and success_change < -active_policy.max_success_rate_drop:
+        if (
+            exact_success_change is not None
+            and exact_success_change < -Fraction(str(active_policy.max_success_rate_drop))
+        ):
             outcome_failures.append("candidate_success_rate_drop_exceeds_limit")
     if outcome_failures:
         return EconomicDecision(
@@ -255,7 +277,7 @@ def compare_workflow_versions(
             policy=active_policy,
         )
 
-    if cost_change is None:
+    if exact_cost_change is None:
         return EconomicDecision(
             workflow=baseline.workflow,
             baseline_version=baseline.version,
@@ -268,7 +290,7 @@ def compare_workflow_versions(
             success_rate_change=success_change,
             policy=active_policy,
         )
-    if cost_change > active_policy.max_cost_per_outcome_increase:
+    if exact_cost_change > Fraction(str(active_policy.max_cost_per_outcome_increase)):
         return EconomicDecision(
             workflow=baseline.workflow,
             baseline_version=baseline.version,

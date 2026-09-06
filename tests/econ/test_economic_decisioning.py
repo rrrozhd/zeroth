@@ -92,7 +92,7 @@ def test_comparison_holds_candidate_that_breaks_success_constraint() -> None:
         "candidate_success_rate_drop_exceeds_limit",
     ]
     assert report.success_rate_change == -0.2
-    assert report.candidate.cost_per_accepted_outcome_usd == Decimal("0.714286")
+    assert report.candidate.cost_per_accepted_outcome_usd == Decimal("5") / 7
 
 
 def test_comparison_investigates_cost_per_outcome_regression() -> None:

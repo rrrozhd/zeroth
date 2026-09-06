@@ -26,6 +26,8 @@ the implementation; it does not duplicate or weaken those acceptance gates.
 - Decisions: `src/zeroth/econ/plane/decisioning/service.py` joins stored
   evidence; `src/zeroth/econ/decisioning.py` applies policy and retains reasons.
   Unknown cost/outcome evidence must not become measured completeness.
+  Thresholds use exact ratios of counts and decimal totals; display rounding
+  must never decide a verdict. Zero baseline cost leaves relative change undefined.
 - Experiments: `src/zeroth/econ/plane/backtesting/` owns bounded execution,
   reservation/metering and retained results; analytics owns model evaluation.
   Hosted replays reuse the correctness evaluator, then price captured input/output
