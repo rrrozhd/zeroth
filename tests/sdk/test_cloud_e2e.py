@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -36,7 +37,8 @@ class _BacktestExecutor:
         )
 
 
-def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("candidate_cost", [Decimal("0.6"), Decimal("0"), None])
+def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypatch, candidate_cost) -> None:
     from zeroth.protocol import ExecutionEvent, OutcomeEvent, VersionComparisonRequest
     from zeroth.sdk import ZerothClient
 
@@ -77,7 +79,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
         http_client=httpx.Client(transport=httpx.MockTransport(dispatch)),
     )
     now = datetime(2026, 8, 31, tzinfo=UTC)
-    for version, cost in (("v1", Decimal("1")), ("v2", Decimal("0.6"))):
+    for version, cost in (("v1", Decimal("1")), ("v2", candidate_cost)):
         for index in range(10):
             run_id = f"{version}-{index}"
             timestamp = now + timedelta(seconds=index)
@@ -88,7 +90,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
                     run_id=run_id,
                     step="generate",
                     recorded_at=timestamp,
-                    cost_usd=cost,
+                    **({"cost_usd": cost} if cost is not None else {}),
                 )
             )
             sdk.record_outcome(
@@ -109,9 +111,18 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
         )
     )
 
-    assert decision["verdict"] == "pass"
-    assert decision["recommended_action"] == "approve"
-    assert decision["cost_per_outcome_change"] == -0.4
+    if candidate_cost is None:
+        assert decision["verdict"] == "abstain"
+        assert decision["recommended_action"] == "collect_evidence"
+        assert "candidate_contains_unmeasured_cost" in decision["reason_codes"]
+        assert decision["candidate"]["unmeasured_runs"] == 10
+        assert decision["candidate"]["measured_runs"] == 0
+        assert decision["candidate"]["cost_per_accepted_outcome_usd"] is None
+        assert decision["cost_per_outcome_change"] is None
+    else:
+        assert decision["verdict"] == "pass"
+        assert decision["recommended_action"] == "approve"
+        assert decision["cost_per_outcome_change"] == (-1 if candidate_cost == 0 else -0.4)
 
 
 def test_sdk_submits_and_reads_a_real_hosted_backtest_route(tmp_path: Path, monkeypatch) -> None:

@@ -80,3 +80,39 @@ def test_plane_lifecycle_runs_scheduler_and_exposes_it_in_readiness(monkeypatch)
         assert not task.done()
 
     assert task.done()
+
+
+@pytest.mark.parametrize("path", ["/health", "/health/ready"])
+@pytest.mark.parametrize("schema_state", ["current", "behind", "unknown"])
+@pytest.mark.parametrize("scheduler_state", ["disabled", "running", "missing", "finished", "cancelled"])
+def test_health_http_status_matches_required_dependency_state(
+    monkeypatch, path, schema_state, scheduler_state
+) -> None:
+    from concurrent.futures import Future
+
+    from fastapi.testclient import TestClient
+
+    from zeroth.econ.plane import main
+    from zeroth.econ.plane.config import settings
+
+    task = Future()
+    if scheduler_state == "finished":
+        task.set_result(None)
+    elif scheduler_state == "cancelled":
+        task.cancel()
+    monkeypatch.setattr(settings, "cloud_scheduler_enabled", scheduler_state != "disabled")
+    monkeypatch.setattr(
+        main.app.state,
+        "cloud_scheduler_task",
+        None if scheduler_state == "missing" else task,
+        raising=False,
+    )
+    revision = SchemaRevision(applied="old", head="head", state=schema_state)
+    monkeypatch.setattr(main.common_bootstrap, "schema_revision", lambda: revision)
+
+    # No lifespan: inspect each dependency state without starting a replacement task.
+    response = TestClient(main.app).get(path)
+    ready = schema_state == "current" and scheduler_state in {"disabled", "running"}
+    assert response.json()["status"] == ("ok" if ready else "degraded")
+    assert response.status_code == (200 if ready else 503)
+    assert response.json()["schema_revision"] == revision.model_dump()

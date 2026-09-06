@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ExecutionEvent(BaseModel):
-    """Measured cost and latency for one workflow step."""
+    """Caller-reported cost and latency for one workflow step; missing cost is unknown."""
 
     workflow: str = Field(min_length=1)
     workflow_version: str = Field(default="unversioned", min_length=1)
@@ -20,8 +20,8 @@ class ExecutionEvent(BaseModel):
     event_id: str | None = Field(default=None, min_length=1, max_length=128)
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     model_version: str = Field(default="unknown", min_length=1)
-    cost_usd: Decimal | None = Field(default=Decimal("0"), ge=0)
-    cost_measurement: Literal["measured", "estimated", "unmeasured"] = "measured"
+    cost_usd: Decimal | None = Field(default=None, ge=0)
+    cost_measurement: Literal["measured", "estimated", "unmeasured"] = "unmeasured"
     latency_ms: int = Field(default=0, ge=0)
     subject_id: str | None = None
     dimensions: dict[str, str | int | float | bool] = Field(default_factory=dict)
@@ -29,6 +29,9 @@ class ExecutionEvent(BaseModel):
 
     @model_validator(mode="after")
     def _cost_matches_measurement(self) -> ExecutionEvent:
+        # Preserve explicit-amount callers without inventing an omitted amount.
+        if "cost_measurement" not in self.model_fields_set and self.cost_usd is not None:
+            self.cost_measurement = "measured"
         if self.cost_measurement == "unmeasured" and self.cost_usd is not None:
             raise ValueError("unmeasured cost must not include a value")
         if self.cost_measurement != "unmeasured" and self.cost_usd is None:

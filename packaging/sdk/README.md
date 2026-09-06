@@ -50,6 +50,25 @@ The SDK contains only public wire contracts, HTTP client operations, and the
 instrumentation namespace. It does not ship the Zeroth runtime, service,
 economic plane, database migrations, or web console.
 
+Execution cost is unknown when `cost_usd` is omitted or `None`; the wire value is
+`null` with `cost_measurement="unmeasured"`. A supplied amount, including explicit
+zero, is treated as caller-reported measured cost for existing-client compatibility
+unless you explicitly mark it `estimated`. Use `estimated` for rate-card estimates.
+Measured here is the caller's assertion, not proof of a provider invoice or of
+complete run costs. Measured/estimated costs require an amount, and unmeasured
+costs cannot include one. Unknown costs prevent a complete-cost version approval.
+
+Hosted backtests require an explicit `constraints.min_success_rate`. Omitting it
+returns an abstention before provider execution or credit reservation. A pass
+means the declared requirements were met on those cases; it is not a statistical
+guarantee for future application traffic. A zero floor explicitly permits zero
+observed success, so choose a requirement that reflects your actual task.
+
+This corrects older SDK defaults that serialized omitted cost as measured zero.
+Existing records and explicit-cost callers remain readable; old-client default
+zeros cannot be distinguished from intentional zeros and are not retroactively
+certified as complete evidence. No stored records are rewritten by this change.
+
 ```python
 from zeroth.protocol import (
     BacktestCase,

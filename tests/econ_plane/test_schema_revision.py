@@ -127,7 +127,7 @@ def test_econ_health_uses_captured_schema_revision(
 
     response = TestClient(main.app).get("/health")
 
-    assert response.status_code == 200
+    assert response.status_code == (200 if status == "ok" else 503)
     assert response.json() == {
         "status": status,
         "schema_revision": revision.model_dump(),

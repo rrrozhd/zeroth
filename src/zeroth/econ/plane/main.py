@@ -3,7 +3,7 @@ import logging
 import random
 import time
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Response
 from fastapi.responses import PlainTextResponse
 from starlette.requests import Request
 
@@ -107,7 +107,7 @@ async def stop_cloud_scheduler() -> None:
 
 @app.get("/health")
 @app.get("/health/ready")
-def health() -> dict[str, object]:
+def health(response: Response) -> dict[str, object]:
     revision = common_bootstrap.schema_revision()
     scheduler_task = getattr(app.state, "cloud_scheduler_task", None)
     scheduler_state = (
@@ -117,12 +117,10 @@ def health() -> dict[str, object]:
         if scheduler_task is not None and not scheduler_task.done()
         else "failed"
     )
+    ready = revision.state == "current" and scheduler_state != "failed"
+    response.status_code = 200 if ready else 503
     return {
-        "status": (
-            "ok"
-            if revision.state == "current" and scheduler_state != "failed"
-            else "degraded"
-        ),
+        "status": "ok" if ready else "degraded",
         "schema_revision": revision,
         "scheduler": {"status": scheduler_state},
     }

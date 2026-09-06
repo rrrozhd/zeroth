@@ -59,6 +59,8 @@ def evidence_gaps(payload: BacktestCreate) -> list[str]:
             gaps.append(field)
     if not isinstance(payload.candidate.get("model"), str) or not payload.candidate.get("model"):
         gaps.append("candidate.model")
+    if payload.constraints.min_success_rate is None:
+        gaps.append("constraints.min_success_rate")
     if payload.constraints.max_cost_per_outcome_usd is not None:
         gaps.append("max_cost_per_outcome_usd is unsupported by isolated node replay")
     if payload.constraints.max_critical_error_rate is not None:
@@ -73,7 +75,8 @@ def decide(
     digest: str,
     evaluated_at: datetime,
 ) -> EconomicBacktest:
-    reasons = list(computation.reasons)
+    missing_evidence = list(dict.fromkeys([*evidence_gaps(payload), *computation.reasons]))
+    reasons = list(missing_evidence)
     if computation.candidate_success_rate is None:
         reasons.append("candidate success rate is unavailable")
     failed = False
@@ -88,7 +91,7 @@ def decide(
         failed = True
         reasons.append("candidate does not reduce projected model cost")
 
-    if computation.reasons or computation.candidate_success_rate is None or computation.savings_pct is None:
+    if missing_evidence or computation.candidate_success_rate is None or computation.savings_pct is None:
         verdict = "abstain"
         action = "collect_evidence"
     elif failed:

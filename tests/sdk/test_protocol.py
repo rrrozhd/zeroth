@@ -52,6 +52,59 @@ def test_unmeasured_execution_cannot_manufacture_a_zero_cost() -> None:
         )
 
 
+@pytest.mark.parametrize("model_name", ["sdk", "server"])
+@pytest.mark.parametrize(
+    "cost_fields, expected_cost, expected_measurement",
+    [
+        ({}, None, "unmeasured"),
+        ({"cost_usd": None}, None, "unmeasured"),
+        ({"cost_measurement": "unmeasured"}, None, "unmeasured"),
+        ({"cost_usd": "0"}, Decimal("0"), "measured"),
+        ({"cost_usd": "0.031250"}, Decimal("0.031250"), "measured"),
+        ({"cost_usd": "0", "cost_measurement": "estimated"}, Decimal("0"), "estimated"),
+        ({"cost_usd": "2.25", "cost_measurement": "estimated"}, Decimal("2.25"), "estimated"),
+    ],
+)
+def test_execution_cost_defaults_and_wire_parity(
+    model_name, cost_fields, expected_cost, expected_measurement
+) -> None:
+    from zeroth.econ.plane.cloud.schemas import SdkExecutionEvent
+    from zeroth.protocol import ExecutionEvent
+
+    model, peer = (
+        (ExecutionEvent, SdkExecutionEvent)
+        if model_name == "sdk"
+        else (SdkExecutionEvent, ExecutionEvent)
+    )
+    event = model(workflow="cost-parity", run_id="run-1", step="call", **cost_fields)
+    assert event.cost_usd == expected_cost
+    assert event.cost_measurement == expected_measurement
+    wire = event.model_dump_json()
+    assert peer.model_validate_json(wire).model_dump(mode="json") == event.model_dump(mode="json")
+
+
+@pytest.mark.parametrize("model_name", ["sdk", "server"])
+@pytest.mark.parametrize(
+    "cost_fields",
+    [
+        {"cost_measurement": "measured"},
+        {"cost_measurement": "estimated"},
+        {"cost_usd": None, "cost_measurement": "measured"},
+        {"cost_usd": "0", "cost_measurement": "unmeasured"},
+        {"cost_usd": "-1"},
+        {"cost_usd": "NaN"},
+        {"cost_usd": "Infinity"},
+    ],
+)
+def test_execution_rejects_missing_contradictory_or_invalid_money(model_name, cost_fields) -> None:
+    from zeroth.econ.plane.cloud.schemas import SdkExecutionEvent
+    from zeroth.protocol import ExecutionEvent
+
+    model = ExecutionEvent if model_name == "sdk" else SdkExecutionEvent
+    with pytest.raises(ValidationError):
+        model(workflow="cost-parity", run_id="run-1", step="call", **cost_fields)
+
+
 def test_backtest_constraints_reject_invalid_rates() -> None:
     from zeroth.protocol import EconomicConstraints
 
