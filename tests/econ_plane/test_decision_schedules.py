@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -70,9 +72,11 @@ def _seed(db: Session) -> None:
             )
 
 
+@pytest.mark.parametrize("quality_floor", [None, 0.85])
 def test_schedule_api_and_due_runner_retain_a_recurring_decision(
     tmp_path: Path,
     monkeypatch,
+    quality_floor,
 ) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'schedules.db'}")
     Base.metadata.create_all(engine)
@@ -104,6 +108,7 @@ def test_schedule_api_and_due_runner_retain_a_recurring_decision(
             "candidate_version": "v2",
             "outcome_type": "accepted",
             "interval_minutes": 60,
+            "policy": {} if quality_floor is None else {"min_success_rate": quality_floor},
         },
     )
 
@@ -120,7 +125,13 @@ def test_schedule_api_and_due_runner_retain_a_recurring_decision(
         )
 
     assert len(decisions) == 1
-    assert decisions[0].verdict == "pass"
+    assert decisions[0].verdict == ("abstain" if quality_floor is None else "pass")
+    assert decisions[0].claim_class == "observed_comparison"
+    assert decisions[0].method_version == "observed-policy/1"
+    if quality_floor is None:
+        assert "policy.min_success_rate" in decisions[0].reason_codes
+    else:
+        assert decisions[0].recommended_action == "review_candidate"
     assert decisions[0].decision_id
 
     listed = client.get("/v1/decision-schedules", headers=headers)

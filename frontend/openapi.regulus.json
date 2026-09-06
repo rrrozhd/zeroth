@@ -1596,11 +1596,17 @@
             "type": "integer"
           },
           "min_success_rate": {
-            "default": 0.0,
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Min Success Rate",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Success Rate"
           }
         },
         "title": "DecisionPolicy",
@@ -1926,6 +1932,18 @@
             ],
             "title": "Candidate Model"
           },
+          "candidate_replay_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Replay Cost Usd"
+          },
           "candidate_success_rate": {
             "anyOf": [
               {
@@ -1943,8 +1961,26 @@
             "title": "Cases",
             "type": "integer"
           },
+          "claim_class": {
+            "default": "legacy_unclassified",
+            "enum": [
+              "legacy_unclassified",
+              "exploratory_model_experiment"
+            ],
+            "title": "Claim Class",
+            "type": "string"
+          },
           "constraints": {
             "$ref": "#/components/schemas/EconomicConstraints-Output"
+          },
+          "cost_basis": {
+            "default": "unavailable",
+            "enum": [
+              "unavailable",
+              "rate_card_from_observed_usage"
+            ],
+            "title": "Cost Basis",
+            "type": "string"
           },
           "evaluated_at": {
             "format": "date-time",
@@ -1962,6 +1998,18 @@
             ],
             "title": "Incumbent Model"
           },
+          "incumbent_replay_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incumbent Replay Cost Usd"
+          },
           "incumbent_success_rate": {
             "anyOf": [
               {
@@ -1973,6 +2021,30 @@
             ],
             "title": "Incumbent Success Rate"
           },
+          "judge_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Cost Usd"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
+          },
           "node_id": {
             "anyOf": [
               {
@@ -1983,6 +2055,16 @@
               }
             ],
             "title": "Node Id"
+          },
+          "pricing_snapshot": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Pricing Snapshot",
+            "type": "object"
           },
           "provider_call_credits": {
             "minimum": 0.0,
@@ -1999,6 +2081,7 @@
           "recommended_action": {
             "enum": [
               "approve_candidate",
+              "review_candidate",
               "keep_incumbent",
               "collect_evidence"
             ],
@@ -2019,6 +2102,16 @@
               }
             ],
             "title": "Savings Pct"
+          },
+          "usage_by_role": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "title": "Usage By Role",
+            "type": "object"
           },
           "verdict": {
             "enum": [
@@ -2164,6 +2257,15 @@
             "title": "Candidate Version",
             "type": "string"
           },
+          "claim_class": {
+            "default": "legacy_unclassified",
+            "enum": [
+              "legacy_unclassified",
+              "observed_comparison"
+            ],
+            "title": "Claim Class",
+            "type": "string"
+          },
           "cost_per_outcome_change": {
             "anyOf": [
               {
@@ -2198,6 +2300,18 @@
             ],
             "title": "Evaluated At"
           },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
+          },
           "policy": {
             "$ref": "#/components/schemas/DecisionPolicy"
           },
@@ -2211,6 +2325,7 @@
           "recommended_action": {
             "enum": [
               "approve",
+              "review_candidate",
               "hold",
               "investigate",
               "collect_evidence"
@@ -4590,7 +4705,7 @@
             "type": "integer"
           },
           "cost_measurement": {
-            "default": "measured",
+            "default": "unmeasured",
             "enum": [
               "measured",
               "estimated",
@@ -4613,7 +4728,6 @@
                 "type": "null"
               }
             ],
-            "default": "0",
             "title": "Cost Usd"
           },
           "dimensions": {

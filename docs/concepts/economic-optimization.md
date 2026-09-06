@@ -26,17 +26,17 @@ about what to cut, change, or retain.
 The local debugger is the free trust layer. The subscription sells continuous
 hosted operation and decision history rather than a basic cost dashboard.
 
-| Free forever | Paid managed service, after activation |
+| Free forever | Approved Solo scope, pending release acceptance |
 |---|---|
 | SDK, ingestion, and local verification | Managed ingestion and retained evidence |
 | Single-team cost per successful outcome | Scheduled workflow-version decisions |
-| Run and step economic timeline | Hosted simulations and post-change verification |
-| Cohort and breakage queries | Decision history, notifications, and collaboration |
-| Local caps and enforcement mechanics | Multi-team rollups, chargeback, SSO/RBAC, and retention |
-| Local model-swap backtests | Signed proof-of-savings and compliance evidence bundles |
+| Run and step economic timeline | Bounded exploratory model experiments |
+| Cohort and breakage queries | Retained comparison and experiment history |
+| Local caps and enforcement mechanics | Metered managed experiment calls |
+| Local model-swap backtests | Observed usage and rate-card projections |
 
 The land user may be a solo developer or small AI team that needs a recurring,
-low-touch answer to “is this cheaper version safe to ship?” Organization finance
+low-touch way to review observed cost and outcome changes. Organization finance
 and governance controls are the expansion motion. Project API keys, retained
 decisions, schedules, enforced quotas, and a vendor-neutral subscription
 projection are implemented. The approved self-serve offer is Solo at $39/month
@@ -132,8 +132,16 @@ cost per accepted outcome. It returns an immutable decision artifact with a
 pass, fail, or abstain verdict and a recommended action. The engine abstains
 when the run count or outcome coverage is too low, cost is estimated or
 unmeasured, outcomes are inferred, or the baseline has no accepted outcomes.
+It also requires an explicit `policy.min_success_rate`, including in schedules.
+Omission or `null` abstains; zero is an explicit customer choice. A policy pass
+uses `review_candidate` and means the declared sample constraints were met.
+The default cost-growth tolerance is 10%, so a pass is not a savings claim.
 It does not convert missing evidence into zero or market a projected saving as
 realized value.
+
+Threshold comparisons use exact ratios of counts and decimal cost totals.
+Presentation rounding does not determine the verdict. A zero baseline cost
+leaves relative cost change undefined; that comparison abstains.
 
 `GET /v1/decisions` returns retained history. `POST` and `GET
 /v1/decision-schedules` manage recurring comparisons, and the worker discovers
@@ -152,6 +160,32 @@ correctness, checks the minimum success-rate constraint, and requires positive
 projected model savings before it can pass. Raw inputs, expected outputs, and
 instructions are not retained: history stores a keyed request digest plus the
 result. Exact retries return that immutable result without another model call.
+The quality floor must be supplied as `constraints.min_success_rate` before
+provider work starts. Input/output usage is priced separately for incumbent,
+candidate and judge using retained rates. Judge expense is not workload savings.
+Missing usage abstains; rate-card estimates do not establish invoice charges.
+
+### Claim and method contract
+
+| Output | Claim class / method | Evidence scope and limitations |
+| --- | --- | --- |
+| Version comparison and scheduled result | `observed_comparison` / `observed-policy/1` | All currently retained received events for the named versions. Source completeness and outcome maturity are not established. Policy checks describe that evidence only. |
+| Hosted model backtest | `exploratory_model_experiment` / `observed-replay-policy/1` | Supplied 5–25 cases; observed correctness according to the current judge and text-usage projections at retained rates. Judge calibration and population generalization are unvalidated. Cache, tools, downstream charges and unobserved retries are excluded. |
+| Historical result without these fields | `legacy_unclassified` / `legacy_unversioned` | Original values and action remain readable. Missing metadata cannot establish the current method or completeness. |
+| Legacy counterfactual estimates | Legacy OSS method only | Heuristic confidence, calibration and proxy-dollar outputs are not paid statistical, causal or forecasting authorization. |
+
+New reports retain `claim_class`, `method_version` and `limitations`. Both current
+methods use `review_candidate` for a pass, never automatic rollout. Their
+`no_statistical_causal_or_forecast_authorization` limitation applies even when
+all observed cases pass. Repeated scheduled looks do not create population
+confidence. Full input snapshots, source closure, outcome definition versions
+and an independently reproducible evidence window remain acceptance work.
+
+Paid project keys and WorkOS browser sessions cannot authenticate the legacy
+`/v1/evaluations/*` routes. Those retain the legacy JWT boundary for self-hosted
+use. Hosted deployment must keep the development token issuer disabled and
+protect service credentials; local credential tests do not replace deployed
+security acceptance.
 
 The isolated node replay abstains when pricing is unknown or when asked to
 prove cost per business outcome or critical-error limits that its evidence

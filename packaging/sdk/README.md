@@ -64,6 +64,21 @@ means the declared requirements were met on those cases; it is not a statistical
 guarantee for future application traffic. A zero floor explicitly permits zero
 observed success, so choose a requirement that reflects your actual task.
 
+Version comparisons and schedules likewise require an explicit
+`policy.min_success_rate`; omission or `null` yields `abstain`. Explicit zero
+remains a caller choice. A policy pass can tolerate the configured cost growth
+(10% by default), so a pass does not necessarily mean a saving.
+
+New version results carry `claim_class="observed_comparison"` and
+`method_version="observed-policy/1"`. New backtests carry
+`claim_class="exploratory_model_experiment"` and
+`method_version="observed-replay-policy/1"`. Both return `limitations` and use
+`recommended_action="review_candidate"` for a pass. These fields are retained
+in history and scheduled results. They do not authorize rollout, statistical,
+causal or forecast claims. Older records load as `legacy_unclassified` /
+`legacy_unversioned` with their original action and values; do not upgrade their
+meaning based on the current SDK version.
+
 New hosted backtests price each model's observed replay input/output usage at the
 retained input/output rates (`cost_basis="rate_card_from_observed_usage"`). The
 result includes `incumbent_replay_cost_usd`, `candidate_replay_cost_usd`, separate

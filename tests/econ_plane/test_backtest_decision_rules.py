@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from zeroth.econ.plane.backtesting.schemas import BacktestComputation, BacktestCreate
+from zeroth.econ.plane.backtesting.schemas import BacktestComputation, BacktestCreate, EconomicBacktest
 from zeroth.econ.plane.backtesting.service import decide, evidence_gaps
 
 
@@ -45,3 +45,23 @@ def test_explicit_quality_and_savings_contracts_keep_their_boundaries(minimum, q
         digest="fixture", evaluated_at=datetime(2026, 9, 6, tzinfo=UTC),
     )
     assert report.verdict == verdict
+    assert report.claim_class == "exploratory_model_experiment"
+    assert report.method_version == "observed-replay-policy/1"
+    assert "judge_not_calibrated" in report.limitations
+    assert "no_statistical_causal_or_forecast_authorization" in report.limitations
+    if verdict == "pass":
+        assert report.recommended_action == "review_candidate"
+
+
+def test_legacy_backtest_does_not_acquire_a_validated_method_label():
+    report = decide(
+        _request(0.8), BacktestComputation(candidate_success_rate=1, savings_pct=20),
+        digest="legacy", evaluated_at=datetime(2026, 9, 6, tzinfo=UTC),
+    )
+    old_report = report.model_dump(exclude={"claim_class", "method_version", "limitations"})
+    old_report["recommended_action"] = "approve_candidate"
+    restored = EconomicBacktest.model_validate(old_report)
+    assert restored.claim_class == "legacy_unclassified"
+    assert restored.method_version == "legacy_unversioned"
+    assert restored.recommended_action == "approve_candidate"
+    assert restored.savings_pct == 20

@@ -112,6 +112,28 @@ def test_backtest_constraints_reject_invalid_rates() -> None:
         EconomicConstraints(min_success_rate=1.1)
 
 
+@pytest.mark.parametrize("fields,minimum", [({}, None), ({"min_success_rate": None}, None),
+                                        ({"min_success_rate": 0}, 0), ({"min_success_rate": 1}, 1)])
+def test_decision_policy_quality_floor_round_trips_between_sdk_and_server(fields, minimum):
+    from zeroth.econ.decisioning import DecisionPolicy as ServerPolicy
+    from zeroth.protocol import DecisionPolicy
+
+    for model, peer in [(DecisionPolicy, ServerPolicy), (ServerPolicy, DecisionPolicy)]:
+        policy = model(**fields)
+        assert policy.min_success_rate == minimum
+        assert peer.model_validate_json(policy.model_dump_json()).min_success_rate == minimum
+
+
+def test_decision_policy_rejects_nonfinite_tolerance_before_comparison():
+    from zeroth.econ.decisioning import DecisionPolicy as ServerPolicy
+    from zeroth.protocol import DecisionPolicy
+
+    for model in [DecisionPolicy, ServerPolicy]:
+        for value in [float("inf"), float("-inf"), float("nan")]:
+            with pytest.raises(ValidationError):
+                model(max_cost_per_outcome_increase=value)
+
+
 def test_backtest_request_carries_candidate_and_governance_constraints() -> None:
     from zeroth.protocol import BacktestRequest, EconomicConstraints
 

@@ -93,7 +93,7 @@ def activation_page(*, tenant_id: str, key_id: str, api_key: str | None) -> HTML
     return _page(
         "Trial ready",
         f"""<h1>Your Zeroth trial is ready.</h1>
-<p>Run one bounded production-economic backtest, then keep continuous evidence for
+<p>Run one exploratory model comparison on your labeled cases, then retain results for
 $39/month. Paddle will show the 14-day trial and renewal terms before confirmation.</p>
 {reveal}
 <div class="grid">

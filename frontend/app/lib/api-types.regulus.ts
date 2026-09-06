@@ -2053,11 +2053,8 @@ export interface components {
              * @default 10
              */
             min_runs: number;
-            /**
-             * Min Success Rate
-             * @default 0
-             */
-            min_success_rate: number;
+            /** Min Success Rate */
+            min_success_rate?: number | null;
         };
         /** DecisionRequest */
         DecisionRequest: {
@@ -2184,11 +2181,25 @@ export interface components {
             candidate_error_rate?: number | null;
             /** Candidate Model */
             candidate_model: string | null;
+            /** Candidate Replay Cost Usd */
+            candidate_replay_cost_usd?: string | null;
             /** Candidate Success Rate */
             candidate_success_rate?: number | null;
             /** Cases */
             cases: number;
+            /**
+             * Claim Class
+             * @default legacy_unclassified
+             * @enum {string}
+             */
+            claim_class: "legacy_unclassified" | "exploratory_model_experiment";
             constraints: components["schemas"]["EconomicConstraints-Output"];
+            /**
+             * Cost Basis
+             * @default unavailable
+             * @enum {string}
+             */
+            cost_basis: "unavailable" | "rate_card_from_observed_usage";
             /**
              * Evaluated At
              * Format: date-time
@@ -2196,10 +2207,27 @@ export interface components {
             evaluated_at: string;
             /** Incumbent Model */
             incumbent_model: string | null;
+            /** Incumbent Replay Cost Usd */
+            incumbent_replay_cost_usd?: string | null;
             /** Incumbent Success Rate */
             incumbent_success_rate?: number | null;
+            /** Judge Cost Usd */
+            judge_cost_usd?: string | null;
+            /** Limitations */
+            limitations?: string[];
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
             /** Node Id */
             node_id: string | null;
+            /** Pricing Snapshot */
+            pricing_snapshot?: {
+                [key: string]: {
+                    [key: string]: string;
+                };
+            };
             /** Provider Call Credits */
             provider_call_credits: number;
             /** Reasons */
@@ -2208,11 +2236,17 @@ export interface components {
              * Recommended Action
              * @enum {string}
              */
-            recommended_action: "approve_candidate" | "keep_incumbent" | "collect_evidence";
+            recommended_action: "approve_candidate" | "review_candidate" | "keep_incumbent" | "collect_evidence";
             /** Request Digest */
             request_digest: string;
             /** Savings Pct */
             savings_pct?: number | null;
+            /** Usage By Role */
+            usage_by_role?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
             /**
              * Verdict
              * @enum {string}
@@ -2250,12 +2284,25 @@ export interface components {
             candidate: components["schemas"]["VersionEconomics"];
             /** Candidate Version */
             candidate_version: string;
+            /**
+             * Claim Class
+             * @default legacy_unclassified
+             * @enum {string}
+             */
+            claim_class: "legacy_unclassified" | "observed_comparison";
             /** Cost Per Outcome Change */
             cost_per_outcome_change?: number | null;
             /** Decision Id */
             decision_id?: string | null;
             /** Evaluated At */
             evaluated_at?: string | null;
+            /** Limitations */
+            limitations?: string[];
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
             policy: components["schemas"]["DecisionPolicy"];
             /** Reason Codes */
             reason_codes: string[];
@@ -2263,7 +2310,7 @@ export interface components {
              * Recommended Action
              * @enum {string}
              */
-            recommended_action: "approve" | "hold" | "investigate" | "collect_evidence";
+            recommended_action: "approve" | "review_candidate" | "hold" | "investigate" | "collect_evidence";
             /** Success Rate Change */
             success_rate_change?: number | null;
             /**
@@ -3204,15 +3251,12 @@ export interface components {
             attempt: number;
             /**
              * Cost Measurement
-             * @default measured
+             * @default unmeasured
              * @enum {string}
              */
             cost_measurement: "measured" | "estimated" | "unmeasured";
-            /**
-             * Cost Usd
-             * @default 0
-             */
-            cost_usd: number | string | null;
+            /** Cost Usd */
+            cost_usd?: number | string | null;
             /** Dimensions */
             dimensions?: {
                 [key: string]: string | number | boolean;

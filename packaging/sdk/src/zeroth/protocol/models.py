@@ -90,9 +90,9 @@ class DecisionPolicy(BaseModel):
 
     min_runs: int = Field(default=10, ge=1)
     min_outcome_coverage: float = Field(default=0.8, ge=0, le=1)
-    min_success_rate: float = Field(default=0.0, ge=0, le=1)
+    min_success_rate: float | None = Field(default=None, ge=0, le=1)
     max_success_rate_drop: float = Field(default=0.05, ge=0, le=1)
-    max_cost_per_outcome_increase: float = Field(default=0.1, ge=0)
+    max_cost_per_outcome_increase: float = Field(default=0.1, ge=0, allow_inf_nan=False)
     allow_estimated_cost: bool = False
     allow_inferred_outcomes: bool = False
 

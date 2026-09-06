@@ -39,7 +39,7 @@ class _BacktestExecutor:
 
 @pytest.mark.parametrize("candidate_cost", [Decimal("0.6"), Decimal("0"), None])
 def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypatch, candidate_cost) -> None:
-    from zeroth.protocol import ExecutionEvent, OutcomeEvent, VersionComparisonRequest
+    from zeroth.protocol import DecisionPolicy, ExecutionEvent, OutcomeEvent, VersionComparisonRequest
     from zeroth.sdk import ZerothClient
 
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'sdk-e2e.db'}")
@@ -108,6 +108,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
             workflow="invoice-agent",
             baseline_version="v1",
             candidate_version="v2",
+            policy=DecisionPolicy(min_success_rate=0.85),
         )
     )
 
@@ -121,7 +122,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
         assert decision["cost_per_outcome_change"] is None
     else:
         assert decision["verdict"] == "pass"
-        assert decision["recommended_action"] == "approve"
+        assert decision["recommended_action"] == "review_candidate"
         assert decision["cost_per_outcome_change"] == (-1 if candidate_cost == 0 else -0.4)
 
 

@@ -55,9 +55,9 @@ class DecisionPolicy(BaseModel):
 
     min_runs: int = Field(default=10, ge=1)
     min_outcome_coverage: float = Field(default=0.8, ge=0, le=1)
-    min_success_rate: float = Field(default=0.0, ge=0, le=1)
+    min_success_rate: float | None = Field(default=None, ge=0, le=1)
     max_success_rate_drop: float = Field(default=0.05, ge=0, le=1)
-    max_cost_per_outcome_increase: float = Field(default=0.1, ge=0)
+    max_cost_per_outcome_increase: float = Field(default=0.1, ge=0, allow_inf_nan=False)
     allow_estimated_cost: bool = False
     allow_inferred_outcomes: bool = False
 
@@ -93,7 +93,9 @@ class EconomicDecision(BaseModel):
     baseline_version: str
     candidate_version: str
     verdict: Literal["pass", "fail", "abstain"]
-    recommended_action: Literal["approve", "hold", "investigate", "collect_evidence"]
+    recommended_action: Literal[
+        "approve", "review_candidate", "hold", "investigate", "collect_evidence"
+    ]
     reason_codes: list[str]
     baseline: VersionEconomics
     candidate: VersionEconomics
@@ -102,6 +104,9 @@ class EconomicDecision(BaseModel):
     policy: DecisionPolicy
     decision_id: str | None = None
     evaluated_at: datetime | None = None
+    claim_class: Literal["legacy_unclassified", "observed_comparison"] = "legacy_unclassified"
+    method_version: str = "legacy_unversioned"
+    limitations: list[str] = Field(default_factory=list)
 
 
 def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> VersionEconomics:
@@ -194,6 +199,14 @@ def compare_workflow_versions(
     if baseline_evidence.workflow != candidate_evidence.workflow:
         raise ValueError("baseline and candidate must describe the same workflow")
     active_policy = policy or DecisionPolicy()
+    claim_fields = {
+        "claim_class": "observed_comparison",
+        "method_version": "observed-policy/1",
+        "limitations": [
+            "source_completeness_unverified",
+            "no_statistical_causal_or_forecast_authorization",
+        ],
+    }
     baseline = _summarize(
         baseline_evidence, allow_estimated_cost=active_policy.allow_estimated_cost
     )
@@ -205,6 +218,8 @@ def compare_workflow_versions(
         *_evidence_reasons("baseline", baseline, active_policy),
         *_evidence_reasons("candidate", candidate, active_policy),
     ]
+    if active_policy.min_success_rate is None:
+        evidence_reasons.insert(0, "policy.min_success_rate")
     if baseline.accepted_runs == 0:
         evidence_reasons.append("baseline_has_no_accepted_outcomes")
     baseline_cpo = _cost_per_outcome(
@@ -220,6 +235,7 @@ def compare_workflow_versions(
         evidence_reasons.append("cost_per_outcome_comparison_unavailable")
     if evidence_reasons:
         return EconomicDecision(
+            **claim_fields,
             workflow=baseline.workflow,
             baseline_version=baseline.version,
             candidate_version=candidate.version,
@@ -264,6 +280,7 @@ def compare_workflow_versions(
             outcome_failures.append("candidate_success_rate_drop_exceeds_limit")
     if outcome_failures:
         return EconomicDecision(
+            **claim_fields,
             workflow=baseline.workflow,
             baseline_version=baseline.version,
             candidate_version=candidate.version,
@@ -279,6 +296,7 @@ def compare_workflow_versions(
 
     if exact_cost_change is None:
         return EconomicDecision(
+            **claim_fields,
             workflow=baseline.workflow,
             baseline_version=baseline.version,
             candidate_version=candidate.version,
@@ -292,6 +310,7 @@ def compare_workflow_versions(
         )
     if exact_cost_change > Fraction(str(active_policy.max_cost_per_outcome_increase)):
         return EconomicDecision(
+            **claim_fields,
             workflow=baseline.workflow,
             baseline_version=baseline.version,
             candidate_version=candidate.version,
@@ -306,11 +325,12 @@ def compare_workflow_versions(
         )
 
     return EconomicDecision(
+        **claim_fields,
         workflow=baseline.workflow,
         baseline_version=baseline.version,
         candidate_version=candidate.version,
         verdict="pass",
-        recommended_action="approve",
+        recommended_action="review_candidate",
         reason_codes=["economic_constraints_satisfied"],
         baseline=baseline,
         candidate=candidate,

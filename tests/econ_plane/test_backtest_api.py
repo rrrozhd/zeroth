@@ -114,7 +114,9 @@ def test_backtest_is_retained_without_raw_cases_and_duplicate_is_free(
 
     assert first.status_code == 200, first.text
     assert first.json()["verdict"] == "pass"
-    assert first.json()["recommended_action"] == "approve_candidate"
+    assert first.json()["recommended_action"] == "review_candidate"
+    assert first.json()["claim_class"] == "exploratory_model_experiment"
+    assert first.json()["method_version"] == "observed-replay-policy/1"
     assert first.json()["provider_call_credits"] == 20
     assert duplicate.status_code == 200
     assert duplicate.json() == first.json()

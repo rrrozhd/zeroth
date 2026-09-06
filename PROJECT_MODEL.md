@@ -28,6 +28,9 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   Unknown cost/outcome evidence must not become measured completeness.
   Thresholds use exact ratios of counts and decimal totals; display rounding
   must never decide a verdict. Zero baseline cost leaves relative change undefined.
+  Comparisons and schedules require an explicit quality floor. Current reports
+  retain an observed claim class, method version and limitations; policy passes
+  recommend review. Historical reports retain legacy labels and actions.
 - Experiments: `src/zeroth/econ/plane/backtesting/` owns bounded execution,
   reservation/metering and retained results; analytics owns model evaluation.
   Hosted replays reuse the correctness evaluator, then price captured input/output

@@ -100,9 +100,16 @@ def decide(
         action = "keep_incumbent"
     else:
         verdict = "pass"
-        action = "approve_candidate"
+        action = "review_candidate"
     candidate_model = payload.candidate.get("model")
     return EconomicBacktest(
+        claim_class="exploratory_model_experiment",
+        method_version="observed-replay-policy/1",
+        limitations=[
+            "judge_not_calibrated",
+            "projection_excludes_nontext_and_unobserved_charges",
+            "no_statistical_causal_or_forecast_authorization",
+        ],
         backtest_id="pending",
         request_digest=digest,
         workflow=payload.workflow,

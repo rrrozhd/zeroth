@@ -121,7 +121,9 @@ def test_compare_route_reads_only_the_authenticated_tenant(
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["verdict"] == "pass"
-    assert payload["recommended_action"] == "approve"
+    assert payload["recommended_action"] == "review_candidate"
+    assert payload["claim_class"] == "observed_comparison"
+    assert payload["method_version"] == "observed-policy/1"
     assert payload["baseline"]["runs"] == 10
     assert payload["candidate"]["runs"] == 10
     assert payload["cost_per_outcome_change"] == -0.4
@@ -151,6 +153,7 @@ def test_compare_route_reads_only_the_authenticated_tenant(
     assert repeated.json()["decision_id"] == payload["decision_id"]
     assert history.status_code == 200
     assert [item["decision_id"] for item in history.json()] == [payload["decision_id"]]
+    assert history.json()[0] == repeated.json() == payload
     with Session(engine) as db:
         assert db.scalar(select(func.count()).select_from(EconomicDecisionRecord)) == 1
 

@@ -13,6 +13,7 @@ from zeroth.econ.plane.auth.deps import get_current_scoped_db
 from zeroth.econ.plane.cloud.api import router as cloud_router
 from zeroth.econ.plane.cloud.keys_api import router as keys_router
 from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.counterfactual.api import router as counterfactual_router
 from zeroth.econ.plane.database import Base, get_db
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
@@ -27,6 +28,7 @@ def test_project_api_key_authenticates_sdk_routes_and_can_be_revoked(
     app = FastAPI()
     app.include_router(keys_router, prefix="/v1")
     app.include_router(cloud_router, prefix="/v1")
+    app.include_router(counterfactual_router, prefix="/v1")
 
     def raw_db():
         with Session(engine) as db:
@@ -71,6 +73,19 @@ def test_project_api_key_authenticates_sdk_routes_and_can_be_revoked(
 
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["status"] == "inserted"
+
+    for method, path in [
+        ("POST", "/v1/evaluations/run"),
+        ("POST", "/v1/evaluations/run/async"),
+        ("GET", "/v1/evaluations/invoice-agent/latest"),
+        ("GET", "/v1/evaluations/invoice-agent/history"),
+    ]:
+        legacy = client.request(
+            method, path, headers={"Authorization": f"Bearer {secret}"},
+            **({"json": {"capability_id": "invoice-agent"}} if method == "POST" else {}),
+        )
+        assert legacy.status_code == 401, legacy.text
+    assert client.get("/v1/evaluations/invoice-agent/history", headers=jwt_headers).status_code == 200
 
     revoked = client.delete(f"/v1/cloud/api-keys/{key_id}", headers=jwt_headers)
     rejected = client.post(
