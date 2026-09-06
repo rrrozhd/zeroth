@@ -54,6 +54,28 @@ class ExecutionEvent(BaseModel):
         return self
 
 
+class OutcomeDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    workflow_id: str
+    workflow_version: str
+    outcome_type: str
+    operator: Literal["equals", "not_equals", "greater_than_or_equal", "less_than_or_equal"]
+    target: bool | float | str
+
+    @model_validator(mode="after")
+    def validate_target(self) -> OutcomeDefinition:
+        if self.operator in {"greater_than_or_equal", "less_than_or_equal"} and (
+            isinstance(self.target, bool) or not isinstance(self.target, float | int)
+        ):
+            raise ValueError("ordered outcome predicates require a numeric target")
+        if not self.workflow_id.strip() or not self.workflow_version.strip():
+            raise ValueError("workflow_id and workflow_version must be non-empty")
+        if not self.outcome_type.strip():
+            raise ValueError("outcome_type must be non-empty")
+        return self
+
+
 class OutcomeEvent(BaseModel):
     """Business acceptance signal associated with a workflow run."""
 

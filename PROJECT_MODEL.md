@@ -70,6 +70,18 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   conflict from the caller's independent provider/account/attempt identity and
   its existing scoped execution owner. Capture primary_for_rollup metadata is
   not a monetary selector. No new ledger store, heuristic cache or retry exists.
+  Outcome interpretation uses the existing immutable workflow-version definition
+  in debugger/service.py for decisions, debugger and provider allocation. Stored
+  decisions abstain on missing/type-mismatched or incompatible rules and retain
+  definition/rule digests in outcome_semantics. The existing full-report digest
+  binds these declarations; execution/outcome fingerprints retain v1–v3. Diagnose
+  missing labels from the exact tenant/workflow/version definition and the latest
+  typed observation; an invalid latest value cannot revive an older success.
+  Admin cloud keys/sessions can use the existing outcome-definition POST path;
+  the SDK exposes that same request. Other legacy authentication stays unchanged.
+  No new store or migration. Rollback readers must understand observed-policy/2
+  semantics to recompute decisions; old reports remain readable with their original
+  interpretation. Label maturity and append-only corrections remain unresolved.
 - Experiments: `src/zeroth/econ/plane/backtesting/` owns bounded execution,
   reservation/metering and retained results; analytics owns model evaluation.
   Hosted replays reuse the correctness evaluator, then price captured input/output

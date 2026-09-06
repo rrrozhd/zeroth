@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from tests.econ_plane.test_sdk_evidence_namespace import (
     NOW,
+    definition,
     engine as database_engine,
     execution,
     scoped,
@@ -362,6 +363,7 @@ def test_retained_comparison_binds_ownership_and_preserves_legacy_uncertainty(en
     with Session(engine) as raw:
         db = scoped(raw)
         for version, cost in [("v1", "2"), ("v2", "1")]:
+            definition(db, "invoice", version)
             record_execution(charge(version, version, version=version, cost_usd=cost), db, user())
             record_outcome(outcome(version=version), db, user())
 

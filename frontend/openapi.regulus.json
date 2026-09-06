@@ -2362,6 +2362,19 @@
             "title": "Method Version",
             "type": "string"
           },
+          "outcome_semantics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/OutcomeSemantics"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Outcome Semantics",
+            "type": "object"
+          },
           "policy": {
             "$ref": "#/components/schemas/DecisionPolicy"
           },
@@ -4036,6 +4049,50 @@
           "provenance"
         ],
         "title": "OutcomeQueryResponse",
+        "type": "object"
+      },
+      "OutcomeSemantics": {
+        "additionalProperties": false,
+        "description": "The selected immutable success rule; no claim of business label maturity.",
+        "properties": {
+          "definition_digest": {
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition Digest"
+          },
+          "rule_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Digest"
+          },
+          "status": {
+            "enum": [
+              "defined",
+              "missing",
+              "type_mismatch"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "OutcomeSemantics",
         "type": "object"
       },
       "PerformanceSummary": {

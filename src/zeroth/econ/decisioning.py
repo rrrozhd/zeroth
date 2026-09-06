@@ -82,6 +82,25 @@ class ChargeOwnership(BaseModel):
     unattributed_records: int = Field(ge=0)
 
 
+class OutcomeSemantics(BaseModel):
+    """The selected immutable success rule; no claim of business label maturity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["defined", "missing", "type_mismatch"]
+    definition_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    rule_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _binding_matches_status(self) -> OutcomeSemantics:
+        if self.status == "missing":
+            if self.definition_digest is not None or self.rule_digest is not None:
+                raise ValueError("missing outcome semantics cannot carry a definition binding")
+        elif self.definition_digest is None or self.rule_digest is None:
+            raise ValueError("present outcome semantics require both definition and rule digests")
+        return self
+
+
 class VersionEvidence(BaseModel):
     """All in-window run evidence for one exact workflow version."""
 
@@ -93,6 +112,7 @@ class VersionEvidence(BaseModel):
     source_fingerprint: EvidenceFingerprint | None = None
     source_delivery: SourceDelivery | None = None
     charge_ownership: ChargeOwnership | None = None
+    outcome_semantics: OutcomeSemantics | None = None
 
 
 class DecisionPolicy(BaseModel):
@@ -161,6 +181,9 @@ class EconomicDecision(BaseModel):
         default_factory=dict
     )
     charge_ownership: dict[Literal["baseline", "candidate"], ChargeOwnership] = Field(
+        default_factory=dict
+    )
+    outcome_semantics: dict[Literal["baseline", "candidate"], OutcomeSemantics] = Field(
         default_factory=dict
     )
 
@@ -255,13 +278,20 @@ def compare_workflow_versions(
     if baseline_evidence.workflow != candidate_evidence.workflow:
         raise ValueError("baseline and candidate must describe the same workflow")
     active_policy = policy or DecisionPolicy()
+    semantics = {
+        label: evidence.outcome_semantics
+        for label, evidence in (("baseline", baseline_evidence), ("candidate", candidate_evidence))
+        if evidence.outcome_semantics is not None
+    }
     claim_fields = {
         "claim_class": "observed_comparison",
-        "method_version": "observed-policy/1",
+        "method_version": "observed-policy/2" if semantics else "observed-policy/1",
         "limitations": [
             "source_completeness_unverified",
             "no_statistical_causal_or_forecast_authorization",
+            "outcome_maturity_unverified" if semantics else "outcome_semantics_unverified",
         ],
+        "outcome_semantics": semantics,
         "source_evidence": {
             label: evidence.source_fingerprint
             for label, evidence in (
@@ -298,6 +328,16 @@ def compare_workflow_versions(
     for label, evidence in (("baseline", baseline_evidence), ("candidate", candidate_evidence)):
         if evidence.source_delivery is not None and evidence.source_delivery.status != "matched":
             evidence_reasons.append(f"{label}_source_delivery_mismatch")
+        if semantics and (
+            evidence.outcome_semantics is None or evidence.outcome_semantics.status != "defined"
+        ):
+            evidence_reasons.append(f"{label}_outcome_definition_unavailable")
+    if (
+        len(semantics) == 2
+        and all(value.status == "defined" for value in semantics.values())
+        and semantics["baseline"].rule_digest != semantics["candidate"].rule_digest
+    ):
+        evidence_reasons.append("outcome_semantics_incompatible")
     if active_policy.min_success_rate is None:
         evidence_reasons.insert(0, "policy.min_success_rate")
     if baseline.accepted_runs == 0:

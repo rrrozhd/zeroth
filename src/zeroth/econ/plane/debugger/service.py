@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+import math
 from typing import Literal
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.plane.debugger.models import OutcomeDefinition
@@ -43,20 +45,31 @@ def _require_exact_scoped_session(db: object) -> ScopedSession:
 
 def _outcome_value(outcome: OutcomeEvent) -> object:
     payload = outcome.outcome_payload_json or {}
-    return payload.get("value", outcome.outcome_value)
+    if "value" in payload:
+        return payload["value"]
+    # Historical SDK assertions stored an explicit boolean without a value key.
+    if type(payload.get("accepted")) is bool:
+        return payload["accepted"]
+    return outcome.outcome_value if outcome.outcome_value != "" else None
 
 
 def _matches_definition(outcome: OutcomeEvent, definition: OutcomeDefinition) -> bool | None:
     value = _outcome_value(outcome)
+    if value is None:
+        return None
     target = definition.target_json
     operator = definition.operator
+    if any(isinstance(item, float) and not math.isfinite(item) for item in (value, target)):
+        return None
     if operator in {"greater_than_or_equal", "less_than_or_equal"}:
         if isinstance(value, bool) or isinstance(target, bool):
             return None
         try:
             observed = Decimal(str(value))
             boundary = Decimal(str(target))
-        except Exception:  # noqa: BLE001
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+        if not observed.is_finite() or not boundary.is_finite():
             return None
         if operator == "greater_than_or_equal":
             return observed >= boundary
@@ -84,12 +97,11 @@ def create_outcome_definition(
 ) -> tuple[bool, OutcomeDefinition]:
     db = _require_exact_scoped_session(db)
     digest = _definition_digest(payload)
-    existing = db.execute(
-        select(OutcomeDefinition).where(
-            OutcomeDefinition.workflow_id == payload.workflow_id,
-            OutcomeDefinition.workflow_version == payload.workflow_version,
-        )
-    ).scalar_one_or_none()
+    statement = select(OutcomeDefinition).where(
+        OutcomeDefinition.workflow_id == payload.workflow_id,
+        OutcomeDefinition.workflow_version == payload.workflow_version,
+    )
+    existing = db.execute(statement).scalar_one_or_none()
     if existing is not None:
         if existing.definition_digest != digest:
             raise ValueError("Outcome definition is immutable for this workflow version")
@@ -104,7 +116,16 @@ def create_outcome_definition(
         created_at=datetime.now(UTC),
     )
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        winner = db.execute(statement).scalar_one_or_none()
+        if winner is None:
+            raise
+        if winner.definition_digest != digest:
+            raise ValueError("Outcome definition is immutable for this workflow version") from None
+        return False, winner
     db.refresh(row)
     return True, row
 
@@ -146,12 +167,14 @@ def resolve_outcomes_for_events(
         ).scalars()
     }
     status: dict[RunKey, bool] = {}
+    selected: set[RunKey] = set()
     for key, outcome in outcomes_for_events(db, events, limit=MAX_DEBUGGER_EVENTS):
-        if key in status:
-            continue
         definition = definitions.get(key[:2])
         if definition is None or outcome.outcome_type != definition.outcome_type:
             continue
+        if key in selected:
+            continue
+        selected.add(key)
         accepted = _matches_definition(outcome, definition)
         if accepted is not None:
             status[key] = accepted

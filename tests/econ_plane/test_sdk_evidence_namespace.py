@@ -233,6 +233,7 @@ def test_legacy_sdk_history_and_retries_keep_original_identity(engine):
         record_outcome(outcome(version="v2"), db, user())
         assert len(list(db.scalars(select(ExecutionEvent)))) == 3
         for version, expected in [("v1", 2), ("v2", 1)]:
+            definition(db, "invoice", version)
             evidence = _version_from_store(
                 db, workflow="invoice", version=version, outcome_type="accepted"
             )

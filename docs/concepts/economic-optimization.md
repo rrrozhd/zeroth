@@ -169,7 +169,7 @@ Missing usage abstains; rate-card estimates do not establish invoice charges.
 
 | Output | Claim class / method | Evidence scope and limitations |
 | --- | --- | --- |
-| Version comparison and scheduled result | `observed_comparison` / `observed-policy/1` | All currently retained received events for the named versions. Source completeness and outcome maturity are not established. Policy checks describe that evidence only. |
+| Version comparison and scheduled result | `observed_comparison` / `observed-policy/2` | All currently retained received events for the named versions. Source completeness and outcome maturity are not established. Policy checks describe that evidence only. |
 | Hosted model backtest | `exploratory_model_experiment` / `observed-replay-policy/1` | Supplied 5–25 cases; observed correctness according to the current judge and text-usage projections at retained rates. Judge calibration and population generalization are unvalidated. Cache, tools, downstream charges and unobserved retries are excluded. |
 | Historical result without these fields | `legacy_unclassified` / `legacy_unversioned` | Original values and action remain readable. Missing metadata cannot establish the current method or completeness. |
 | Legacy counterfactual estimates | Legacy OSS method only | Heuristic confidence, calibration and proxy-dollar outputs are not paid statistical, causal or forecasting authorization. |
@@ -207,6 +207,17 @@ that all source windows were declared. A matched inventory retains the existing
 source-completeness limitation. Fixed inventories are optional for direct
 comparisons; recurring schedules retain their observed-history behavior. See the
 standalone SDK README for the wire format and independent producer-ledger example.
+
+Stored comparisons require an immutable outcome definition for each workflow
+version, using the same predicate as the debugger and provider allocation. Missing
+rules and wrong outcome types remain unresolved; different cross-version predicates
+force abstention. The latest uninterpretable observation cannot restore an older
+success. Reports retain `outcome_semantics` definition/rule digests in the existing
+decision identity, so later definitions create a new revision without changing old
+history. Definitions specify interpretation, not outcome maturity or independent
+business truth. The existing outcome-definition endpoint accepts Admin cloud
+credentials; the lean SDK exposes `create_outcome_definition`. See its README for
+the declaration and compatibility transition.
 
 Explicit monetary ownership uses `cost_role="charge"` plus a tenant-wide
 `charge_id`. The existing execution table admits one owner per declared charge

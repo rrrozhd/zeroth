@@ -15,6 +15,7 @@ from zeroth.econ.decisioning import (
     ChargeOwnership,
     EconomicDecision,
     EvidenceFingerprint,
+    OutcomeSemantics,
     RunEvidence,
     SourceDelivery,
     VersionEvidence,
@@ -31,6 +32,8 @@ from zeroth.econ.plane.decisioning.schemas import (
     VersionComparisonRequest,
 )
 from zeroth.econ.plane.decisioning.models import DecisionSchedule, EconomicDecisionRecord
+from zeroth.econ.plane.debugger.models import OutcomeDefinition
+from zeroth.econ.plane.debugger.service import _matches_definition
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.instrumentation.identity import outcomes_for_events, run_identity, workflow_filter
 from zeroth.econ.plane.instrumentation.service import (
@@ -46,18 +49,21 @@ def _measurement(value: str) -> MeasurementState:
         return MeasurementState.UNMEASURED
 
 
-def _accepted(outcome: OutcomeEvent | None) -> bool | None:
-    if outcome is None:
-        return None
-    value = (outcome.outcome_payload_json or {}).get("accepted")
-    if type(value) is bool:
-        return value
-    raw = outcome.outcome_value.strip().lower()
-    if raw in {"true", "1", "yes", "accepted", "success"}:
-        return True
-    if raw in {"false", "0", "no", "rejected", "failure"}:
-        return False
-    return None
+def _outcome_semantics(definition: OutcomeDefinition | None, outcome_type: str) -> OutcomeSemantics:
+    if definition is None:
+        return OutcomeSemantics(status="missing")
+    rule = {
+        "outcome_type": definition.outcome_type,
+        "operator": definition.operator,
+        "target": definition.target_json,
+    }
+    return OutcomeSemantics(
+        status="defined" if definition.outcome_type == outcome_type else "type_mismatch",
+        definition_digest=definition.definition_digest,
+        rule_digest=hashlib.sha256(json.dumps(
+            rule, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode()).hexdigest(),
+    )
 
 
 def _outcome_measurement(outcome: OutcomeEvent | None) -> MeasurementState:
@@ -151,6 +157,11 @@ def _version_from_store(
     outcome_type: str,
     source_window: SourceWindowInventory | None = None,
 ) -> VersionEvidence:
+    definition = db.scalars(select(OutcomeDefinition).where(
+        OutcomeDefinition.workflow_id == workflow,
+        OutcomeDefinition.workflow_version == version,
+    )).one_or_none()
+    semantics = _outcome_semantics(definition, outcome_type)
     statement = select(ExecutionEvent).where(workflow_filter(ExecutionEvent, workflow, version))
     if source_window is not None:
         statement = statement.where(
@@ -212,7 +223,10 @@ def _version_from_store(
                 run_id=run_id,
                 cost_usd=cost,
                 cost_measurement=cost_measurement,
-                accepted=_accepted(outcome),
+                accepted=(
+                    _matches_definition(outcome, definition)
+                    if outcome is not None and semantics.status == "defined" else None
+                ),
                 outcome_measurement=_outcome_measurement(outcome),
             )
         )
@@ -221,6 +235,7 @@ def _version_from_store(
     unattributed = len(executions) - owned - summaries
     return VersionEvidence(
         workflow=workflow, version=version, runs=runs,
+        outcome_semantics=semantics,
         source_delivery=delivery,
         charge_ownership=ChargeOwnership(
             status="declared" if owned and not unattributed else "unverified",

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class OutcomeDefinitionCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     workflow_id: str
     workflow_version: str

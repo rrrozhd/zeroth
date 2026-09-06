@@ -10,6 +10,7 @@ from zeroth.protocol import (
     BacktestRequest,
     DecisionScheduleRequest,
     ExecutionEvent,
+    OutcomeDefinition,
     OutcomeEvent,
     VersionComparisonRequest,
 )
@@ -42,6 +43,10 @@ class ZerothClient:
     def record_outcome(self, event: OutcomeEvent) -> dict[str, Any]:
         """Attach a business outcome to a workflow run."""
         return self._post("/v1/outcomes", event)
+
+    def create_outcome_definition(self, definition: OutcomeDefinition) -> dict[str, Any]:
+        """Declare the immutable success rule for a workflow version (Admin only)."""
+        return self._post("/v1/debugger/outcome-definitions", definition)
 
     def create_backtest(self, request: BacktestRequest) -> dict[str, Any]:
         """Submit a candidate workflow change for economic backtesting."""

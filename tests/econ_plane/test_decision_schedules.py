@@ -27,11 +27,13 @@ from zeroth.econ.plane.decisioning.workers import _run_due_decision_scans
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
+from tests.econ_plane.test_economic_decision_api import _seed_definition
 
 
 def _seed(db: Session) -> None:
     now = datetime(2026, 8, 31, tzinfo=UTC)
     for version, cost in (("v1", "1"), ("v2", "0.6")):
+        _seed_definition(db, tenant_id="tenant-a", version=version)
         for index in range(10):
             run_id = f"{version}-{index}"
             timestamp = now + timedelta(seconds=index)
@@ -127,7 +129,7 @@ def test_schedule_api_and_due_runner_retain_a_recurring_decision(
     assert len(decisions) == 1
     assert decisions[0].verdict == ("abstain" if quality_floor is None else "pass")
     assert decisions[0].claim_class == "observed_comparison"
-    assert decisions[0].method_version == "observed-policy/1"
+    assert decisions[0].method_version == "observed-policy/2"
     if quality_floor is None:
         assert "policy.min_success_rate" in decisions[0].reason_codes
     else:

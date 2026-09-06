@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from tests.econ_plane.test_sdk_evidence_namespace import (
     NOW,
+    definition,
     engine as database_engine,
     execution,
     outcome,
@@ -84,6 +85,7 @@ def request_payload():
 
 
 def deliver(db, version, i, **changes):
+    definition(db, "invoice", version)
     event = execution(
         "invoice",
         version,
@@ -352,10 +354,12 @@ def test_http_window_ingestion_comparison_and_history(engine, monkeypatch):
     from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db
     from zeroth.econ.plane.config import settings
     from zeroth.econ.plane.decisioning.api import router as decision_router
+    from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 
     app = FastAPI()
     app.include_router(cloud_router, prefix="/v1")
     app.include_router(decision_router, prefix="/v1")
+    app.include_router(instrumentation_router, prefix="/v1")
 
     def scoped_db():
         with Session(engine) as raw:
@@ -367,6 +371,10 @@ def test_http_window_ingestion_comparison_and_history(engine, monkeypatch):
     with TestClient(app) as client:
         payload = request_payload()
         for version in ("v1", "v2"):
+            assert client.post("/v1/debugger/outcome-definitions", headers=headers, json={
+                "workflow_id": "invoice", "workflow_version": version,
+                "outcome_type": "accepted", "operator": "equals", "target": True,
+            }).status_code == 201
             for i in range(2):
                 event = execution(
                     version=version,

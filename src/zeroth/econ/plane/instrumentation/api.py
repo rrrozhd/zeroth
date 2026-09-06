@@ -10,6 +10,7 @@ from zeroth.econ.plane.auth.deps import (
     require_roles,
 )
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
+from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
 from zeroth.econ.plane.debugger.schemas import (
     BreakagePoint,
     CohortPoint,
@@ -249,8 +250,8 @@ def get_debugger_breakage(
 def post_outcome_definition(
     payload: OutcomeDefinitionCreate,
     response: Response,
-    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
-    _user: UserClaims = Depends(require_roles("Admin")),  # noqa: B008
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin")),  # noqa: B008
 ) -> OutcomeDefinitionOut:
     try:
         created, row = create_outcome_definition(db, payload)
@@ -264,9 +265,9 @@ def post_outcome_definition(
 @router.get("/debugger/outcome-definitions", response_model=list[OutcomeDefinitionOut])
 def get_outcome_definitions(
     workflow_id: str | None = None,
-    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
     _user: UserClaims = Depends(  # noqa: B008
-        require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
+        require_cloud_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
     ),
 ) -> list[OutcomeDefinitionOut]:
     return [

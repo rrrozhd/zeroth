@@ -22,6 +22,7 @@ from zeroth.service.economic_diagnostic_cli import render_markdown
 from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, get_current_user
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims
+from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, get_cloud_user
 from zeroth.econ.plane import database as database_module
 from zeroth.econ.plane.database import Base
 from zeroth.econ.plane.debugger.schemas import OutcomeDefinitionCreate
@@ -292,6 +293,7 @@ def _client(
             yield ScopedSession(raw, TenantWideScopeContext(tenant_id=tenant_id))
 
     app.dependency_overrides[get_current_scoped_db] = scoped_db
+    app.dependency_overrides[get_cloud_scoped_db] = scoped_db
     app.dependency_overrides[get_current_user] = lambda: ScopedUserClaims(
         sub="debugger-test",
         email="debugger@example.com",
@@ -300,6 +302,7 @@ def _client(
         exp=int(time()) + 300,
         iss="zeroth-test",
     )
+    app.dependency_overrides[get_cloud_user] = app.dependency_overrides[get_current_user]
     return TestClient(app)
 
 

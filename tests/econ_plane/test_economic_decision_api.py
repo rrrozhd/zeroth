@@ -19,9 +19,24 @@ from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db
 from zeroth.econ.plane.database import Base
 from zeroth.econ.plane.decisioning.api import router as decisioning_router
 from zeroth.econ.plane.decisioning.models import EconomicDecisionRecord
+from zeroth.econ.plane.debugger.models import OutcomeDefinition
+from zeroth.econ.plane.debugger.schemas import OutcomeDefinitionCreate
+from zeroth.econ.plane.debugger.service import _definition_digest
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
+
+
+def _seed_definition(db: Session, *, tenant_id: str, version: str) -> None:
+    payload = OutcomeDefinitionCreate(
+        workflow_id="invoice-agent", workflow_version=version,
+        outcome_type="accepted", operator="equals", target=True,
+    )
+    db.add(OutcomeDefinition(
+        tenant_id=tenant_id, workflow_id=payload.workflow_id, workflow_version=version,
+        outcome_type=payload.outcome_type, operator=payload.operator, target_json=True,
+        definition_digest=_definition_digest(payload), created_at=datetime(2026, 8, 31, tzinfo=UTC),
+    ))
 
 
 def _seed_version(
@@ -32,6 +47,7 @@ def _seed_version(
     cost: str,
     accepted: int,
 ) -> None:
+    _seed_definition(db, tenant_id=tenant_id, version=version)
     now = datetime(2026, 8, 31, tzinfo=UTC)
     for index in range(10):
         run_id = f"{version}-{index}"
@@ -123,7 +139,7 @@ def test_compare_route_reads_only_the_authenticated_tenant(
     assert payload["verdict"] == "pass"
     assert payload["recommended_action"] == "review_candidate"
     assert payload["claim_class"] == "observed_comparison"
-    assert payload["method_version"] == "observed-policy/1"
+    assert payload["method_version"] == "observed-policy/2"
     assert payload["baseline"]["runs"] == 10
     assert payload["candidate"]["runs"] == 10
     assert payload["cost_per_outcome_change"] == -0.4

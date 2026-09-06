@@ -2324,6 +2324,10 @@ export interface components {
              * @default legacy_unversioned
              */
             method_version: string;
+            /** Outcome Semantics */
+            outcome_semantics?: {
+                [key: string]: components["schemas"]["OutcomeSemantics"];
+            };
             policy: components["schemas"]["DecisionPolicy"];
             /** Reason Codes */
             reason_codes: string[];
@@ -2959,6 +2963,21 @@ export interface components {
             provenance: string;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /**
+         * OutcomeSemantics
+         * @description The selected immutable success rule; no claim of business label maturity.
+         */
+        OutcomeSemantics: {
+            /** Definition Digest */
+            definition_digest?: string | null;
+            /** Rule Digest */
+            rule_digest?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "defined" | "missing" | "type_mismatch";
         };
         /** PerformanceSummary */
         PerformanceSummary: {

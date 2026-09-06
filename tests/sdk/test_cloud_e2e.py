@@ -22,6 +22,7 @@ from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.database import Base
 from zeroth.econ.plane.decisioning.api import router as decisioning_router
+from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
 
@@ -39,7 +40,7 @@ class _BacktestExecutor:
 
 @pytest.mark.parametrize("candidate_cost", [Decimal("0.6"), Decimal("0"), None])
 def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypatch, candidate_cost) -> None:
-    from zeroth.protocol import DecisionPolicy, ExecutionEvent, OutcomeEvent, VersionComparisonRequest
+    from zeroth.protocol import DecisionPolicy, ExecutionEvent, OutcomeEvent, VersionComparisonRequest, OutcomeDefinition
     from zeroth.sdk import ZerothClient
 
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'sdk-e2e.db'}")
@@ -47,6 +48,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
     app = FastAPI()
     app.include_router(cloud_router, prefix="/v1")
     app.include_router(decisioning_router, prefix="/v1")
+    app.include_router(instrumentation_router, prefix="/v1")
 
     def scoped_db():
         with Session(engine) as db:
@@ -80,6 +82,10 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
     )
     now = datetime(2026, 8, 31, tzinfo=UTC)
     for version, cost in (("v1", Decimal("1")), ("v2", candidate_cost)):
+        sdk.create_outcome_definition(OutcomeDefinition(
+            workflow_id="invoice-agent", workflow_version=version,
+            outcome_type="accepted", operator="equals", target=True,
+        ))
         for index in range(10):
             run_id = f"{version}-{index}"
             timestamp = now + timedelta(seconds=index)

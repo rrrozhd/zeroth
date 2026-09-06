@@ -7,6 +7,7 @@ from zeroth.protocol.models import (
     DecisionScheduleRequest,
     EconomicConstraints,
     ExecutionEvent,
+    OutcomeDefinition,
     OutcomeEvent,
     VersionComparisonRequest,
 )
@@ -27,5 +28,6 @@ __all__ = [
     "EconomicConstraints",
     "ExecutionEvent",
     "OutcomeEvent",
+    "OutcomeDefinition",
     "VersionComparisonRequest",
 ]

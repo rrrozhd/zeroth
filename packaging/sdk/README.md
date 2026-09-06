@@ -70,7 +70,7 @@ remains a caller choice. A policy pass can tolerate the configured cost growth
 (10% by default), so a pass does not necessarily mean a saving.
 
 New version results carry `claim_class="observed_comparison"` and
-`method_version="observed-policy/1"`. New backtests carry
+`method_version="observed-policy/2"`. New backtests carry
 `claim_class="exploratory_model_experiment"` and
 `method_version="observed-replay-policy/1"`. Both return `limitations` and use
 `recommended_action="review_candidate"` for a pass. These fields are retained
@@ -86,6 +86,50 @@ Changed selected inputs create a new retained revision even when the totals are
 unchanged. These fingerprints are not signatures or proof of delivery completeness;
 they cannot recover erased inputs. Historical reports without a binding return
 an empty `source_evidence` map.
+
+### Declare what an accepted outcome means
+
+Before comparing stored workflow versions or scheduling a comparison, an Admin
+registers the success rule for each version:
+
+```python
+from zeroth.protocol import OutcomeDefinition
+from zeroth.sdk import ZerothClient
+
+client = ZerothClient(api_key="<Admin project key>")
+for version in ("v1", "v2"):
+    client.create_outcome_definition(OutcomeDefinition(
+        workflow_id="invoice-processing", workflow_version=version,
+        outcome_type="accepted", operator="equals", target=True,
+    ))
+```
+
+The SDK's boolean `OutcomeEvent.accepted` is the reported observation; this rule
+states that `True` counts as success. A definition is immutable within a workflow
+version. Exact creation retries return the existing definition, including races;
+changing its rule returns a conflict. Use a new workflow version for changed
+semantics. The existing HTTP paths are POST/GET
+`/v1/debugger/outcome-definitions`; Admin can write and read roles can inspect.
+Numeric predicates apply to raw numeric observations through the generic outcome
+API; setting an SDK `score` does not replace its boolean accepted observation.
+
+Stored comparisons, debugger and provider allocation use the same typed predicate.
+Missing definitions or an outcome-type mismatch leave the labels unresolved.
+Comparisons require identical declared rules across versions and abstain when rules
+are unavailable or incompatible, even if observed costs are lower. Different rules
+that happen to classify today's examples identically are not interchangeable.
+Missing observations stay unresolved; an explicitly reported empty string remains
+a value. An uninterpretable latest label cannot revive an older success.
+
+Reports retain `outcome_semantics` by side: status, the immutable definition digest,
+and a rule digest excluding the workflow version. These fields participate in the
+existing retained-decision identity. Adding definitions creates a new decision
+revision without rewriting old history or changing execution/outcome fingerprints.
+Keep the source definitions for reconstruction; a digest cannot recover erased
+values. Identical predicates do not prove mature labels, equivalent populations,
+independent business truth, or causal savings. Old retained reports have an empty
+semantics map and keep their original meaning. Existing callers must register their
+rules before newly computed stored comparisons can pass.
 
 ### Give each charge one owner
 
