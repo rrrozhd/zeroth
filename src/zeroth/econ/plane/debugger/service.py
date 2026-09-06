@@ -22,6 +22,7 @@ from zeroth.econ.plane.debugger.schemas import (
     TimelinePoint,
 )
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.instrumentation.identity import RunKey, outcomes_for_events, run_identity
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 MAX_DEBUGGER_EVENTS = 50_000
@@ -126,25 +127,15 @@ def list_outcome_definitions(
 
 def resolve_outcomes_for_events(
     db: ScopedSession, events: list[ExecutionEvent]
-) -> dict[str, bool]:
+) -> dict[RunKey, bool]:
     """Resolve run outcomes consistently for debugger and financial reports."""
 
     db = _require_exact_scoped_session(db)
-    identities_by_run: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    for event in events:
-        if event.run_id and event.workflow_id and event.workflow_version:
-            identities_by_run[event.run_id].add(
-                (event.workflow_id, event.workflow_version)
-            )
-    run_ids = set(identities_by_run)
-    if not run_ids:
+    keys = {run_identity(event) for event in events}
+    if not keys:
         return {}
-    workflows = {
-        workflow for identities in identities_by_run.values() for workflow, _ in identities
-    }
-    versions = {
-        version for identities in identities_by_run.values() for _, version in identities
-    }
+    workflows = {workflow for workflow, _, _ in keys}
+    versions = {version for _, version, _ in keys}
     definitions = {
         (row.workflow_id, row.workflow_version): row
         for row in db.execute(
@@ -154,27 +145,16 @@ def resolve_outcomes_for_events(
             )
         ).scalars()
     }
-    outcomes = list(
-        db.execute(
-            select(OutcomeEvent)
-            .where(OutcomeEvent.join_key.in_(run_ids))
-            .order_by(OutcomeEvent.occurred_at.desc(), OutcomeEvent.id.desc())
-            .limit(MAX_DEBUGGER_EVENTS)
-        ).scalars()
-    )
-    status: dict[str, bool] = {}
-    for outcome in outcomes:
-        if outcome.join_key in status:
+    status: dict[RunKey, bool] = {}
+    for key, outcome in outcomes_for_events(db, events, limit=MAX_DEBUGGER_EVENTS):
+        if key in status:
             continue
-        identities = identities_by_run.get(outcome.join_key, set())
-        if len(identities) != 1:
-            continue
-        definition = definitions.get(next(iter(identities)))
+        definition = definitions.get(key[:2])
         if definition is None or outcome.outcome_type != definition.outcome_type:
             continue
         accepted = _matches_definition(outcome, definition)
         if accepted is not None:
-            status[outcome.join_key] = accepted
+            status[key] = accepted
     return status
 
 
@@ -184,7 +164,7 @@ def _load_evidence(
     workflow_id: str,
     start: datetime | None,
     end: datetime | None,
-) -> tuple[list[ExecutionEvent], dict[str, bool]]:
+) -> tuple[list[ExecutionEvent], dict[RunKey, bool]]:
     db = _require_exact_scoped_session(db)
     statement = select(ExecutionEvent).where(ExecutionEvent.workflow_id == workflow_id)
     if start is not None:
@@ -254,7 +234,7 @@ def timeline(
 
     points: list[TimelinePoint] = []
     for (period, version), rows in sorted(groups.items()):
-        run_ids = {row.run_id for row in rows if row.run_id}
+        run_ids = {run_identity(row) for row in rows}
         successful = {run_id for run_id in run_ids if outcomes.get(run_id) is True}
         failed = {run_id for run_id in run_ids if outcomes.get(run_id) is False}
         measured = estimated = measured_failure = estimated_failure = Decimal("0")
@@ -263,7 +243,7 @@ def timeline(
             row_measured, row_estimated, missing = _cost(row)
             measured += row_measured
             estimated += row_estimated
-            if row.run_id in failed:
+            if run_identity(row) in failed:
                 measured_failure += row_measured
                 estimated_failure += row_estimated
             incomplete += int(_incomplete(row, missing))
@@ -306,7 +286,7 @@ def cohorts(
 
     points: list[CohortPoint] = []
     for cohort, rows in sorted(groups.items()):
-        run_ids = {row.run_id for row in rows if row.run_id}
+        run_ids = {run_identity(row) for row in rows}
         successful = {run_id for run_id in run_ids if outcomes.get(run_id) is True}
         failed = {run_id for run_id in run_ids if outcomes.get(run_id) is False}
         measured = estimated = Decimal("0")
@@ -343,7 +323,7 @@ def breakage(
     failed_runs = {run_id for run_id, accepted in outcomes.items() if accepted is False}
     groups: dict[tuple[str, str], list[ExecutionEvent]] = defaultdict(list)
     for event in events:
-        if event.run_id in failed_runs:
+        if run_identity(event) in failed_runs:
             groups[(event.workflow_version or _UNKNOWN, event.step_id or _UNKNOWN)].append(event)
 
     points: list[BreakagePoint] = []
@@ -361,7 +341,7 @@ def breakage(
                 workflow_id=workflow_id,
                 workflow_version=version,
                 step_id=step_id,
-                failed_runs=len({row.run_id for row in rows if row.run_id}),
+                failed_runs=len({run_identity(row) for row in rows}),
                 measured_failure_exposure_usd=_round(measured),
                 estimated_failure_exposure_usd=_round(estimated),
                 measured_repeated_attempt_cost_usd=_round(repeated_measured),
@@ -460,7 +440,7 @@ def diagnostic_report(
     if not events:
         return None
 
-    run_ids = {event.run_id for event in events if event.run_id}
+    run_ids = {run_identity(event) for event in events}
     successful = {run_id for run_id in run_ids if outcomes.get(run_id) is True}
     failed = {run_id for run_id in run_ids if outcomes.get(run_id) is False}
     unresolved = run_ids - successful - failed
@@ -485,7 +465,7 @@ def diagnostic_report(
         event_measured, event_estimated, missing_cost = _cost(event)
         measured += event_measured
         estimated += event_estimated
-        if event.run_id in failed:
+        if run_identity(event) in failed:
             measured_failure += event_measured
             estimated_failure += event_estimated
         measured_events += int(event.cost_measurement == MeasurementState.MEASURED.value)

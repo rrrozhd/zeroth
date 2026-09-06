@@ -15,6 +15,7 @@ from zeroth.econ.plane.costing.service import (
     compute_calibration_summary as _compute_calibration_summary,
 )
 from zeroth.econ.plane.debugger.service import resolve_outcomes_for_events
+from zeroth.econ.plane.instrumentation.identity import run_identity
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 from zeroth.econ.plane.reconciliation.models import ProviderBill, ProviderCostBucket
 from zeroth.econ.plane.reconciliation.schemas import (
@@ -255,7 +256,7 @@ def provider_bill_report(
         allocated_total += bucket.amount_usd
         telemetry_total += sum((_measured_cost(event) for event in matched), Decimal("0"))
         for event, billed_share in _allocate(bucket.amount_usd, matched):
-            status = outcome_status.get(event.run_id or "")
+            status = outcome_status.get(run_identity(event))
             outcome = "success" if status is True else "failure" if status is False else "unresolved"
             key = (
                 bucket.id,
@@ -267,8 +268,7 @@ def provider_bill_report(
             row["billed"] += billed_share
             row["telemetry"] += _measured_cost(event)
             row["events"] += 1
-            if event.run_id:
-                row["runs"].add(event.run_id)
+            row["runs"].add(run_identity(event))
     bucket_by_id = {bucket.id: bucket for bucket in buckets}
     allocations = [
         ProviderBillAllocation(

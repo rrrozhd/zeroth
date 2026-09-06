@@ -21,7 +21,7 @@ def test_packaged_economic_migration_runner_reaches_cloud_head(tmp_path: Path) -
     finally:
         engine.dispose()
 
-    assert revision == "20260901_17"
+    assert revision == "20260906_18"
     assert {
         "cloud_api_keys",
         "cloud_subscriptions",
@@ -61,7 +61,7 @@ def test_service_and_economic_migrations_share_one_database_without_colliding(
         engine.dispose()
 
     assert service_revision == "035"
-    assert econ_revision == "20260901_17"
+    assert econ_revision == "20260906_18"
     assert service_tables <= tables
     assert {"alembic_version", "alembic_version_econ"} <= tables
 

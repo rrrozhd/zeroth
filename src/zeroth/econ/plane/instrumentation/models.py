@@ -106,6 +106,9 @@ class OutcomeEvent(Base):
             "capability_id",
         ),
         Index("ix_outcome_events_tenant_join_key", "tenant_id", "join_key"),
+        Index(
+            "ix_outcome_events_tenant_workflow_version", "tenant_id", "workflow_id", "workflow_version"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -114,6 +117,8 @@ class OutcomeEvent(Base):
     execution_id: Mapped[str] = mapped_column(String(128), index=True, default="")
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
     implementation_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    workflow_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    workflow_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     outcome_type: Mapped[str] = mapped_column(String(64))
     outcome_payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
     outcome_value: Mapped[str] = mapped_column(String(255), default="")

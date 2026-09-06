@@ -103,8 +103,10 @@ def test_sdk_execution_and_outcome_routes_persist_joinable_versioned_evidence(
         stored_outcome = db.scalars(select(OutcomeEvent)).one()
     assert stored_execution.tenant_id == "tenant-a"
     assert stored_execution.join_key == "run-1"
-    assert stored_execution.capability_id == "invoice-agent"
-    assert stored_execution.implementation_id == "v7"
+    assert stored_execution.capability_id.startswith("sdk_wf_")
+    assert stored_execution.implementation_id.startswith("sdk_ver_")
+    assert stored_execution.workflow_id == "invoice-agent"
+    assert stored_execution.workflow_version == "v7"
     assert stored_execution.event_metadata == {
         "attempt": 2,
         "dimensions": {"plan": "pro"},
@@ -114,7 +116,9 @@ def test_sdk_execution_and_outcome_routes_persist_joinable_versioned_evidence(
         "tenant_id": "tenant-a",
     }
     assert stored_outcome.join_key == "run-1"
-    assert stored_outcome.implementation_id == "v7"
+    assert stored_outcome.implementation_id == stored_execution.implementation_id
+    assert stored_outcome.workflow_id == "invoice-agent"
+    assert stored_outcome.workflow_version == "v7"
     assert stored_outcome.outcome_payload_json["accepted"] is True
     assert stored_outcome.outcome_payload_json["dimensions"] == {"plan": "pro"}
 

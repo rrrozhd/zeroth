@@ -84,6 +84,14 @@ and timestamps. Changed assertions return a conflict instead of `duplicate`;
 they do not replace the original row. Explicit correction revisions and outcome
 definition/maturity contracts remain acceptance work.
 
+Workflow and version names belong to the authenticated tenant. Two tenants can
+use the same names, and two workflows can both use `v1`. Reports join outcomes by
+workflow, version and run; reusing a run ID under a different version does not
+merge their results. Public SDK fields and event IDs are unchanged. Older evidence
+keeps its original storage identity; ambiguous historical joins remain unresolved.
+An outcome sent before its workflow version is registered returns an error and
+can be retried after execution ingestion registers that version.
+
 New hosted backtests price each model's observed replay input/output usage at the
 retained input/output rates (`cost_basis="rate_card_from_observed_usage"`). The
 result includes `incumbent_replay_cost_usd`, `candidate_replay_cost_usd`, separate

@@ -83,6 +83,12 @@ deliberately remains one replica.
   invalid signature is rejected without changing subscription state.
 - Rollback of revision `20260901_17` removes only external identity bindings;
   it deliberately preserves subscription and billing evidence.
+- Revision `20260906_18` adds nullable public workflow/version fields to outcomes
+  and a tenant lookup index. Apply the economic migration chain before upgrading
+  the service on PostgreSQL. The migration preserves old rows and rejects a
+  downgrade when public outcome identity has been populated. A rollback build
+  must understand both legacy and scoped SDK identities and retain the columns;
+  an older binary that only queries raw capability IDs is not compatible.
 - A Paddle subscription in `trialing` state always receives Trial quotas even
   though its catalog plan is Solo. Solo quotas begin only after Paddle reports
   `active`; checkout cannot prematurely expand free usage.

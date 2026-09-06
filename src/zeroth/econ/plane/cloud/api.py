@@ -22,6 +22,7 @@ from zeroth.econ.plane.instrumentation.schemas import (
     IngestResult,
 )
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.instrumentation.identity import sdk_registry_ids
 from zeroth.econ.plane.instrumentation.service import (
     ingest_execution,
     ingest_outcome_with_status,
@@ -39,6 +40,8 @@ class _CloudOutcomeCreate(BaseModel):
     join_key: str
     capability_id: str
     implementation_id: str
+    workflow_id: str | None = None
+    workflow_version: str | None = None
     outcome_type: str = Field(min_length=1, max_length=64)
     outcome_value: Union[float, bool, str] | None = None
     outcome_payload_json: dict[str, Any] = Field(default_factory=dict)
@@ -71,6 +74,9 @@ def record_execution(
     user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
 ) -> IngestResult:
     execution_id = _stable_execution_id(payload)
+    capability_id, implementation_id = sdk_registry_ids(
+        db, payload.workflow, payload.workflow_version
+    )
     already_recorded = db.scalars(
         select(ExecutionEvent.id).where(ExecutionEvent.execution_id == execution_id)
     ).first()
@@ -91,8 +97,10 @@ def record_execution(
         execution_id=execution_id,
         join_key=payload.run_id,
         timestamp=payload.recorded_at,
-        capability_id=payload.workflow,
-        implementation_id=payload.workflow_version,
+        capability_id=capability_id,
+        implementation_id=implementation_id,
+        workflow_id=payload.workflow,
+        workflow_version=payload.workflow_version,
         model_version=payload.model_version,
         token_cost_usd=payload.cost_usd if measured else None,
         tool_cost_usd=None,
@@ -103,7 +111,9 @@ def record_execution(
         metadata=metadata,
     )
     try:
-        status, row = ingest_execution(db, event)
+        status, row = ingest_execution(
+            db, event, registry_names=(payload.workflow, payload.workflow_version)
+        )
     except ValueError as exc:
         db.rollback()
         if reserved:
@@ -125,11 +135,14 @@ def record_outcome(
     db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
     user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
 ) -> IngestResult:
+    capability_id, implementation_id = sdk_registry_ids(
+        db, payload.workflow, payload.workflow_version
+    )
     already_recorded = db.scalars(
         select(OutcomeEvent.id).where(
             OutcomeEvent.join_key == payload.run_id,
-            OutcomeEvent.capability_id == payload.workflow,
-            OutcomeEvent.implementation_id == payload.workflow_version,
+            OutcomeEvent.capability_id == capability_id,
+            OutcomeEvent.implementation_id == implementation_id,
             OutcomeEvent.outcome_type == payload.outcome_type,
             OutcomeEvent.occurred_at == payload.occurred_at,
         )
@@ -153,8 +166,10 @@ def record_outcome(
     event = _CloudOutcomeCreate(
         tenant_id=user.tenant_id,
         join_key=payload.run_id,
-        capability_id=payload.workflow,
-        implementation_id=payload.workflow_version,
+        capability_id=capability_id,
+        implementation_id=implementation_id,
+        workflow_id=payload.workflow,
+        workflow_version=payload.workflow_version,
         outcome_type=payload.outcome_type,
         outcome_value=payload.accepted,
         outcome_payload_json=outcome_payload,

@@ -26,6 +26,7 @@ from zeroth.econ.plane.decisioning.schemas import (
 )
 from zeroth.econ.plane.decisioning.models import DecisionSchedule, EconomicDecisionRecord
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.instrumentation.identity import outcomes_for_events, run_identity, workflow_filter
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 
@@ -91,27 +92,16 @@ def _version_from_store(
     executions = list(
         db.scalars(
             select(ExecutionEvent).where(
-                ExecutionEvent.capability_id == workflow,
-                ExecutionEvent.implementation_id == version,
+                workflow_filter(ExecutionEvent, workflow, version),
             )
         )
     )
-    outcomes = list(
-        db.scalars(
-            select(OutcomeEvent)
-            .where(
-                OutcomeEvent.capability_id == workflow,
-                OutcomeEvent.implementation_id == version,
-                OutcomeEvent.outcome_type == outcome_type,
-            )
-            .order_by(OutcomeEvent.occurred_at)
-        )
-    )
-
     executions_by_run: dict[str, list[ExecutionEvent]] = defaultdict(list)
     for event in executions:
-        executions_by_run[event.join_key or event.execution_id].append(event)
-    outcome_by_run = {outcome.join_key or outcome.execution_id: outcome for outcome in outcomes}
+        executions_by_run[run_identity(event)[2]].append(event)
+    outcome_by_run = {}
+    for key, outcome in outcomes_for_events(db, executions, outcome_type=outcome_type):
+        outcome_by_run.setdefault(key[2], outcome)
 
     runs: list[RunEvidence] = []
     for run_id, run_events in sorted(executions_by_run.items()):

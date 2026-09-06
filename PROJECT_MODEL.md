@@ -26,6 +26,12 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   Outcome retries likewise require identical value, typed payload, provenance,
   linkage and asserted timestamps. Conflicting historical duplicate rows are
   rejected without deletion; receipt time and row IDs do not change identity.
+  `instrumentation/identity.py` separates public workflow/version/run identity
+  from globally keyed legacy registries. New SDK registries hash the bound tenant
+  and public names; an existing, owned legacy SDK mapping is preserved. Registry
+  display names remain readable. Outcomes retain nullable public workflow fields.
+  Decisions, debugger and provider allocation share the outcome join: a run ID
+  alone cannot identify a workflow/version. Ambiguous legacy mappings stay unresolved.
 - Decisions: `src/zeroth/econ/plane/decisioning/service.py` joins stored
   evidence; `src/zeroth/econ/decisioning.py` applies policy and retains reasons.
   Unknown cost/outcome evidence must not become measured completeness.
@@ -81,6 +87,12 @@ to roll it back, recognizing that the prior HTTP behavior hides failed readiness
 Hosted replay-cost reports add fields inside retained JSON. Before deployment,
 prove the selected rollback image can read that report format; older strict
 readers are not automatically compatible. No production records have been written.
+Economic migration `20260906_18` adds outcome workflow columns and their tenant
+lookup index without backfilling or rewriting history. Apply the economic chain
+before running the new service against PostgreSQL; startup refuses missing columns.
+SQLite compatibility uses the same migration. After new outcomes exist, downgrade
+refuses to discard their public identity. A rollback build must retain these columns
+and the compatible reader; local mixed-history tests do not certify a rollback image.
 
 ## Current risks and unfinished work
 

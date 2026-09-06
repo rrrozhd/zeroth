@@ -12,6 +12,7 @@ from zeroth.econ.plane.capabilities.service import active_experiment, pick_ab_ar
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.instrumentation.identity import workflow_identity
 from zeroth.econ.plane.instrumentation.schemas import ExecutionEventCreate, OutcomeEventCreate
 from zeroth.econ.plane.scoped_session import ScopedSession
 
@@ -69,6 +70,7 @@ def _ensure_capability_and_implementation(
     tenant_id: str,
     capability_id: str,
     implementation_id: str | None,
+    registry_names: tuple[str, str] | None = None,
 ) -> None:
     """Upsert the capability/implementation an execution event names, so
     platform-emitted telemetry (capability_id=node_id, implementation_id=model)
@@ -98,11 +100,15 @@ def _ensure_capability_and_implementation(
     ).scalar_one_or_none()
     if capability is None:
         try:
-            db.add(Capability(id=capability_id, tenant_id=tenant_id, name=capability_id))
+            db.add(Capability(
+                id=capability_id, tenant_id=tenant_id,
+                name=registry_names[0] if registry_names else capability_id,
+            ))
             db.flush()
         except IntegrityError as exc:
             db.rollback()
-            raise ValueError("capability does not exist in the bound tenant") from exc
+            if db.get(Capability, capability_id) is None:
+                raise ValueError("capability does not exist in the bound tenant") from exc
     if implementation_id is None:
         return
     implementation = db.execute(
@@ -115,15 +121,21 @@ def _ensure_capability_and_implementation(
                     id=implementation_id,
                     tenant_id=tenant_id,
                     capability_id=capability_id,
-                    name=implementation_id,
+                    name=registry_names[1] if registry_names else implementation_id,
                 )
             )
             db.flush()
         except IntegrityError as exc:
             db.rollback()
-            raise ValueError(
-                "implementation does not belong to the capability in the bound tenant"
-            ) from exc
+            # Rollback may also discard our newly staged capability. Recover
+            # only when both owned rows survived in the winning transaction.
+            if (
+                db.get(Capability, capability_id) is None
+                or db.get(Implementation, implementation_id) is None
+            ):
+                raise ValueError(
+                    "implementation does not belong to the capability in the bound tenant"
+                ) from exc
 
 
 def _derive_join_key_from_metadata(metadata: dict) -> str:
@@ -414,7 +426,8 @@ def _stage_execution(
 
 
 def ingest_execution(
-    db: ScopedSession, payload: ExecutionEventCreate
+    db: ScopedSession, payload: ExecutionEventCreate, *,
+    registry_names: tuple[str, str] | None = None,
 ) -> tuple[str, ExecutionEvent]:
     db = _require_exact_scoped_session(db)
     tenant_id = _bound_tenant(db)
@@ -442,6 +455,7 @@ def ingest_execution(
             tenant_id=tenant_id,
             capability_id=payload.capability_id,
             implementation_id=payload.implementation_id,
+            registry_names=registry_names,
         )
     else:
         _require_capability_and_implementation(
@@ -536,6 +550,7 @@ def _outcome_assertions(row: OutcomeEvent) -> dict:
         "execution_id": row.execution_id or row.join_key,
         "capability_id": row.capability_id,
         "implementation_id": row.implementation_id or "",
+        "workflow_identity": workflow_identity(row),
         "outcome_type": row.outcome_type,
         "outcome_value": row.outcome_value,
         # JSON types matter: accepted=true must not equal accepted=1. Key order
@@ -839,6 +854,8 @@ def ingest_outcome_with_status(
         capability_id=payload.capability_id,
         implementation_id=implementation_id,
         outcome_type=payload.outcome_type,
+        workflow_id=getattr(payload, "workflow_id", None),
+        workflow_version=getattr(payload, "workflow_version", None),
         outcome_payload_json=outcome_payload,
         outcome_value=str(payload.outcome_value) if payload.outcome_value is not None else "",
         occurred_at=occurred_at,

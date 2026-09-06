@@ -761,7 +761,7 @@ def test_debugger_spine_migration_backfills_existing_execution_identity(
         } <= columns
         with engine.connect() as connection:
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-                "20260901_17"
+                "20260906_18"
             )
             identity = connection.execute(
                 text(
