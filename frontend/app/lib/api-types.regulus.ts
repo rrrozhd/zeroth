@@ -2529,7 +2529,7 @@ export interface components {
              * @default stored-assertions/1
              * @enum {string}
              */
-            version: "stored-assertions/1" | "stored-assertions/2" | "stored-assertions/3";
+            version: "stored-assertions/1" | "stored-assertions/2" | "stored-assertions/3" | "stored-assertions/4";
         };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {
@@ -2914,6 +2914,12 @@ export interface components {
             implementation_id?: string | null;
             /** Join Key */
             join_key?: string | null;
+            /**
+             * Maturity
+             * @default unknown
+             * @enum {string}
+             */
+            maturity: "unknown" | "provisional" | "final" | "withdrawn";
             /** Occurred At */
             occurred_at?: string | null;
             /** Outcome Payload Json */
@@ -2948,6 +2954,12 @@ export interface components {
             implementation_id: string | null;
             /** Join Key */
             join_key: string;
+            /**
+             * Maturity
+             * @default unknown
+             * @enum {string}
+             */
+            maturity: "unknown" | "provisional" | "final" | "withdrawn";
             /**
              * Occurred At
              * Format: date-time
@@ -3404,11 +3416,17 @@ export interface components {
         /** SdkOutcomeEvent */
         SdkOutcomeEvent: {
             /** Accepted */
-            accepted: boolean;
+            accepted?: boolean | null;
             /** Dimensions */
             dimensions?: {
                 [key: string]: string | number | boolean;
             };
+            /**
+             * Maturity
+             * @default unknown
+             * @enum {string}
+             */
+            maturity: "unknown" | "provisional" | "final" | "withdrawn";
             /** Metadata */
             metadata?: {
                 [key: string]: unknown;

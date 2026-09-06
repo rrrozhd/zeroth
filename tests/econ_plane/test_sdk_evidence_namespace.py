@@ -100,6 +100,7 @@ def outcome(workflow="invoice", version="v1", run="shared", **changes):
             "workflow_version": version,
             "run_id": run,
             "accepted": True,
+            "maturity": "final",
             "occurred_at": NOW,
             **changes,
         }
@@ -226,7 +227,14 @@ def test_legacy_sdk_history_and_retries_keep_original_identity(engine):
             ),
         )
         assert record_execution(event, db, user()).status == "duplicate"
-        assert record_outcome(outcome(), db, user()).status == "duplicate"
+        assert record_outcome(outcome(maturity="unknown"), db, user()).status == "duplicate"
+        definition(db, "invoice", "v1")
+        legacy = _version_from_store(
+            db, workflow="invoice", version="v1", outcome_type="accepted"
+        )
+        assert legacy.runs[0].accepted is None
+        # A new declaration resolves the old run without rewriting its history.
+        record_outcome(outcome(occurred_at=NOW + timedelta(minutes=1)), db, user())
         record_execution(execution(run="new", subject_id=None), db, user())
         record_outcome(outcome(run="new"), db, user())
         record_execution(execution(version="v2"), db, user())
@@ -274,6 +282,7 @@ def test_legacy_debugger_outcomes_use_execution_identity_not_bare_run_id(engine)
             ingest_outcome(
                 db,
                 OutcomeEventCreate(
+                    maturity="final",
                     join_key="shared",
                     capability_id=cap,
                     implementation_id=impl,
@@ -393,6 +402,7 @@ def test_ambiguous_legacy_storage_identity_remains_unresolved_in_a_single_versio
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 join_key="shared",
                 capability_id="invoice",
                 implementation_id="shared-model",
@@ -402,6 +412,12 @@ def test_ambiguous_legacy_storage_identity_remains_unresolved_in_a_single_versio
             ),
         )
         for version in ("v1", "v2"):
+            create_outcome_definition(
+                db, OutcomeDefinitionCreate(
+                    workflow_id="invoice", workflow_version=version,
+                    outcome_type="approval", operator="equals", target=True,
+                ),
+            )
             evidence = _version_from_store(
                 db, workflow="invoice", version=version, outcome_type="approval"
             )

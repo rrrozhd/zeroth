@@ -2898,7 +2898,8 @@
             "enum": [
               "stored-assertions/1",
               "stored-assertions/2",
-              "stored-assertions/3"
+              "stored-assertions/3",
+              "stored-assertions/4"
             ],
             "title": "Version",
             "type": "string"
@@ -3903,6 +3904,17 @@
             ],
             "title": "Join Key"
           },
+          "maturity": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "provisional",
+              "final",
+              "withdrawn"
+            ],
+            "title": "Maturity",
+            "type": "string"
+          },
           "occurred_at": {
             "anyOf": [
               {
@@ -4012,6 +4024,17 @@
           },
           "join_key": {
             "title": "Join Key",
+            "type": "string"
+          },
+          "maturity": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "provisional",
+              "final",
+              "withdrawn"
+            ],
+            "title": "Maturity",
             "type": "string"
           },
           "occurred_at": {
@@ -5116,8 +5139,15 @@
       "SdkOutcomeEvent": {
         "properties": {
           "accepted": {
-            "title": "Accepted",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
           },
           "dimensions": {
             "additionalProperties": {
@@ -5138,6 +5168,17 @@
             },
             "title": "Dimensions",
             "type": "object"
+          },
+          "maturity": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "provisional",
+              "final",
+              "withdrawn"
+            ],
+            "title": "Maturity",
+            "type": "string"
           },
           "metadata": {
             "additionalProperties": true,
@@ -5224,8 +5265,7 @@
         },
         "required": [
           "workflow",
-          "run_id",
-          "accepted"
+          "run_id"
         ],
         "title": "SdkOutcomeEvent",
         "type": "object"

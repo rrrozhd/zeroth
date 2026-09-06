@@ -375,7 +375,7 @@ def test_retained_comparison_binds_ownership_and_preserves_legacy_uncertainty(en
         first = compare()
         assert first.verdict == "pass"
         assert first.charge_ownership["candidate"].status == "declared"
-        assert first.source_evidence["candidate"].version == "stored-assertions/3"
+        assert first.source_evidence["candidate"].version == "stored-assertions/4"
         record_execution(
             execution(version="v2", event_id="summary", cost_role="summary", cost_usd=None),
             db,

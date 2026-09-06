@@ -57,6 +57,7 @@ def test_late_input_with_identical_totals_creates_a_new_retained_revision(tmp_pa
         if late_evidence == "equivalent_outcome":
             raw.add(
                 OutcomeEvent(
+                    maturity="final",
                     tenant_id="tenant-a",
                     join_key="v2-0",
                     execution_id="",

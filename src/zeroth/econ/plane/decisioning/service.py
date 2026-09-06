@@ -128,8 +128,10 @@ def _source_fingerprint(
     )
     if any(row.cost_role in {"charge", "summary"} for row in executions):
         version = "stored-assertions/3"
+    if any(row.maturity not in {None, "unknown"} for row in outcomes):
+        version = "stored-assertions/4"
     execution_assertions = [_execution_identity_fields(row) for row in executions]
-    if version != "stored-assertions/3":
+    if version not in {"stored-assertions/3", "stored-assertions/4"}:
         for assertion in execution_assertions:
             assertion.pop("cost_role")
             assertion.pop("charge_id")
@@ -137,13 +139,17 @@ def _source_fingerprint(
         # Keep historical v1 bytes stable when the new field carries no assertion.
         for assertion in execution_assertions:
             assertion.pop("source_window_id")
+    outcome_assertions = [_outcome_assertions(row) for row in outcomes]
+    if version != "stored-assertions/4":
+        for assertion in outcome_assertions:
+            assertion.pop("maturity")
     return EvidenceFingerprint(
         version=version,
         digest=digest({
             "version": version,
             "tenant_id": tenant_id,
             "executions": sorted(digest(assertion) for assertion in execution_assertions),
-            "outcomes": sorted(digest(_outcome_assertions(row)) for row in outcomes),
+            "outcomes": sorted(digest(assertion) for assertion in outcome_assertions),
         }),
         execution_records=len(executions), outcome_records=len(outcomes),
     )

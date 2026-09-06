@@ -70,7 +70,7 @@ remains a caller choice. A policy pass can tolerate the configured cost growth
 (10% by default), so a pass does not necessarily mean a saving.
 
 New version results carry `claim_class="observed_comparison"` and
-`method_version="observed-policy/2"`. New backtests carry
+`method_version="observed-policy/3"`. New backtests carry
 `claim_class="exploratory_model_experiment"` and
 `method_version="observed-replay-policy/1"`. Both return `limitations` and use
 `recommended_action="review_candidate"` for a pass. These fields are retained
@@ -81,7 +81,8 @@ meaning based on the current SDK version.
 
 Hosted version reports include `source_evidence.baseline` and `.candidate` with
 a `stored-assertions/1` digest and selected execution/outcome record counts
-(`stored-assertions/2` for window identities, or `/3` for charge ownership).
+(`stored-assertions/2` for window identities, `/3` for charge ownership, or `/4`
+when selected outcomes declare maturity).
 Changed selected inputs create a new retained revision even when the totals are
 unchanged. These fingerprints are not signatures or proof of delivery completeness;
 they cannot recover erased inputs. Historical reports without a binding return
@@ -130,6 +131,33 @@ values. Identical predicates do not prove mature labels, equivalent populations,
 independent business truth, or causal savings. Old retained reports have an empty
 semantics map and keep their original meaning. Existing callers must register their
 rules before newly computed stored comparisons can pass.
+
+### Declare when an outcome is final
+
+`OutcomeEvent.maturity` defaults to `unknown`. Set `final` only when your business
+process has resolved the observation under its declared rule. An execution
+finishing, a measured value, or metadata saying "completed" does not establish
+business finality. Only final, interpretable observations resolve a run as success
+or failure. Provenance remains separate: a final inferred label is still inferred.
+
+Use `provisional` while a result can still change and `withdrawn` to retract the
+current observation. `accepted` may be `None` for unresolved states; final requires
+a boolean, and withdrawn requires `None`. Existing events without maturity remain
+unknown. Do not bulk relabel historical data merely to make a comparison pass.
+
+`occurred_at` is the source time of the assertion or revision. Non-unknown maturity
+requires a timezone-aware timestamp; SDK construction defaults it to the current
+UTC time. Keep the constructed event and its timestamp for exact retries. For a
+correction, append another event with the same workflow/version/run/type and a
+later authoritative assertion time. Keep the original business-event time
+separately when it differs. Changed content at the same identity conflicts.
+
+A newer provisional or withdrawn assertion suppresses an earlier final result.
+An older assertion delivered late is retained but cannot replace the newer state.
+Future assertions are excluded from current reports. Corrections create new
+retained report revisions; existing reports keep their original values. Source
+clock correctness and business truth still require independent evidence. This
+protocol does not provide charge corrections or a complete historical snapshot API.
 
 ### Give each charge one owner
 
@@ -310,6 +338,7 @@ client.record_outcome(
         workflow_version="v7",
         run_id="run-1",
         accepted=True,
+        maturity="final",  # Only after the business process resolves this observation.
     )
 )
 decision = client.compare_versions(

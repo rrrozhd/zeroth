@@ -169,7 +169,7 @@ Missing usage abstains; rate-card estimates do not establish invoice charges.
 
 | Output | Claim class / method | Evidence scope and limitations |
 | --- | --- | --- |
-| Version comparison and scheduled result | `observed_comparison` / `observed-policy/2` | All currently retained received events for the named versions. Source completeness and outcome maturity are not established. Policy checks describe that evidence only. |
+| Version comparison and scheduled result | `observed_comparison` / `observed-policy/3` | Received evidence for the named versions; outcomes use the latest non-future assertion and resolve only with declared final maturity and compatible definitions. Source completeness and business truth are not established. Policy checks describe that evidence only. |
 | Hosted model backtest | `exploratory_model_experiment` / `observed-replay-policy/1` | Supplied 5–25 cases; observed correctness according to the current judge and text-usage projections at retained rates. Judge calibration and population generalization are unvalidated. Cache, tools, downstream charges and unobserved retries are excluded. |
 | Historical result without these fields | `legacy_unclassified` / `legacy_unversioned` | Original values and action remain readable. Missing metadata cannot establish the current method or completeness. |
 | Legacy counterfactual estimates | Legacy OSS method only | Heuristic confidence, calibration and proxy-dollar outputs are not paid statistical, causal or forecasting authorization. |
@@ -178,11 +178,12 @@ New reports retain `claim_class`, `method_version` and `limitations`. Both curre
 methods use `review_candidate` for a pass, never automatic rollout. Their
 `no_statistical_causal_or_forecast_authorization` limitation applies even when
 all observed cases pass. Repeated scheduled looks do not create population
-confidence. Full input snapshots, source closure, outcome definition versions
+confidence. Full input snapshots, source closure, independent outcome truth
 and an independently reproducible evidence window remain acceptance work.
 
 Hosted comparisons bind each version to a `source_evidence` fingerprint tagged
-`stored-assertions/1` (v2 for capture-window identity, v3 for charge ownership), with selected
+`stored-assertions/1` (v2 for capture-window identity, v3 for charge ownership,
+v4 for declared outcome maturity), with selected
 execution and outcome counts. The digest
 covers immutable assertions and their multiplicity, independent of record order,
 database row IDs and receipt times. A later selected outcome or zero-cost step

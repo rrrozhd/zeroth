@@ -58,7 +58,10 @@ def observe(db, value, version="v1", **changes):
             join_key=event.join_key,
             outcome_type="approval",
             outcome_value=value,
-            **{"occurred_at": NOW, "provenance": "MEASURED", **changes},
+            **{
+                "occurred_at": NOW, "provenance": "MEASURED",
+                "maturity": "final" if value is not None else "unknown", **changes,
+            },
         ),
     )
 
@@ -134,7 +137,7 @@ def test_comparisons_require_compatible_definitions(engine, definition_case):
             )
         report = compare_versions_from_store(db, request)
         assert report.verdict == ("pass" if definition_case == "both" else "abstain")
-        assert report.method_version == "observed-policy/2"
+        assert report.method_version == "observed-policy/3"
         if definition_case == "different_rule":
             assert "outcome_semantics_incompatible" in report.reason_codes
         if definition_case in {"missing", "wrong_type"}:

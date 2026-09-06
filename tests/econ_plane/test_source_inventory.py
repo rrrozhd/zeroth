@@ -394,7 +394,7 @@ def test_http_window_ingestion_comparison_and_history(engine, monkeypatch):
         report = response.json()
         assert report["verdict"] == "pass"
         assert report["source_delivery"]["candidate"]["status"] == "matched"
-        assert report["source_evidence"]["candidate"]["version"] == "stored-assertions/2"
+        assert report["source_evidence"]["candidate"]["version"] == "stored-assertions/4"
         history = client.get("/v1/decisions", headers=headers).json()
         assert history == [report]
         assert "runs" not in report["source_delivery"]["candidate"]

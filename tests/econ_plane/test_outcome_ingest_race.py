@@ -196,6 +196,7 @@ def memory_engine():
 
 @pytest.mark.parametrize("change", [
     {}, {"outcome_value": False}, {"provenance": "INFERRED"},
+    {"maturity": "final"},
     {"outcome_payload_json": {"accepted": 1}},
     {"outcome_timestamp": "2026-08-12T01:00:00Z"},
 ])

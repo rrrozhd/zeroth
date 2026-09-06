@@ -74,14 +74,24 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   in debugger/service.py for decisions, debugger and provider allocation. Stored
   decisions abstain on missing/type-mismatched or incompatible rules and retain
   definition/rule digests in outcome_semantics. The existing full-report digest
-  binds these declarations; execution/outcome fingerprints retain v1–v3. Diagnose
+  binds these declarations. Diagnose
   missing labels from the exact tenant/workflow/version definition and the latest
   typed observation; an invalid latest value cannot revive an older success.
   Admin cloud keys/sessions can use the existing outcome-definition POST path;
   the SDK exposes that same request. Other legacy authentication stays unchanged.
-  No new store or migration. Rollback readers must understand observed-policy/2
-  semantics to recompute decisions; old reports remain readable with their original
-  interpretation. Label maturity and append-only corrections remain unresolved.
+  Maturity is separate from both the rule and provenance. One nullable outcome
+  column preserves unknown legacy history. SDK/runtime/API declarations allow
+  unknown, provisional, final and withdrawn; final requires an observation and
+  withdrawn forbids one. The shared join excludes future source assertions, then
+  selects the latest matching type before applying finality and the typed rule.
+  A newer provisional/withdrawn state cannot revive an earlier success. Revisions
+  append using a later aware source assertion timestamp; preserve the timestamp
+  for retries, and original business-event time separately when it differs.
+  Query responses expose maturity for diagnosis. Non-unknown declarations bind
+  stored-assertions/4 fingerprints; old v1–v3 bytes remain stable. Rollback readers
+  must understand observed-policy/3 semantics to recompute decisions; old reports
+  retain their original interpretation. Producer clock correctness, independent
+  business truth and complete historical windows remain unverified.
 - Experiments: `src/zeroth/econ/plane/backtesting/` owns bounded execution,
   reservation/metering and retained results; analytics owns model evaluation.
   Hosted replays reuse the correctness evaluator, then price captured input/output
@@ -151,6 +161,14 @@ rollback build must retain these columns and read stored-assertions/3 plus charg
 ownership reports. Single ownership holds among retained records: source erasure
 removes the owner with the execution. Corrections/repricing require a future
 append-only assertion contract; do not work around immutability with a new charge ID.
+
+Migration `20260906_21` adds nullable outcome maturity without backfill. Apply the
+economic chain before starting PostgreSQL replicas; startup checks the column,
+and SQLite compatibility uses the same migration. Downgrade refuses to discard
+non-unknown declarations. Roll back with a compatible reader that preserves the
+column and understands observed-policy/3 and stored-assertions/4. Query the latest
+source timestamp, maturity, typed value and workflow definition when a label is
+unresolved. These local checks do not certify a rollback image or producer truth.
 
 ## Current risks and unfinished work
 

@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.measurement import MeasurementState
+from zeroth.econ.outcome_maturity import OutcomeMaturity
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
 from zeroth.econ.plane.cloud.entitlements import EntitlementError, release_usage, reserve_usage
@@ -44,6 +45,7 @@ class _CloudOutcomeCreate(BaseModel):
     workflow_version: str | None = None
     outcome_type: str = Field(min_length=1, max_length=64)
     outcome_value: Union[float, bool, str] | None = None
+    maturity: OutcomeMaturity = "unknown"
     outcome_payload_json: dict[str, Any] = Field(default_factory=dict)
     occurred_at: datetime
     outcome_timestamp: datetime
@@ -185,6 +187,7 @@ def record_outcome(
         occurred_at=payload.occurred_at,
         outcome_timestamp=payload.occurred_at,
         provenance=payload.provenance.upper(),
+        maturity=payload.maturity,
     )
     try:
         status, row = ingest_outcome_with_status(db, event)

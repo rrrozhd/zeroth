@@ -58,6 +58,7 @@ def _seed(db: Session) -> None:
             )
             db.add(
                 OutcomeEvent(
+                    maturity="final",
                     tenant_id="tenant-a",
                     join_key=run_id,
                     execution_id="",
@@ -129,7 +130,7 @@ def test_schedule_api_and_due_runner_retain_a_recurring_decision(
     assert len(decisions) == 1
     assert decisions[0].verdict == ("abstain" if quality_floor is None else "pass")
     assert decisions[0].claim_class == "observed_comparison"
-    assert decisions[0].method_version == "observed-policy/2"
+    assert decisions[0].method_version == "observed-policy/3"
     if quality_floor is None:
         assert "policy.min_success_rate" in decisions[0].reason_codes
     else:

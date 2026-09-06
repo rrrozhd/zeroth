@@ -131,6 +131,7 @@ with InstrumentationClient.authenticated(
             capability_id="invoice-processing",
             outcome_type="approval",
             outcome_value=True,
+            maturity="final",  # The business approval has resolved.
         )
     )
 ```
@@ -139,6 +140,14 @@ Confirmed delivery raises when the plane rejects a write, so a setup check
 cannot silently report success while evidence remains only in memory. The
 ordinary `track_execution` and `track_outcome` methods remain buffered for
 long-running applications.
+
+Delivery confirmation does not establish outcome maturity. Maturity defaults to
+`unknown`; only `final` observations resolve business success or failure under the
+version's outcome definition. Use `provisional` while unresolved, or `withdrawn`
+with no value to retract the latest observation. Revisions are new assertions with
+later timezone-aware source timestamps. Preserve timestamps on retries. Future
+assertions and non-final labels do not resolve current reports; legacy rows remain
+unknown until the producer supplies a new final assertion.
 
 Do not put the token in source code. For global instrumentation helpers, set
 `ECP_BASE_URL` and `ECP_BEARER_TOKEN`, then call

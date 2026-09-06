@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from zeroth.protocol.cost_ownership import CostRole, validate_cost_ownership
+from zeroth.protocol.outcome_maturity import OutcomeMaturity, validate_outcome_maturity
 from zeroth.protocol.source_inventory import SourceWindowInventory, validate_source_windows
 
 
@@ -82,7 +83,8 @@ class OutcomeEvent(BaseModel):
     workflow: str = Field(min_length=1)
     workflow_version: str = Field(default="unversioned", min_length=1)
     run_id: str = Field(min_length=1)
-    accepted: bool
+    accepted: bool | None = None
+    maturity: OutcomeMaturity = "unknown"
     outcome_type: str = Field(default="accepted", min_length=1)
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     provenance: Literal["measured", "inferred", "mixed"] = "measured"
@@ -91,6 +93,13 @@ class OutcomeEvent(BaseModel):
     subject_id: str | None = None
     dimensions: dict[str, str | int | float | bool] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _maturity_contract(self) -> OutcomeEvent:
+        validate_outcome_maturity(self.maturity, self.accepted, self.occurred_at)
+        if self.maturity != "unknown":
+            self.occurred_at = self.occurred_at.astimezone(UTC)
+        return self
 
 
 class EconomicConstraints(BaseModel):

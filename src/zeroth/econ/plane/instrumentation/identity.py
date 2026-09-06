@@ -3,6 +3,7 @@
 import hashlib
 import json
 from collections import defaultdict
+from datetime import UTC, datetime
 
 from sqlalchemy import Integer, and_, bindparam, func, or_, select
 
@@ -134,6 +135,7 @@ def outcomes_for_events(
     statement = (
         select(OutcomeEvent)
         .where(matching_execution.exists())
+        .where(OutcomeEvent.occurred_at <= datetime.now(UTC).replace(tzinfo=None))
         .order_by(OutcomeEvent.occurred_at.desc(), OutcomeEvent.id.desc())
     )
     if outcome_type is not None:

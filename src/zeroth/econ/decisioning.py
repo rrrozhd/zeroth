@@ -44,7 +44,7 @@ class EvidenceFingerprint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: Literal[
-        "stored-assertions/1", "stored-assertions/2", "stored-assertions/3"
+        "stored-assertions/1", "stored-assertions/2", "stored-assertions/3", "stored-assertions/4"
     ] = "stored-assertions/1"
     digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     execution_records: int = Field(ge=0)
@@ -285,7 +285,7 @@ def compare_workflow_versions(
     }
     claim_fields = {
         "claim_class": "observed_comparison",
-        "method_version": "observed-policy/2" if semantics else "observed-policy/1",
+        "method_version": "observed-policy/3" if semantics else "observed-policy/1",
         "limitations": [
             "source_completeness_unverified",
             "no_statistical_causal_or_forecast_authorization",

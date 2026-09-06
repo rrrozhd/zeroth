@@ -131,6 +131,7 @@ class OutcomeEvent(Base):
     ingested_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     outcome_timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
     provenance: Mapped[str] = mapped_column(String(16), default="MEASURED")
+    maturity: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class EconErasureReceipt(Base):

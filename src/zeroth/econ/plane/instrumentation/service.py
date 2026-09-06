@@ -585,6 +585,7 @@ def _outcome_assertions(row: OutcomeEvent) -> dict:
         "occurred_at": _datetime_identity(row.occurred_at),
         "outcome_timestamp": _datetime_identity(row.outcome_timestamp),
         "provenance": row.provenance,
+        "maturity": row.maturity or "unknown",
     }
 
 
@@ -886,6 +887,7 @@ def ingest_outcome_with_status(
         ingested_at=datetime.now(UTC),
         outcome_timestamp=payload.outcome_timestamp or occurred_at,
         provenance=payload.provenance,
+        maturity=payload.maturity,
     )
     duplicate = _existing_outcome(
         db,

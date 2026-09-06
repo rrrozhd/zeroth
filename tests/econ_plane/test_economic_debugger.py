@@ -259,6 +259,7 @@ def _seed_debugger_fixture(engine, tenant_id: str = "tenant-a") -> None:
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="success-verify",
                 join_key="run-success",
                 capability_id=capability_id,
@@ -271,6 +272,7 @@ def _seed_debugger_fixture(engine, tenant_id: str = "tenant-a") -> None:
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="failure-extract-2",
                 join_key="run-failed",
                 capability_id=capability_id,
@@ -538,6 +540,7 @@ def test_diagnostic_report_does_not_infer_success_without_an_outcome_definition(
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="ambiguous-outcome",
                 join_key="run-ambiguous",
                 capability_id=capability_id,
@@ -580,6 +583,7 @@ def test_versioned_outcome_definition_controls_business_success(econ_engine) -> 
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="fraud-outcome",
                 join_key="run-fraud",
                 capability_id=capability_id,
@@ -666,6 +670,7 @@ def test_numeric_outcome_definition_applies_a_versioned_threshold(econ_engine) -
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="reopen-outcome",
                 join_key="run-reopened",
                 capability_id=capability_id,
@@ -765,7 +770,7 @@ def test_debugger_spine_migration_backfills_existing_execution_identity(
         } <= columns
         with engine.connect() as connection:
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-                "20260906_20"
+                "20260906_21"
             )
             identity = connection.execute(
                 text(

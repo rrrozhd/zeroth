@@ -54,6 +54,8 @@ def _outcome_value(outcome: OutcomeEvent) -> object:
 
 
 def _matches_definition(outcome: OutcomeEvent, definition: OutcomeDefinition) -> bool | None:
+    if outcome.maturity != "final":
+        return None
     value = _outcome_value(outcome)
     if value is None:
         return None

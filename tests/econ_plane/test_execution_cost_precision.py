@@ -117,7 +117,7 @@ def test_cost_precision_migration_upgrades_sqlite_and_preserves_micro_cost(
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20260906_20"
+                == "20260906_21"
             )
             costs = connection.execute(
                 text(

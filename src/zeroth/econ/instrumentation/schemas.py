@@ -19,6 +19,7 @@ from pydantic import (
 
 from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.cost_ownership import CostRole, validate_cost_ownership
+from zeroth.econ.outcome_maturity import OutcomeMaturity, validate_outcome_maturity
 
 DimensionValue = Union[StrictStr, StrictInt, StrictFloat, StrictBool]
 
@@ -137,5 +138,13 @@ class OutcomeEvent(BaseModel):
     join_key: str | None = None
     capability_id: str
     outcome_type: Literal["conversion", "fraud_flag", "approval", "custom"]
-    outcome_value: Union[float, bool, str]
+    outcome_value: Union[float, bool, str] | None = None
+    maturity: OutcomeMaturity = "unknown"
     outcome_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @model_validator(mode="after")
+    def _maturity_contract(self) -> OutcomeEvent:
+        validate_outcome_maturity(self.maturity, self.outcome_value, self.outcome_timestamp)
+        if self.maturity != "unknown":
+            self.outcome_timestamp = self.outcome_timestamp.astimezone(timezone.utc)
+        return self

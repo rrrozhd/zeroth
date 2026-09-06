@@ -73,6 +73,7 @@ def _seed_version(
         )
         db.add(
             OutcomeEvent(
+                maturity="final",
                 tenant_id=tenant_id,
                 join_key=run_id,
                 execution_id="",
@@ -139,7 +140,7 @@ def test_compare_route_reads_only_the_authenticated_tenant(
     assert payload["verdict"] == "pass"
     assert payload["recommended_action"] == "review_candidate"
     assert payload["claim_class"] == "observed_comparison"
-    assert payload["method_version"] == "observed-policy/2"
+    assert payload["method_version"] == "observed-policy/3"
     assert payload["baseline"]["runs"] == 10
     assert payload["candidate"]["runs"] == 10
     assert payload["cost_per_outcome_change"] == -0.4

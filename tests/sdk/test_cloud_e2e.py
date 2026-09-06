@@ -101,6 +101,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
             )
             sdk.record_outcome(
                 OutcomeEvent(
+                    maturity="final",
                     workflow="invoice-agent",
                     workflow_version=version,
                     run_id=run_id,

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from zeroth.econ.instrumentation.schemas import DimensionValue, validate_dimensions
 from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.cost_ownership import CostRole, validate_cost_ownership
+from zeroth.econ.outcome_maturity import OutcomeMaturity, validate_outcome_maturity
 
 
 class ExecutionEventCreate(BaseModel):
@@ -117,10 +118,27 @@ class OutcomeEventCreate(BaseModel):
     implementation_id: str | None = None
     outcome_type: Literal["conversion", "fraud_flag", "approval", "custom", "reopen_rate"]
     outcome_value: Union[float, bool, str] | None = None
+    maturity: OutcomeMaturity = "unknown"
     outcome_payload_json: dict[str, Any] = Field(default_factory=dict)
     occurred_at: datetime | None = None
     outcome_timestamp: datetime | None = None
     provenance: Literal["MEASURED", "INFERRED", "MIXED"] = "MEASURED"
+
+    @model_validator(mode="after")
+    def _maturity_contract(self) -> OutcomeEventCreate:
+        value = self.outcome_payload_json.get("value", self.outcome_value)
+        timestamp = self.occurred_at or self.outcome_timestamp
+        validate_outcome_maturity(self.maturity, value, timestamp)
+        if self.maturity != "unknown":
+            if self.occurred_at is not None and self.outcome_timestamp is not None:
+                validate_outcome_maturity(self.maturity, value, self.outcome_timestamp)
+                if self.occurred_at != self.outcome_timestamp:
+                    raise ValueError("outcome timestamp aliases must name the same instant")
+            if self.occurred_at is not None:
+                self.occurred_at = self.occurred_at.astimezone(UTC)
+            if self.outcome_timestamp is not None:
+                self.outcome_timestamp = self.outcome_timestamp.astimezone(UTC)
+        return self
 
 
 class OutcomeBatchIngestRequest(BaseModel):
@@ -137,6 +155,12 @@ class OutcomeQueryResponse(BaseModel):
     outcome_payload_json: dict[str, Any]
     occurred_at: datetime
     provenance: str
+    maturity: OutcomeMaturity = "unknown"
+
+    @field_validator("maturity", mode="before")
+    @classmethod
+    def _legacy_maturity(cls, value):
+        return value or "unknown"
 
     model_config = {"from_attributes": True}
 

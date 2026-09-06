@@ -91,6 +91,7 @@ def _outcome_out(row: object) -> OutcomeQueryResponse:
             "outcome_payload_json": payload,
             "occurred_at": occurred_at,
             "provenance": getattr(row, "provenance", "MEASURED"),
+            "maturity": getattr(row, "maturity", None),
         }
     )
 
