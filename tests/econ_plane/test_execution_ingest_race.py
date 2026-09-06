@@ -101,6 +101,36 @@ def _plain_sessionmaker(engine):
     return sessionmaker(bind=engine, autocommit=False, autoflush=False, class_=Session)
 
 
+@pytest.mark.parametrize(
+    "changed_field, changed_value",
+    [("cost_measurement", "estimated"), ("usage_measurement", "estimated"),
+     ("evidence_kind", "synthetic_control"), ("evidence_kind", "legacy_unknown"),
+     ("deployment_ref", "release-2")],
+)
+def test_replay_cannot_change_economic_provenance_or_population(tmp_path, changed_field, changed_value):
+    engine = create_engine(f"sqlite:///{tmp_path / 'provenance.db'}")
+    Base.metadata.create_all(engine)
+    _seed_capability(engine)
+    client = TestClient(_app(_plain_sessionmaker(engine)))
+    original = {
+        **_event("immutable-economics"), "token_cost_usd": "1.25",
+        "cost_measurement": "measured", "usage_measurement": "measured",
+        "evidence_kind": "production", "deployment_ref": "release-1",
+    }
+    assert client.post("/v1/instrumentation/executions", json=original).status_code == 200
+    changed = client.post(
+        "/v1/instrumentation/executions", json={**original, changed_field: changed_value},
+    )
+    assert changed.status_code == 422
+    assert changed_field in changed.json()["detail"]
+    retry = client.post("/v1/instrumentation/executions", json=original)
+    assert retry.status_code == 200
+    assert retry.json()["status"] == "duplicate"
+    with Session(engine) as session:
+        row = session.scalars(select(ExecutionEvent)).one()
+        assert getattr(row, changed_field) == original[changed_field]
+
+
 def _held_sessionmaker(engine, hold, *, after: int = 1, lost: list[str] | None = None):
     """Sessions that run ``hold()`` once, just before their ``after``-th flush.
 
@@ -245,7 +275,7 @@ def test_concurrent_identical_execution_ingests_report_a_duplicate_not_a_500(
 # --------------------------------------------------------------------------
 
 
-def _assert_divergent_race(engine, seen: dict, errors: list, lost: list) -> None:
+def _assert_divergent_race(engine, seen: dict, errors: list, lost: list, *, conflict_field="model_version") -> None:
     assert errors == [], f"a concurrent caller failed: {errors!r}"
     assert len(lost) == 1, f"expected exactly one caller to hit the constraint, got {lost!r}"
     codes = sorted(code for code, _ in seen.values())
@@ -257,12 +287,18 @@ def _assert_divergent_race(engine, seen: dict, errors: list, lost: list) -> None
     # with what is stored, and naming the field is the point of the message.
     detail = json.loads(loser)["detail"]
     assert detail.startswith("execution_id already exists with conflicting immutable fields")
-    assert "model_version" in detail, detail
+    assert conflict_field in detail, detail
     assert len(_stored(engine)) == 1, _stored(engine)
 
 
+@pytest.mark.parametrize(
+    "changed_field, changed_value",
+    [("model_version", "v2"), ("cost_measurement", "estimated"),
+     ("usage_measurement", "estimated"), ("evidence_kind", "synthetic_control"),
+     ("evidence_kind", "legacy_unknown"), ("deployment_ref", "release-2")],
+)
 def test_a_concurrent_ingest_that_loses_to_a_different_payload_is_a_422_not_a_500(
-    race_engine,
+    race_engine, changed_field, changed_value,
 ) -> None:
     """The loser must not be told ``"duplicate"``.
 
@@ -276,9 +312,13 @@ def test_a_concurrent_ingest_that_loses_to_a_different_payload_is_a_422_not_a_50
     factory = _held_sessionmaker(race_engine, lambda: barrier.wait(timeout=_WAIT), lost=lost)
     seen: dict[str, tuple[int, str]] = {}
     errors: list[BaseException] = []
-    first_ingest = _race(_app(factory), _event("exec-2", model_version="v1"), seen, errors, barrier)
+    original = {
+        **_event("exec-2"), "token_cost_usd": "1.25", "cost_measurement": "measured",
+        "usage_measurement": "measured", "evidence_kind": "production", "deployment_ref": "release-1",
+    }
+    first_ingest = _race(_app(factory), original, seen, errors, barrier)
     second_ingest = _race(
-        _app(factory), _event("exec-2", model_version="v2"), seen, errors, barrier
+        _app(factory), {**original, changed_field: changed_value}, seen, errors, barrier
     )
 
     def first() -> None:
@@ -289,7 +329,7 @@ def test_a_concurrent_ingest_that_loses_to_a_different_payload_is_a_422_not_a_50
 
     _run(first, second)
 
-    _assert_divergent_race(race_engine, seen, errors, lost)
+    _assert_divergent_race(race_engine, seen, errors, lost, conflict_field=changed_field)
 
 
 # --------------------------------------------------------------------------

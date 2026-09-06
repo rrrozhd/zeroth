@@ -227,6 +227,7 @@ def _execution_row(
         timestamp=_NOW.replace(tzinfo=None),
         capability_id="cap-a",
         implementation_id=implementation_id,
+        evidence_kind="production",
         model_version=model_version,
         latency_ms=10,
         compute_time_ms=5,
