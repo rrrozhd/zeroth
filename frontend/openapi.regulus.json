@@ -449,6 +449,86 @@
         "title": "BudgetStatusOut",
         "type": "object"
       },
+      "CalculationInput": {
+        "additionalProperties": false,
+        "description": "One distinct normalized input tuple and its run multiplicity; no source IDs.",
+        "properties": {
+          "accepted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
+          },
+          "cost_measurement": {
+            "$ref": "#/components/schemas/MeasurementState"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "outcome_measurement": {
+            "$ref": "#/components/schemas/MeasurementState"
+          },
+          "runs": {
+            "minimum": 1.0,
+            "title": "Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cost_measurement",
+          "accepted",
+          "outcome_measurement",
+          "runs"
+        ],
+        "title": "CalculationInput",
+        "type": "object"
+      },
+      "CalculationInputs": {
+        "additionalProperties": false,
+        "description": "Portable arithmetic inputs, not a source snapshot or completeness proof.",
+        "properties": {
+          "baseline": {
+            "items": {
+              "$ref": "#/components/schemas/CalculationInput"
+            },
+            "title": "Baseline",
+            "type": "array"
+          },
+          "candidate": {
+            "items": {
+              "$ref": "#/components/schemas/CalculationInput"
+            },
+            "title": "Candidate",
+            "type": "array"
+          },
+          "version": {
+            "const": "run-economics/1",
+            "default": "run-economics/1",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseline",
+          "candidate"
+        ],
+        "title": "CalculationInputs",
+        "type": "object"
+      },
       "CalibrationSummary": {
         "properties": {
           "bias": {
@@ -2442,6 +2522,16 @@
           "baseline_version": {
             "title": "Baseline Version",
             "type": "string"
+          },
+          "calculation_inputs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CalculationInputs"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "candidate": {
             "$ref": "#/components/schemas/VersionEconomics"

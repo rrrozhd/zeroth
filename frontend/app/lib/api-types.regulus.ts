@@ -1579,6 +1579,36 @@ export interface components {
             /** Window Start */
             window_start?: string | null;
         };
+        /**
+         * CalculationInput
+         * @description One distinct normalized input tuple and its run multiplicity; no source IDs.
+         */
+        CalculationInput: {
+            /** Accepted */
+            accepted: boolean | null;
+            cost_measurement: components["schemas"]["MeasurementState"];
+            /** Cost Usd */
+            cost_usd?: string | null;
+            outcome_measurement: components["schemas"]["MeasurementState"];
+            /** Runs */
+            runs: number;
+        };
+        /**
+         * CalculationInputs
+         * @description Portable arithmetic inputs, not a source snapshot or completeness proof.
+         */
+        CalculationInputs: {
+            /** Baseline */
+            baseline: components["schemas"]["CalculationInput"][];
+            /** Candidate */
+            candidate: components["schemas"]["CalculationInput"][];
+            /**
+             * Version
+             * @default run-economics/1
+             * @constant
+             */
+            version: "run-economics/1";
+        };
         /** CalibrationSummary */
         CalibrationSummary: {
             /** Bias */
@@ -2362,6 +2392,7 @@ export interface components {
             baseline: components["schemas"]["VersionEconomics"];
             /** Baseline Version */
             baseline_version: string;
+            calculation_inputs?: components["schemas"]["CalculationInputs"] | null;
             candidate: components["schemas"]["VersionEconomics"];
             /** Candidate Version */
             candidate_version: string;

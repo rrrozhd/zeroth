@@ -88,6 +88,38 @@ unchanged. These fingerprints are not signatures or proof of delivery completene
 they cannot recover erased inputs. Historical reports without a binding return
 an empty `source_evidence` map.
 
+New reports also carry `calculation_inputs` (`run-economics/1`). Its baseline and
+candidate rows contain exact cost, cost provenance, accepted/unresolved outcome,
+outcome provenance and a `runs` multiplicity. Identical tuples are grouped without
+copying source identifiers or raw payloads. These inputs stay with the retained
+decision when later evidence changes a fresh comparison.
+
+To check an original report's measured total independently:
+
+```python
+from fractions import Fraction
+
+decision_id = "<retained decision ID>"
+report = next(row for row in client.list_decisions()
+              if row["decision_id"] == decision_id)
+inputs = report.get("calculation_inputs")
+if inputs is None:
+    raise ValueError("This historical report has no retained calculation inputs")
+measured = sum(
+    (Fraction(row["cost_usd"]) * row["runs"] for row in inputs["baseline"]
+     if row["cost_measurement"] == "measured"), Fraction(0)
+)
+assert measured == Fraction(report["baseline"]["measured_cost_usd"])
+```
+
+Decimal strings may use exponent notation, such as `1E-8`; preserve exact values
+instead of converting money to floats. A row represents whole-run economics: one
+unknown required charge makes that run's cost unknown. Multiplicity must be included
+in every total and denominator. See the repository's economic-optimization guide
+for the complete calculation rules. These inputs reproduce arithmetic, not source
+truth or invoice reconciliation. They remain with retained reports after source
+erasure and do not recover erased identifiers. Existing retention obligations apply.
+
 ### Declare what an accepted outcome means
 
 Before comparing stored workflow versions or scheduling a comparison, an Admin

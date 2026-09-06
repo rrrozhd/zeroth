@@ -8,6 +8,7 @@ never becomes a confident approval by default.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -153,6 +154,53 @@ class VersionEconomics(BaseModel):
     cost_per_accepted_outcome_usd: Decimal | None
 
 
+class CalculationInput(BaseModel):
+    """One distinct normalized input tuple and its run multiplicity; no source IDs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cost_usd: Decimal | None = Field(default=None, ge=0)
+    cost_measurement: MeasurementState
+    accepted: bool | None
+    outcome_measurement: MeasurementState
+    runs: int = Field(ge=1, strict=True)
+
+    @model_validator(mode="after")
+    def _cost_matches_provenance(self) -> CalculationInput:
+        if (self.cost_measurement is MeasurementState.UNMEASURED) != (self.cost_usd is None):
+            raise ValueError("unknown cost requires unmeasured provenance and no amount")
+        return self
+
+
+class CalculationInputs(BaseModel):
+    """Portable arithmetic inputs, not a source snapshot or completeness proof."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["run-economics/1"] = "run-economics/1"
+    baseline: list[CalculationInput]
+    candidate: list[CalculationInput]
+
+
+def _calculation_rows(runs: list[RunEvidence]) -> list[CalculationInput]:
+    grouped = Counter(
+        (run.cost_usd, run.cost_measurement, run.accepted, run.outcome_measurement)
+        for run in runs
+    )
+    rows = []
+    for (cost, state, accepted, provenance), count in grouped.items():
+        # Equal decimals serialize equally without Decimal.normalize()'s context rounding.
+        if cost is not None:
+            amount = format(cost, "f")
+            canonical = amount.rstrip("0").rstrip(".") if "." in amount else amount
+            cost = Decimal(canonical) if cost else Decimal(0)
+        rows.append(CalculationInput(
+            cost_usd=cost, cost_measurement=state, accepted=accepted,
+            outcome_measurement=provenance, runs=count,
+        ))
+    return sorted(rows, key=lambda row: row.model_dump_json())
+
+
 class EconomicDecision(BaseModel):
     """Auditable economic release decision for a candidate workflow version."""
 
@@ -188,6 +236,7 @@ class EconomicDecision(BaseModel):
     outcome_semantics: dict[Literal["baseline", "candidate"], OutcomeSemantics] = Field(
         default_factory=dict
     )
+    calculation_inputs: CalculationInputs | None = None
 
 
 def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> VersionEconomics:
@@ -286,6 +335,10 @@ def compare_workflow_versions(
         if evidence.outcome_semantics is not None
     }
     claim_fields = {
+        "calculation_inputs": CalculationInputs(
+            baseline=_calculation_rows(baseline_evidence.runs),
+            candidate=_calculation_rows(candidate_evidence.runs),
+        ),
         "claim_class": "observed_comparison",
         "method_version": "observed-policy/3" if semantics else "observed-policy/1",
         "limitations": [

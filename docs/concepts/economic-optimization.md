@@ -178,19 +178,65 @@ New reports retain `claim_class`, `method_version` and `limitations`. Both curre
 methods use `review_candidate` for a pass, never automatic rollout. Their
 `no_statistical_causal_or_forecast_authorization` limitation applies even when
 all observed cases pass. Repeated scheduled looks do not create population
-confidence. Full input snapshots, source closure, independent outcome truth
-and an independently reproducible evidence window remain acceptance work.
+confidence. Retained normalized calculation inputs make comparison arithmetic
+reproducible. Raw source snapshots, source closure and independent outcome truth
+remain acceptance work.
 
 Hosted comparisons bind each version to a `source_evidence` fingerprint tagged
 `stored-assertions/1` (v2 for capture-window identity, v3 for charge ownership,
-v4 for declared outcome maturity), with selected
-execution and outcome counts. The digest
+v4 for declared outcome maturity, v5 for charge-cost revisions), with selected
+execution, outcome and cost-revision counts. The digest
 covers immutable assertions and their multiplicity, independent of record order,
 database row IDs and receipt times. A later selected outcome or zero-cost step
 creates a new retained revision even when the totals do not change. No raw
 payload is copied into the report. A fingerprint cannot prove missing streams
 were delivered, reconstruct erased source records, or serve as a signature.
 Historical reports keep an empty source binding.
+
+### Reconstruct a retained comparison
+
+New comparison results include `calculation_inputs`, version `run-economics/1`.
+Its `baseline` and `candidate` lists preserve the normalized economic inputs used
+for that report. Each row contains `cost_usd`, `cost_measurement`, `accepted`,
+`outcome_measurement` and `runs`. Identical input tuples are grouped; `runs` is
+their multiplicity. Zero is an observed amount and null is unknown. Amounts are
+exact decimal strings and may use exponent notation such as `1E-8`; parse them
+with decimal or rational arithmetic, not binary floating point.
+
+For each side, these rules reconstruct `VersionEconomics`:
+
+| Number | Calculation from input rows |
+| --- | --- |
+| Runs | Sum `runs` over every row. |
+| Labeled, accepted, rejected runs | Sum multiplicities where `accepted` is non-null, true, or false, respectively. |
+| Outcome coverage | Labeled runs / all runs; zero when there are no runs. |
+| Success rate | Accepted / labeled runs; unavailable when there are no labels. |
+| Inferred outcome runs | Labeled multiplicities whose `outcome_measurement` is not `measured`. |
+| Measured, estimated, unmeasured runs | Sum multiplicities by `cost_measurement`. |
+| Measured and estimated cost | Sum `cost_usd × runs` separately for each provenance. |
+| Cost per accepted outcome | Divide eligible total cost by accepted runs, only when all runs are labeled, no cost is unknown, at least one run is accepted, and estimated costs are either absent or explicitly allowed by the retained policy. |
+
+The input unit is a whole run. If one required charge is unknown or execution
+delivery mismatches the inventory, that run's cost is unknown here. A debugger's
+visible subtotal of known components has a different scope. Unresolved outcomes
+never become rejected outcomes merely to complete a denominator. Inferred labels
+and estimated costs keep their provenance even when a policy permits them.
+
+The report also retains the policy and source/definition bindings. Use exact
+ratios of the retained totals and counts when checking its cost-change or
+success-change constraints; displayed decimal quotients and floating-point changes
+are presentation values. A calculation replay does not establish statistical or
+causal validity, source delivery, invoice truth or the correctness of normalization.
+
+Late evidence produces a new comparison record. Read the original decision ID in
+`GET /v1/decisions` to retrieve its original calculation inputs; do not recompute
+the old report from today's event selection. These inputs remain with retained
+reports after source erasure, but add no run, event, charge or subject identifiers,
+prompts, metadata or outcome payloads. Small-population economic figures are not
+promised to be anonymous. Existing report-retention obligations still apply.
+Historical reports without `calculation_inputs` return null; they cannot acquire
+missing inputs retrospectively. The independent source ledger is still needed to
+trace assertions to provider charges and verify their meaning.
 
 Comparisons can also receive caller-owned source inventories for both versions.
 Executions carry an immutable `source_window_id`; each inventory declares its

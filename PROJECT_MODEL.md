@@ -46,7 +46,18 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   reuses the loaded rows and existing report JSON; it does not copy raw payloads,
   prove source completeness, or establish a frozen time window. Old reports keep
   an empty source binding. Debug a changed revision from its source counts/digest
-  before comparing totals; original source rows are still needed to reconstruct it.
+  before comparing totals; original source rows are still needed to audit assertions.
+  New comparisons also retain calculation_inputs (run-economics/1) in the existing
+  report JSON. decisioning.py groups exact normalized cost/outcome tuples with their
+  run multiplicity, without source IDs or raw payloads. Existing report digests bind
+  the rows. These frozen inputs reproduce VersionEconomics and policy arithmetic
+  after late evidence or source erasure; they do not prove source normalization,
+  complete delivery or an atomic database snapshot. Old reports keep null inputs.
+  Debug arithmetic from retained rows/policy; debug evidence meaning from the
+  independent source ledger, definitions and source fingerprints. Source erasure
+  preserves aggregate report/calculation history under existing report retention.
+  No new schema or endpoint is needed. Rollback readers must accept the optional
+  calculation_inputs field on new records; no rollback image is certified.
   Optional `source_windows` on comparison requests reconcile caller-owned run
   inventories against received executions selected by tenant, workflow, version
   and immutable `source_window_id`. The SDK helper hashes unique execution IDs in
