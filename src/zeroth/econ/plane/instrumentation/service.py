@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+import json
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -527,6 +528,34 @@ def ingest_execution(
     return "inserted", row
 
 
+def _outcome_assertions(row: OutcomeEvent) -> dict:
+    """Caller assertions; receipt time and database row IDs are not event content."""
+    return {
+        "tenant_id": row.tenant_id,
+        "join_key": row.join_key,
+        "execution_id": row.execution_id or row.join_key,
+        "capability_id": row.capability_id,
+        "implementation_id": row.implementation_id or "",
+        "outcome_type": row.outcome_type,
+        "outcome_value": row.outcome_value,
+        # JSON types matter: accepted=true must not equal accepted=1. Key order
+        # does not matter; non-finite numbers cannot be compared as valid JSON.
+        "outcome_payload_json": json.dumps(
+            row.outcome_payload_json or {}, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ),
+        "occurred_at": _datetime_identity(row.occurred_at),
+        "outcome_timestamp": _datetime_identity(row.outcome_timestamp),
+        "provenance": row.provenance,
+    }
+
+
+def _assert_same_outcome(expected: OutcomeEvent, actual: OutcomeEvent) -> None:
+    before, after = _outcome_assertions(expected), _outcome_assertions(actual)
+    conflicts = sorted(key for key in before if before[key] != after[key])
+    if conflicts:
+        raise ValueError(f"immutable outcome fields differ: {', '.join(conflicts)}")
+
+
 def _existing_outcome(
     db: ScopedSession,
     *,
@@ -536,42 +565,14 @@ def _existing_outcome(
     occurred_at: datetime,
     implementation_id: str | None,
 ) -> OutcomeEvent | None:
-    """Return the already-stored outcome with this identity, if any.
+    """Read the indexed identity; reject ambiguous historical duplicate rows.
 
-    The identity matches ``uq_outcome_events_tenant_identity``.  The database
-    constraint is the race-proof guard -- this lookup holds no lock, so between
-    it and the flush that follows a concurrent caller can store the same
-    identity.  What it buys is that the common cases never reach the constraint
-    at all: a sequential retry is reported as a duplicate, and a repeat *inside
-    one batch* resolves without the constraint aborting a transaction that
-    carries the rest of the batch.  A caller that loses the race anyway is
-    recovered by :func:`_persist_outcome` and :func:`ingest_outcomes`.
-
-    ``implementation_id`` is keyed exactly the way the index keys it, through
-    ``coalesce(implementation_id, '')``: NULL and ``''`` are one key at the
-    database, so a lookup that branched to ``IS NULL`` *or* ``= value`` would ask
-    two disjoint questions and let a resolved ``''`` miss a stored NULL row.
-
-    The index is also the only thing that makes this identity single-valued, and a
-    database can be serving without it: ``20260812_07`` refuses rather than
-    deleting rows out of an erasure-audited table when it finds colliding
-    identities, so one that already held duplicates converges *without* the index
-    and keeps taking ingests.  There ``scalar_one_or_none()`` raised
-    ``MultipleResultsFound`` -- neither a ``ValueError`` nor an ``IntegrityError``,
-    so it escaped ``post_outcome`` as a 500.  Capping at one row answers instead,
-    and unlike the execution identity that is not a choice between rival records:
-    colliding rows agree on every column of the identity by construction and an
-    outcome carries no immutable fields, so they are one logical event and no
-    payload can be a duplicate of one and a conflict with another.
-
-    The order is ascending ``id`` rather than the plane's ``.desc()`` idiom
-    (``latest_cost_estimate`` and its siblings), which is for genuinely versioned
-    records where the newest row is the answer.  Here there is no newest: the
-    first-stored row is the one a sequential retry was told about before the
-    duplicates accrued, and reporting it keeps the answer fixed as further
-    duplicates land instead of moving with them.
+    The unique index, not this unlocked lookup, is the concurrency guard. NULL
+    and empty implementations match the index's COALESCE identity. Historical
+    databases may lack the index because migration refuses to delete colliding
+    rows. Return their earliest row only when all caller assertions agree.
     """
-    return (
+    rows = (
         db.execute(
             select(OutcomeEvent)
             .where(
@@ -582,11 +583,15 @@ def _existing_outcome(
                 func.coalesce(OutcomeEvent.implementation_id, "") == (implementation_id or ""),
             )
             .order_by(OutcomeEvent.id)
-            .limit(1)
         )
         .scalars()
-        .first()
+        .all()
     )
+    if not rows:
+        return None
+    for row in rows[1:]:
+        _assert_same_outcome(rows[0], row)
+    return rows[0]
 
 
 #: What an outcome actually reads off the execution it claims to close.
@@ -669,8 +674,8 @@ def ingest_outcomes(
     The rollback is explicit: the request-scoped session outlives this call, and
     a half-built transaction left on it would leak into whatever ran next.
 
-    Losing an identity race is the one failure that is *not* a rejection, so it
-    is the one failure the batch replays instead of surfacing.  The rollback
+    Losing an identity race permits a replay to compare the winning assertions;
+    a changed value remains a rejection. The rollback
     boundary has to be the whole batch: :class:`ScopedSession` exposes no
     ``begin_nested``, and a SAVEPOINT around each event would in any case break
     the invariant above by letting events 1..N-1 commit behind a later 422.  So
@@ -780,6 +785,7 @@ def _stage_outcome(
         )
         if winner is None:
             raise
+        _assert_same_outcome(winner, row)
         return winner
     return None
 
@@ -826,17 +832,6 @@ def ingest_outcome_with_status(
     if payload.outcome_value is not None and "value" not in outcome_payload:
         outcome_payload["value"] = payload.outcome_value
 
-    duplicate = _existing_outcome(
-        db,
-        tenant_id=tenant_id,
-        join_key=join_key,
-        outcome_type=payload.outcome_type,
-        occurred_at=occurred_at,
-        implementation_id=implementation_id,
-    )
-    if duplicate is not None:
-        return "duplicate", duplicate
-
     row = OutcomeEvent(
         tenant_id=tenant_id,
         join_key=join_key,
@@ -851,6 +846,17 @@ def ingest_outcome_with_status(
         outcome_timestamp=payload.outcome_timestamp or occurred_at,
         provenance=payload.provenance,
     )
+    duplicate = _existing_outcome(
+        db,
+        tenant_id=tenant_id,
+        join_key=join_key,
+        outcome_type=payload.outcome_type,
+        occurred_at=occurred_at,
+        implementation_id=implementation_id,
+    )
+    if duplicate is not None:
+        _assert_same_outcome(duplicate, row)
+        return "duplicate", duplicate
     winner = _stage_outcome(
         db,
         row,

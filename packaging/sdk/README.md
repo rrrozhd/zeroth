@@ -79,6 +79,11 @@ causal or forecast claims. Older records load as `legacy_unclassified` /
 `legacy_unversioned` with their original action and values; do not upgrade their
 meaning based on the current SDK version.
 
+Outcome delivery retries must preserve the original value, provenance, metadata
+and timestamps. Changed assertions return a conflict instead of `duplicate`;
+they do not replace the original row. Explicit correction revisions and outcome
+definition/maturity contracts remain acceptance work.
+
 New hosted backtests price each model's observed replay input/output usage at the
 retained input/output rates (`cost_basis="rate_card_from_observed_usage"`). The
 result includes `incumbent_replay_cost_usd`, `candidate_replay_cost_usd`, separate

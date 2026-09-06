@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -32,9 +34,14 @@ def _cloud_app(engine) -> FastAPI:
     return app
 
 
+@pytest.mark.parametrize("changed_outcome", [
+    {"accepted": False}, {"provenance": "inferred"}, {"value_usd": "2.40"},
+    {"metadata": {"source": "different"}},
+])
 def test_sdk_execution_and_outcome_routes_persist_joinable_versioned_evidence(
     tmp_path: Path,
     monkeypatch,
+    changed_outcome,
 ) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'sdk-cloud.db'}")
     Base.metadata.create_all(engine)
@@ -86,6 +93,10 @@ def test_sdk_execution_and_outcome_routes_persist_joinable_versioned_evidence(
     assert first_outcome.status_code == 200, first_outcome.text
     assert first_outcome.json()["status"] == "inserted"
     assert duplicate_outcome.json()["status"] == "duplicate"
+
+    changed = client.post("/v1/outcomes", headers=headers, json={**outcome, **changed_outcome})
+    assert changed.status_code == 422, changed.text
+    assert "immutable outcome" in changed.json()["detail"]
 
     with Session(engine) as db:
         stored_execution = db.scalars(select(ExecutionEvent)).one()

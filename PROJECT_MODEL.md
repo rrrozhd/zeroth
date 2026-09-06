@@ -23,6 +23,9 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   The shared immutable execution comparison includes deployment, production versus
   synthetic classification, and cost/usage provenance as well as values. Both
   ordinary retries and database-conflict recovery use that comparison.
+  Outcome retries likewise require identical value, typed payload, provenance,
+  linkage and asserted timestamps. Conflicting historical duplicate rows are
+  rejected without deletion; receipt time and row IDs do not change identity.
 - Decisions: `src/zeroth/econ/plane/decisioning/service.py` joins stored
   evidence; `src/zeroth/econ/decisioning.py` applies policy and retains reasons.
   Unknown cost/outcome evidence must not become measured completeness.
