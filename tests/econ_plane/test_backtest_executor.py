@@ -5,6 +5,7 @@ import pytest
 from zeroth.econ.analytics.rightsizing import ModelOption
 from zeroth.econ.plane.backtesting import executor as executor_module
 from zeroth.econ.plane.backtesting.schemas import BacktestCreate
+from zeroth.governance.audit.models import TokenUsage
 from zeroth.runtime.agents.provider import ProviderRequest, ProviderResponse
 
 
@@ -12,11 +13,16 @@ class _Provider:
     def __init__(self) -> None:
         self.requests: list[ProviderRequest] = []
 
+    def _response(self, request: ProviderRequest, content: str) -> ProviderResponse:
+        return ProviderResponse(content=content, token_usage=TokenUsage(
+            input_tokens=100, output_tokens=50, total_tokens=150, model_name=request.model_name,
+        ))
+
     async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
         self.requests.append(request)
         if request.output_model is not None:
-            return ProviderResponse(content='{"score": 1.0, "rationale": "equivalent"}')
-        return ProviderResponse(content='{"total": "12.50"}')
+            return self._response(request, '{"score": 1.0, "rationale": "equivalent"}')
+        return self._response(request, '{"total": "12.50"}')
 
 
 class _RegressingProvider(_Provider):
@@ -28,9 +34,9 @@ class _RegressingProvider(_Provider):
         self.requests.append(request)
         if request.output_model is None:
             self._last_model = request.model_name
-            return ProviderResponse(content='{"total": "12.50"}')
+            return self._response(request, '{"total": "12.50"}')
         score = 0.0 if self._last_model.endswith("candidate") else 1.0
-        return ProviderResponse(content=f'{{"score": {score}, "rationale": "measured"}}')
+        return self._response(request, f'{{"score": {score}, "rationale": "measured"}}')
 
 
 def _option(model: str, cost: float) -> ModelOption:

@@ -25,7 +25,12 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   Unknown cost/outcome evidence must not become measured completeness.
 - Experiments: `src/zeroth/econ/plane/backtesting/` owns bounded execution,
   reservation/metering and retained results; analytics owns model evaluation.
-  Provider experiment cost and projected customer workload savings are distinct.
+  Hosted replays reuse the correctness evaluator, then price captured input/output
+  usage separately for incumbent, candidate and judge using retained rate
+  snapshots. `_HostedUsageMeter` counts actual adapter invocations and unresolved
+  usage; it cannot see internal provider retries. Missing usage abstains. The
+  legacy OSS experiment path remains separate. Provider experiment cost and
+  projected customer workload savings are distinct.
 - Identity and money: WorkOS organization identity owns the tenant; verified
   Paddle webhooks own paid access. A redirect cannot grant entitlement.
 - Operations: `src/zeroth/econ/plane/main.py` mounts the standalone service;
@@ -62,11 +67,16 @@ Deploy/restore/billing procedures and existing release tools live in
 publication, purchase or external account change has been performed here.
 The readiness repair has no schema change: revert its code and documentation
 to roll it back, recognizing that the prior HTTP behavior hides failed readiness.
+Hosted replay-cost reports add fields inside retained JSON. Before deployment,
+prove the selected rollback image can read that report format; older strict
+readers are not automatically compatible. No production records have been written.
 
 ## Current risks and unfinished work
 
-Missing-cost defaults now preserve unknown values; closure/ownership, unvalidated
-confidence and fixed-token projections still require acceptance work. Backtest
+Missing-cost defaults now preserve unknown values; closure/ownership and
+unvalidated confidence still require acceptance work. Hosted projections now use
+observed replay usage; cache/discount/tool/internal-retry costs are not certified.
+Backtest
 decisions require an explicit quality floor before execution and after computation.
 Analytical normal quantiles and Wilson count validation are repaired; this does
 not validate legacy Bayesian labels, bootstrap gates or population claims.

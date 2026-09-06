@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from zeroth.econ.plane.backtesting.models import EconomicBacktestRecord
 from zeroth.econ.plane.backtesting.schemas import (
     BacktestComputation,
+    BacktestCostEvidence,
     BacktestCreate,
     EconomicBacktest,
 )
@@ -120,6 +121,7 @@ def decide(
         constraints=payload.constraints,
         reasons=reasons,
         evaluated_at=evaluated_at,
+        **computation.model_dump(include=set(BacktestCostEvidence.model_fields)),
     )
 
 

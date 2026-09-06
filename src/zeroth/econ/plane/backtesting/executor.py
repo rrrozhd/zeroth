@@ -48,4 +48,10 @@ class ManagedBacktestExecutor:
             savings_pct=result.savings_pct,
             provider_calls=result.provider_calls,
             reasons=result.reasons,
+            cost_basis=result.cost_basis,
+            incumbent_replay_cost_usd=result.incumbent_replay_cost_usd,
+            candidate_replay_cost_usd=result.candidate_replay_cost_usd,
+            judge_cost_usd=result.judge_cost_usd,
+            pricing_snapshot=result.pricing_snapshot,
+            usage_by_role=result.usage_by_role,
         )

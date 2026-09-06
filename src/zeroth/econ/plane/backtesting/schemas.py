@@ -38,7 +38,18 @@ class BacktestCreate(BaseModel):
     constraints: EconomicConstraints
 
 
-class BacktestComputation(BaseModel):
+class BacktestCostEvidence(BaseModel):
+    """Replay-only rate-card estimates, with judging expense kept separate."""
+
+    cost_basis: Literal["unavailable", "rate_card_from_observed_usage"] = "unavailable"
+    incumbent_replay_cost_usd: Decimal | None = Field(default=None, ge=0)
+    candidate_replay_cost_usd: Decimal | None = Field(default=None, ge=0)
+    judge_cost_usd: Decimal | None = Field(default=None, ge=0)
+    pricing_snapshot: dict[str, dict[str, str]] = Field(default_factory=dict)
+    usage_by_role: dict[str, dict[str, int]] = Field(default_factory=dict)
+
+
+class BacktestComputation(BacktestCostEvidence):
     """Credential-free result returned by a provider-backed executor."""
 
     model_config = ConfigDict(extra="forbid")
@@ -51,7 +62,7 @@ class BacktestComputation(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
-class EconomicBacktest(BaseModel):
+class EconomicBacktest(BacktestCostEvidence):
     model_config = ConfigDict(extra="forbid")
 
     backtest_id: str

@@ -64,6 +64,22 @@ means the declared requirements were met on those cases; it is not a statistical
 guarantee for future application traffic. A zero floor explicitly permits zero
 observed success, so choose a requirement that reflects your actual task.
 
+New hosted backtests price each model's observed replay input/output usage at the
+retained input/output rates (`cost_basis="rate_card_from_observed_usage"`). The
+result includes `incumbent_replay_cost_usd`, `candidate_replay_cost_usd`, separate
+`judge_cost_usd`, `pricing_snapshot`, and `usage_by_role`. Dollar values serialize
+as decimal strings. `savings_pct` compares candidate to incumbent replay totals;
+negative values mean the candidate costs more on those cases. Judging expense is
+the cost of evaluating the experiment and is excluded from that comparison.
+
+These are text rate-card estimates, not invoices or realized production savings.
+Cache pricing, discounts, provider-hosted tools, downstream work and provider
+internal retry charges are outside this estimate. Missing, inconsistent or
+failed-call usage causes abstention. Call credits count observed adapter
+invocations; unseen provider retries still require provider reconciliation.
+Historical reports without this evidence remain readable with an `unavailable`
+cost basis; their old savings projections are not retroactively validated.
+
 This corrects older SDK defaults that serialized omitted cost as measured zero.
 Existing records and explicit-cost callers remain readable; old-client default
 zeros cannot be distinguished from intentional zeros and are not retroactively
