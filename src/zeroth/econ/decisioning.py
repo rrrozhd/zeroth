@@ -43,7 +43,9 @@ class EvidenceFingerprint(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal["stored-assertions/1", "stored-assertions/2"] = "stored-assertions/1"
+    version: Literal[
+        "stored-assertions/1", "stored-assertions/2", "stored-assertions/3"
+    ] = "stored-assertions/1"
     digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     execution_records: int = Field(ge=0)
     outcome_records: int = Field(ge=0)
@@ -69,6 +71,17 @@ class SourceDelivery(BaseModel):
     scan_truncated: bool = False
 
 
+class ChargeOwnership(BaseModel):
+    """Declared monetary owners; no inference of provider billing truth."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["declared", "unverified"]
+    owned_charge_records: int = Field(ge=0)
+    summary_records: int = Field(ge=0)
+    unattributed_records: int = Field(ge=0)
+
+
 class VersionEvidence(BaseModel):
     """All in-window run evidence for one exact workflow version."""
 
@@ -79,6 +92,7 @@ class VersionEvidence(BaseModel):
     runs: list[RunEvidence] = Field(default_factory=list)
     source_fingerprint: EvidenceFingerprint | None = None
     source_delivery: SourceDelivery | None = None
+    charge_ownership: ChargeOwnership | None = None
 
 
 class DecisionPolicy(BaseModel):
@@ -144,6 +158,9 @@ class EconomicDecision(BaseModel):
         default_factory=dict
     )
     source_delivery: dict[Literal["baseline", "candidate"], SourceDelivery] = Field(
+        default_factory=dict
+    )
+    charge_ownership: dict[Literal["baseline", "candidate"], ChargeOwnership] = Field(
         default_factory=dict
     )
 
@@ -258,6 +275,13 @@ def compare_workflow_versions(
                 ("baseline", baseline_evidence), ("candidate", candidate_evidence)
             )
             if evidence.source_delivery is not None
+        },
+        "charge_ownership": {
+            label: evidence.charge_ownership
+            for label, evidence in (
+                ("baseline", baseline_evidence), ("candidate", candidate_evidence)
+            )
+            if evidence.charge_ownership is not None
         },
     }
     baseline = _summarize(

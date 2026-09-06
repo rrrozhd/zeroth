@@ -12,6 +12,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.decisioning import (
+    ChargeOwnership,
     EconomicDecision,
     EvidenceFingerprint,
     RunEvidence,
@@ -70,6 +71,7 @@ def _outcome_measurement(outcome: OutcomeEvent | None) -> MeasurementState:
 
 
 def _run_cost(events: list[ExecutionEvent]) -> tuple[Decimal | None, MeasurementState]:
+    events = [event for event in events if event.cost_role != "summary"]
     if not events:
         return None, MeasurementState.UNMEASURED
     states = {_measurement(event.cost_measurement) for event in events}
@@ -118,7 +120,13 @@ def _source_fingerprint(
         "stored-assertions/2" if any(row.source_window_id is not None for row in executions)
         else "stored-assertions/1"
     )
+    if any(row.cost_role in {"charge", "summary"} for row in executions):
+        version = "stored-assertions/3"
     execution_assertions = [_execution_identity_fields(row) for row in executions]
+    if version != "stored-assertions/3":
+        for assertion in execution_assertions:
+            assertion.pop("cost_role")
+            assertion.pop("charge_id")
     if version == "stored-assertions/1":
         # Keep historical v1 bytes stable when the new field carries no assertion.
         for assertion in execution_assertions:
@@ -208,9 +216,17 @@ def _version_from_store(
                 outcome_measurement=_outcome_measurement(outcome),
             )
         )
+    owned = sum(event.cost_role == "charge" for event in executions)
+    summaries = sum(event.cost_role == "summary" for event in executions)
+    unattributed = len(executions) - owned - summaries
     return VersionEvidence(
         workflow=workflow, version=version, runs=runs,
         source_delivery=delivery,
+        charge_ownership=ChargeOwnership(
+            status="declared" if owned and not unattributed else "unverified",
+            owned_charge_records=owned, summary_records=summaries,
+            unattributed_records=unattributed,
+        ),
         source_fingerprint=_source_fingerprint(
             db.scope.tenant_id, executions, [outcome for _, outcome in selected_outcomes],
         ),

@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+from zeroth.econ.cost_ownership import CostRole, validate_cost_ownership
 
 
 class SdkExecutionEvent(BaseModel):
@@ -16,6 +17,8 @@ class SdkExecutionEvent(BaseModel):
     step: str = Field(min_length=1)
     attempt: int = Field(default=1, ge=1)
     source_window_id: str | None = Field(default=None, min_length=1, max_length=128)
+    cost_role: CostRole = "legacy_unknown"
+    charge_id: str | None = Field(default=None, min_length=1, max_length=128)
     event_id: str | None = Field(default=None, min_length=1, max_length=128)
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     model_version: str = Field(default="unknown", min_length=1)
@@ -37,6 +40,7 @@ class SdkExecutionEvent(BaseModel):
             if self.recorded_at.tzinfo is None or self.recorded_at.utcoffset() is None:
                 raise ValueError("windowed executions require an aware recorded_at")
             self.recorded_at = self.recorded_at.astimezone(UTC)
+        validate_cost_ownership(self.cost_role, self.charge_id, (self.cost_usd,))
         # Preserve explicit-amount callers without inventing an omitted amount.
         if "cost_measurement" not in self.model_fields_set and self.cost_usd is not None:
             self.cost_measurement = "measured"

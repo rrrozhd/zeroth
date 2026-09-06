@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from zeroth.econ.measurement import MeasurementState
+from zeroth.econ.cost_ownership import CostRole, validate_cost_ownership
 
 DimensionValue = Union[StrictStr, StrictInt, StrictFloat, StrictBool]
 
@@ -47,6 +48,8 @@ class ExecutionEvent(BaseModel):
     workflow_id: str | None = None
     workflow_version: str | None = None
     source_window_id: str | None = Field(default=None, min_length=1, max_length=128)
+    cost_role: CostRole = "legacy_unknown"
+    charge_id: str | None = Field(default=None, min_length=1, max_length=128)
     run_id: str | None = None
     step_id: str | None = None
     attempt: int = Field(default=1, ge=1, le=1000)
@@ -79,6 +82,7 @@ class ExecutionEvent(BaseModel):
                 raise ValueError("windowed executions require an aware timestamp")
             self.timestamp = self.timestamp.astimezone(UTC)
         costs = (self.token_cost_usd, self.tool_cost_usd, self.compute_cost_usd)
+        validate_cost_ownership(self.cost_role, self.charge_id, costs)
         if self.cost_measurement is None:
             self.cost_measurement = (
                 MeasurementState.MEASURED
@@ -116,6 +120,8 @@ ExecutionEvent.__signature__ = _execution_event_signature.replace(
             "workflow_id",
             "workflow_version",
             "source_window_id",
+            "cost_role",
+            "charge_id",
             "run_id",
             "step_id",
             "attempt",

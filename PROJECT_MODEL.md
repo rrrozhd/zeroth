@@ -60,6 +60,16 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   dependency or queue exists. Schedules still read observed history without an
   inventory binding. Technical closure never sets a business outcome or proves
   provider charge completeness; source and outcome maturity remain separate.
+  Monetary assertions can now declare `cost_role=charge` and tenant-wide charge_id;
+  a database unique index and the existing rollback/re-query path permit one
+  execution owner, including races. A different owner conflicts rather than being
+  called a duplicate. Summaries are non-monetary and never feed inferred pricing.
+  Summary-only runs remain unknown-cost; legacy amounts keep unverified ownership.
+  Version reports retain charge counts/status, while debugger summary_events
+  separates structural spans from monetary event counts. Investigate a charge
+  conflict from the caller's independent provider/account/attempt identity and
+  its existing scoped execution owner. Capture primary_for_rollup metadata is
+  not a monetary selector. No new ledger store, heuristic cache or retry exists.
 - Experiments: `src/zeroth/econ/plane/backtesting/` owns bounded execution,
   reservation/metering and retained results; analytics owns model evaluation.
   Hosted replays reuse the correctness evaluator, then price captured input/output
@@ -121,6 +131,14 @@ Downgrade refuses to discard populated window identities. A rollback image must
 understand `source_delivery` and `stored-assertions/2` reports and retain the new
 column. Existing source-row erasure removes window IDs with those rows; the
 retained digests cannot reconstruct erased source evidence or the caller's ledger.
+
+Migration `20260906_20` adds nullable execution cost_role/charge_id and the unique
+tenant/charge index. NULL historical roles mean legacy_unknown; no ownership is
+backfilled. It refuses to discard populated new declarations on downgrade. A
+rollback build must retain these columns and read stored-assertions/3 plus charge
+ownership reports. Single ownership holds among retained records: source erasure
+removes the owner with the execution. Corrections/repricing require a future
+append-only assertion contract; do not work around immutability with a new charge ID.
 
 ## Current risks and unfinished work
 

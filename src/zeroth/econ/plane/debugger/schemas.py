@@ -118,6 +118,7 @@ class EconomicDiagnosticReport(BaseModel):
     measured_events: int
     estimated_events: int
     unmeasured_events: int
+    summary_events: int = 0
     incomplete_events: int
     measured_cost_usd: float
     estimated_cost_usd: float

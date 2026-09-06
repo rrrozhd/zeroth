@@ -411,6 +411,7 @@ def test_diagnostic_report_turns_evidence_into_one_honest_next_action(econ_engin
         "measured_events": 3,
         "estimated_events": 1,
         "unmeasured_events": 0,
+        "summary_events": 0,
         "incomplete_events": 0,
         "measured_cost_usd": 0.5,
         "estimated_cost_usd": 0.2,
@@ -761,7 +762,7 @@ def test_debugger_spine_migration_backfills_existing_execution_identity(
         } <= columns
         with engine.connect() as connection:
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-                "20260906_19"
+                "20260906_20"
             )
             identity = connection.execute(
                 text(

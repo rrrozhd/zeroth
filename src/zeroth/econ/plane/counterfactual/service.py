@@ -41,6 +41,8 @@ def _bound_tenant(db: ScopedSession) -> str:
 
 
 def _event_cost(event: ExecutionEvent) -> float:
+    if event.cost_role == "summary":
+        return 0.0
     return float(
         (event.token_cost_usd or 0)
         + (event.tool_cost_usd or 0)
@@ -232,7 +234,9 @@ def run_evaluation(
         cost_quality = cost_est.data_quality
     else:
         total_cost = sum(_event_cost(e) for e in executions)
-        states = {MeasurementState(e.cost_measurement) for e in executions}
+        states = {
+            MeasurementState(e.cost_measurement) for e in executions if e.cost_role != "summary"
+        }
         cost_quality = (
             "unmeasured"
             if MeasurementState.UNMEASURED in states

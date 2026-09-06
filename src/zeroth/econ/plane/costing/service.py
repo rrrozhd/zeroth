@@ -96,7 +96,7 @@ def estimate_cost_for_period(
     )
     if implementation_id:
         stmt = stmt.where(ExecutionEvent.implementation_id == implementation_id)
-    executions = list(db.execute(stmt).scalars())
+    executions = [event for event in db.execute(stmt).scalars() if event.cost_role != "summary"]
 
     measured_llm = 0.0
     measured_tool = 0.0

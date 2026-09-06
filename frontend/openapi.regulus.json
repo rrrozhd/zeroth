@@ -815,6 +815,43 @@
         "title": "CapabilityValueRow",
         "type": "object"
       },
+      "ChargeOwnership": {
+        "additionalProperties": false,
+        "description": "Declared monetary owners; no inference of provider billing truth.",
+        "properties": {
+          "owned_charge_records": {
+            "minimum": 0.0,
+            "title": "Owned Charge Records",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "declared",
+              "unverified"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary_records": {
+            "minimum": 0.0,
+            "title": "Summary Records",
+            "type": "integer"
+          },
+          "unattributed_records": {
+            "minimum": 0.0,
+            "title": "Unattributed Records",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "owned_charge_records",
+          "summary_records",
+          "unattributed_records"
+        ],
+        "title": "ChargeOwnership",
+        "type": "object"
+      },
       "CheckoutRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2257,6 +2294,19 @@
             "title": "Candidate Version",
             "type": "string"
           },
+          "charge_ownership": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ChargeOwnership"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Charge Ownership",
+            "type": "object"
+          },
           "claim_class": {
             "default": "legacy_unclassified",
             "enum": [
@@ -2525,6 +2575,11 @@
           },
           "successful_runs": {
             "title": "Successful Runs",
+            "type": "integer"
+          },
+          "summary_events": {
+            "default": 0,
+            "title": "Summary Events",
             "type": "integer"
           },
           "top_failure_exposure": {
@@ -2829,7 +2884,8 @@
             "default": "stored-assertions/1",
             "enum": [
               "stored-assertions/1",
-              "stored-assertions/2"
+              "stored-assertions/2",
+              "stored-assertions/3"
             ],
             "title": "Version",
             "type": "string"
@@ -2866,6 +2922,19 @@
           "capability_id": {
             "title": "Capability Id",
             "type": "string"
+          },
+          "charge_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charge Id"
           },
           "cleanup_status": {
             "anyOf": [
@@ -2907,6 +2976,16 @@
                 "type": "null"
               }
             ]
+          },
+          "cost_role": {
+            "default": "legacy_unknown",
+            "enum": [
+              "legacy_unknown",
+              "charge",
+              "summary"
+            ],
+            "title": "Cost Role",
+            "type": "string"
           },
           "deployment_ref": {
             "anyOf": [
@@ -4819,6 +4898,19 @@
             "title": "Attempt",
             "type": "integer"
           },
+          "charge_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charge Id"
+          },
           "cost_measurement": {
             "default": "unmeasured",
             "enum": [
@@ -4827,6 +4919,16 @@
               "unmeasured"
             ],
             "title": "Cost Measurement",
+            "type": "string"
+          },
+          "cost_role": {
+            "default": "legacy_unknown",
+            "enum": [
+              "legacy_unknown",
+              "charge",
+              "summary"
+            ],
+            "title": "Cost Role",
             "type": "string"
           },
           "cost_usd": {

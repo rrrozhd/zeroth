@@ -1704,6 +1704,23 @@ export interface components {
             /** Net Margin Usd */
             net_margin_usd: number;
         };
+        /**
+         * ChargeOwnership
+         * @description Declared monetary owners; no inference of provider billing truth.
+         */
+        ChargeOwnership: {
+            /** Owned Charge Records */
+            owned_charge_records: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "declared" | "unverified";
+            /** Summary Records */
+            summary_records: number;
+            /** Unattributed Records */
+            unattributed_records: number;
+        };
         /** CheckoutRequest */
         CheckoutRequest: {
             /**
@@ -2284,6 +2301,10 @@ export interface components {
             candidate: components["schemas"]["VersionEconomics"];
             /** Candidate Version */
             candidate_version: string;
+            /** Charge Ownership */
+            charge_ownership?: {
+                [key: string]: components["schemas"]["ChargeOwnership"];
+            };
             /**
              * Claim Class
              * @default legacy_unclassified
@@ -2381,6 +2402,11 @@ export interface components {
             runs: number;
             /** Successful Runs */
             successful_runs: number;
+            /**
+             * Summary Events
+             * @default 0
+             */
+            summary_events: number;
             top_failure_exposure: components["schemas"]["BreakagePoint"] | null;
             /** Undefined Outcome Versions */
             undefined_outcome_versions: string[];
@@ -2499,7 +2525,7 @@ export interface components {
              * @default stored-assertions/1
              * @enum {string}
              */
-            version: "stored-assertions/1" | "stored-assertions/2";
+            version: "stored-assertions/1" | "stored-assertions/2" | "stored-assertions/3";
         };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {
@@ -2512,6 +2538,8 @@ export interface components {
             campaign_id?: string | null;
             /** Capability Id */
             capability_id: string;
+            /** Charge Id */
+            charge_id?: string | null;
             /** Cleanup Status */
             cleanup_status?: string | null;
             /** Compute Cost Usd */
@@ -2522,6 +2550,12 @@ export interface components {
              */
             compute_time_ms: number;
             cost_measurement?: components["schemas"]["MeasurementState"] | null;
+            /**
+             * Cost Role
+             * @default legacy_unknown
+             * @enum {string}
+             */
+            cost_role: "legacy_unknown" | "charge" | "summary";
             /** Deployment Ref */
             deployment_ref?: string | null;
             /** Dimensions */
@@ -3291,12 +3325,20 @@ export interface components {
              * @default 1
              */
             attempt: number;
+            /** Charge Id */
+            charge_id?: string | null;
             /**
              * Cost Measurement
              * @default unmeasured
              * @enum {string}
              */
             cost_measurement: "measured" | "estimated" | "unmeasured";
+            /**
+             * Cost Role
+             * @default legacy_unknown
+             * @enum {string}
+             */
+            cost_role: "legacy_unknown" | "charge" | "summary";
             /** Cost Usd */
             cost_usd?: number | string | null;
             /** Dimensions */

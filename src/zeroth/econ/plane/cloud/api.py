@@ -102,9 +102,14 @@ def record_execution(
         workflow_id=payload.workflow,
         workflow_version=payload.workflow_version,
         source_window_id=payload.source_window_id,
-        # Window inventories bind the public run ID; retain old debugger mapping
-        # for unwindowed clients so historical retries do not change assertions.
-        run_id=payload.run_id if payload.source_window_id is not None else None,
+        cost_role=payload.cost_role,
+        charge_id=payload.charge_id,
+        # Declared ownership/window contracts bind public identity. Legacy
+        # unwindowed clients keep their original debugger mapping for retries.
+        run_id=payload.run_id if (
+            payload.source_window_id is not None or payload.cost_role != "legacy_unknown"
+        ) else None,
+        step_id=payload.step if payload.cost_role != "legacy_unknown" else None,
         model_version=payload.model_version,
         token_cost_usd=payload.cost_usd if measured else None,
         tool_cost_usd=None,

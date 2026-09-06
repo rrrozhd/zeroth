@@ -186,6 +186,8 @@ def _execution_identity_fields(row: ExecutionEvent) -> dict:
         "provider_request_id": row.provider_request_id,
         "cleanup_status": row.cleanup_status,
         "source_window_id": row.source_window_id,
+        "cost_role": row.cost_role or "legacy_unknown",
+        "charge_id": row.charge_id,
         "workflow_id": row.workflow_id or row.capability_id,
         "workflow_version": row.workflow_version or row.implementation_id,
         "run_id": row.run_id or row.join_key,
@@ -227,6 +229,8 @@ def _execution_payload_fields(
         "provider_request_id": payload.provider_request_id,
         "cleanup_status": payload.cleanup_status,
         "source_window_id": payload.source_window_id,
+        "cost_role": payload.cost_role,
+        "charge_id": payload.charge_id,
         **debugger,
         "capability_id": payload.capability_id,
         "implementation_id": payload.implementation_id,
@@ -365,6 +369,16 @@ def _resolve_existing_execution(
     return existing
 
 
+def _assert_charge_available(db: ScopedSession, charge_id: str | None) -> None:
+    if charge_id is None:
+        return
+    owner = db.scalars(
+        select(ExecutionEvent).where(ExecutionEvent.charge_id == charge_id)
+    ).first()
+    if owner is not None:
+        raise ValueError("charge_id is already owned by another execution")
+
+
 def _stage_execution(
     db: ScopedSession,
     row: ExecutionEvent,
@@ -409,7 +423,9 @@ def _stage_execution(
     reachable when the database has *both* a live constraint and duplicates that
     predate it.  Both are ``ValueError`` and both become the 422 that names the
     fields, which is what the sequential caller is told; only the empty re-query
-    re-raises the ``IntegrityError`` for the endpoint to turn into a 409.
+    re-raises the ``IntegrityError`` for the endpoint to turn into a 409, unless
+    a different execution owns the declared charge ID. That permanent ownership
+    conflict is a ``ValueError`` (422), exactly as in the sequential pre-check.
     """
     db.add(row)
     try:
@@ -420,6 +436,7 @@ def _stage_execution(
             db, tenant_id=tenant_id, execution_id=payload.execution_id
         )
         if winner is None:
+            _assert_charge_available(db, payload.charge_id)
             raise
         return _resolve_existing_execution(
             winner, payload, join_key=join_key, metadata=metadata
@@ -450,6 +467,8 @@ def ingest_execution(
         return "duplicate", _resolve_existing_execution(
             existing, payload, join_key=join_key, metadata=metadata
         )
+
+    _assert_charge_available(db, payload.charge_id)
 
     if settings.auto_register_ingest_capabilities:
         _ensure_capability_and_implementation(
@@ -492,6 +511,8 @@ def ingest_execution(
         provider_request_id=payload.provider_request_id,
         cleanup_status=payload.cleanup_status,
         source_window_id=payload.source_window_id,
+        cost_role=payload.cost_role,
+        charge_id=payload.charge_id,
         **debugger,
         execution_id=payload.execution_id,
         join_key=join_key,

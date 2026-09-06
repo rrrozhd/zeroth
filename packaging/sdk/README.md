@@ -81,11 +81,58 @@ meaning based on the current SDK version.
 
 Hosted version reports include `source_evidence.baseline` and `.candidate` with
 a `stored-assertions/1` digest and selected execution/outcome record counts
-(`stored-assertions/2` when selected executions carry a source window).
+(`stored-assertions/2` for window identities, or `/3` for charge ownership).
 Changed selected inputs create a new retained revision even when the totals are
 unchanged. These fingerprints are not signatures or proof of delivery completeness;
 they cannot recover erased inputs. Historical reports without a binding return
 an empty `source_evidence` map.
+
+### Give each charge one owner
+
+Use `cost_role="charge"` and a tenant-wide unique `charge_id` for the one execution
+record that owns a physical charged attempt. Reuse that identity across capture
+layers; do not create two monetary records for one call. Scope provider request IDs
+to their provider/billing account when constructing charge IDs. Distinct billable
+retries get distinct IDs, even when their inputs, model, timing and price match.
+The SDK does not infer these identities from metadata or elapsed time.
+
+```python
+from zeroth.protocol import ExecutionEvent
+
+charged_call = ExecutionEvent(
+    workflow="invoice-processing", workflow_version="v2", run_id="run-1",
+    step="extract", event_id="capture-1", cost_role="charge",
+    charge_id="provider:account:request-1",
+    cost_usd="0.02", cost_measurement="estimated",
+)
+parent_span = ExecutionEvent(
+    workflow="invoice-processing", workflow_version="v2", run_id="run-1",
+    step="workflow", event_id="parent-1", cost_role="summary",
+)
+```
+
+A `summary` is structural telemetry: it cannot carry `charge_id` or a monetary
+amount, including zero. Its token metadata is not priced again. Keep monetary
+assertions on the charged calls, tool invocations and declared compute charges.
+An intentional free charge is an explicit zero on a charge record; a run containing
+only summaries has unknown cost. Missing cost on an owned charge also stays unknown.
+Charge amounts must be nonnegative; credits/corrections are not a negative charge.
+
+An exact execution retry is a duplicate. A different execution claiming an owned
+charge ID is rejected, including concurrent attempts, and a rejected write does
+not consume a retained event allowance. The rejected capture can be submitted as
+a non-monetary summary if that accurately describes its role. Existing assertions
+are immutable: changing a stored amount or owner conflicts. There is no charge
+correction endpoint yet; do not invent a second charge ID to conceal a correction.
+
+`legacy_unknown` is the default role, preserving existing caller-reported amounts
+without inventing ownership. Version reports expose `charge_ownership` counts for
+owned charges, summaries and unattributed records. `declared` describes supplied
+identities in the selected records; `unverified` means that attribution is missing
+or no charge record exists. Neither status proves a provider bill or that every
+charge was captured. Existing `primary_for_rollup` and timing-based dedupe metadata
+have no authority over money. Pair ownership with an independent source inventory
+and provider reconciliation before claiming complete accounting.
 
 ### Reconcile a closed capture window
 

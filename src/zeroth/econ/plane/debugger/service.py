@@ -183,6 +183,8 @@ def _load_evidence(
 
 
 def _cost(event: ExecutionEvent) -> tuple[Decimal, Decimal, bool]:
+    if event.cost_role == "summary":
+        return Decimal("0"), Decimal("0"), False
     total = sum(
         (
             value or Decimal("0")
@@ -203,6 +205,13 @@ def _cost(event: ExecutionEvent) -> tuple[Decimal, Decimal, bool]:
 
 def _round(value: Decimal) -> float:
     return float(round(value, 8))
+
+
+def _summary_only_runs(events: list[ExecutionEvent]) -> set[RunKey]:
+    """Structural spans cannot establish that a run incurred zero dollars."""
+    return {run_identity(event) for event in events} - {
+        run_identity(event) for event in events if event.cost_role != "summary"
+    }
 
 
 def _ratio(value: Decimal, denominator: int) -> float | None:
@@ -234,6 +243,7 @@ def timeline(
 
     points: list[TimelinePoint] = []
     for (period, version), rows in sorted(groups.items()):
+        summary_only = _summary_only_runs(rows)
         run_ids = {run_identity(row) for row in rows}
         successful = {run_id for run_id in run_ids if outcomes.get(run_id) is True}
         failed = {run_id for run_id in run_ids if outcomes.get(run_id) is False}
@@ -241,6 +251,7 @@ def timeline(
         incomplete = 0
         for row in rows:
             row_measured, row_estimated, missing = _cost(row)
+            missing = missing or run_identity(row) in summary_only
             measured += row_measured
             estimated += row_estimated
             if run_identity(row) in failed:
@@ -286,6 +297,7 @@ def cohorts(
 
     points: list[CohortPoint] = []
     for cohort, rows in sorted(groups.items()):
+        summary_only = _summary_only_runs(rows)
         run_ids = {run_identity(row) for row in rows}
         successful = {run_id for run_id in run_ids if outcomes.get(run_id) is True}
         failed = {run_id for run_id in run_ids if outcomes.get(run_id) is False}
@@ -293,6 +305,7 @@ def cohorts(
         incomplete = 0
         for row in rows:
             row_measured, row_estimated, missing = _cost(row)
+            missing = missing or run_identity(row) in summary_only
             measured += row_measured
             estimated += row_estimated
             incomplete += int(missing or cohort == _UNKNOWN)
@@ -461,8 +474,10 @@ def diagnostic_report(
     ]
     measured = estimated = measured_failure = estimated_failure = Decimal("0")
     measured_events = estimated_events = unmeasured_events = incomplete_events = 0
+    summary_only = _summary_only_runs(events)
     for event in events:
         event_measured, event_estimated, missing_cost = _cost(event)
+        missing_cost = missing_cost or run_identity(event) in summary_only
         measured += event_measured
         estimated += event_estimated
         if run_identity(event) in failed:
@@ -470,7 +485,7 @@ def diagnostic_report(
             estimated_failure += event_estimated
         measured_events += int(event.cost_measurement == MeasurementState.MEASURED.value)
         estimated_events += int(event.cost_measurement == MeasurementState.ESTIMATED.value)
-        unmeasured_events += int(missing_cost)
+        unmeasured_events += int(missing_cost and event.cost_role != "summary")
         incomplete_events += int(_incomplete(event, missing_cost))
 
     failure_points = breakage(db, workflow_id=workflow_id, start=start, end=end)
@@ -535,6 +550,7 @@ def diagnostic_report(
         measured_events=measured_events,
         estimated_events=estimated_events,
         unmeasured_events=unmeasured_events,
+        summary_events=sum(event.cost_role == "summary" for event in events),
         incomplete_events=incomplete_events,
         measured_cost_usd=_round(measured),
         estimated_cost_usd=_round(estimated),

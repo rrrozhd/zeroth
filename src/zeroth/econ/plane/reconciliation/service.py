@@ -131,6 +131,8 @@ def import_provider_bill(
 
 
 def _measured_cost(event: ExecutionEvent) -> Decimal:
+    if event.cost_role == "summary":
+        return Decimal("0")
     if event.cost_measurement != MeasurementState.MEASURED.value:
         return Decimal("0")
     return sum(

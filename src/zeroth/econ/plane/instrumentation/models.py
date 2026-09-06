@@ -23,6 +23,7 @@ class ExecutionEvent(Base):
             "execution_id",
             name="uq_execution_events_tenant_execution_id",
         ),
+        Index("uq_execution_events_tenant_charge_id", "tenant_id", "charge_id", unique=True),
         Index(
             "ix_execution_events_tenant_time_capability",
             "tenant_id",
@@ -51,6 +52,8 @@ class ExecutionEvent(Base):
     workflow_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
     workflow_version: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
     source_window_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    cost_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    charge_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     run_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     step_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, default=1)

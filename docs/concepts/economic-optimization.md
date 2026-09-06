@@ -182,7 +182,7 @@ confidence. Full input snapshots, source closure, outcome definition versions
 and an independently reproducible evidence window remain acceptance work.
 
 Hosted comparisons bind each version to a `source_evidence` fingerprint tagged
-`stored-assertions/1` (v2 for records with a capture-window identity), with selected
+`stored-assertions/1` (v2 for capture-window identity, v3 for charge ownership), with selected
 execution and outcome counts. The digest
 covers immutable assertions and their multiplicity, independent of record order,
 database row IDs and receipt times. A later selected outcome or zero-cost step
@@ -207,6 +207,17 @@ that all source windows were declared. A matched inventory retains the existing
 source-completeness limitation. Fixed inventories are optional for direct
 comparisons; recurring schedules retain their observed-history behavior. See the
 standalone SDK README for the wire format and independent producer-ledger example.
+
+Explicit monetary ownership uses `cost_role="charge"` plus a tenant-wide
+`charge_id`. The existing execution table admits one owner per declared charge
+identity; another capture cannot claim its dollars, even in a concurrent write.
+Structural `summary` events carry no money and their metadata usage is not priced.
+Distinct charged attempts remain additive. Comparisons retain `charge_ownership`
+counts and declaration status. The debugger reports structural `summary_events`
+separately from measured, estimated and unmeasured monetary events; a summary-only
+run remains incomplete. Legacy amounts remain visible with ownership unverified.
+These identities are caller assertions, not independent invoice evidence. Charge
+corrections and business-outcome maturity still need their own versioned contract.
 
 Paid project keys and WorkOS browser sessions cannot authenticate the legacy
 `/v1/evaluations/*` routes. Those retain the legacy JWT boundary for self-hosted
