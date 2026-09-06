@@ -20,6 +20,9 @@ the implementation; it does not duplicate or weaken those acceptance gates.
 - Ingestion: `src/zeroth/econ/plane/cloud/api.py` owns hosted routes; scoped
   storage binds evidence to authenticated tenant/workflow/version/run identity.
   Exact delivery retries cannot double-charge. Changed replay must conflict.
+  The shared immutable execution comparison includes deployment, production versus
+  synthetic classification, and cost/usage provenance as well as values. Both
+  ordinary retries and database-conflict recovery use that comparison.
 - Decisions: `src/zeroth/econ/plane/decisioning/service.py` joins stored
   evidence; `src/zeroth/econ/decisioning.py` applies policy and retains reasons.
   Unknown cost/outcome evidence must not become measured completeness.
