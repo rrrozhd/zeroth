@@ -38,6 +38,17 @@ class RunEvidence(BaseModel):
         return self
 
 
+class EvidenceFingerprint(BaseModel):
+    """Identity of selected stored assertions; not a completeness guarantee."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["stored-assertions/1"] = "stored-assertions/1"
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    execution_records: int = Field(ge=0)
+    outcome_records: int = Field(ge=0)
+
+
 class VersionEvidence(BaseModel):
     """All in-window run evidence for one exact workflow version."""
 
@@ -46,6 +57,7 @@ class VersionEvidence(BaseModel):
     workflow: str = Field(min_length=1)
     version: str = Field(min_length=1)
     runs: list[RunEvidence] = Field(default_factory=list)
+    source_fingerprint: EvidenceFingerprint | None = None
 
 
 class DecisionPolicy(BaseModel):
@@ -107,6 +119,9 @@ class EconomicDecision(BaseModel):
     claim_class: Literal["legacy_unclassified", "observed_comparison"] = "legacy_unclassified"
     method_version: str = "legacy_unversioned"
     limitations: list[str] = Field(default_factory=list)
+    source_evidence: dict[Literal["baseline", "candidate"], EvidenceFingerprint] = Field(
+        default_factory=dict
+    )
 
 
 def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> VersionEconomics:
@@ -206,6 +221,13 @@ def compare_workflow_versions(
             "source_completeness_unverified",
             "no_statistical_causal_or_forecast_authorization",
         ],
+        "source_evidence": {
+            label: evidence.source_fingerprint
+            for label, evidence in (
+                ("baseline", baseline_evidence), ("candidate", candidate_evidence)
+            )
+            if evidence.source_fingerprint is not None
+        },
     }
     baseline = _summarize(
         baseline_evidence, allow_estimated_cost=active_policy.allow_estimated_cost
@@ -342,6 +364,7 @@ def compare_workflow_versions(
 
 __all__ = [
     "DecisionPolicy",
+    "EvidenceFingerprint",
     "EconomicDecision",
     "RunEvidence",
     "VersionEconomics",

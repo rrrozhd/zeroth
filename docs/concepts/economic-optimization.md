@@ -181,6 +181,15 @@ all observed cases pass. Repeated scheduled looks do not create population
 confidence. Full input snapshots, source closure, outcome definition versions
 and an independently reproducible evidence window remain acceptance work.
 
+Hosted comparisons bind each version to a `source_evidence` fingerprint tagged
+`stored-assertions/1`, with selected execution and outcome counts. The digest
+covers immutable assertions and their multiplicity, independent of record order,
+database row IDs and receipt times. A later selected outcome or zero-cost step
+creates a new retained revision even when the totals do not change. No raw
+payload is copied into the report. A fingerprint cannot prove missing streams
+were delivered, reconstruct erased source records, or serve as a signature.
+Historical reports keep an empty source binding.
+
 Paid project keys and WorkOS browser sessions cannot authenticate the legacy
 `/v1/evaluations/*` routes. Those retain the legacy JWT boundary for self-hosted
 use. Hosted deployment must keep the development token issuer disabled and

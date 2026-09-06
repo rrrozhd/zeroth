@@ -2311,6 +2311,10 @@ export interface components {
              * @enum {string}
              */
             recommended_action: "approve" | "review_candidate" | "hold" | "investigate" | "collect_evidence";
+            /** Source Evidence */
+            source_evidence?: {
+                [key: string]: components["schemas"]["EvidenceFingerprint"];
+            };
             /** Success Rate Change */
             success_rate_change?: number | null;
             /**
@@ -2474,6 +2478,24 @@ export interface components {
              * Format: date-time
              */
             period_start: string;
+        };
+        /**
+         * EvidenceFingerprint
+         * @description Identity of selected stored assertions; not a completeness guarantee.
+         */
+        EvidenceFingerprint: {
+            /** Digest */
+            digest: string;
+            /** Execution Records */
+            execution_records: number;
+            /** Outcome Records */
+            outcome_records: number;
+            /**
+             * Version
+             * @default stored-assertions/1
+             * @constant
+             */
+            version: "stored-assertions/1";
         };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {

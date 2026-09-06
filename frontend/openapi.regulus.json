@@ -2333,6 +2333,19 @@
             "title": "Recommended Action",
             "type": "string"
           },
+          "source_evidence": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EvidenceFingerprint"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Source Evidence",
+            "type": "object"
+          },
           "success_rate_change": {
             "anyOf": [
               {
@@ -2778,6 +2791,40 @@
           "period_end"
         ],
         "title": "EvaluationRunRequest",
+        "type": "object"
+      },
+      "EvidenceFingerprint": {
+        "additionalProperties": false,
+        "description": "Identity of selected stored assertions; not a completeness guarantee.",
+        "properties": {
+          "digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Digest",
+            "type": "string"
+          },
+          "execution_records": {
+            "minimum": 0.0,
+            "title": "Execution Records",
+            "type": "integer"
+          },
+          "outcome_records": {
+            "minimum": 0.0,
+            "title": "Outcome Records",
+            "type": "integer"
+          },
+          "version": {
+            "const": "stored-assertions/1",
+            "default": "stored-assertions/1",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "digest",
+          "execution_records",
+          "outcome_records"
+        ],
+        "title": "EvidenceFingerprint",
         "type": "object"
       },
       "ExecutionEventCreate": {

@@ -40,6 +40,13 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   Comparisons and schedules require an explicit quality floor. Current reports
   retain an observed claim class, method version and limitations; policy passes
   recommend review. Historical reports retain legacy labels and actions.
+  Hosted comparison reports also retain `source_evidence` fingerprints and counts
+  of the selected immutable execution/outcome assertions. Equal headline totals
+  cannot collapse changed selected inputs into the same retained revision. This
+  reuses the loaded rows and existing report JSON; it does not copy raw payloads,
+  prove source completeness, or establish a frozen time window. Old reports keep
+  an empty source binding. Debug a changed revision from its source counts/digest
+  before comparing totals; original source rows are still needed to reconstruct it.
 - Experiments: `src/zeroth/econ/plane/backtesting/` owns bounded execution,
   reservation/metering and retained results; analytics owns model evaluation.
   Hosted replays reuse the correctness evaluator, then price captured input/output

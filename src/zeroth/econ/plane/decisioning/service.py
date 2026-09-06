@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.decisioning import (
     EconomicDecision,
+    EvidenceFingerprint,
     RunEvidence,
     VersionEvidence,
     compare_workflow_versions,
@@ -27,6 +28,7 @@ from zeroth.econ.plane.decisioning.schemas import (
 from zeroth.econ.plane.decisioning.models import DecisionSchedule, EconomicDecisionRecord
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.instrumentation.identity import outcomes_for_events, run_identity, workflow_filter
+from zeroth.econ.plane.instrumentation.service import _execution_identity_fields, _outcome_assertions
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 
@@ -82,6 +84,39 @@ def _run_cost(events: list[ExecutionEvent]) -> tuple[Decimal | None, Measurement
     return total, state
 
 
+def _source_fingerprint(
+    tenant_id: str, executions: list[ExecutionEvent], outcomes: list[OutcomeEvent],
+) -> EvidenceFingerprint:
+    """Bind a result to the assertions actually read, independent of receipt order."""
+
+    def scalar(value: object) -> str:
+        if isinstance(value, Decimal):
+            # Equal decimal amounts must hash equally, without context rounding.
+            if value == 0:
+                return "0"
+            amount = format(value, "f")
+            return amount.rstrip("0").rstrip(".") if "." in amount else amount
+        if isinstance(value, datetime):
+            return value.isoformat(timespec="microseconds")
+        raise TypeError(f"Unsupported evidence value: {type(value).__name__}")
+
+    def digest(value: object) -> str:
+        encoded = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False, default=scalar,
+        ).encode()
+        return hashlib.sha256(encoded).hexdigest()
+
+    return EvidenceFingerprint(
+        digest=digest({
+            "version": "stored-assertions/1",
+            "tenant_id": tenant_id,
+            "executions": sorted(digest(_execution_identity_fields(row)) for row in executions),
+            "outcomes": sorted(digest(_outcome_assertions(row)) for row in outcomes),
+        }),
+        execution_records=len(executions), outcome_records=len(outcomes),
+    )
+
+
 def _version_from_store(
     db: ScopedSession,
     *,
@@ -100,7 +135,8 @@ def _version_from_store(
     for event in executions:
         executions_by_run[run_identity(event)[2]].append(event)
     outcome_by_run = {}
-    for key, outcome in outcomes_for_events(db, executions, outcome_type=outcome_type):
+    selected_outcomes = outcomes_for_events(db, executions, outcome_type=outcome_type)
+    for key, outcome in selected_outcomes:
         outcome_by_run.setdefault(key[2], outcome)
 
     runs: list[RunEvidence] = []
@@ -116,7 +152,12 @@ def _version_from_store(
                 outcome_measurement=_outcome_measurement(outcome),
             )
         )
-    return VersionEvidence(workflow=workflow, version=version, runs=runs)
+    return VersionEvidence(
+        workflow=workflow, version=version, runs=runs,
+        source_fingerprint=_source_fingerprint(
+            db.scope.tenant_id, executions, [outcome for _, outcome in selected_outcomes],
+        ),
+    )
 
 
 def compare_versions_from_store(

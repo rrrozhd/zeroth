@@ -79,6 +79,13 @@ causal or forecast claims. Older records load as `legacy_unclassified` /
 `legacy_unversioned` with their original action and values; do not upgrade their
 meaning based on the current SDK version.
 
+Hosted version reports include `source_evidence.baseline` and `.candidate` with
+a `stored-assertions/1` digest and selected execution/outcome record counts.
+Changed selected inputs create a new retained revision even when the totals are
+unchanged. These fingerprints are not signatures or proof of delivery completeness;
+they cannot recover erased inputs. Historical reports without a binding return
+an empty `source_evidence` map.
+
 Outcome delivery retries must preserve the original value, provenance, metadata
 and timestamps. Changed assertions return a conflict instead of `duplicate`;
 they do not replace the original row. Explicit correction revisions and outcome
