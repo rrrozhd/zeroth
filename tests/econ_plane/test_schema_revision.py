@@ -16,7 +16,7 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
 
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": None,
-        "head": "20260906_21",
+        "head": "20260906_22",
         "state": "unknown",
     }
 
@@ -26,7 +26,7 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
         connection.execute(text("INSERT INTO alembic_version (version_num) VALUES ('20260811_05')"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260811_05",
-        "head": "20260906_21",
+        "head": "20260906_22",
         "state": "behind",
     }
 
@@ -34,7 +34,7 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
         connection.execute(text("UPDATE alembic_version SET version_num = '20260822_08'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260822_08",
-        "head": "20260906_21",
+        "head": "20260906_22",
         "state": "behind",
     }
 
@@ -42,7 +42,7 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
         connection.execute(text("UPDATE alembic_version SET version_num = '20260823_09'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260823_09",
-        "head": "20260906_21",
+        "head": "20260906_22",
         "state": "behind",
     }
 
@@ -50,7 +50,7 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
         connection.execute(text("UPDATE alembic_version SET version_num = '20260824_10'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260824_10",
-        "head": "20260906_21",
+        "head": "20260906_22",
         "state": "behind",
     }
 
@@ -58,7 +58,7 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
         connection.execute(text("UPDATE alembic_version SET version_num = '20260830_11'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260830_11",
-        "head": "20260906_21",
+        "head": "20260906_22",
         "state": "behind",
     }
 
@@ -66,7 +66,7 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
         connection.execute(text("UPDATE alembic_version SET version_num = '20260830_12'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260830_12",
-        "head": "20260906_21",
+        "head": "20260906_22",
         "state": "behind",
     }
 
@@ -74,15 +74,15 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
         connection.execute(text("UPDATE alembic_version SET version_num = '20260830_13'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260830_13",
-        "head": "20260906_21",
+        "head": "20260906_22",
         "state": "behind",
     }
 
     with engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20260906_21'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260906_22'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
-        "applied": "20260906_21",
-        "head": "20260906_21",
+        "applied": "20260906_22",
+        "head": "20260906_22",
         "state": "current",
     }
 
@@ -96,7 +96,7 @@ def test_revision_reader_can_use_an_isolated_version_table(tmp_path: Path) -> No
             text("CREATE TABLE alembic_version_econ (version_num VARCHAR(32))")
         )
         connection.execute(
-            text("INSERT INTO alembic_version_econ VALUES ('20260906_21')")
+            text("INSERT INTO alembic_version_econ VALUES ('20260906_22')")
         )
 
     assert read_schema_revision(
@@ -104,8 +104,8 @@ def test_revision_reader_can_use_an_isolated_version_table(tmp_path: Path) -> No
         "zeroth.econ.plane._migrations",
         version_table="alembic_version_econ",
     ).model_dump() == {
-        "applied": "20260906_21",
-        "head": "20260906_21",
+        "applied": "20260906_22",
+        "head": "20260906_22",
         "state": "current",
     }
 

@@ -82,7 +82,7 @@ meaning based on the current SDK version.
 Hosted version reports include `source_evidence.baseline` and `.candidate` with
 a `stored-assertions/1` digest and selected execution/outcome record counts
 (`stored-assertions/2` for window identities, `/3` for charge ownership, or `/4`
-when selected outcomes declare maturity).
+when selected outcomes declare maturity; `/5` binds selected charge-cost revisions).
 Changed selected inputs create a new retained revision even when the totals are
 unchanged. These fingerprints are not signatures or proof of delivery completeness;
 they cannot recover erased inputs. Historical reports without a binding return
@@ -168,6 +168,7 @@ to their provider/billing account when constructing charge IDs. Distinct billabl
 retries get distinct IDs, even when their inputs, model, timing and price match.
 The SDK does not infer these identities from metadata or elapsed time.
 
+
 ```python
 from zeroth.protocol import ExecutionEvent
 
@@ -194,8 +195,8 @@ An exact execution retry is a duplicate. A different execution claiming an owned
 charge ID is rejected, including concurrent attempts, and a rejected write does
 not consume a retained event allowance. The rejected capture can be submitted as
 a non-monetary summary if that accurately describes its role. Existing assertions
-are immutable: changing a stored amount or owner conflicts. There is no charge
-correction endpoint yet; do not invent a second charge ID to conceal a correction.
+are immutable: changing a stored amount or owner conflicts. Use a charge-cost
+revision tied to that existing owner for corrections.
 
 `legacy_unknown` is the default role, preserving existing caller-reported amounts
 without inventing ownership. Version reports expose `charge_ownership` counts for
@@ -205,6 +206,54 @@ or no charge record exists. Neither status proves a provider bill or that every
 charge was captured. Existing `primary_for_rollup` and timing-based dedupe metadata
 have no authority over money. Pair ownership with an independent source inventory
 and provider reconciliation before claiming complete accounting.
+
+### Correct the cost of an existing charge
+
+Append a `ChargeCostRevision` when the authoritative source revises the cost of
+an already recorded charge. The original execution and its physical owner remain
+immutable; a revision does not create another attempt or run.
+
+```python
+from datetime import UTC, datetime
+from zeroth.protocol import ChargeCostRevision
+
+client.record_execution(charged_call)
+revision = ChargeCostRevision(
+    charge_id="provider:account:request-1",
+    asserted_at=datetime.now(UTC),
+    token_cost_usd="0.0275",
+    cost_measurement="measured",
+    reason="Corrected provider charge",
+)
+client.record_charge_cost_revision(revision)
+history = client.list_charge_cost_revisions(revision.charge_id)
+```
+
+The charge must already exist in the authenticated tenant. Supply the complete
+replacement token/tool/compute cost assertion; omitted components do not carry
+forward. Amounts are nonnegative USD with at most eight decimal places and ten
+integer digits. Send fractional amounts as decimal strings (or Python Decimal
+objects), since JSON numbers can round before validation. Integral amounts may
+also use integers. Explicit measured zero records a full refund. To withdraw an
+amount, use `cost_measurement="unmeasured"` with all amounts omitted. Use
+`estimated` for estimates; a revision does not establish invoice truth.
+
+The aware source `asserted_at` must be later than the original execution timestamp.
+Retain that timestamp and payload for exact retries. Changed assertions at the
+same charge/time conflict. The latest non-future revision governs; late delivery
+of an older assertion cannot replace it. A correction applies to the original
+run and execution period, rather than describing receipt-time cash flow.
+
+POST `/v1/charge-cost-revisions` uses the existing Admin/Analyst write roles and
+events allowance. Exact duplicates and rejected writes consume no retained event
+units. GET returns the latest 100 assertions, newest first, including future source
+assertions; `limit` permits up to 1000. Read roles can inspect history.
+
+Comparisons bind revision counts and assertions in `stored-assertions/5`; old
+reports remain immutable. Deleting source executions also erases their cost
+revisions. Execution-inventory matching does not prove delivery of these revisions
+or business outcomes. Frozen snapshots, independent source truth and account-level
+credits remain separate acceptance work.
 
 ### Reconcile a closed capture window
 

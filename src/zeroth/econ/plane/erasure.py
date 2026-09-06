@@ -65,7 +65,7 @@ class SqlAlchemyEconEventEraser:
         idempotency_key: str,
     ) -> int:
         # Lazy import: keeps the econ_plane dependency out of the base install.
-        from sqlalchemy import delete
+        from sqlalchemy import delete, select
         from sqlalchemy.exc import IntegrityError
 
         session_factory = self._session_factory
@@ -75,6 +75,7 @@ class SqlAlchemyEconEventEraser:
             session_factory = SessionLocal
         from zeroth.econ.plane.instrumentation.models import (
             EconErasureReceipt,
+            ChargeCostRevisionRecord,
             ExecutionEvent,
             OutcomeEvent,
         )
@@ -118,6 +119,15 @@ class SqlAlchemyEconEventEraser:
                     raise
                 return replay
 
+            # Delete and count assertions before their owners. This also works
+            # on SQLite connections without foreign-key cascade enforcement.
+            revised = session.execute(delete(ChargeCostRevisionRecord).where(
+                ChargeCostRevisionRecord.tenant_id == tenant_id,
+                ChargeCostRevisionRecord.charge_id.in_(select(ExecutionEvent.charge_id).where(
+                    ExecutionEvent.tenant_id == tenant_id, ExecutionEvent.join_key.in_(keys),
+                )),
+            ))
+            deleted += int(revised.rowcount or 0)
             for model in (ExecutionEvent, OutcomeEvent):
                 result = session.execute(
                     delete(model).where(

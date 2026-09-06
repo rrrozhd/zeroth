@@ -359,6 +359,7 @@ def _ensure_sqlite_compat() -> None:
         _load_compat_migration(conn, "20260906_19_source_window.py").upgrade()
         _load_compat_migration(conn, "20260906_20_charge_ownership.py").upgrade()
         _load_compat_migration(conn, "20260906_21_outcome_maturity.py").upgrade()
+        _load_compat_migration(conn, "20260906_22_charge_cost_revisions.py").upgrade()
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")  # noqa: E501

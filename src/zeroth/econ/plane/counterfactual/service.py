@@ -12,6 +12,7 @@ from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.costing.service import PricingCatalogReader, estimate_cost_for_period
 from zeroth.econ.plane.counterfactual.models import ValueEstimate, ValuationRun
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest
+from zeroth.econ.plane.instrumentation.charge_costs import CostAmounts, resolve_costs
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.measurement import MeasurementState
@@ -40,14 +41,8 @@ def _bound_tenant(db: ScopedSession) -> str:
     return db.scope.tenant_id
 
 
-def _event_cost(event: ExecutionEvent) -> float:
-    if event.cost_role == "summary":
-        return 0.0
-    return float(
-        (event.token_cost_usd or 0)
-        + (event.tool_cost_usd or 0)
-        + (event.compute_cost_usd or 0)
-    )
+def _event_cost(event: ExecutionEvent, cost: CostAmounts) -> float:
+    return 0.0 if event.cost_role == "summary" else float(cost.total)
 
 
 def _drift_state(score: float) -> str:
@@ -152,14 +147,14 @@ def _pick_interval(values: list[float], outcomes: list[OutcomeEvent], confidence
     return "hierarchical_bayes", mu * len(values), low * len(values), high * len(values)
 
 
-def _arms_summary(executions: list[ExecutionEvent], outcome_values: dict[str, float]) -> dict:
+def _arms_summary(executions: list[ExecutionEvent], outcome_values: dict[str, float], costs: dict[int, CostAmounts]) -> dict:
     arms: dict[str, dict[str, float]] = {"A": {"value": 0.0, "cost": 0.0}, "B": {"value": 0.0, "cost": 0.0}}
     for e in executions:
         arm = str((e.event_metadata or {}).get("assigned_arm", ""))
         if arm not in arms:
             continue
         key = e.join_key or e.execution_id
-        arms[arm]["cost"] += _event_cost(e)
+        arms[arm]["cost"] += _event_cost(e, costs[e.id])
         arms[arm]["value"] += outcome_values.get(key, 0.0)
     for arm in arms:
         arms[arm]["net"] = arms[arm]["value"] - arms[arm]["cost"]
@@ -205,6 +200,7 @@ def run_evaluation(
     if payload.implementation_id:
         exec_stmt = exec_stmt.where(ExecutionEvent.implementation_id == payload.implementation_id)
     executions = list(db.execute(exec_stmt).scalars())
+    costs, _revisions = resolve_costs(db, executions)
 
     outcome_stmt = select(OutcomeEvent).where(
         OutcomeEvent.tenant_id == tenant_id,
@@ -233,9 +229,9 @@ def run_evaluation(
         total_cost = float(cost_est.total_cost_estimate_usd)
         cost_quality = cost_est.data_quality
     else:
-        total_cost = sum(_event_cost(e) for e in executions)
+        total_cost = sum(_event_cost(e, costs[e.id]) for e in executions)
         states = {
-            MeasurementState(e.cost_measurement) for e in executions if e.cost_role != "summary"
+            MeasurementState(costs[e.id].cost_measurement) for e in executions if e.cost_role != "summary"
         }
         cost_quality = (
             "unmeasured"
@@ -302,7 +298,7 @@ def run_evaluation(
     db.add(run)
     db.flush()
 
-    arms = _arms_summary(executions, outcome_by_key)
+    arms = _arms_summary(executions, outcome_by_key, costs)
     method_metadata = {
         "mode": payload.mode,
         "sample_size": len(proxy_values),

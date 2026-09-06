@@ -213,6 +213,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/charge-cost-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Charge Cost Revisions */
+        get: operations["list_charge_cost_revisions_v1_charge_cost_revisions_get"];
+        put?: never;
+        /** Record Charge Cost Revision */
+        post: operations["record_charge_cost_revision_v1_charge_cost_revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/cloud/api-keys": {
         parameters: {
             query?: never;
@@ -1704,6 +1722,52 @@ export interface components {
             /** Net Margin Usd */
             net_margin_usd: number;
         };
+        /** ChargeCostRevision */
+        "ChargeCostRevision-Input": {
+            /**
+             * Asserted At
+             * Format: date-time
+             */
+            asserted_at: string;
+            /** Charge Id */
+            charge_id: string;
+            /** Compute Cost Usd */
+            compute_cost_usd?: string | number | null;
+            /**
+             * Cost Measurement
+             * @enum {string}
+             */
+            cost_measurement: "measured" | "estimated" | "unmeasured";
+            /** Reason */
+            reason: string;
+            /** Token Cost Usd */
+            token_cost_usd?: string | number | null;
+            /** Tool Cost Usd */
+            tool_cost_usd?: string | number | null;
+        };
+        /** ChargeCostRevision */
+        "ChargeCostRevision-Output": {
+            /**
+             * Asserted At
+             * Format: date-time
+             */
+            asserted_at: string;
+            /** Charge Id */
+            charge_id: string;
+            /** Compute Cost Usd */
+            compute_cost_usd?: string | null;
+            /**
+             * Cost Measurement
+             * @enum {string}
+             */
+            cost_measurement: "measured" | "estimated" | "unmeasured";
+            /** Reason */
+            reason: string;
+            /** Token Cost Usd */
+            token_cost_usd?: string | null;
+            /** Tool Cost Usd */
+            tool_cost_usd?: string | null;
+        };
         /**
          * ChargeOwnership
          * @description Declared monetary owners; no inference of provider billing truth.
@@ -2518,6 +2582,11 @@ export interface components {
          * @description Identity of selected stored assertions; not a completeness guarantee.
          */
         EvidenceFingerprint: {
+            /**
+             * Cost Revision Records
+             * @default 0
+             */
+            cost_revision_records: number;
             /** Digest */
             digest: string;
             /** Execution Records */
@@ -2529,7 +2598,7 @@ export interface components {
              * @default stored-assertions/1
              * @enum {string}
              */
-            version: "stored-assertions/1" | "stored-assertions/2" | "stored-assertions/3" | "stored-assertions/4";
+            version: "stored-assertions/1" | "stored-assertions/2" | "stored-assertions/3" | "stored-assertions/4" | "stored-assertions/5";
         };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {
@@ -4141,6 +4210,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImplementationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_charge_cost_revisions_v1_charge_cost_revisions_get: {
+        parameters: {
+            query: {
+                charge_id: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChargeCostRevision-Output"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_charge_cost_revision_v1_charge_cost_revisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChargeCostRevision-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description Validation Error */

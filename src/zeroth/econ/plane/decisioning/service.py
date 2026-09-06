@@ -35,6 +35,7 @@ from zeroth.econ.plane.decisioning.models import DecisionSchedule, EconomicDecis
 from zeroth.econ.plane.debugger.models import OutcomeDefinition
 from zeroth.econ.plane.debugger.service import _matches_definition
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.instrumentation.charge_costs import CostAmounts, resolve_costs, revision_assertions
 from zeroth.econ.plane.instrumentation.identity import outcomes_for_events, run_identity, workflow_filter
 from zeroth.econ.plane.instrumentation.service import (
     _datetime_identity, _execution_identity_fields, _outcome_assertions,
@@ -76,22 +77,14 @@ def _outcome_measurement(outcome: OutcomeEvent | None) -> MeasurementState:
     )
 
 
-def _run_cost(events: list[ExecutionEvent]) -> tuple[Decimal | None, MeasurementState]:
+def _run_cost(events: list[ExecutionEvent], costs: dict[int, CostAmounts]) -> tuple[Decimal | None, MeasurementState]:
     events = [event for event in events if event.cost_role != "summary"]
     if not events:
         return None, MeasurementState.UNMEASURED
-    states = {_measurement(event.cost_measurement) for event in events}
+    states = {_measurement(costs[event.id].cost_measurement) for event in events}
     if MeasurementState.UNMEASURED in states:
         return None, MeasurementState.UNMEASURED
-    total = sum(
-        (
-            (event.token_cost_usd or Decimal("0"))
-            + (event.tool_cost_usd or Decimal("0"))
-            + (event.compute_cost_usd or Decimal("0"))
-            for event in events
-        ),
-        Decimal("0"),
-    )
+    total = sum((costs[event.id].total for event in events), Decimal("0"))
     state = (
         MeasurementState.ESTIMATED
         if MeasurementState.ESTIMATED in states
@@ -102,6 +95,7 @@ def _run_cost(events: list[ExecutionEvent]) -> tuple[Decimal | None, Measurement
 
 def _source_fingerprint(
     tenant_id: str, executions: list[ExecutionEvent], outcomes: list[OutcomeEvent],
+    cost_revisions: list | None = None,
 ) -> EvidenceFingerprint:
     """Bind a result to the assertions actually read, independent of receipt order."""
 
@@ -130,8 +124,10 @@ def _source_fingerprint(
         version = "stored-assertions/3"
     if any(row.maturity not in {None, "unknown"} for row in outcomes):
         version = "stored-assertions/4"
+    if cost_revisions:
+        version = "stored-assertions/5"
     execution_assertions = [_execution_identity_fields(row) for row in executions]
-    if version not in {"stored-assertions/3", "stored-assertions/4"}:
+    if version not in {"stored-assertions/3", "stored-assertions/4", "stored-assertions/5"}:
         for assertion in execution_assertions:
             assertion.pop("cost_role")
             assertion.pop("charge_id")
@@ -140,7 +136,7 @@ def _source_fingerprint(
         for assertion in execution_assertions:
             assertion.pop("source_window_id")
     outcome_assertions = [_outcome_assertions(row) for row in outcomes]
-    if version != "stored-assertions/4":
+    if version not in {"stored-assertions/4", "stored-assertions/5"}:
         for assertion in outcome_assertions:
             assertion.pop("maturity")
     return EvidenceFingerprint(
@@ -150,8 +146,11 @@ def _source_fingerprint(
             "tenant_id": tenant_id,
             "executions": sorted(digest(assertion) for assertion in execution_assertions),
             "outcomes": sorted(digest(assertion) for assertion in outcome_assertions),
+            **({"cost_revisions": sorted(digest(revision_assertions(row)) for row in cost_revisions)}
+               if cost_revisions else {}),
         }),
         execution_records=len(executions), outcome_records=len(outcomes),
+        cost_revision_records=len(cost_revisions or []),
     )
 
 
@@ -174,6 +173,7 @@ def _version_from_store(
             ExecutionEvent.source_window_id == source_window.source_window_id,
         ).order_by(ExecutionEvent.id).limit(MAX_WINDOW_EXECUTIONS + 1)
     executions = list(db.scalars(statement))
+    effective_costs, cost_revisions = resolve_costs(db, executions)
     executions_by_run: dict[str, list[ExecutionEvent]] = defaultdict(list)
     for event in executions:
         executions_by_run[run_identity(event)[2]].append(event)
@@ -222,7 +222,7 @@ def _version_from_store(
 
     runs: list[RunEvidence] = []
     for run_id, run_events in sorted(executions_by_run.items()):
-        cost, cost_measurement = _run_cost([] if run_id in incomplete_runs else run_events)
+        cost, cost_measurement = _run_cost([] if run_id in incomplete_runs else run_events, effective_costs)
         outcome = outcome_by_run.get(run_id)
         runs.append(
             RunEvidence(
@@ -250,6 +250,7 @@ def _version_from_store(
         ),
         source_fingerprint=_source_fingerprint(
             db.scope.tenant_id, executions, [outcome for _, outcome in selected_outcomes],
+            cost_revisions,
         ),
     )
 

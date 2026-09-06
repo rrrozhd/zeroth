@@ -1,5 +1,6 @@
 """Public request and event contracts shared with Zeroth Cloud."""
 
+from zeroth.protocol.charge_costs import ChargeCostRevision
 from zeroth.protocol.models import (
     BacktestCase,
     BacktestRequest,
@@ -18,6 +19,7 @@ from zeroth.protocol.source_inventory import (
 )
 
 __all__ = [
+    "ChargeCostRevision",
     "RunInventory",
     "SourceWindowInventory",
     "execution_ids_digest",

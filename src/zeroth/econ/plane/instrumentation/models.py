@@ -2,9 +2,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import ClassVar
 
-from sqlalchemy import DateTime, Index, Integer, Numeric, String, UniqueConstraint, text
+from sqlalchemy import DateTime, ForeignKeyConstraint, Index, Integer, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 from zeroth.econ.plane.database import Base
 from zeroth.platform.storage.scoping import ResourceOperation, ResourceScopeDefinition
@@ -73,6 +74,47 @@ class ExecutionEvent(Base):
     latency_ms: Mapped[int] = mapped_column(default=0)
     compute_time_ms: Mapped[int] = mapped_column(default=0)
     event_metadata: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+
+
+class _RevisionCost(TypeDecorator[Decimal]):
+    """Preserve the declared USD precision on SQLite's dynamic storage engine."""
+
+    impl = Numeric(18, 8)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        return dialect.type_descriptor(String(20) if dialect.name == "sqlite" else Numeric(18, 8))
+
+    def process_bind_param(self, value, dialect):
+        return format(value, "f") if value is not None and dialect.name == "sqlite" else value
+
+    def process_result_value(self, value, dialect):
+        return Decimal(value) if value is not None else None
+
+
+class ChargeCostRevisionRecord(Base):
+    __tablename__ = "charge_cost_revisions"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.charge_cost_revision", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "charge_id"], ["execution_events.tenant_id", "execution_events.charge_id"],
+            name="fk_charge_cost_revision_owner", ondelete="CASCADE",
+        ),
+        UniqueConstraint("tenant_id", "charge_id", "asserted_at", name="uq_charge_cost_revision_identity"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    charge_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    asserted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    token_cost_usd: Mapped[Decimal | None] = mapped_column(_RevisionCost(), nullable=True)
+    tool_cost_usd: Mapped[Decimal | None] = mapped_column(_RevisionCost(), nullable=True)
+    compute_cost_usd: Mapped[Decimal | None] = mapped_column(_RevisionCost(), nullable=True)
+    cost_measurement: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str] = mapped_column(String(256), nullable=False)
 
 
 class OutcomeEvent(Base):

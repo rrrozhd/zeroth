@@ -19,7 +19,13 @@ def test_charge_migration_keeps_legacy_unknown_and_refuses_lossy_rollback(engine
     migration = importlib.import_module(
         "zeroth.econ.plane._migrations.versions.20260906_20_charge_ownership"
     )
+    revisions = importlib.import_module(
+        "zeroth.econ.plane._migrations.versions.20260906_22_charge_cost_revisions"
+    )
     with engine.begin() as conn:
+        # Follow the dependency order before exercising this historical step.
+        revisions.op = Operations(MigrationContext.configure(conn))
+        revisions.downgrade()
         migration.op = Operations(MigrationContext.configure(conn))
         migration.downgrade()
         assert {item[1] for item in _missing_chain_owned_columns(conn)} == {

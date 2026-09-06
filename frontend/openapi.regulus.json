@@ -815,6 +815,162 @@
         "title": "CapabilityValueRow",
         "type": "object"
       },
+      "ChargeCostRevision-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "asserted_at": {
+            "format": "date-time",
+            "title": "Asserted At",
+            "type": "string"
+          },
+          "charge_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Charge Id",
+            "type": "string"
+          },
+          "compute_cost_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compute Cost Usd"
+          },
+          "cost_measurement": {
+            "enum": [
+              "measured",
+              "estimated",
+              "unmeasured"
+            ],
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "token_cost_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Cost Usd"
+          },
+          "tool_cost_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Cost Usd"
+          }
+        },
+        "required": [
+          "charge_id",
+          "asserted_at",
+          "cost_measurement",
+          "reason"
+        ],
+        "title": "ChargeCostRevision",
+        "type": "object"
+      },
+      "ChargeCostRevision-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "asserted_at": {
+            "format": "date-time",
+            "title": "Asserted At",
+            "type": "string"
+          },
+          "charge_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Charge Id",
+            "type": "string"
+          },
+          "compute_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compute Cost Usd"
+          },
+          "cost_measurement": {
+            "enum": [
+              "measured",
+              "estimated",
+              "unmeasured"
+            ],
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "token_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Cost Usd"
+          },
+          "tool_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Cost Usd"
+          }
+        },
+        "required": [
+          "charge_id",
+          "asserted_at",
+          "cost_measurement",
+          "reason"
+        ],
+        "title": "ChargeCostRevision",
+        "type": "object"
+      },
       "ChargeOwnership": {
         "additionalProperties": false,
         "description": "Declared monetary owners; no inference of provider billing truth.",
@@ -2878,6 +3034,12 @@
         "additionalProperties": false,
         "description": "Identity of selected stored assertions; not a completeness guarantee.",
         "properties": {
+          "cost_revision_records": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Cost Revision Records",
+            "type": "integer"
+          },
           "digest": {
             "pattern": "^[0-9a-f]{64}$",
             "title": "Digest",
@@ -2899,7 +3061,8 @@
               "stored-assertions/1",
               "stored-assertions/2",
               "stored-assertions/3",
-              "stored-assertions/4"
+              "stored-assertions/4",
+              "stored-assertions/5"
             ],
             "title": "Version",
             "type": "string"
@@ -6533,6 +6696,119 @@
         "tags": [
           "capabilities",
           "registry"
+        ]
+      }
+    },
+    "/v1/charge-cost-revisions": {
+      "get": {
+        "operationId": "list_charge_cost_revisions_v1_charge_cost_revisions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "charge_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Charge Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChargeCostRevision-Output"
+                  },
+                  "title": "Response List Charge Cost Revisions V1 Charge Cost Revisions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Charge Cost Revisions",
+        "tags": [
+          "zeroth-cloud-sdk"
+        ]
+      },
+      "post": {
+        "operationId": "record_charge_cost_revision_v1_charge_cost_revisions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChargeCostRevision-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Record Charge Cost Revision V1 Charge Cost Revisions Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Charge Cost Revision",
+        "tags": [
+          "zeroth-cloud-sdk"
         ]
       }
     },

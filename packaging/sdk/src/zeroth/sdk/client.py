@@ -8,6 +8,7 @@ import httpx
 from pydantic import BaseModel
 from zeroth.protocol import (
     BacktestRequest,
+    ChargeCostRevision,
     DecisionScheduleRequest,
     ExecutionEvent,
     OutcomeDefinition,
@@ -47,6 +48,18 @@ class ZerothClient:
     def create_outcome_definition(self, definition: OutcomeDefinition) -> dict[str, Any]:
         """Declare the immutable success rule for a workflow version (Admin only)."""
         return self._post("/v1/debugger/outcome-definitions", definition)
+
+    def record_charge_cost_revision(self, revision: ChargeCostRevision) -> dict[str, Any]:
+        """Append a replacement cost assertion for an existing physical charge."""
+        return self._post("/v1/charge-cost-revisions", revision)
+
+    def list_charge_cost_revisions(
+        self, charge_id: str, *, limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Read the most recent source assertions, newest first (at most 1000)."""
+        return self._get(
+            "/v1/charge-cost-revisions", params={"charge_id": charge_id, "limit": limit},
+        )
 
     def create_backtest(self, request: BacktestRequest) -> dict[str, Any]:
         """Submit a candidate workflow change for economic backtesting."""

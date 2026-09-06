@@ -23,6 +23,7 @@ from zeroth.econ.plane.debugger.schemas import (
     OutcomeDefinitionCreate,
     TimelinePoint,
 )
+from zeroth.econ.plane.instrumentation.charge_costs import CostAmounts, resolve_costs
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.instrumentation.identity import RunKey, outcomes_for_events, run_identity
 from zeroth.econ.plane.scoped_session import ScopedSession
@@ -207,23 +208,13 @@ def _load_evidence(
     return events, resolve_outcomes_for_events(db, events)
 
 
-def _cost(event: ExecutionEvent) -> tuple[Decimal, Decimal, bool]:
+def _cost(event: ExecutionEvent, cost: CostAmounts) -> tuple[Decimal, Decimal, bool]:
     if event.cost_role == "summary":
         return Decimal("0"), Decimal("0"), False
-    total = sum(
-        (
-            value or Decimal("0")
-            for value in (
-                event.token_cost_usd,
-                event.tool_cost_usd,
-                event.compute_cost_usd,
-            )
-        ),
-        Decimal("0"),
-    )
-    if event.cost_measurement == MeasurementState.MEASURED.value:
+    total = cost.total
+    if cost.cost_measurement == MeasurementState.MEASURED.value:
         return total, Decimal("0"), False
-    if event.cost_measurement == MeasurementState.ESTIMATED.value:
+    if cost.cost_measurement == MeasurementState.ESTIMATED.value:
         return Decimal("0"), total, False
     return Decimal("0"), Decimal("0"), True
 
@@ -261,6 +252,7 @@ def timeline(
     end: datetime | None = None,
 ) -> list[TimelinePoint]:
     events, outcomes = _load_evidence(db, workflow_id=workflow_id, start=start, end=end)
+    costs, _revisions = resolve_costs(db, events)
     groups: dict[tuple[datetime, str], list[ExecutionEvent]] = defaultdict(list)
     for event in events:
         period = event.timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -275,7 +267,7 @@ def timeline(
         measured = estimated = measured_failure = estimated_failure = Decimal("0")
         incomplete = 0
         for row in rows:
-            row_measured, row_estimated, missing = _cost(row)
+            row_measured, row_estimated, missing = _cost(row, costs[row.id])
             missing = missing or run_identity(row) in summary_only
             measured += row_measured
             estimated += row_estimated
@@ -315,6 +307,7 @@ def cohorts(
     if group_by == "dimension" and not dimension:
         raise ValueError("dimension is required when group_by=dimension")
     events, outcomes = _load_evidence(db, workflow_id=workflow_id, start=start, end=end)
+    costs, _revisions = resolve_costs(db, events)
     groups: dict[str, list[ExecutionEvent]] = defaultdict(list)
     for event in events:
         cohort = event.subject_id if group_by == "subject_id" else event.dimensions.get(dimension)
@@ -329,7 +322,7 @@ def cohorts(
         measured = estimated = Decimal("0")
         incomplete = 0
         for row in rows:
-            row_measured, row_estimated, missing = _cost(row)
+            row_measured, row_estimated, missing = _cost(row, costs[row.id])
             missing = missing or run_identity(row) in summary_only
             measured += row_measured
             estimated += row_estimated
@@ -358,6 +351,7 @@ def breakage(
     end: datetime | None = None,
 ) -> list[BreakagePoint]:
     events, outcomes = _load_evidence(db, workflow_id=workflow_id, start=start, end=end)
+    costs, _revisions = resolve_costs(db, events)
     failed_runs = {run_id for run_id, accepted in outcomes.items() if accepted is False}
     groups: dict[tuple[str, str], list[ExecutionEvent]] = defaultdict(list)
     for event in events:
@@ -368,7 +362,7 @@ def breakage(
     for (version, step_id), rows in groups.items():
         measured = estimated = repeated_measured = repeated_estimated = Decimal("0")
         for row in rows:
-            row_measured, row_estimated, _missing = _cost(row)
+            row_measured, row_estimated, _missing = _cost(row, costs[row.id])
             measured += row_measured
             estimated += row_estimated
             if row.attempt > 1:
@@ -475,6 +469,7 @@ def diagnostic_report(
     cohort_dimension: str | None = None,
 ) -> EconomicDiagnosticReport | None:
     events, outcomes = _load_evidence(db, workflow_id=workflow_id, start=start, end=end)
+    costs, _revisions = resolve_costs(db, events)
     if not events:
         return None
 
@@ -501,15 +496,15 @@ def diagnostic_report(
     measured_events = estimated_events = unmeasured_events = incomplete_events = 0
     summary_only = _summary_only_runs(events)
     for event in events:
-        event_measured, event_estimated, missing_cost = _cost(event)
+        event_measured, event_estimated, missing_cost = _cost(event, costs[event.id])
         missing_cost = missing_cost or run_identity(event) in summary_only
         measured += event_measured
         estimated += event_estimated
         if run_identity(event) in failed:
             measured_failure += event_measured
             estimated_failure += event_estimated
-        measured_events += int(event.cost_measurement == MeasurementState.MEASURED.value)
-        estimated_events += int(event.cost_measurement == MeasurementState.ESTIMATED.value)
+        measured_events += int(costs[event.id].cost_measurement == MeasurementState.MEASURED.value)
+        estimated_events += int(costs[event.id].cost_measurement == MeasurementState.ESTIMATED.value)
         unmeasured_events += int(missing_cost and event.cost_role != "summary")
         incomplete_events += int(_incomplete(event, missing_cost))
 

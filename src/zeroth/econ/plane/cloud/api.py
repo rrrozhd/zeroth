@@ -7,12 +7,14 @@ import json
 from datetime import datetime
 from typing import Any, Literal, Union
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.measurement import MeasurementState
+from zeroth.econ.charge_costs import ChargeCostRevision
+from zeroth.econ.plane.instrumentation.charge_costs import find_revision, ingest_revision, revision_history
 from zeroth.econ.outcome_maturity import OutcomeMaturity
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
@@ -31,6 +33,40 @@ from zeroth.econ.plane.instrumentation.service import (
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["zeroth-cloud-sdk"])
+
+
+@router.post("/charge-cost-revisions")
+def record_charge_cost_revision(
+    payload: ChargeCostRevision,
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
+) -> dict[str, str]:
+    try:
+        reserved = False if find_revision(db, payload) is not None else reserve_usage(db, "events")
+    except EntitlementError as exc:
+        raise HTTPException(status_code=402, detail=exc.detail) from exc
+    try:
+        status, _row = ingest_revision(db, payload)
+    except (ValueError, IntegrityError) as exc:
+        db.rollback()
+        if reserved:
+            release_usage(db, "events")
+        code = 422 if isinstance(exc, ValueError) else 409
+        detail = str(exc) if code == 422 else "charge revision identity conflict; retry"
+        raise HTTPException(status_code=code, detail=detail) from exc
+    if reserved and status != "inserted":
+        release_usage(db, "events")
+    return {"status": status, "charge_id": payload.charge_id, "asserted_at": payload.asserted_at.isoformat()}
+
+
+@router.get("/charge-cost-revisions", response_model=list[ChargeCostRevision])
+def list_charge_cost_revisions(
+    charge_id: str = Query(min_length=1, max_length=128),  # noqa: B008
+    limit: int = Query(default=100, ge=1, le=1000),  # noqa: B008
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst", "Approver", "Viewer")),  # noqa: B008
+) -> list[ChargeCostRevision]:
+    return revision_history(db, charge_id, limit)
 
 
 class _CloudOutcomeCreate(BaseModel):

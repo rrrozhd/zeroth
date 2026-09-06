@@ -69,7 +69,21 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   separates structural spans from monetary event counts. Investigate a charge
   conflict from the caller's independent provider/account/attempt identity and
   its existing scoped execution owner. Capture primary_for_rollup metadata is
-  not a monetary selector. No new ledger store, heuristic cache or retry exists.
+  not a monetary selector. The execution remains the sole physical owner.
+  Charge-cost revisions now append in charge_cost_revisions, referencing that
+  owner. The cloud POST/GET paths and SDK contract use existing roles and event
+  metering. instrumentation/charge_costs.py resolves the latest non-future source
+  assertion into immutable CostAmounts; decisions, debugger, provider allocation
+  and legacy cost readers use it without changing execution rows or attempt counts.
+  Replacements cover all three cost components and provenance. Zero refunds the
+  amount; unmeasured withdraws it. Cost stays attributed to the original run/time.
+  Source time must follow the execution; source clock validity remains unverified.
+  Replays compare complete assertions, including reason, under a unique tenant/
+  charge/time constraint. SQLite's post-flush owner check prevents erasure from
+  leaving orphan revisions even when FK enforcement is off. Erasure deletes and
+  counts revisions before owners in the existing transaction. Source fingerprints
+  bind revisions as v5; execution-inventory counts still measure execution delivery
+  only. Debug from the original owner, revision history, source time and measurement.
   Outcome interpretation uses the existing immutable workflow-version definition
   in debugger/service.py for decisions, debugger and provider allocation. Stored
   decisions abstain on missing/type-mismatched or incompatible rules and retain
@@ -159,8 +173,8 @@ tenant/charge index. NULL historical roles mean legacy_unknown; no ownership is
 backfilled. It refuses to discard populated new declarations on downgrade. A
 rollback build must retain these columns and read stored-assertions/3 plus charge
 ownership reports. Single ownership holds among retained records: source erasure
-removes the owner with the execution. Corrections/repricing require a future
-append-only assertion contract; do not work around immutability with a new charge ID.
+removes the owner with the execution. Corrections/repricing use the append-only
+revision contract; do not work around immutability with a new charge ID.
 
 Migration `20260906_21` adds nullable outcome maturity without backfill. Apply the
 economic chain before starting PostgreSQL replicas; startup checks the column,
@@ -169,6 +183,21 @@ non-unknown declarations. Roll back with a compatible reader that preserves the
 column and understands observed-policy/3 and stored-assertions/4. Query the latest
 source timestamp, maturity, typed value and workflow definition when a label is
 unresolved. These local checks do not certify a rollback image or producer truth.
+
+Migration `20260906_22` adds the charge-cost revision table, owner FK and unique
+source assertion identity. Nonempty revisions prevent downgrade; a compatible
+reader rollback must keep the table and v5 source interpretation. PostgreSQL uses
+Numeric(18,8); SQLite revision amounts use decimal text because numeric affinity
+rounds valid large amounts and breaks exact retries. The private ORM amount type
+returns Decimal for both. Use the shared resolver rather than SQL float coercion
+when aggregating these amounts. This does not certify historical SQLite execution
+amount precision, fixed source snapshots or an assembled rollback image.
+Fractional revision amounts require decimal strings/Decimal at the SDK/API boundary;
+float input is rejected before it can silently become a rounded assertion. Integral
+JSON numbers fit the declared range exactly. Bootstrap creates its legacy tables,
+checks/converges migrated parent columns, then creates the dependent revision table.
+The migration-only topology can omit the runtime execution table; revision creation
+waits for bootstrap there. This preserves existing offline FK installation rules.
 
 ## Current risks and unfinished work
 

@@ -44,9 +44,11 @@ class EvidenceFingerprint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: Literal[
-        "stored-assertions/1", "stored-assertions/2", "stored-assertions/3", "stored-assertions/4"
+        "stored-assertions/1", "stored-assertions/2", "stored-assertions/3", "stored-assertions/4",
+        "stored-assertions/5",
     ] = "stored-assertions/1"
     digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cost_revision_records: int = Field(default=0, ge=0)
     execution_records: int = Field(ge=0)
     outcome_records: int = Field(ge=0)
 

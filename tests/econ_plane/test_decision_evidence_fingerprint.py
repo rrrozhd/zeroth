@@ -50,6 +50,7 @@ def test_late_input_with_identical_totals_creates_a_new_retained_revision(tmp_pa
         "digest",
         "execution_records",
         "outcome_records",
+        "cost_revision_records",
     }
     assert compare().decision_id == first.decision_id
     with Session(engine) as raw:
