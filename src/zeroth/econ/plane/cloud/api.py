@@ -116,7 +116,7 @@ def record_execution(
         db, payload.workflow, payload.workflow_version
     )
     already_recorded = db.scalars(
-        select(ExecutionEvent.id).where(ExecutionEvent.execution_id == execution_id)
+        select(ExecutionEvent).where(ExecutionEvent.execution_id == execution_id)
     ).first()
     try:
         reserved = False if already_recorded is not None else reserve_usage(db, "events")
@@ -130,34 +130,38 @@ def record_execution(
         metadata["dimensions"] = payload.dimensions
     metadata["tenant_id"] = user.tenant_id
     measured = payload.cost_measurement != "unmeasured"
-    event = ExecutionEventCreate(
-        tenant_id=user.tenant_id,
-        execution_id=execution_id,
-        join_key=payload.run_id,
-        timestamp=payload.recorded_at,
-        capability_id=capability_id,
-        implementation_id=implementation_id,
-        workflow_id=payload.workflow,
-        workflow_version=payload.workflow_version,
-        source_window_id=payload.source_window_id,
-        cost_role=payload.cost_role,
-        charge_id=payload.charge_id,
-        # Declared ownership/window contracts bind public identity. Legacy
-        # unwindowed clients keep their original debugger mapping for retries.
-        run_id=payload.run_id if (
-            payload.source_window_id is not None or payload.cost_role != "legacy_unknown"
-        ) else None,
-        step_id=payload.step if payload.cost_role != "legacy_unknown" else None,
-        model_version=payload.model_version,
-        token_cost_usd=payload.cost_usd if measured else None,
-        tool_cost_usd=None,
-        compute_cost_usd=None,
-        cost_measurement=MeasurementState(payload.cost_measurement),
-        usage_measurement=MeasurementState.UNMEASURED,
-        latency_ms=payload.latency_ms,
-        metadata=metadata,
-    )
     try:
+        event = ExecutionEventCreate(
+            tenant_id=user.tenant_id,
+            execution_id=execution_id,
+            join_key=payload.run_id,
+            timestamp=payload.recorded_at,
+            capability_id=capability_id,
+            implementation_id=implementation_id,
+            workflow_id=payload.workflow,
+            workflow_version=payload.workflow_version,
+            source_window_id=payload.source_window_id,
+            cost_role=payload.cost_role,
+            charge_id=payload.charge_id,
+            # Declared ownership/window contracts bind public identity. Legacy
+            # unwindowed clients keep their original debugger mapping for retries.
+            run_id=payload.run_id if (
+                payload.source_window_id is not None or payload.cost_role != "legacy_unknown"
+            ) else None,
+            step_id=payload.step if payload.cost_role != "legacy_unknown" else None,
+            # Older SDK ingestion stored attempt=1 but kept the raw value in
+            # metadata. Preserve that immutable representation on exact replay;
+            # metadata comparison still rejects a changed source attempt.
+            attempt=(already_recorded.attempt or 1) if already_recorded is not None else payload.attempt,
+            model_version=payload.model_version,
+            token_cost_usd=payload.cost_usd if measured else None,
+            tool_cost_usd=None,
+            compute_cost_usd=None,
+            cost_measurement=MeasurementState(payload.cost_measurement),
+            usage_measurement=MeasurementState.UNMEASURED,
+            latency_ms=payload.latency_ms,
+            metadata=metadata,
+        )
         status, row = ingest_execution(
             db, event, registry_names=(payload.workflow, payload.workflow_version)
         )

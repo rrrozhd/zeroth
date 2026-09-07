@@ -243,6 +243,16 @@ defaults. Approved D01/D02 signature changes are recorded in
 
 ## Current risks and unfinished work
 
+The SDK source-ledger check runs through real local HTTP and compares source
+integer amounts with stored costs, decisions, failed-run exposure and retry spend.
+New SDK writes map their attempt into the stored field; older collapsed attempts
+stay immutable and their historical retry breakdowns remain unverified. Debug
+delivery in `cloud/api.py`, then `instrumentation/service.py`: a same-execution
+winner between identity and charge checks proceeds to full duplicate/conflict
+reconciliation. Different charge owners still fail. The SDK has no internal retry
+queue; callers retain source payloads and replay stable identities after uncertain
+delivery. This proves the bounded synthetic ledger, not provider capture or invoices.
+
 Missing-cost defaults now preserve unknown values; closure/ownership and
 unvalidated confidence still require acceptance work. Hosted projections now use
 observed replay usage; cache/discount/tool/internal-retry costs are not certified.

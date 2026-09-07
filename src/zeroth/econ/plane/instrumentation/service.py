@@ -369,13 +369,17 @@ def _resolve_existing_execution(
     return existing
 
 
-def _assert_charge_available(db: ScopedSession, charge_id: str | None) -> None:
+def _assert_charge_available(
+    db: ScopedSession, charge_id: str | None, execution_id: str,
+) -> None:
     if charge_id is None:
         return
     owner = db.scalars(
         select(ExecutionEvent).where(ExecutionEvent.charge_id == charge_id)
     ).first()
-    if owner is not None:
+    # An identical execution may commit after the identity pre-check. Let the
+    # insert/unique-constraint path reconcile its complete immutable payload.
+    if owner is not None and owner.execution_id != execution_id:
         raise ValueError("charge_id is already owned by another execution")
 
 
@@ -436,7 +440,7 @@ def _stage_execution(
             db, tenant_id=tenant_id, execution_id=payload.execution_id
         )
         if winner is None:
-            _assert_charge_available(db, payload.charge_id)
+            _assert_charge_available(db, payload.charge_id, payload.execution_id)
             raise
         return _resolve_existing_execution(
             winner, payload, join_key=join_key, metadata=metadata
@@ -468,7 +472,7 @@ def ingest_execution(
             existing, payload, join_key=join_key, metadata=metadata
         )
 
-    _assert_charge_available(db, payload.charge_id)
+    _assert_charge_available(db, payload.charge_id, payload.execution_id)
 
     if settings.auto_register_ingest_capabilities:
         _ensure_capability_and_implementation(

@@ -238,6 +238,33 @@ a non-monetary summary if that accurately describes its role. Existing assertion
 are immutable: changing a stored amount or owner conflicts. Use a charge-cost
 revision tied to that existing owner for corrections.
 
+The stored attempt number for new executions preserves `attempt` (1 through 1000).
+Larger new values are rejected with HTTP 422. Earlier SDK ingestion kept this
+number in metadata but stored the canonical attempt as one, so historical retry
+breakdowns can undercount repeated-attempt spend. Exact retries preserve those old
+records; they do not repair historical classification. Changed raw attempt values
+still conflict. Do not treat old retry breakdowns as independently reconciled.
+
+### Delivery and recovery
+
+`ZerothClient` sends each record synchronously. It adds no buffer, automatic retry
+or durable outbox. A successful response reports `inserted` or `duplicate`.
+HTTP and connection errors propagate to the caller; inspect an HTTP error's
+`response` for the server's status and explanation. A connection error or lost
+response does not prove that the server rejected the write.
+
+Keep source IDs and payloads independently of acknowledgements. Retry the same
+record unchanged after an uncertain response; do not allocate a new execution or
+charge ID for telemetry retransmission. A genuinely new charged provider attempt
+gets its own identity. Concurrent identical delivery is reconciled against the
+complete immutable payload, while a different execution claiming the same charge
+remains a conflict.
+
+Abrupt process exit can leave source records unsent. A producer-owned inventory
+keeps that loss visible; replay from the retained source can resolve the mismatch.
+Zeroth does not reconstruct unsent records for the caller. This explicit SDK
+delivery contract does not certify buffered runtime adapters or framework capture.
+
 `legacy_unknown` is the default role, preserving existing caller-reported amounts
 without inventing ownership. Version reports expose `charge_ownership` counts for
 owned charges, summaries and unattributed records. `declared` describes supplied

@@ -1,0 +1,23 @@
+{
+  "description": "Synthetic source charges in 1e-8 USD units, counted before telemetry; no provider invoice claim.",
+  "workflow": "source-ledger",
+  "opened_at": "2026-09-06T00:00:00Z",
+  "closed_at": "2026-09-06T01:00:00Z",
+  "versions": {"baseline": "before", "candidate": "after"},
+  "runs": [
+    {"id": "good", "terminal": "completed", "accepted": true},
+    {"id": "rejected", "terminal": "completed", "accepted": false},
+    {"id": "retry", "terminal": "failed", "accepted": false},
+    {"id": "delayed", "terminal": "completed", "accepted": true}
+  ],
+  "charges": [
+    {"run": "good", "operation": "parallel-a", "attempt": 1, "before": 7000000, "after": 4900000, "category": "provider"},
+    {"run": "good", "operation": "parallel-b", "attempt": 1, "before": 13000000, "after": 9100000, "category": "provider"},
+    {"run": "good", "operation": "tool", "attempt": 1, "before": 5000000, "after": 3500000, "category": "tool"},
+    {"run": "rejected", "operation": "model", "attempt": 1, "before": 9000000, "after": 6300000, "category": "provider"},
+    {"run": "retry", "operation": "model", "attempt": 1, "before": 4000000, "after": 2800000, "category": "provider"},
+    {"run": "retry", "operation": "model", "attempt": 2, "before": 11000000, "after": 7700000, "category": "provider"},
+    {"run": "delayed", "operation": "compute", "attempt": 1, "before": 3000000, "after": 2100000, "category": "compute"},
+    {"run": "delayed", "operation": "model", "attempt": 1, "before": 8000000, "after": 5600000, "category": "provider"}
+  ]
+}

@@ -600,3 +600,81 @@ def test_identity_query_handles_the_existing_debugger_event_bound(engine):
                 pytrace=False,
             )
         assert [key for key, _ in resolved] == [("workflow-0", "v1", "run-0")]
+
+
+@pytest.mark.parametrize("attempt", [1, 2, 1000])
+def test_sdk_persists_actual_attempt_for_new_executions(engine, attempt):
+    with Session(engine) as raw:
+        db = scoped(raw)
+        event = execution(event_id="attempt-source", cost_role="charge", charge_id="attempt-source", attempt=attempt)
+        assert record_execution(event, db, user()).status == "inserted"
+        row = db.scalars(select(ExecutionEvent)).one()
+        assert row.attempt == attempt
+        assert record_execution(event, db, user()).status == "duplicate"
+
+
+@pytest.mark.parametrize("attempt", [2, 1001])
+def test_old_sdk_attempt_collapse_keeps_exact_retries_immutable(engine, attempt):
+    from fastapi import HTTPException
+
+    with Session(engine) as raw:
+        db = scoped(raw)
+        # Construct the previous ingress representation explicitly: canonical
+        # attempt one, with the original raw SDK attempt only in metadata.
+        event = execution(event_id="old-attempt", attempt=1)
+        record_execution(event, db, user())
+        row = db.scalars(select(ExecutionEvent)).one()
+        row.event_metadata = {**row.event_metadata, "attempt": attempt}
+        db.commit()
+        original = dict(row.event_metadata)
+        retry = execution(event_id="old-attempt", attempt=attempt)
+        assert record_execution(retry, db, user()).status == "duplicate"
+        assert row.attempt == 1 and row.event_metadata == original
+        with pytest.raises(HTTPException) as changed:
+            record_execution(execution(event_id="old-attempt", attempt=attempt + 1), db, user())
+        assert changed.value.status_code == 422
+        assert db.scalars(select(ExecutionEvent)).one().event_metadata == original
+
+
+def test_sdk_new_attempt_outside_storage_contract_is_a_validation_error(engine):
+    from fastapi import HTTPException
+
+    with Session(engine) as raw:
+        db = scoped(raw)
+        with pytest.raises(HTTPException) as failure:
+            record_execution(execution(event_id="too-many-attempts", attempt=1001), db, user())
+        assert failure.value.status_code == 422
+        assert list(db.scalars(select(ExecutionEvent))) == []
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_same_execution_committed_between_identity_and_charge_checks_is_reconciled(engine, monkeypatch, changed):
+    from fastapi import HTTPException
+    from zeroth.econ.plane.instrumentation import service
+
+    event = execution(event_id="charge-race", cost_role="charge", charge_id="charge-race", attempt=2)
+    original = service._assert_charge_available
+    fired = False
+
+    def winner_between_checks(db, charge_id, *args):
+        nonlocal fired
+        if not fired:
+            fired = True
+            # The outer request has observed no execution. Commit the winner
+            # before its ownership lookup, making this race deterministic.
+            with Session(engine) as winner_raw:
+                winner = event.model_copy(update={"cost_usd": Decimal(".20")}) if changed else event
+                assert record_execution(winner, scoped(winner_raw), user()).status == "inserted"
+        return original(db, charge_id, *args)
+
+    monkeypatch.setattr(service, "_assert_charge_available", winner_between_checks)
+    with Session(engine) as raw:
+        db = scoped(raw)
+        if changed:
+            with pytest.raises(HTTPException) as conflict:
+                record_execution(event, db, user())
+            assert conflict.value.status_code == 422
+        else:
+            assert record_execution(event, db, user()).status == "duplicate"
+        assert len(list(db.scalars(select(ExecutionEvent)))) == 1
+    assert fired
