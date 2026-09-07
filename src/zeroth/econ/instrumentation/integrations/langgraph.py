@@ -200,7 +200,8 @@ class InstrumentedLangGraph:
         with get_runtime().capture_context("langgraph", run_id=run_id):
             try:
                 return self._graph.invoke(*args, **kwargs)
-            except Exception as exc:
+            except BaseException as exc:
+                # Record interruptions too, then preserve the caller's exception.
                 error = exc
                 raise
             finally:
@@ -216,7 +217,7 @@ class InstrumentedLangGraph:
         with get_runtime().capture_context("langgraph", run_id=run_id):
             try:
                 return await self._graph.ainvoke(*args, **kwargs)
-            except Exception as exc:
+            except BaseException as exc:
                 error = exc
                 raise
             finally:
@@ -234,7 +235,7 @@ class InstrumentedLangGraph:
             try:
                 for chunk in self._graph.stream(*args, **kwargs):
                     yield chunk
-            except Exception as exc:
+            except BaseException as exc:
                 error = exc
                 raise
             finally:
@@ -253,7 +254,7 @@ class InstrumentedLangGraph:
             try:
                 async for chunk in self._graph.astream(*args, **kwargs):
                     yield chunk
-            except Exception as exc:
+            except BaseException as exc:
                 error = exc
                 raise
             finally:
@@ -286,7 +287,7 @@ class InstrumentedLangGraph:
                     yield await iterator.__anext__()
             except StopAsyncIteration:
                 return
-            except Exception as exc:
+            except BaseException as exc:
                 error = exc
                 raise
             finally:
