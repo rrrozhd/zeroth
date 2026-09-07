@@ -298,6 +298,12 @@ def test_missing_step_cannot_report_partial_run_cost_as_complete(engine):
 
 def test_full_window_bound_and_overflow_abstention(engine):
     from sqlalchemy import insert
+    from zeroth.econ.plane.instrumentation.api import (
+        get_debugger_breakage,
+        get_debugger_cohorts,
+        get_debugger_report,
+        get_debugger_timeline,
+    )
     from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 
     ids = [f"step-{i}" for i in range(50_000)]
@@ -331,19 +337,37 @@ def test_full_window_bound_and_overflow_abstention(engine):
         conn.execute(insert(ExecutionEvent), [dict(row, execution_id=event_id) for event_id in ids])
     request = VersionComparisonRequest.model_validate(payload)
     with Session(engine) as raw:
-        report = compare_versions_from_store(scoped(raw), request)
+        db = scoped(raw)
+        report = compare_versions_from_store(db, request)
         assert report.source_delivery["candidate"].status == "matched"
         assert report.source_delivery["candidate"].observed_executions == 50_000
         assert not report.source_delivery["candidate"].scan_truncated
+        diagnostic = get_debugger_report(
+            workflow_id="invoice", start=NOW, end=NOW + timedelta(hours=1),
+            db=db, _user=user(),
+        )
+        assert diagnostic.event_count == 50_000
     with engine.begin() as conn:
         conn.execute(insert(ExecutionEvent), dict(row, execution_id="overflow"))
     with Session(engine) as raw:
-        overflow = compare_versions_from_store(scoped(raw), request)
+        db = scoped(raw)
+        overflow = compare_versions_from_store(db, request)
         assert overflow.verdict == "abstain"
         assert overflow.source_delivery["candidate"].status == "mismatch"
         assert overflow.source_delivery["candidate"].observed_executions == 50_001
         assert overflow.source_delivery["candidate"].scan_truncated
         assert overflow.candidate.unmeasured_runs == 1
+        for endpoint in (
+            get_debugger_report, get_debugger_timeline,
+            get_debugger_cohorts, get_debugger_breakage,
+        ):
+            with pytest.raises(HTTPException) as rejected:
+                endpoint(
+                    workflow_id="invoice", start=NOW, end=NOW + timedelta(hours=1),
+                    db=db, _user=user(),
+                )
+            assert rejected.value.status_code == 422
+            assert "Narrow the time window" in rejected.value.detail
 
 
 def test_http_window_ingestion_comparison_and_history(engine, monkeypatch):

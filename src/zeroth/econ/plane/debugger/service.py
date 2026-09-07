@@ -200,10 +200,15 @@ def _load_evidence(
     events = list(
         db.execute(
             statement.order_by(ExecutionEvent.timestamp.desc(), ExecutionEvent.id.desc()).limit(
-                MAX_DEBUGGER_EVENTS
+                MAX_DEBUGGER_EVENTS + 1
             )
         ).scalars()
     )
+    if len(events) > MAX_DEBUGGER_EVENTS:
+        raise ValueError(
+            f"Debugger window exceeds {MAX_DEBUGGER_EVENTS:,} execution events. "
+            "Narrow the time window; a partial population cannot represent its totals."
+        )
     events.reverse()
     return events, resolve_outcomes_for_events(db, events)
 

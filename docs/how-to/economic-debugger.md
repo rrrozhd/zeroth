@@ -235,8 +235,10 @@ Breakage reports money present in failed runs at each observed step; its
 `attribution` value is `failed_run_exposure_not_step_causality`. Do not describe
 that number as proof that the step caused the failure.
 
-Each request scans at most 50,000 recent execution events. That bound is for
-single-team debugging. Organization history, scheduled reports, chargeback,
+Each request accepts a window containing at most 50,000 execution events. A larger
+window returns HTTP 422 with a request to narrow it; older events are never silently
+omitted from the requested population. That bound is for single-team debugging.
+Organization history, scheduled reports, chargeback,
 and provider-bill reconciliation belong in pre-aggregated managed storage.
 
 ## Generate a shareable local diagnostic

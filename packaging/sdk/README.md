@@ -120,6 +120,23 @@ for the complete calculation rules. These inputs reproduce arithmetic, not sourc
 truth or invoice reconciliation. They remain with retained reports after source
 erasure and do not recover erased identifiers. Existing retention obligations apply.
 
+### Version and window meaning
+
+Use a new `workflow_version` when prompts, models, tools or other execution
+configuration affecting economics change. This is the application's declaration;
+Zeroth does not infer a configuration change from an unchanged version label.
+Outcome definitions are immutable per version. Changed comparison policy or
+selected cost/outcome assertions produce an explicitly retained report revision.
+
+Comparisons may name the same version twice, including two declared source
+windows. Identical versions and inputs describe the same observations; meeting
+the policy does not establish a new improvement. There is no automatic freshness
+cutoff. Review the execution window and population before using old observations
+for a new change. An unchanged request and selected evidence return the original
+retained decision and evaluation time; rerunning them does not make the data new.
+Source windows bound executions, while later outcome/cost assertions can produce
+a new report. Read the original decision ID to recover its original inputs.
+
 ### Declare what an accepted outcome means
 
 Before comparing stored workflow versions or scheduling a comparison, an Admin

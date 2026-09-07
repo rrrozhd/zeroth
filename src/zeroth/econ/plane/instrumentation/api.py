@@ -203,7 +203,10 @@ def get_debugger_timeline(
         require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
     ),
 ) -> list[TimelinePoint]:
-    return timeline(db, workflow_id=workflow_id, start=start, end=end)
+    try:
+        return timeline(db, workflow_id=workflow_id, start=start, end=end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/debugger/cohorts", response_model=list[CohortPoint])
@@ -241,7 +244,10 @@ def get_debugger_breakage(
         require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
     ),
 ) -> list[BreakagePoint]:
-    return breakage(db, workflow_id=workflow_id, start=start, end=end)
+    try:
+        return breakage(db, workflow_id=workflow_id, start=start, end=end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post(
@@ -289,13 +295,16 @@ def get_debugger_report(
         require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
     ),
 ) -> EconomicDiagnosticReport:
-    report = diagnostic_report(
-        db,
-        workflow_id=workflow_id,
-        start=start,
-        end=end,
-        cohort_dimension=cohort_dimension,
-    )
+    try:
+        report = diagnostic_report(
+            db,
+            workflow_id=workflow_id,
+            start=start,
+            end=end,
+            cohort_dimension=cohort_dimension,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if report is None:
         raise HTTPException(
             status_code=404,

@@ -238,6 +238,16 @@ Historical reports without `calculation_inputs` return null; they cannot acquire
 missing inputs retrospectively. The independent source ledger is still needed to
 trace assertions to provider charges and verify their meaning.
 
+The application must assign a new workflow version when prompts, models, tools
+or other execution configuration affecting economics change. An unchanged label
+does not prove an unchanged configuration. Comparisons permit the same version
+on both sides, including distinct declared execution windows; identical inputs
+describe the same observations, not a new improvement. No automatic freshness
+cutoff is applied. Review window age and population relevance before using old
+observations for a new change. Identical requests and selected evidence reuse the
+original retained decision and evaluation time. Policy or selected evidence changes
+produce another report revision; rerunning unchanged evidence does not refresh it.
+
 Comparisons can also receive caller-owned source inventories for both versions.
 Executions carry an immutable `source_window_id`; each inventory declares its
 inclusive capture interval, terminal runs, and expected event counts/ID digests.
@@ -274,8 +284,10 @@ Distinct charged attempts remain additive. Comparisons retain `charge_ownership`
 counts and declaration status. The debugger reports structural `summary_events`
 separately from measured, estimated and unmeasured monetary events; a summary-only
 run remains incomplete. Legacy amounts remain visible with ownership unverified.
-These identities are caller assertions, not independent invoice evidence. Charge
-corrections and business-outcome maturity still need their own versioned contract.
+These identities are caller assertions, not independent invoice evidence. Use the
+existing append-only charge-cost revisions and explicit outcome maturity contracts
+described in the standalone SDK guide; they preserve assertions and interpretation,
+not independently verified business truth.
 
 Paid project keys and WorkOS browser sessions cannot authenticate the legacy
 `/v1/evaluations/*` routes. Those retain the legacy JWT boundary for self-hosted
@@ -321,7 +333,8 @@ for every workflow version in the selected window. Undefined versions remain
 unresolved and are named in the diagnostic; Zeroth does not infer success from
 positive numbers, booleans, strings, fraud flags, or other business values.
 
-Queries deliberately scan at most 50,000 recent execution events per request.
+Debugger windows accept at most 50,000 execution events per request. Larger
+windows return HTTP 422, so their totals cannot silently describe a truncated population.
 This is a bounded single-team debugger, not an organization-scale warehouse.
 Paid rollups should be pre-aggregated rather than increasing that request-time
 limit indefinitely.
