@@ -523,7 +523,9 @@ def test_without_the_identity_index_the_precheck_is_all_there_is(unindexed_engin
     resolving the duplicates and re-running the migration closes that.
     """
     sequential = TestClient(_app(_plain_sessionmaker(unindexed_engine)))
-    assert sequential.post("/v1/instrumentation/outcomes", json=_event(1)).json() == {
+    receipt = sequential.post("/v1/instrumentation/outcomes", json=_event(1)).json()
+    assert datetime.fromisoformat(receipt.pop("ingested_at")).utcoffset().total_seconds() == 0
+    assert receipt == {
         "status": "inserted",
         "execution_id": "case-1",
     }

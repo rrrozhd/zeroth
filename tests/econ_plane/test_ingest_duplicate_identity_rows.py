@@ -282,7 +282,10 @@ def test_duplicate_outcome_rows_report_a_duplicate_not_a_500(unguarded_outcomes)
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"status": "duplicate", "execution_id": "case-dup"}
+    assert response.json() == {
+        "status": "duplicate", "execution_id": "case-dup",
+        "ingested_at": _NOW.isoformat().replace("+00:00", "Z"),
+    }
     # Reported, not stored again: a duplicate must not become a third row.
     assert _stored_outcomes(unguarded_outcomes) == ["case-dup", "case-dup"]
 
@@ -374,7 +377,9 @@ def test_duplicate_identical_execution_rows_report_a_duplicate_not_a_500(
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"status": "duplicate", "execution_id": "exec-dup"}
+    assert response.json() == {
+        "status": "duplicate", "execution_id": "exec-dup", "ingested_at": None,
+    }
     assert _stored_executions(unguarded_executions) == [
         ("exec-dup", "v1"),
         ("exec-dup", "v1"),
@@ -470,7 +475,9 @@ def test_an_outcome_linking_to_agreeing_duplicate_executions_is_ingested(
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"status": "inserted", "execution_id": "exec-linked"}
+    receipt = response.json()
+    assert datetime.fromisoformat(receipt.pop("ingested_at")).utcoffset().total_seconds() == 0
+    assert receipt == {"status": "inserted", "execution_id": "exec-linked"}
     assert _stored_outcomes(unguarded_executions) == ["exec-linked"]
 
 

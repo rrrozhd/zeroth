@@ -139,3 +139,11 @@ class OutcomeQueryResponse(BaseModel):
 class IngestResult(BaseModel):
     status: str
     execution_id: str
+    ingested_at: datetime | None = None
+
+    @field_validator("ingested_at")
+    @classmethod
+    def _stored_ingestion_time(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)

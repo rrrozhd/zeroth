@@ -2938,6 +2938,8 @@ export interface components {
         IngestResult: {
             /** Execution Id */
             execution_id: string;
+            /** Ingested At */
+            ingested_at?: string | null;
             /** Status */
             status: string;
         };

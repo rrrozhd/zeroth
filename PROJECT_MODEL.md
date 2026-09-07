@@ -219,6 +219,13 @@ checks/converges migrated parent columns, then creates the dependent revision ta
 The migration-only topology can omit the runtime execution table; revision creation
 waits for bootstrap there. This preserves existing offline FK installation rules.
 
+Execution acknowledgements expose server-owned `ingested_at`, separate from source
+event time. Migration `20260907_24` adds a nullable execution arrival column;
+new ingestion sets UTC and duplicates preserve the first stored value. Historical
+arrivals remain null. The shared ingestion service owns this field, while replay
+identity and economic windows still use source assertions. Apply the economic
+migration before running the new reader; compatible rollback retains the column.
+
 Migration `20260906_23` extends exact SQLite storage to original execution amounts,
 reusing the private ORM cost type. All original protocol mirrors enforce the existing
 18,8 monetary range; owned charges require decimal strings/Decimal or integers.

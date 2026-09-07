@@ -177,7 +177,7 @@ def record_execution(
         raise HTTPException(status_code=409, detail="execution identity conflict; retry") from exc
     if reserved and status != "inserted":
         release_usage(db, "events")
-    return IngestResult(status=status, execution_id=row.execution_id)
+    return IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)
 
 
 @router.post("/outcomes", response_model=IngestResult)
@@ -243,4 +243,4 @@ def record_outcome(
         raise HTTPException(status_code=409, detail="outcome identity conflict; retry") from exc
     if reserved and status != "inserted":
         release_usage(db, "events")
-    return IngestResult(status=status, execution_id=row.execution_id)
+    return IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)

@@ -250,6 +250,16 @@ still conflict. Do not treat old retry breakdowns as independently reconciled.
 
 `ZerothClient` sends each record synchronously. It adds no buffer, automatic retry
 or durable outbox. A successful response reports `inserted` or `duplicate`.
+Acknowledgements also include `ingested_at`: the server's UTC time when it first
+staged the accepted record. It is separate from caller-reported event time and
+is not part of replay identity. Exact retries return the first stored ingestion
+time, including concurrent duplicates. A historical execution without a recorded
+arrival returns `null`; upgrade and replay never backfill an invented time. This
+records accepted ingestion, not the arrival of rejected requests or a network
+packet timestamp. The execution migration adds a nullable column. Apply the
+economic migration before using the new reader; retain the column when rolling
+back, since downgrade refuses to discard recorded arrival evidence.
+
 HTTP and connection errors propagate to the caller; inspect an HTTP error's
 `response` for the server's status and explanation. A connection error or lost
 response does not prove that the server rejected the write.

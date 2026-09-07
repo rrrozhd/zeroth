@@ -85,6 +85,7 @@ class ExecutionEvent(Base):
     execution_id: Mapped[str] = mapped_column(String(128), index=True)
     join_key: Mapped[str] = mapped_column(String(128), index=True, default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
+    ingested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
     implementation_id: Mapped[str] = mapped_column(String(128), index=True)
     model_version: Mapped[str] = mapped_column(String(128))

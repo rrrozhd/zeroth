@@ -119,7 +119,7 @@ def post_execution(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=_EXECUTION_IDENTITY_CONFLICT) from exc
-    return IngestResult(status=status, execution_id=row.execution_id)
+    return IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)
 
 
 @router.post("/instrumentation/outcomes", response_model=IngestResult)
@@ -139,7 +139,7 @@ def post_outcome(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=_IDENTITY_CONFLICT) from exc
-    return IngestResult(status=status, execution_id=row.execution_id)
+    return IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)
 
 
 @router.post("/outcomes/ingest", response_model=list[IngestResult])
@@ -165,7 +165,8 @@ def ingest_outcome_batch(
         db.rollback()
         raise HTTPException(status_code=409, detail=_IDENTITY_CONFLICT) from exc
     return [
-        IngestResult(status=status, execution_id=row.execution_id) for status, row in results
+        IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)
+        for status, row in results
     ]
 
 

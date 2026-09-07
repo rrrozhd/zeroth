@@ -521,6 +521,7 @@ def ingest_execution(
         execution_id=payload.execution_id,
         join_key=join_key,
         timestamp=payload.timestamp,
+        ingested_at=datetime.now(UTC),
         capability_id=payload.capability_id,
         implementation_id=payload.implementation_id,
         model_version=payload.model_version,

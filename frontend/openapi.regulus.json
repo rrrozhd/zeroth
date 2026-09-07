@@ -3936,6 +3936,18 @@
             "title": "Execution Id",
             "type": "string"
           },
+          "ingested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingested At"
+          },
           "status": {
             "title": "Status",
             "type": "string"
