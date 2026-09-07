@@ -13,6 +13,11 @@ def _utc(value: datetime, *, field: str) -> datetime:
     return value.astimezone(UTC)
 
 
+def _stored_utc(value: datetime) -> datetime:
+    """Restore UTC on normalized database timestamps loaded without an offset."""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 class GroundTruthCostIn(BaseModel):
     period_start: datetime
     period_end: datetime
@@ -111,6 +116,10 @@ class ProviderBillOut(BaseModel):
     statement_digest: str
     imported_at: datetime
 
+    _normalize_stored_times = field_validator("period_start", "period_end", "imported_at")(
+        _stored_utc
+    )
+
 
 class UnmatchedProviderBucket(BaseModel):
     bucket_id: str
@@ -152,3 +161,5 @@ class ProviderBillReport(BaseModel):
     allocations: list[ProviderBillAllocation]
     allocation_method: Literal["measured_cost_proportional"]
     limitations: list[str]
+
+    _normalize_stored_times = field_validator("period_start", "period_end")(_stored_utc)
