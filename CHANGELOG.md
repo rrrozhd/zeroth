@@ -17,6 +17,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   client for self-hosted Zeroth services. Clients must pass `base_url` explicitly
   until a supported Zeroth Cloud endpoint exists.
 
+## [0.25.8]
+
+### Fixed
+
+- **The model-migration readiness gate rejected a perfectly calibrated forecaster most of the
+  time.** `assess_forecast_readiness` compared the empirical interval coverage of each metric with
+  the nominal 0.9 as a point and took the worst of the four required metrics, so a forecaster whose
+  intervals covered exactly 90% of months was marked `calibrated` in only 8–19% of assessments
+  (exact binomial), independent of how much history it had, and the drift rule compared halves of
+  the residuals in fractions of the mean. The gate now runs an exact one-sided binomial coverage
+  test, a Student-t bias test and a Welch drift test per metric, shares family-wise budgets of 0.05
+  (`warning`) and 0.01 (`critical`) across all tests by Bonferroni, and keeps the legacy magnitude
+  thresholds as materiality floors. Measured over 3,000 synthetic replications: a perfect 90%
+  forecaster is `calibrated` 0.97–1.00 of the time at 6 and 12 periods, and the predictive
+  manifest's biased and overconfident controls are flagged 1.00 at 12 periods.
+  `MetricForecastReadiness` gains `coverage_p_value`, `bias_standard_errors`, `bias_p_value`,
+  `drift_standard_errors` and `drift_p_value`; `ForecastReadiness` gains `family_tests`,
+  `alpha_warning` and `alpha_critical`. `FORECAST_ALGORITHM_VERSION` moves to
+  `nested-paired-monthly-v3-hoeffding99-math1-predictive1`, invalidating stale qualification
+  registrations as intended.
+
 ## [0.25.7.3]
 
 ### Fixed

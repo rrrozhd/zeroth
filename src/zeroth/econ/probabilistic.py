@@ -10,13 +10,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from fractions import Fraction
 from itertools import combinations
-from math import ceil, fsum, isfinite, log, sqrt
+from math import ceil, comb, exp, fsum, isfinite, isinf, lgamma, log, sqrt
 from statistics import NormalDist, fmean, stdev
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
-FORECAST_ALGORITHM_VERSION = "nested-paired-monthly-v2-hoeffding99-math1-predictive1"
+FORECAST_ALGORITHM_VERSION = "nested-paired-monthly-v3-hoeffding99-math1-predictive1"
+# Family-wise false-alarm budgets of the readiness gate for a perfectly calibrated
+# forecaster; both are split by Bonferroni over every test in the assessment.
+_READINESS_ALPHA_WARNING = 0.05
+_READINESS_ALPHA_CRITICAL = 0.01
 MAX_SIMULATION_WORK = 50_000_000
 _BOUNDED_RATE_METRICS = frozenset({"success_rate", "critical_error_rate"})
 _CVAR_BATCH_COUNT = 20
@@ -172,6 +176,15 @@ class MetricForecastReadiness(BaseModel):
     relative_residual_shift: float | None = Field(default=None, ge=0)
     calibration_periods: int = Field(ge=0)
     assessed_at: datetime | None = None
+    # Exact one-sided binomial tail of the covered count against the nominal level.
+    coverage_p_value: float | None = Field(default=None, ge=0, le=1)
+    # Mean residual in units of its standard error, with the two-sided Student-t
+    # p-value; None when every residual is identical (no estimable scale).
+    bias_standard_errors: float | None = None
+    bias_p_value: float | None = Field(default=None, ge=0, le=1)
+    # Recent-minus-historical mean residual in Welch standard-error units.
+    drift_standard_errors: float | None = None
+    drift_p_value: float | None = Field(default=None, ge=0, le=1)
 
 
 class ForecastReadiness(BaseModel):
@@ -186,6 +199,10 @@ class ForecastReadiness(BaseModel):
     assessed_at: datetime | None = None
     metrics: list[MetricForecastReadiness] = Field(default_factory=list)
     missing_metrics: list[str] = Field(default_factory=list)
+    # Number of hypothesis tests sharing the family-wise alpha budgets below.
+    family_tests: int = Field(default=0, ge=0)
+    alpha_warning: float | None = Field(default=None, gt=0, lt=1)
+    alpha_critical: float | None = Field(default=None, gt=0, lt=1)
 
 
 class MigrationEvidence(BaseModel):
@@ -381,6 +398,122 @@ def empirical_var_cvar(losses: list[float], *, confidence: float) -> tuple[float
     return ordered[value_at_risk_index], float(tail_sum / tail_numerator)
 
 
+def _binomial_lower_tail_probability(successes: int, trials: int, probability: float) -> float:
+    """Exact P(X <= successes) for X ~ Binomial(trials, probability)."""
+    if trials <= 0 or not 0 <= successes <= trials:
+        raise ValueError("invalid binomial tail counts")
+    if not isfinite(probability) or not 0 <= probability <= 1:
+        raise ValueError("probability must be finite and between 0 and 1")
+    tail = fsum(
+        comb(trials, count) * probability**count * (1 - probability) ** (trials - count)
+        for count in range(successes + 1)
+    )
+    return min(1.0, tail)
+
+
+def _beta_continued_fraction(a: float, b: float, x: float) -> float:
+    """Lentz evaluation of the continued fraction behind the incomplete beta."""
+    tiny = 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    d = 1.0 / (tiny if abs(d) < tiny else d)
+    h = d
+    for m in range(1, 400):
+        m2 = 2 * m
+        numerator = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + numerator * d
+        d = 1.0 / (tiny if abs(d) < tiny else d)
+        c = 1.0 + numerator / c
+        c = tiny if abs(c) < tiny else c
+        h *= d * c
+        numerator = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + numerator * d
+        d = 1.0 / (tiny if abs(d) < tiny else d)
+        c = 1.0 + numerator / c
+        c = tiny if abs(c) < tiny else c
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            break
+    return h
+
+
+def _regularized_incomplete_beta(a: float, b: float, x: float) -> float:
+    """I_x(a, b) with the symmetry swap that keeps the continued fraction convergent."""
+    if a <= 0 or b <= 0 or not isfinite(x):
+        raise ValueError("invalid incomplete beta inputs")
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    front = exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * log(x) + b * log(1.0 - x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _beta_continued_fraction(a, b, x) / a
+    return 1.0 - front * _beta_continued_fraction(b, a, 1.0 - x) / b
+
+
+def _student_t_two_sided_p_value(statistic: float, degrees_of_freedom: float) -> float:
+    """Two-sided tail probability of Student's t without a SciPy dependency."""
+    if not degrees_of_freedom > 0:
+        raise ValueError("degrees_of_freedom must be positive")
+    if isinf(statistic):
+        return 0.0
+    x = degrees_of_freedom / (degrees_of_freedom + statistic * statistic)
+    return min(1.0, _regularized_incomplete_beta(degrees_of_freedom / 2.0, 0.5, x))
+
+
+def _one_sample_t_test(values: list[float]) -> tuple[float | None, float]:
+    """Return (statistic, p) for H0: mean == 0; a constant sample has no scale."""
+    if len(values) < 2:
+        raise ValueError("a one-sample t-test needs at least two values")
+    mean = fmean(values)
+    spread = stdev(values)
+    if spread == 0.0:
+        return None, (1.0 if mean == 0.0 else 0.0)
+    statistic = mean / (spread / sqrt(len(values)))
+    return statistic, _student_t_two_sided_p_value(statistic, len(values) - 1)
+
+
+def _welch_t_test(first: list[float], second: list[float]) -> tuple[float | None, float]:
+    """Return (statistic, p) for H0: mean(second) == mean(first) with unequal variances."""
+    if len(first) < 2 or len(second) < 2:
+        raise ValueError("a Welch t-test needs at least two values per group")
+    difference = fmean(second) - fmean(first)
+    first_variance = stdev(first) ** 2 / len(first)
+    second_variance = stdev(second) ** 2 / len(second)
+    pooled = first_variance + second_variance
+    if pooled == 0.0:
+        return None, (1.0 if difference == 0.0 else 0.0)
+    statistic = difference / sqrt(pooled)
+    degrees_of_freedom = pooled**2 / (
+        (first_variance**2 / (len(first) - 1) if first_variance else 0.0)
+        + (second_variance**2 / (len(second) - 1) if second_variance else 0.0)
+    )
+    return statistic, _student_t_two_sided_p_value(statistic, degrees_of_freedom)
+
+
+@dataclass(frozen=True)
+class _MetricReadinessEvidence:
+    """Test statistics for one metric, before family-wise thresholds are applied."""
+
+    metric: str
+    periods: int
+    coverage: float
+    coverage_p_value: float
+    relative_bias: float
+    bias_standard_errors: float | None
+    bias_p_value: float
+    relative_residual_shift: float | None
+    drift_standard_errors: float | None
+    drift_p_value: float | None
+    assessed_at: datetime
+
+    @property
+    def test_count(self) -> int:
+        return 2 + (self.drift_p_value is not None)
+
+
 def assess_forecast_readiness(
     observations: list[ForecastCalibrationObservation],
     *,
@@ -389,10 +522,31 @@ def assess_forecast_readiness(
     minimum_interval_coverage: float = 0.9,
     max_relative_bias: float = 0.1,
     max_relative_residual_shift: float = 0.2,
+    alpha_warning: float = _READINESS_ALPHA_WARNING,
+    alpha_critical: float = _READINESS_ALPHA_CRITICAL,
 ) -> ForecastReadiness:
-    """Assess time-ordered interval coverage, bias, and recent residual drift."""
+    """Assess interval coverage, bias, and recent residual drift with sampling tolerance.
+
+    Every metric with enough history contributes three tests: an exact one-sided
+    binomial test of the covered count against ``minimum_interval_coverage``, a
+    one-sample Student-t test of the mean residual, and a Welch t-test of the recent
+    half of the residuals against the historical half. The family-wise budgets
+    ``alpha_warning`` and ``alpha_critical`` are divided by Bonferroni across all
+    tests, so a perfectly calibrated forecaster is flagged in at most ``alpha_warning``
+    of assessments regardless of how many metrics or periods it has. The bias and
+    drift tests must also clear the legacy materiality floors ``max_relative_bias``
+    (warning; twice it for critical) and ``max_relative_residual_shift`` (critical;
+    half of it for warning), measured in units of the mean observed magnitude, or in
+    absolute probability points for bounded rates, so that long histories do not flag
+    immaterial but statistically certain offsets. Coverage carries no floor because a
+    rejection already means the band under-covers its nominal level.
+    """
     if minimum_periods < 2:
         raise ValueError("minimum_periods must be at least 2")
+    if not 0 < minimum_interval_coverage < 1:
+        raise ValueError("minimum_interval_coverage must be strictly between 0 and 1")
+    if not 0 < alpha_critical <= alpha_warning < 1:
+        raise ValueError("alphas must satisfy 0 < alpha_critical <= alpha_warning < 1")
     by_metric: dict[str, list[ForecastCalibrationObservation]] = {}
     seen: dict[tuple[str, str], ForecastCalibrationObservation] = {}
     for observation in observations:
@@ -405,19 +559,45 @@ def assess_forecast_readiness(
         by_metric.setdefault(observation.metric, []).append(observation)
     expected = required_metrics if required_metrics is not None else set(by_metric)
     missing_metrics = sorted(expected - by_metric.keys())
-    metric_readiness = [
-        _assess_metric_readiness(
-            metric,
-            rows,
-            minimum_periods=minimum_periods,
-            minimum_interval_coverage=minimum_interval_coverage,
-            max_relative_bias=max_relative_bias,
-            max_relative_residual_shift=max_relative_residual_shift,
+    if not by_metric:
+        return ForecastReadiness(
+            missing_metrics=missing_metrics,
+            alpha_warning=alpha_warning,
+            alpha_critical=alpha_critical,
         )
-        for metric, rows in sorted(by_metric.items())
-    ]
-    if not metric_readiness:
-        return ForecastReadiness(missing_metrics=missing_metrics)
+    metric_readiness: list[MetricForecastReadiness] = []
+    evidence: list[_MetricReadinessEvidence] = []
+    for metric, rows in sorted(by_metric.items()):
+        ordered = sorted(rows, key=lambda row: row.observed_at)
+        if len(ordered) < minimum_periods:
+            metric_readiness.append(
+                MetricForecastReadiness(
+                    metric=metric,
+                    calibration_state="unknown",
+                    drift_state="unknown",
+                    calibration_periods=len(ordered),
+                    assessed_at=ordered[-1].observed_at,
+                )
+            )
+            continue
+        evidence.append(
+            _metric_readiness_evidence(
+                metric, ordered, minimum_interval_coverage=minimum_interval_coverage
+            )
+        )
+    family_tests = sum(row.test_count for row in evidence)
+    for row in evidence:
+        metric_readiness.append(
+            _classify_metric_readiness(
+                row,
+                family_tests=family_tests,
+                alpha_warning=alpha_warning,
+                alpha_critical=alpha_critical,
+                max_relative_bias=max_relative_bias,
+                max_relative_residual_shift=max_relative_residual_shift,
+            )
+        )
+    metric_readiness.sort(key=lambda row: row.metric)
     calibration_rank = {"calibrated": 0, "warning": 1, "unknown": 2, "critical": 3}
     drift_rank = {"stable": 0, "warning": 1, "unknown": 2, "critical": 3}
     worst_calibration = max(
@@ -446,70 +626,114 @@ def assess_forecast_readiness(
         assessed_at=max(row.assessed_at for row in metric_readiness if row.assessed_at is not None),
         metrics=metric_readiness,
         missing_metrics=missing_metrics,
+        family_tests=family_tests,
+        alpha_warning=alpha_warning,
+        alpha_critical=alpha_critical,
     )
 
 
-def _assess_metric_readiness(
+def _metric_readiness_evidence(
     metric: str,
-    observations: list[ForecastCalibrationObservation],
+    ordered: list[ForecastCalibrationObservation],
     *,
-    minimum_periods: int,
     minimum_interval_coverage: float,
-    max_relative_bias: float,
-    max_relative_residual_shift: float,
-) -> MetricForecastReadiness:
-    ordered = sorted(observations, key=lambda row: row.observed_at)
-    if len(ordered) < minimum_periods:
-        return MetricForecastReadiness(
-            metric=metric,
-            calibration_state="unknown",
-            drift_state="unknown",
-            calibration_periods=len(ordered),
-            assessed_at=ordered[-1].observed_at,
-        )
-    coverage = fmean(row.predicted_low <= row.observed <= row.predicted_high for row in ordered)
+) -> _MetricReadinessEvidence:
+    """Compute coverage, bias and drift statistics for one time-ordered metric."""
+    covered = sum(row.predicted_low <= row.observed <= row.predicted_high for row in ordered)
+    coverage_p_value = _binomial_lower_tail_probability(
+        covered, len(ordered), minimum_interval_coverage
+    )
     residuals = [row.observed - row.predicted_mean for row in ordered]
     # These metrics are bounded probabilities, but calibration observations do
     # not carry trial denominators. A binomial standard error therefore cannot
     # be reconstructed. Use probability-point residuals instead of dividing by
     # the observed event rate, which is unstable as a rare-event rate tends to
     # zero. The legacy response field names remain unchanged for compatibility.
-    scale = 1.0 if metric in _BOUNDED_RATE_METRICS else max(
-        fmean(abs(row.observed) for row in ordered), 1e-9
+    scale = (
+        1.0
+        if metric in _BOUNDED_RATE_METRICS
+        else max(fmean(abs(row.observed) for row in ordered), 1e-9)
     )
-    relative_bias = fmean(residuals) / scale
+    bias_standard_errors, bias_p_value = _one_sample_t_test(residuals)
     split = len(ordered) // 2
-    historical_bias = fmean(residuals[:split]) / scale
-    recent_bias = fmean(residuals[split:]) / scale
-    residual_shift = abs(recent_bias - historical_bias)
-    if residual_shift > max_relative_residual_shift:
+    historical, recent = residuals[:split], residuals[split:]
+    if len(historical) >= 2 and len(recent) >= 2:
+        drift_standard_errors, drift_p_value = _welch_t_test(historical, recent)
+        residual_shift = abs(fmean(recent) - fmean(historical)) / scale
+    else:
+        drift_standard_errors, drift_p_value, residual_shift = None, None, None
+    return _MetricReadinessEvidence(
+        metric=metric,
+        periods=len(ordered),
+        coverage=covered / len(ordered),
+        coverage_p_value=coverage_p_value,
+        relative_bias=fmean(residuals) / scale,
+        bias_standard_errors=bias_standard_errors,
+        bias_p_value=bias_p_value,
+        relative_residual_shift=residual_shift,
+        drift_standard_errors=drift_standard_errors,
+        drift_p_value=drift_p_value,
+        assessed_at=ordered[-1].observed_at,
+    )
+
+
+def _classify_metric_readiness(
+    row: _MetricReadinessEvidence,
+    *,
+    family_tests: int,
+    alpha_warning: float,
+    alpha_critical: float,
+    max_relative_bias: float,
+    max_relative_residual_shift: float,
+) -> MetricForecastReadiness:
+    """Apply Bonferroni-shared alphas and materiality floors to one metric's tests."""
+    warning_threshold = alpha_warning / family_tests
+    critical_threshold = alpha_critical / family_tests
+    bias_magnitude = abs(row.relative_bias)
+    if row.drift_p_value is None:
+        drift_state = "unknown"
+    elif (
+        row.drift_p_value < critical_threshold
+        and row.relative_residual_shift > max_relative_residual_shift
+    ):
         drift_state = "critical"
-    elif residual_shift > max_relative_residual_shift / 2:
+    elif (
+        row.drift_p_value < warning_threshold
+        and row.relative_residual_shift > max_relative_residual_shift / 2
+    ):
         drift_state = "warning"
     else:
         drift_state = "stable"
-    severe_calibration_failure = (
-        coverage < minimum_interval_coverage * 0.8 or abs(relative_bias) > max_relative_bias * 2
-    )
-    if severe_calibration_failure or drift_state == "critical":
+    if (
+        row.coverage_p_value < critical_threshold
+        or (row.bias_p_value < critical_threshold and bias_magnitude > 2 * max_relative_bias)
+        or drift_state == "critical"
+    ):
         calibration_state = "critical"
     elif (
-        coverage < minimum_interval_coverage
-        or abs(relative_bias) > max_relative_bias
+        row.coverage_p_value < warning_threshold
+        or (row.bias_p_value < warning_threshold and bias_magnitude > max_relative_bias)
         or drift_state == "warning"
     ):
         calibration_state = "warning"
     else:
         calibration_state = "calibrated"
     return MetricForecastReadiness(
-        metric=metric,
+        metric=row.metric,
         calibration_state=calibration_state,
         drift_state=drift_state,
-        interval_coverage=round(coverage, 6),
-        relative_bias=round(relative_bias, 6),
-        relative_residual_shift=round(residual_shift, 6),
-        calibration_periods=len(ordered),
-        assessed_at=ordered[-1].observed_at,
+        interval_coverage=round(row.coverage, 6),
+        relative_bias=round(row.relative_bias, 6),
+        relative_residual_shift=(
+            None if row.relative_residual_shift is None else round(row.relative_residual_shift, 6)
+        ),
+        calibration_periods=row.periods,
+        assessed_at=row.assessed_at,
+        coverage_p_value=row.coverage_p_value,
+        bias_standard_errors=row.bias_standard_errors,
+        bias_p_value=row.bias_p_value,
+        drift_standard_errors=row.drift_standard_errors,
+        drift_p_value=row.drift_p_value,
     )
 
 

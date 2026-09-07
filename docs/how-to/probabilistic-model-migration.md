@@ -107,6 +107,20 @@ breach each declared quality, latency, or reliability limit in at most 5% of sim
 Cloud requires calibration history for cost, success rate, p95 latency, and critical-error rate;
 the weakest or missing metric controls overall readiness.
 
+Readiness is a statistical test, not a point comparison. For every metric with at least six
+periods Cloud runs three tests: an exact one-sided binomial test of the covered count against the
+nominal 90% level, a Student-t test of the mean residual, and a Welch t-test of the recent half of
+the residuals against the earlier half. The family-wise false-alarm budgets are 0.05 (`warning`)
+and 0.01 (`critical`), split across every test in the assessment, so a perfectly calibrated
+forecaster is marked `calibrated` in at least 95% of assessments however many metrics or periods
+it has (measured 0.97–1.00 over 3,000 synthetic replications at 6 and 12 periods), while a
+forecaster whose mean is off by 25% of the true value, or whose intervals are a tenth of the true
+width, is flagged in effectively every twelve-period history. Bias and drift additionally have to
+clear the legacy materiality floors (10% of the observed mean for bias, 20% for drift; absolute
+probability points for the rate metrics), so a long history cannot fail on an offset that is
+statistically certain but immaterial. Each metric's p-values and standardized statistics are
+returned in `forecast_readiness.metrics`.
+
 ## Submit and inspect the decision
 
 ```python
