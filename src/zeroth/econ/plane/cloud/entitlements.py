@@ -35,7 +35,7 @@ PLAN_CATALOG: dict[str, PlanLimits] = {
     ),
     "solo": PlanLimits(
         event_limit=100_000,
-        decision_scan_limit=31,
+        decision_scan_limit=155,
         backtest_limit=3,
         backtest_call_limit=300,
         schedule_limit=5,

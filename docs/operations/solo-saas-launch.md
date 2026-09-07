@@ -39,9 +39,11 @@ before Zeroth builds sales, Team collaboration, or enterprise procurement.
 
 ## Offer and activation
 
-- Trial: 14 days, one hosted backtest, 100 provider calls.
+- Trial: 14 days, one hosted backtest, 100 provider calls and one total decision scan.
 - Solo: $39/month, three backtests, 300 provider calls, retained history, and
-  five daily schedules.
+  155 decision scans per billing period. Manual comparisons and up to five
+  configured schedules share those scans; each schedule has a minimum 24-hour
+  interval. Manual use leaves fewer scans for schedules.
 - First value: one retained decision from at least five labeled cases.
 - Recurring value: a second backtest, scheduled decision, or post-change
   verification during the first paid period.

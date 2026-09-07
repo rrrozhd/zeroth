@@ -96,13 +96,21 @@ deliberately remains one replica.
 ## Approved launch offer
 
 Solo is the only purchasable plan at launch: **$39/month after a 14-day
-trial**. Its enforceable billing-period limits are 100,000 ingested events, 31
+trial**. Its enforceable billing-period limits are 100,000 ingested events, 155
 decision scans, three hosted backtests, 300 provider-call credits across those
-backtests, and five daily schedules. A backtest reserves its count and provider
+backtests, and up to five configured schedules, each with a minimum 24-hour interval.
+Manual and scheduled comparisons of stored evidence share the 155-scan allowance;
+manual use leaves fewer scans for schedules. Reading retained history does not
+consume scans. Usage resets with the subscription's billing period. The account
+page shows scans used against the applicable period allowance, including trial limits.
+
+A backtest reserves its count and provider
 calls atomically; if either allowance is exhausted, neither meter advances.
 Unused call credits are returned after execution.
 
-The trial permits one hosted backtest and 100 provider-call credits. Team and
+The trial permits one hosted backtest, 100 provider-call credits, one total
+decision scan and one configured schedule with a minimum 24-hour interval. The
+trial does not include a new scan each day. Team and
 Scale remain internal entitlement shapes for compatibility and future
 expansion, but checkout rejects them. Do not advertise or sell Team until
 member, governance, and collaboration limits are enforced rather than merely

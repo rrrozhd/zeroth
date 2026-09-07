@@ -127,6 +127,15 @@ the implementation; it does not duplicate or weaken those acceptance gates.
   projected customer workload savings are distinct.
 - Identity and money: WorkOS organization identity owns the tenant; verified
   Paddle webhooks own paid access. A redirect cannot grant entitlement.
+  `cloud/entitlements.py:PLAN_CATALOG` gives Solo 155 decision scans per subscription
+  period, shared by manual comparisons and up to five schedules (minimum 24 hours).
+  Trialing subscriptions use the trial's one total scan even when their plan is
+  Solo. Reservations use the existing tenant/period/meter counter; history reads
+  do not reserve scans. `cloud/web.py:account` displays the applicable allowance
+  without requiring an active subscription, keeping billing management accessible.
+  Diagnose quota refusals from that counter and scheduled failures from `last_error`.
+  No migration is required; reverting the allowance lowers remaining capacity
+  immediately for accounts already above 31 scans. Launch capacity remains unproven.
 - Operations: `src/zeroth/econ/plane/main.py` mounts the standalone service;
   `decisioning/scheduler.py` runs tenant-scoped due scans in one launch replica.
   Health returns 503 for noncurrent schema or missing/finished enabled scheduler.

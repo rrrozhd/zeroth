@@ -12,6 +12,7 @@ from sqlalchemy import select
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
 from zeroth.econ.plane.cloud.authkit import require_authkit_enabled
+from zeroth.econ.plane.cloud.entitlements import PLAN_CATALOG
 from zeroth.econ.plane.cloud.keys_schemas import ApiKeyCreate
 from zeroth.econ.plane.cloud.keys_service import issue_api_key, list_api_keys, revoke_api_key
 from zeroth.econ.plane.cloud.models import CloudSubscription, CloudUsageCounter
@@ -122,8 +123,12 @@ def landing(_enabled: None = Depends(require_authkit_enabled)) -> HTMLResponse: 
 correctness and estimated text-model costs, then retain the results for your next
 comparison.</p>
 <div class="grid">
-  <div class="panel"><h2>14-day trial</h2><p>One bounded backtest and 100 provider calls.</p></div>
-  <div class="panel"><h2>$39/month</h2><p>Three backtests, 300 provider calls, retained history and scheduled decisions.</p></div>
+  <div class="panel"><h2>14-day trial</h2>
+    <p>One bounded backtest, 100 provider calls and one decision scan for the trial.</p></div>
+  <div class="panel"><h2>$39/month</h2>
+    <p>Three backtests, 300 provider calls and retained history.</p>
+    <p>155 decision scans per billing period, shared by manual comparisons and up to
+    five schedules. Each schedule can run at most once every 24 hours.</p></div>
 </div>
 <div class="actions"><a class="button" href="/v1/cloud/auth/login">Start with AuthKit</a></div>""",
     )
@@ -142,6 +147,10 @@ def account(
     db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
 ) -> HTMLResponse:
     subscription = _subscription(db, user.tenant_id)
+    limits = PLAN_CATALOG.get(
+        "trial" if subscription.status == "trialing" else subscription.plan
+    )
+    scan_allowance = f" / {limits.decision_scan_limit}" if limits else ""
     keys = list_api_keys(db)
     usage = {
         row.meter: row.quantity
@@ -176,9 +185,12 @@ def account(
   <div class="panel"><h2>{escape(subscription.plan.title())}</h2>
     <p>Status: {escape(subscription.status)}</p>
     <p class="muted">Period ends {escape(subscription.period_end.isoformat())}</p></div>
-  <div class="panel"><h2>Usage</h2>
+  <div class="panel"><h2>Usage this period</h2>
     <p>Backtests: {usage.get('backtests', 0)} · provider calls: {usage.get('backtest_calls', 0)}</p>
-    <p>Events: {usage.get('events', 0)} · decisions: {usage.get('decision_scans', 0)}</p></div>
+    <p>Events: {usage.get('events', 0)}</p>
+    <p>Decision scans: {usage.get('decision_scans', 0)}{scan_allowance}</p>
+    <p class="muted">Manual and scheduled comparisons share this period's
+    decision-scan allowance.</p></div>
 </div>
 <h2 id="project-keys">Project keys</h2>
 <div class="table-scroll" role="region" aria-labelledby="project-keys" tabindex="0">
