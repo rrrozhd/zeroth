@@ -147,22 +147,22 @@ def test_readiness_requires_exact_fit_and_fixed_calibration_windows():
 def test_monitor_uses_exact_permutation_ties_alpha_and_strict_effect_boundary(
     abrupt_shift,
 ):
-    assert subject._exact_experimental_permutation_pvalue([0.0] * 24, [0.0] * 3) == 1.0
-    expected = 1 / comb(27, 3)
-    assert subject._exact_experimental_permutation_pvalue([0.0] * 24, [0.25] * 3) == expected
-    assert subject._experimental_drift_alpha(1) == pytest.approx(0.00125)
+    assert subject._exact_experimental_permutation_pvalue([0.0] * 24, [0.0] * 4) == 1.0
+    expected = 1 / comb(28, 4)
+    assert subject._exact_experimental_permutation_pvalue([0.0] * 24, [0.25] * 4) == expected
+    assert subject._experimental_drift_alpha(1) == pytest.approx(0.0005)
 
     boundary = subject._assess_experimental_demand_readiness(
         [
             *[bundle(index, demand_slope=0.0) for index in range(36)],
-            *[bundle(index, shift=0.20, demand_slope=0.0) for index in range(36, 39)],
+            *[bundle(index, shift=0.20, demand_slope=0.0) for index in range(36, 40)],
         ],
         qualification=qualification(),
     )
     detected = subject._assess_experimental_demand_readiness(
         [
             *[bundle(index, demand_slope=0.0) for index in range(36)],
-            *[bundle(index, shift=abrupt_shift, demand_slope=0.0) for index in range(36, 39)],
+            *[bundle(index, shift=abrupt_shift, demand_slope=0.0) for index in range(36, 40)],
         ],
         qualification=qualification(),
     )
@@ -179,8 +179,8 @@ def test_monitor_spends_alpha_by_disjoint_batch_without_refitting():
     assessed = subject._assess_experimental_demand_readiness(
         [
             *[bundle(index) for index in range(36)],
-            *[bundle(index) for index in range(36, 39)],
-            *[bundle(index, shift=0.25) for index in range(39, 42)],
+            *[bundle(index) for index in range(36, 40)],
+            *[bundle(index, shift=0.25) for index in range(40, 44)],
         ],
         qualification=qualification(),
     )
@@ -202,9 +202,9 @@ def test_monitor_spends_alpha_by_disjoint_batch_without_refitting():
 
 def test_permutation_does_not_turn_nearby_floats_into_ties():
     calibration = [0.0] * 24
-    monitoring = [1e-16] * 3
+    monitoring = [1e-16] * 4
     assert subject._exact_experimental_permutation_pvalue(calibration, monitoring) == float(
-        Fraction(1, comb(27, 3))
+        Fraction(1, comb(28, 4))
     )
 
 
@@ -212,7 +212,7 @@ def test_demand_sufficiency_and_extrapolation_fail_closed():
     zero_range = [bundle(index, observed_demand=100) for index in range(36)]
     extrapolated = [
         *[bundle(index) for index in range(36)],
-        *[bundle(index, observed_demand=150) for index in range(36, 39)],
+        *[bundle(index, observed_demand=150) for index in range(36, 40)],
     ]
 
     assert (
@@ -423,7 +423,7 @@ def test_drift_effect_just_above_point_two_is_strictly_eligible():
     assessed = subject._assess_experimental_demand_readiness(
         [
             *[bundle(index) for index in range(36)],
-            *[bundle(index, shift=shift) for index in range(36, 39)],
+            *[bundle(index, shift=shift) for index in range(36, 40)],
         ],
         qualification=qualification(),
     )

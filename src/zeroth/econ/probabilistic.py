@@ -26,6 +26,16 @@ _BOUNDED_RATE_METRICS = frozenset({"success_rate", "critical_error_rate"})
 _CVAR_BATCH_COUNT = 20
 _MINIMUM_EFFECTIVE_TAIL_SAMPLES = 100
 _MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES = 30
+# E8 private monitor: exact permutation test of one monitoring batch against the
+# 24 calibration periods. The smallest attainable p-value is 1/C(24+batch, batch),
+# so the batch size and the geometric alpha schedule are chosen together such
+# that every batch through the eleventh keeps a non-empty rejection region while
+# the per-metric total stays at 0.01/4 = 0.0025 (the series sums exactly to it).
+_EXPERIMENTAL_CALIBRATION_PERIODS = 24
+_EXPERIMENTAL_MONITORING_BATCH_SIZE = 4
+_EXPERIMENTAL_DRIFT_ALPHA_TOTAL = 0.01 / 4
+_EXPERIMENTAL_DRIFT_ALPHA_RATIO = 0.8
+_EXPERIMENTAL_CALIBRATION_ALPHA = 0.01 / 4
 # For 20 independent batches this exceeds the two-sided Student-t critical
 # needed for 99% familywise coverage across the policy maximum of 32 tests.
 _CVAR_STUDENTIZED_CRITICAL_VALUE = 5.0
@@ -738,29 +748,62 @@ def _classify_metric_readiness(
 
 
 def _experimental_drift_alpha(batch_index: int) -> float:
+    """Geometric alpha spending for the E8 monitor: 0.0005 * 0.8**(batch_index - 1).
+
+    The series sums exactly to the per-metric budget of 0.01/4 = 0.0025. The former
+    harmonic schedule 0.0025/(k(k+1)) fell below the exact permutation floor from
+    the third batch, leaving the monitor unable to reject regardless of the shift.
+    """
     if type(batch_index) is not int or batch_index < 1:
         raise ValueError("batch_index must be a positive integer")
-    return (0.01 / 4) / (batch_index * (batch_index + 1))
+    return (
+        _EXPERIMENTAL_DRIFT_ALPHA_TOTAL
+        * (1 - _EXPERIMENTAL_DRIFT_ALPHA_RATIO)
+        * _EXPERIMENTAL_DRIFT_ALPHA_RATIO ** (batch_index - 1)
+    )
+
+
+def _experimental_minimum_attainable_p_value() -> float:
+    """Smallest p-value the exact batch permutation test can produce."""
+    return 1 / comb(
+        _EXPERIMENTAL_CALIBRATION_PERIODS + _EXPERIMENTAL_MONITORING_BATCH_SIZE,
+        _EXPERIMENTAL_MONITORING_BATCH_SIZE,
+    )
+
+
+def _experimental_drift_batch_attainable(batch_index: int) -> bool:
+    """Whether the batch keeps a non-empty rejection region under its alpha."""
+    return _experimental_drift_alpha(batch_index) >= _experimental_minimum_attainable_p_value()
 
 
 def _exact_experimental_permutation_pvalue(
     calibration: list[float], monitoring: list[float]
 ) -> float:
     """Exact two-group permutation p-value; ties are at least as extreme."""
-    if len(calibration) != 24 or len(monitoring) != 3:
-        raise ValueError("exact drift test requires 24 calibration and 3 monitoring values")
+    calibration_size = _EXPERIMENTAL_CALIBRATION_PERIODS
+    batch_size = _EXPERIMENTAL_MONITORING_BATCH_SIZE
+    if len(calibration) != calibration_size or len(monitoring) != batch_size:
+        raise ValueError(
+            f"exact drift test requires {calibration_size} calibration and "
+            f"{batch_size} monitoring values"
+        )
     values = [*calibration, *monitoring]
     if not all(isfinite(value) for value in values):
         raise ValueError("permutation values must be finite")
     exact_values = [Fraction.from_float(value) for value in values]
     total_sum = sum(exact_values, start=Fraction())
-    observed_monitoring_sum = sum(exact_values[24:], start=Fraction())
-    observed = abs((total_sum - observed_monitoring_sum) / 24 - observed_monitoring_sum / 3)
+    observed_monitoring_sum = sum(exact_values[calibration_size:], start=Fraction())
+    observed = abs(
+        (total_sum - observed_monitoring_sum) / calibration_size
+        - observed_monitoring_sum / batch_size
+    )
     extreme = 0
     total = 0
-    for selected in combinations(range(27), 3):
+    for selected in combinations(range(calibration_size + batch_size), batch_size):
         monitoring_sum = sum((exact_values[index] for index in selected), start=Fraction())
-        statistic = abs((total_sum - monitoring_sum) / 24 - monitoring_sum / 3)
+        statistic = abs(
+            (total_sum - monitoring_sum) / calibration_size - monitoring_sum / batch_size
+        )
         extreme += statistic >= observed
         total += 1
     return extreme / total
@@ -880,7 +923,7 @@ def _assess_experimental_demand_readiness(
         for bundle in monitoring
     ):
         return _experimental_unknown("demand_extrapolation_unqualified")
-    if monitoring and len(monitoring) % 3:
+    if monitoring and len(monitoring) % _EXPERIMENTAL_MONITORING_BATCH_SIZE:
         return _experimental_unknown("monitoring_batch_incomplete")
 
     supports = dict(qualification.metric_supports)
@@ -945,9 +988,10 @@ def _assess_experimental_demand_readiness(
                 demand_fits=tuple(fits),
             )
 
-        for offset in range(0, len(monitoring), 3):
-            batch_index = offset // 3 + 1
-            recent = [adjusted(bundle) for bundle in monitoring[offset : offset + 3]]
+        batch_size = _EXPERIMENTAL_MONITORING_BATCH_SIZE
+        for offset in range(0, len(monitoring), batch_size):
+            batch_index = offset // batch_size + 1
+            recent = [adjusted(bundle) for bundle in monitoring[offset : offset + batch_size]]
             exact_calibration_mean = sum(
                 (Fraction.from_float(value) for value in values), start=Fraction()
             ) / len(values)

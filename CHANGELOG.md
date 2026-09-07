@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   client for self-hosted Zeroth services. Clients must pass `base_url` explicitly
   until a supported Zeroth Cloud endpoint exists.
 
+## [0.25.8.1]
+
+### Fixed
+
+- **The private E8 drift monitor could never fire after its second batch.** Its exact permutation
+  test compared three monitoring periods with 24 calibration periods, whose smallest attainable
+  p-value is `1/C(27,3) = 3.42e-4`, while the harmonic alpha schedule `0.0025/(k(k+1))` fell below
+  that floor from the third batch on. Monitoring batches are now four periods (`1/C(28,4) =
+  4.9e-5`) and alpha is spent geometrically, `0.0005 * 0.8**(k-1)`, which sums exactly to the
+  per-metric budget of 0.0025 and keeps every batch through the eleventh attainable. A three-period
+  tail is reported as `monitoring_batch_incomplete`.
+
 ## [0.25.8]
 
 ### Fixed
