@@ -188,8 +188,9 @@ A newer provisional or withdrawn assertion suppresses an earlier final result.
 An older assertion delivered late is retained but cannot replace the newer state.
 Future assertions are excluded from current reports. Corrections create new
 retained report revisions; existing reports keep their original values. Source
-clock correctness and business truth still require independent evidence. This
-protocol does not provide charge corrections or a complete historical snapshot API.
+clock correctness and business truth still require independent evidence. Correct
+charge amounts through [charge-cost revisions](#correct-the-cost-of-an-existing-charge),
+separately from outcome assertions. A complete historical snapshot API remains unavailable.
 
 ### Give each charge one owner
 
@@ -395,8 +396,11 @@ const digest = createHash("sha256").update(JSON.stringify(ordered), "utf8").dige
 
 Outcome delivery retries must preserve the original value, provenance, metadata
 and timestamps. Changed assertions return a conflict instead of `duplicate`;
-they do not replace the original row. Explicit correction revisions and outcome
-definition/maturity contracts remain acceptance work.
+they do not replace the original row. Use the documented
+[outcome revisions](#declare-when-an-outcome-is-final) and
+[charge-cost revisions](#correct-the-cost-of-an-existing-charge) for corrections.
+These contracts do not establish source completeness or independently verified
+business outcomes.
 
 Workflow and version names belong to the authenticated tenant. Two tenants can
 use the same names, and two workflows can both use `v1`. Reports join outcomes by
