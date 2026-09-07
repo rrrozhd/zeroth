@@ -161,3 +161,51 @@ def test_tail_helpers_match_known_values():
     assert statistic is None and p_value == 0.0
     statistic, p_value = subject._welch_t_test([0.0, 0.0], [0.0, 0.0])
     assert statistic is None and p_value == 1.0
+
+
+def _sdk_models():
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "packaging/sdk/src/zeroth/protocol/models.py"
+    spec = importlib.util.spec_from_file_location("readiness_gate_sdk_models", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_readiness_dump_keeps_the_request_wire_schema_of_the_sdk_mirror():
+    from tests.econ._forecast_fixtures import evidence
+
+    rng = random.Random(21)
+    readiness = subject.assess_forecast_readiness(
+        _history(rng, periods=12, relative_sd=0.05), required_metrics=set(METRICS)
+    )
+    payload = evidence(count=30, periods=1).model_copy(update={"readiness": readiness}).model_dump()
+
+    assert set(payload["readiness"]) == set(subject.ForecastReadiness().model_dump())
+    assert "coverage_p_value" not in payload["readiness"]["metrics"][0]
+    world = _sdk_models().MigrationEvidence.model_validate(payload)
+    assert world.readiness.calibration_state == readiness.calibration_state
+    assert subject.MigrationEvidence.model_validate(payload).readiness.family_tests == 0
+
+
+def test_readiness_statistics_travel_in_the_decision_lineage():
+    from tests.econ._forecast_fixtures import diagnose, evidence, policy
+
+    rng = random.Random(9)
+    readiness = subject.assess_forecast_readiness(
+        _history(rng, periods=12, relative_sd=0.03, mean_shift=0.30), required_metrics=set(METRICS)
+    )
+    world = evidence(count=600).model_copy(update={"readiness": readiness})
+    report = diagnose(world, policy(), simulations=100)
+    tests = report.evidence_lineage["forecast_readiness_tests"]
+
+    assert report.reason_codes == ["forecast_not_calibrated"]
+    assert tests["family_tests"] == 12
+    assert tests["alpha_warning"] == 0.05 and tests["alpha_critical"] == 0.01
+    assert tests["metrics"]["monthly_cost_usd"]["calibration_state"] == "critical"
+    assert tests["metrics"]["monthly_cost_usd"]["coverage_p_value"] < 0.01 / 12
+    assert set(tests["metrics"]) == set(METRICS)

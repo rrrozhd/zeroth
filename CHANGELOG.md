@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   client for self-hosted Zeroth services. Clients must pass `base_url` explicitly
   until a supported Zeroth Cloud endpoint exists.
 
+## [0.25.8.1.1]
+
+### Fixed
+
+- **The readiness statistics added in 0.25.8 leaked into the request wire schema.** `ForecastReadiness`
+  is embedded in `MigrationEvidence`, whose SDK mirror forbids extra fields, so an evidence dump no
+  longer round-tripped through the SDK. The new fields are now excluded from serialization and the
+  same statistics are exposed on decisions under `evidence_lineage["forecast_readiness_tests"]`,
+  including on readiness abstentions; the request schema is byte-for-byte what the SDK mirrors.
+
 ## [0.25.8.1]
 
 ### Fixed

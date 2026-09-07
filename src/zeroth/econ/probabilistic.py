@@ -186,15 +186,18 @@ class MetricForecastReadiness(BaseModel):
     relative_residual_shift: float | None = Field(default=None, ge=0)
     calibration_periods: int = Field(ge=0)
     assessed_at: datetime | None = None
+    # Test statistics behind the states. They are excluded from serialization so the
+    # request wire schema stays identical to the SDK mirror (which forbids extras);
+    # decisions expose them under ``evidence_lineage["forecast_readiness_tests"]``.
     # Exact one-sided binomial tail of the covered count against the nominal level.
-    coverage_p_value: float | None = Field(default=None, ge=0, le=1)
+    coverage_p_value: float | None = Field(default=None, ge=0, le=1, exclude=True)
     # Mean residual in units of its standard error, with the two-sided Student-t
     # p-value; None when every residual is identical (no estimable scale).
-    bias_standard_errors: float | None = None
-    bias_p_value: float | None = Field(default=None, ge=0, le=1)
+    bias_standard_errors: float | None = Field(default=None, exclude=True)
+    bias_p_value: float | None = Field(default=None, ge=0, le=1, exclude=True)
     # Recent-minus-historical mean residual in Welch standard-error units.
-    drift_standard_errors: float | None = None
-    drift_p_value: float | None = Field(default=None, ge=0, le=1)
+    drift_standard_errors: float | None = Field(default=None, exclude=True)
+    drift_p_value: float | None = Field(default=None, ge=0, le=1, exclude=True)
 
 
 class ForecastReadiness(BaseModel):
@@ -209,10 +212,11 @@ class ForecastReadiness(BaseModel):
     assessed_at: datetime | None = None
     metrics: list[MetricForecastReadiness] = Field(default_factory=list)
     missing_metrics: list[str] = Field(default_factory=list)
-    # Number of hypothesis tests sharing the family-wise alpha budgets below.
-    family_tests: int = Field(default=0, ge=0)
-    alpha_warning: float | None = Field(default=None, gt=0, lt=1)
-    alpha_critical: float | None = Field(default=None, gt=0, lt=1)
+    # Number of hypothesis tests sharing the family-wise alpha budgets below. Excluded
+    # from serialization for the same wire-compatibility reason as the metric statistics.
+    family_tests: int = Field(default=0, ge=0, exclude=True)
+    alpha_warning: float | None = Field(default=None, gt=0, lt=1, exclude=True)
+    alpha_critical: float | None = Field(default=None, gt=0, lt=1, exclude=True)
 
 
 class MigrationEvidence(BaseModel):
@@ -1374,6 +1378,27 @@ def _experimental_action_ids(policy: MigrationRiskPolicy) -> tuple[str, ...]:
     return tuple(f"global-{share:g}" for share in policy.candidate_shares)
 
 
+def _readiness_test_lineage(readiness: ForecastReadiness) -> dict[str, object]:
+    """Wire-safe copy of the readiness test statistics that the request schema excludes."""
+    return {
+        "family_tests": readiness.family_tests,
+        "alpha_warning": readiness.alpha_warning,
+        "alpha_critical": readiness.alpha_critical,
+        "metrics": {
+            row.metric: {
+                "calibration_state": row.calibration_state,
+                "drift_state": row.drift_state,
+                "coverage_p_value": row.coverage_p_value,
+                "bias_standard_errors": row.bias_standard_errors,
+                "bias_p_value": row.bias_p_value,
+                "drift_standard_errors": row.drift_standard_errors,
+                "drift_p_value": row.drift_p_value,
+            }
+            for row in readiness.metrics
+        },
+    }
+
+
 def _experimental_qualification_reason(
     qualification: _ExperimentalRiskQualification | None,
     evidence: MigrationEvidence,
@@ -1474,6 +1499,7 @@ def _diagnose_model_migration(
             additional_cases_required=0,
         )
     readiness = evidence.readiness
+    readiness_tests = _readiness_test_lineage(readiness)
     if readiness.drift_state == "critical":
         return _abstention(
             evidence,
@@ -1482,6 +1508,8 @@ def _diagnose_model_migration(
             seed=seed,
             reason="calibration_drift_critical",
             additional_cases_required=0,
+        ).model_copy(
+            update={"evidence_lineage": {"forecast_readiness_tests": readiness_tests}}
         )
     if readiness.drift_state == "warning" and not policy.allow_drift_warning:
         return _abstention(
@@ -1491,6 +1519,8 @@ def _diagnose_model_migration(
             seed=seed,
             reason="calibration_drift_warning",
             additional_cases_required=0,
+        ).model_copy(
+            update={"evidence_lineage": {"forecast_readiness_tests": readiness_tests}}
         )
     if policy.require_calibrated_forecast and readiness.calibration_state != "calibrated":
         return _abstention(
@@ -1500,6 +1530,8 @@ def _diagnose_model_migration(
             seed=seed,
             reason="forecast_not_calibrated",
             additional_cases_required=0,
+        ).model_copy(
+            update={"evidence_lineage": {"forecast_readiness_tests": readiness_tests}}
         )
     incumbent, candidate = _paired_observations(evidence)
     paired_cases = len(incumbent)
@@ -1850,6 +1882,7 @@ def _diagnose_model_migration(
         qualifications[action.action_id] = action_qualification
     lineage = {
         "forecast_algorithm_version": FORECAST_ALGORITHM_VERSION,
+        "forecast_readiness_tests": readiness_tests,
         "planned_simulation_work": planned_work,
         "simulation_work_limit": MAX_SIMULATION_WORK,
         "numerical_qualification": {
