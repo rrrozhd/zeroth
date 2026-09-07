@@ -112,8 +112,9 @@ def landing(_enabled: None = Depends(require_authkit_enabled)) -> HTMLResponse: 
     return _page(
         "Economic debugger",
         """<h1>Economic debugger for production AI.</h1>
-<p>See which model or workflow change improves outcomes before it reaches production.
-Retain the decision, the measured cost, and the evidence behind it.</p>
+<p>Run an exploratory model comparison on your labeled cases. Review observed
+correctness and estimated text-model costs, then retain the results for your next
+comparison.</p>
 <div class="grid">
   <div class="panel"><h2>14-day trial</h2><p>One bounded backtest and 100 provider calls.</p></div>
   <div class="panel"><h2>$39/month</h2><p>Three backtests, 300 provider calls, retained history and scheduled decisions.</p></div>
