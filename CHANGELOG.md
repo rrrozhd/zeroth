@@ -17,6 +17,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   client for self-hosted Zeroth services. Clients must pass `base_url` explicitly
   until a supported Zeroth Cloud endpoint exists.
 
+## [0.25.8.2]
+
+### Fixed
+
+- **Certificate abstentions now say how much evidence would suffice, and whether any amount can.**
+  `additional_cases_required` was populated only for the `3/n` rule and the CVaR source tail, so a
+  customer abstained on the quality or critical-error envelope was never told that the default
+  limits need roughly 1,000 (quality 0.01) or 6,110 (critical 0.005, zero events) paired cases at
+  1,000 requests a month. Each certificate now reports `additional_cases_required` (found by search
+  over the monotone Wilson envelope with the observed rates held fixed), `reachable_by_additional_cases`,
+  and `additional_simulations_required`; the decision-level `additional_cases_required` is the fewest
+  cases after which some saving action could qualify, and `evidence_requirement_unreachable` is
+  appended when no finite case count can, because the observed rate or the future-month step at the
+  customer's demand already exceeds the limit. The how-to example is re-sized to a configuration
+  that actually recommends (600 cases, twelve demand months, 4,000 simulations within the work budget,
+  `max_quality_drop=0.05`); the previous example was unreachable on three counts.
+- **`success_rate_p05/p95` and `critical_error_rate_p05/p95` were finite-sample envelopes labelled
+  as percentiles.** They are the wider of the simulated percentile and the Wilson predictive
+  envelope (measured coverage 0.98–1.00 while the raw percentile covers 0.52–0.81 at 60–100 cases).
+  `MigrationActionForecast` gains `success_rate_lower_bound/_upper_bound` and
+  `critical_error_rate_lower_bound/_upper_bound` carrying the envelope explicitly; the percentile
+  fields are unchanged and documented as a conservative band.
+- **A short demand history was presented as a 90% band.** Demand uncertainty is the empirical law
+  of the observed period request counts, so against known laws (100 or more paired cases, 100
+  replications per cell) the nominal-90% cost band covered 0.61–0.77 of realized months with three
+  history months, 0.78–0.88 with six and 0.82–0.92 with twelve. `MigrationRiskPolicy` gains
+  `min_demand_periods` (default 12, the smallest measured history whose coverage meets a 0.85
+  floor on average across the non-degenerate worlds); a shorter history abstains with
+  `demand_history_insufficient`, keeps the action forecasts as diagnostics, and reports
+  `additional_demand_periods_required`. A hold is never turned into an abstention by the floor.
+
 ## [0.25.8.1.1]
 
 ### Fixed

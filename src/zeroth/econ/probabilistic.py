@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from fractions import Fraction
+from functools import partial
 from itertools import combinations
 from math import ceil, comb, exp, fsum, isfinite, isinf, lgamma, log, sqrt
 from statistics import NormalDist, fmean, stdev
@@ -21,11 +22,22 @@ FORECAST_ALGORITHM_VERSION = "nested-paired-monthly-v3-hoeffding99-math1-predict
 # forecaster; both are split by Bonferroni over every test in the assessment.
 _READINESS_ALPHA_WARNING = 0.05
 _READINESS_ALPHA_CRITICAL = 0.01
+# Demand uncertainty is the empirical law of the history months, so the cost band
+# cannot reach beyond the observed demand range. Measured 2026-09-06 against known
+# laws with 100 replications per cell (docs/how-to/probabilistic-model-migration.md):
+# for 100 or more paired cases the nominal-90% cost band covered 0.61-0.77 of
+# realized months with 3 history months (mean 0.69), 0.78-0.88 with 6 (mean 0.83)
+# and 0.82-0.92 with 12 (mean 0.87) in the four non-degenerate worlds, so twelve
+# is the smallest measured history that meets a 0.85 floor on average.
+DEFAULT_MIN_DEMAND_PERIODS = 12
 MAX_SIMULATION_WORK = 50_000_000
 _BOUNDED_RATE_METRICS = frozenset({"success_rate", "critical_error_rate"})
 _CVAR_BATCH_COUNT = 20
 _MINIMUM_EFFECTIVE_TAIL_SAMPLES = 100
 _MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES = 30
+# Evidence requirements are searched up to this many paired cases; beyond it the
+# certificate is reported as not reachable rather than as an astronomical count.
+_EVIDENCE_REQUIREMENT_SEARCH_CAP = 10_000_000
 # E8 private monitor: exact permutation test of one monitoring batch against the
 # 24 calibration periods. The smallest attainable p-value is 1/C(24+batch, batch),
 # so the batch size and the geometric alpha schedule are chosen together such
@@ -274,6 +286,7 @@ class MigrationRiskPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     min_paired_cases: int = Field(default=30, ge=1)
+    min_demand_periods: int = Field(default=DEFAULT_MIN_DEMAND_PERIODS, ge=1)
     candidate_shares: list[float] = Field(
         default_factory=lambda: [0.1, 0.25, 0.5, 1.0], max_length=8
     )
@@ -326,6 +339,14 @@ class MigrationActionForecast(BaseModel):
     expected_critical_error_rate: float | None = Field(default=None, ge=0, le=1)
     critical_error_rate_p05: float | None = Field(default=None, ge=0, le=1)
     critical_error_rate_p95: float | None = Field(default=None, ge=0, le=1)
+    # The simultaneous finite-sample Wilson predictive envelope (nominal 90%) that
+    # the quality and critical-error certificates are judged against. The rate
+    # ``*_p05``/``*_p95`` fields above are the wider of the simulated percentile and
+    # this envelope, so they are a conservative band rather than percentiles.
+    success_rate_lower_bound: float | None = Field(default=None, ge=0, le=1)
+    success_rate_upper_bound: float | None = Field(default=None, ge=0, le=1)
+    critical_error_rate_lower_bound: float | None = Field(default=None, ge=0, le=1)
+    critical_error_rate_upper_bound: float | None = Field(default=None, ge=0, le=1)
     probability_quality_breach: float
     probability_latency_breach: float
     probability_critical_error_breach: float
@@ -353,6 +374,7 @@ class ProbabilisticMigrationDecision(BaseModel):
     recommended_routing: dict[str, float] = Field(default_factory=dict)
     reason_codes: list[str]
     additional_cases_required: int = 0
+    additional_demand_periods_required: int = Field(default=0, ge=0)
     simulations: int
     seed: int
     actions: list[MigrationActionForecast]
@@ -1080,6 +1102,7 @@ def _abstention(
     seed: int,
     reason: str,
     additional_cases_required: int,
+    additional_demand_periods_required: int = 0,
 ) -> ProbabilisticMigrationDecision:
     return ProbabilisticMigrationDecision(
         workload=evidence.workload,
@@ -1090,6 +1113,7 @@ def _abstention(
         recommended_candidate_share=0.0,
         reason_codes=[reason],
         additional_cases_required=additional_cases_required,
+        additional_demand_periods_required=additional_demand_periods_required,
         simulations=simulations,
         seed=seed,
         actions=[],
@@ -1155,9 +1179,13 @@ def _upper_bound_status(lower: float, upper: float, *, limit: float) -> str:
 
 
 def _wilson_score_interval(
-    successes: float, *, trials: int, confidence: float
+    successes: float, *, trials: float, confidence: float
 ) -> tuple[float, float]:
-    """Finite-sample Wilson score interval, including boundary counts."""
+    """Finite-sample Wilson score interval, including boundary counts.
+
+    ``trials`` may be fractional when an observed count profile is rescaled to ask how
+    much more evidence a certificate needs; the algebra is unchanged.
+    """
     if (
         trials <= 0
         or not isfinite(successes)
@@ -1182,17 +1210,15 @@ def _wilson_score_interval(
     return max(0.0, center - half_width), min(1.0, center + half_width)
 
 
-def _routed_rate_predictive_interval(
+def _routed_rate_components(
     incumbent: list[MigrationObservation],
     candidate: list[MigrationObservation],
     *,
     share: float,
     cohort_shares: dict[str, float],
     attribute: Literal["accepted", "critical_error"],
-    future_trials: int,
-    confidence: float = 0.90,
-) -> tuple[float, float]:
-    """Compose literal arm/cohort counts into a routed predictive envelope."""
+) -> list[tuple[float, float, float]]:
+    """Literal (weight, successes, trials) arm/cohort components of a routed rate."""
     cohorts = sorted({row.cohort for row in incumbent})
     components = []
     total = len(incumbent)
@@ -1217,6 +1243,16 @@ def _routed_rate_predictive_interval(
                     len(candidate_rows),
                 )
             )
+    return components
+
+
+def _predictive_envelope(
+    components: list[tuple[float, float, float]],
+    *,
+    future_trials: int,
+    confidence: float,
+) -> tuple[float, float]:
+    """Bonferroni-chain Wilson source bounds into one future-month predictive envelope."""
     alpha = (1 - confidence) / (len(components) + 1)
     source_low = 0.0
     source_high = 0.0
@@ -1237,6 +1273,149 @@ def _routed_rate_predictive_interval(
         confidence=1 - alpha,
     )
     return future_low, future_high
+
+
+def _predictive_envelope_at_infinite_evidence(
+    components: list[tuple[float, float, float]],
+    *,
+    future_trials: int,
+    confidence: float,
+) -> tuple[float, float]:
+    """The envelope's limit as source evidence grows without bound at fixed proportions.
+
+    Only the future-month step remains, so this is the best any number of additional
+    paired cases can achieve for the observed rates and the smallest historical demand.
+    """
+    alpha = (1 - confidence) / (len(components) + 1)
+    proportion = fsum(weight * successes / trials for weight, successes, trials in components)
+    future_low, _ = _wilson_score_interval(
+        proportion * future_trials, trials=future_trials, confidence=1 - alpha
+    )
+    _, future_high = _wilson_score_interval(
+        proportion * future_trials, trials=future_trials, confidence=1 - alpha
+    )
+    return future_low, future_high
+
+
+def _scaled_components(
+    components: list[tuple[float, float, float]], factor: float
+) -> list[tuple[float, float, float]]:
+    """Rescale every count while holding weights and observed proportions fixed."""
+    return [
+        (weight, successes * factor, trials * factor) for weight, successes, trials in components
+    ]
+
+
+def _routed_rate_predictive_interval(
+    incumbent: list[MigrationObservation],
+    candidate: list[MigrationObservation],
+    *,
+    share: float,
+    cohort_shares: dict[str, float],
+    attribute: Literal["accepted", "critical_error"],
+    future_trials: int,
+    confidence: float = 0.90,
+) -> tuple[float, float]:
+    """Compose literal arm/cohort counts into a routed predictive envelope."""
+    return _predictive_envelope(
+        _routed_rate_components(
+            incumbent, candidate, share=share, cohort_shares=cohort_shares, attribute=attribute
+        ),
+        future_trials=future_trials,
+        confidence=confidence,
+    )
+
+
+def _quality_drop_bound_at_scale(
+    factor: float,
+    *,
+    baseline_components: list[tuple[float, float, float]],
+    action_components: list[tuple[float, float, float]],
+    future_trials: int,
+) -> float:
+    """Predictive quality-drop upper bound after rescaling every observed count."""
+    _, baseline_high = _predictive_envelope(
+        _scaled_components(baseline_components, factor),
+        future_trials=future_trials,
+        confidence=0.90,
+    )
+    success_low, _ = _predictive_envelope(
+        _scaled_components(action_components, factor),
+        future_trials=future_trials,
+        confidence=0.90,
+    )
+    return max(0.0, baseline_high - success_low)
+
+
+def _critical_rate_bound_at_scale(
+    factor: float,
+    *,
+    components: list[tuple[float, float, float]],
+    future_trials: int,
+) -> float:
+    """Predictive critical-error upper bound after rescaling every observed count."""
+    _, critical_upper = _predictive_envelope(
+        _scaled_components(components, factor), future_trials=future_trials, confidence=0.90
+    )
+    return critical_upper
+
+
+def _paired_cases_required(
+    bound_at_scale: Callable[[float], float],
+    *,
+    paired_cases: int,
+    limit: float,
+    bound_at_infinite_scale: float,
+) -> int | None:
+    """Smallest paired-case count whose bound meets the limit; None when unreachable.
+
+    ``bound_at_scale(f)`` is the certificate bound after multiplying every observed
+    count by ``f`` with proportions held fixed. Wilson bounds tighten monotonically in
+    the trial count, so an exponential then binary search over integer case counts
+    finds the boundary. Counts above ``_EVIDENCE_REQUIREMENT_SEARCH_CAP`` are reported
+    as unreachable rather than as an astronomical number.
+    """
+    if paired_cases <= 0:
+        raise ValueError("paired_cases must be positive")
+    if bound_at_scale(1.0) <= limit:
+        return paired_cases
+    if bound_at_infinite_scale > limit:
+        return None
+    low = paired_cases
+    high = paired_cases
+    while bound_at_scale(high / paired_cases) > limit:
+        high *= 2
+        if high > _EVIDENCE_REQUIREMENT_SEARCH_CAP:
+            return None
+    while high - low > 1:
+        middle = (low + high) // 2
+        if bound_at_scale(middle / paired_cases) <= limit:
+            high = middle
+        else:
+            low = middle
+    return high
+
+
+def _simulations_required_for_radius(
+    probability: float, *, limit: float, action_count: int, simulations: int
+) -> int | None:
+    """Simulations after which the Hoeffding radius separates the estimate from the limit.
+
+    Assumes the estimated breach probability persists; None when it equals the limit.
+    """
+    gap = abs(probability - limit)
+    if gap == 0:
+        return None
+    required = ceil(log(2 * 4 * action_count / 0.01) / (2 * gap * gap))
+    return max(0, required - simulations)
+
+
+def _simulations_required_for_cvar_tail(confidence: float, *, simulations: int) -> int:
+    """Additional simulations until the effective simulated tail reaches its minimum."""
+    tail_probability = Decimal(1) - Decimal(str(confidence))
+    tail_numerator, tail_denominator = tail_probability.as_integer_ratio()
+    required = (_MINIMUM_EFFECTIVE_TAIL_SAMPLES - 1) * tail_denominator // tail_numerator + 1
+    return max(0, required - simulations)
 
 
 def _breach_probability_interval(
@@ -1378,27 +1557,6 @@ def _experimental_action_ids(policy: MigrationRiskPolicy) -> tuple[str, ...]:
     return tuple(f"global-{share:g}" for share in policy.candidate_shares)
 
 
-def _readiness_test_lineage(readiness: ForecastReadiness) -> dict[str, object]:
-    """Wire-safe copy of the readiness test statistics that the request schema excludes."""
-    return {
-        "family_tests": readiness.family_tests,
-        "alpha_warning": readiness.alpha_warning,
-        "alpha_critical": readiness.alpha_critical,
-        "metrics": {
-            row.metric: {
-                "calibration_state": row.calibration_state,
-                "drift_state": row.drift_state,
-                "coverage_p_value": row.coverage_p_value,
-                "bias_standard_errors": row.bias_standard_errors,
-                "bias_p_value": row.bias_p_value,
-                "drift_standard_errors": row.drift_standard_errors,
-                "drift_p_value": row.drift_p_value,
-            }
-            for row in readiness.metrics
-        },
-    }
-
-
 def _experimental_qualification_reason(
     qualification: _ExperimentalRiskQualification | None,
     evidence: MigrationEvidence,
@@ -1453,6 +1611,39 @@ def _experimental_qualification_reason(
     return None
 
 
+def _readiness_test_lineage(readiness: ForecastReadiness) -> dict[str, object]:
+    """Wire-safe copy of the readiness test statistics that the request schema excludes."""
+    return {
+        "family_tests": readiness.family_tests,
+        "alpha_warning": readiness.alpha_warning,
+        "alpha_critical": readiness.alpha_critical,
+        "metrics": {
+            row.metric: {
+                "calibration_state": row.calibration_state,
+                "drift_state": row.drift_state,
+                "coverage_p_value": row.coverage_p_value,
+                "bias_standard_errors": row.bias_standard_errors,
+                "bias_p_value": row.bias_p_value,
+                "drift_standard_errors": row.drift_standard_errors,
+                "drift_p_value": row.drift_p_value,
+            }
+            for row in readiness.metrics
+        },
+    }
+
+
+def _action_case_requirement(qualification: dict[str, dict]) -> int | None:
+    """Additional paired cases for one action's evidence-bound certificates; None if unreachable."""
+    parts = []
+    for metric in ("quality", "critical_error"):
+        required = qualification[metric]["additional_cases_required"]
+        if required is None:
+            return None
+        parts.append(int(required))
+    parts.append(int(qualification["cvar"]["additional_source_observations_required"]))
+    return max(parts)
+
+
 def _diagnose_model_migration(
     evidence: MigrationEvidence,
     *,
@@ -1466,12 +1657,15 @@ def _diagnose_model_migration(
     """Internal mathematical diagnostic; not a public migration authorization."""
     if simulations < 100:
         raise ValueError("simulations must be at least 100")
+    demand_periods = len(evidence.period_request_counts)
+    demand_shortfall = max(0, policy.min_demand_periods - demand_periods)
     if evidence.demand_horizon != "month":
         return _abstention(
             evidence,
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason="demand_horizon_unknown",
             additional_cases_required=0,
         )
@@ -1483,6 +1677,7 @@ def _diagnose_model_migration(
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason="paired_outcomes_missing",
             additional_cases_required=len(incumbent_ids ^ candidate_ids),
         )
@@ -1495,6 +1690,7 @@ def _diagnose_model_migration(
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason="critical_error_measurement_missing",
             additional_cases_required=0,
         )
@@ -1506,6 +1702,7 @@ def _diagnose_model_migration(
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason="calibration_drift_critical",
             additional_cases_required=0,
         ).model_copy(
@@ -1517,6 +1714,7 @@ def _diagnose_model_migration(
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason="calibration_drift_warning",
             additional_cases_required=0,
         ).model_copy(
@@ -1528,6 +1726,7 @@ def _diagnose_model_migration(
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason="forecast_not_calibrated",
             additional_cases_required=0,
         ).model_copy(
@@ -1541,6 +1740,7 @@ def _diagnose_model_migration(
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason="paired_cases_below_minimum",
             additional_cases_required=policy.min_paired_cases - paired_cases,
         )
@@ -1616,6 +1816,7 @@ def _diagnose_model_migration(
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason="simulation_work_budget_exceeded",
             additional_cases_required=0,
         ).model_copy(
@@ -1639,6 +1840,7 @@ def _diagnose_model_migration(
             policy=policy,
             simulations=simulations,
             seed=seed,
+            additional_demand_periods_required=demand_shortfall,
             reason=qualification_reason,
             additional_cases_required=0,
         )
@@ -1799,6 +2001,10 @@ def _diagnose_model_migration(
                 critical_error_rate_p95=max(
                     _empirical_quantile(values["critical_rate"], 0.95), critical_rate_high
                 ),
+                success_rate_lower_bound=success_rate_low,
+                success_rate_upper_bound=success_rate_high,
+                critical_error_rate_lower_bound=critical_rate_low,
+                critical_error_rate_upper_bound=critical_rate_high,
                 probability_quality_breach=probability_quality_breach,
                 probability_latency_breach=probability_latency_breach,
                 probability_critical_error_breach=probability_critical_breach,
@@ -1826,6 +2032,10 @@ def _diagnose_model_migration(
         cohort_shares={},
         attribute="accepted",
         future_trials=min(evidence.period_request_counts),
+    )
+    future_trials = min(evidence.period_request_counts)
+    baseline_components = _routed_rate_components(
+        incumbent, candidate, share=0.0, cohort_shares={}, attribute="accepted"
     )
     qualifications = {}
     for action in actions:
@@ -1855,10 +2065,12 @@ def _diagnose_model_migration(
                 ),
             }
         )
-        if (
-            action_qualification["quality"]["status"] == "qualified"
-            and action_qualification["quality"]["predictive_quality_drop_upper"]
-            > policy.max_quality_drop
+        quality_envelope_qualified = (
+            action_qualification["quality"]["predictive_quality_drop_upper"]
+            <= policy.max_quality_drop
+        )
+        if action_qualification["quality"]["status"] == "qualified" and not (
+            quality_envelope_qualified
         ):
             action_qualification["quality"]["status"] = "indeterminate"
         action_qualification["critical_error"].update(
@@ -1867,9 +2079,9 @@ def _diagnose_model_migration(
                 "predictive_rate_upper": critical_high,
             }
         )
-        if (
-            action_qualification["critical_error"]["status"] == "qualified"
-            and critical_high > policy.max_critical_error_rate
+        critical_envelope_qualified = critical_high <= policy.max_critical_error_rate
+        if action_qualification["critical_error"]["status"] == "qualified" and not (
+            critical_envelope_qualified
         ):
             action_qualification["critical_error"]["status"] = "indeterminate"
         action_qualification["cvar"] = _cvar_monte_carlo_interval(
@@ -1878,6 +2090,94 @@ def _diagnose_model_migration(
             action_count=len(actions),
             limit=float(policy.max_cvar_loss_usd),
             source_observations=paired_cases,
+        )
+        # Evidence requirements: how much more of what would let each certificate
+        # qualify, assuming the observed rates, cohort mix and demand persist.
+        for metric, probability in (
+            ("quality", action.probability_quality_breach),
+            ("latency", action.probability_latency_breach),
+            ("critical_error", action.probability_critical_error_breach),
+        ):
+            certificate = action_qualification[metric]
+            certificate["monte_carlo_status"] = _upper_bound_status(
+                certificate["lower"],
+                certificate["upper"],
+                limit=policy.max_constraint_breach_probability,
+            )
+            certificate["additional_simulations_required"] = (
+                _simulations_required_for_radius(
+                    probability,
+                    limit=policy.max_constraint_breach_probability,
+                    action_count=len(actions),
+                    simulations=simulations,
+                )
+                if certificate["monte_carlo_status"] == "indeterminate"
+                else 0
+            )
+        action_components = {
+            attribute: _routed_rate_components(
+                incumbent,
+                candidate,
+                share=action.candidate_share,
+                cohort_shares=action.cohort_candidate_shares,
+                attribute=attribute,
+            )
+            for attribute in ("accepted", "critical_error")
+        }
+        quality_drop_bound = partial(
+            _quality_drop_bound_at_scale,
+            baseline_components=baseline_components,
+            action_components=action_components["accepted"],
+            future_trials=future_trials,
+        )
+        critical_rate_bound = partial(
+            _critical_rate_bound_at_scale,
+            components=action_components["critical_error"],
+            future_trials=future_trials,
+        )
+        _, baseline_high_limit = _predictive_envelope_at_infinite_evidence(
+            baseline_components, future_trials=future_trials, confidence=0.90
+        )
+        success_low_limit, _ = _predictive_envelope_at_infinite_evidence(
+            action_components["accepted"], future_trials=future_trials, confidence=0.90
+        )
+        _, critical_high_limit = _predictive_envelope_at_infinite_evidence(
+            action_components["critical_error"], future_trials=future_trials, confidence=0.90
+        )
+        quality_cases = _paired_cases_required(
+            quality_drop_bound,
+            paired_cases=paired_cases,
+            limit=policy.max_quality_drop,
+            bound_at_infinite_scale=max(0.0, baseline_high_limit - success_low_limit),
+        )
+        critical_cases = _paired_cases_required(
+            critical_rate_bound,
+            paired_cases=paired_cases,
+            limit=policy.max_critical_error_rate,
+            bound_at_infinite_scale=critical_high_limit,
+        )
+        action_qualification["quality"].update(
+            {
+                "envelope_status": "qualified" if quality_envelope_qualified else "indeterminate",
+                "additional_cases_required": (
+                    None if quality_cases is None else quality_cases - paired_cases
+                ),
+                "reachable_by_additional_cases": quality_cases is not None,
+            }
+        )
+        action_qualification["critical_error"].update(
+            {
+                "envelope_status": (
+                    "qualified" if critical_envelope_qualified else "indeterminate"
+                ),
+                "additional_cases_required": (
+                    None if critical_cases is None else critical_cases - paired_cases
+                ),
+                "reachable_by_additional_cases": critical_cases is not None,
+            }
+        )
+        action_qualification["cvar"]["additional_simulations_required"] = (
+            _simulations_required_for_cvar_tail(policy.cvar_confidence, simulations=simulations)
         )
         qualifications[action.action_id] = action_qualification
     lineage = {
@@ -1895,6 +2195,15 @@ def _diagnose_model_migration(
                 "per-metric chance and CVaR Monte Carlo error; excludes model risk "
                 "and joint any-breach risk"
             ),
+            "evidence_requirements_assume": (
+                "observed rates, cohort mix and the smallest historical demand persist"
+            ),
+        },
+        "demand_history": {
+            "periods": demand_periods,
+            "minimum_periods": policy.min_demand_periods,
+            "additional_periods_required": demand_shortfall,
+            "law": "empirical distribution of the observed period request counts",
         },
     }
     point_winner = _point_winner(actions)
@@ -1923,6 +2232,8 @@ def _diagnose_model_migration(
             )
         ]
     )
+    reason_codes: list[str] = []
+    additional_cases_required = 0
     if recommended is None:
         saving_actions = [
             action
@@ -1936,30 +2247,35 @@ def _diagnose_model_migration(
             )
             for action in saving_actions
         )
-        additional_cases_required = max(
-            (
-                int(
-                    qualifications[action.action_id]["cvar"][
-                        "additional_source_observations_required"
-                    ]
-                )
-                for action in saving_actions
-                if qualifications[action.action_id]["cvar"]["status"] == "insufficient"
-            ),
-            default=0,
+        reason_codes.append(
+            "mc_probability_indeterminate" if chance_indeterminate else "mc_cvar_indeterminate"
         )
+        # Fewest additional paired cases after which some saving action's quality,
+        # critical-error and CVaR certificates can all qualify; per-action detail
+        # is in the lineage. None means no finite case count reaches the limit.
+        requirements = [
+            _action_case_requirement(qualifications[action.action_id])
+            for action in saving_actions
+        ]
+        finite = [value for value in requirements if value is not None]
+        if finite:
+            additional_cases_required = min(finite)
+        elif requirements:
+            reason_codes.append("evidence_requirement_unreachable")
+    if demand_shortfall:
+        reason_codes.append("demand_history_insufficient")
+    if reason_codes:
         return _abstention(
             evidence,
             policy=policy,
             simulations=simulations,
             seed=seed,
-            reason=(
-                "mc_probability_indeterminate"
-                if chance_indeterminate
-                else "mc_cvar_indeterminate"
-            ),
+            additional_demand_periods_required=demand_shortfall,
+            reason=reason_codes[0],
             additional_cases_required=additional_cases_required,
-        ).model_copy(update={"actions": actions, "evidence_lineage": lineage})
+        ).model_copy(
+            update={"actions": actions, "evidence_lineage": lineage, "reason_codes": reason_codes}
+        )
     action = "ship_candidate" if recommended.candidate_share == 1 else "hybrid_route"
     if recommended.cohort_candidate_shares:
         action = "cohort_route"

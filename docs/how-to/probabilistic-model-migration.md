@@ -6,7 +6,7 @@ advisory; Zeroth does not alter production routing.
 
 A recommendation is only possible once every certificate can qualify on the evidence supplied.
 The worked example below is sized so that it can: 600 paired cases (the CVaR certificate needs at
-least 600 at `cvar_confidence=0.95`), six observed demand months (the default
+least 600 at `cvar_confidence=0.95`), twelve observed demand months (the default
 `min_demand_periods`), 4,000 simulations (the CVaR certificate needs at least 1,981, and the
 simulation work budget caps `simulations × (cases + largest month × (1 + actions))` at 50 million,
 so a 2,200-request month with four actions allows about 4,300), and limits the observed rates can
@@ -101,7 +101,9 @@ request = ProbabilisticMigrationRequest(
         candidate_model="model-b",
         incumbent=incumbent,
         candidate=candidate,
-        period_request_counts=[1_800, 2_000, 2_200, 1_900, 2_100, 2_000],
+        period_request_counts=[
+            1_800, 2_000, 2_200, 1_900, 2_100, 2_000, 2_150, 1_950, 2_050, 1_850, 2_200, 2_000
+        ],
         demand_horizon="month",
     ),
     policy=MigrationRiskPolicy(
@@ -197,10 +199,14 @@ the decision proceed:
   the future-month step at your monthly request count, already exceeds the limit. Collecting more
   cases will not help; the candidate or the limit has to change.
 - `additional_demand_periods_required` counts the observed demand periods still needed to reach
-  `min_demand_periods` (default 6). Demand uncertainty is the empirical distribution of the
+  `min_demand_periods` (default 12). Demand uncertainty is the empirical distribution of the
   observed period request counts, so a short history under-disperses the cost, savings and CVaR
-  bands: against known laws the nominal-90% cost band covered 0.58–0.81 of realized months with
-  three history months and 0.85 or more with six at every case count of 100 or more.
+  bands. Against known laws with 100 or more paired cases (100 replications per cell), the
+  nominal-90% cost band covered 0.61–0.77 of realized months with three history months (mean
+  0.69), 0.78–0.88 with six (mean 0.83) and 0.82–0.92 with twelve (mean 0.87); the CVaR estimate's
+  error fell from about 50 USD at three months to 4–13 USD at twelve on a 320–350 USD tail. Twelve
+  is the smallest measured history whose coverage meets a 0.85 floor on average; lower the floor
+  through the policy only with your own calibration evidence.
 - `additional_simulations_required` on a chance certificate is the Monte Carlo resolution still
   needed when the Hoeffding radius, not the evidence, keeps the certificate indeterminate.
 

@@ -212,7 +212,7 @@ def test_cvar_abstention_reports_exact_paired_case_shortfall() -> None:
 
     report = _qualified_diagnose(evidence, policy=policy, simulations=2_000, seed=13)
 
-    assert report.reason_codes == ["mc_cvar_indeterminate"]
+    assert report.reason_codes == ["mc_cvar_indeterminate", "demand_history_insufficient"]
     assert report.additional_cases_required == 200
 
 
@@ -332,7 +332,7 @@ def test_action_selection_abstains_when_only_cvar_evidence_is_insufficient() -> 
         "cvar"
     ]["status"] == "insufficient"
     assert report.recommended_action == "collect_evidence"
-    assert report.reason_codes == ["mc_cvar_indeterminate"]
+    assert report.reason_codes == ["mc_cvar_indeterminate", "demand_history_insufficient"]
 
 
 def test_probabilistic_recommendation_is_reproducible_for_a_seed() -> None:
