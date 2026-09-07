@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from zeroth.econ.plane.backtesting.models import EconomicBacktestRecord
 from zeroth.econ.plane.backtesting.schemas import (
     BacktestComputation,
+    BacktestCostEvidence,
     BacktestCreate,
     EconomicBacktest,
 )
@@ -59,6 +60,8 @@ def evidence_gaps(payload: BacktestCreate) -> list[str]:
             gaps.append(field)
     if not isinstance(payload.candidate.get("model"), str) or not payload.candidate.get("model"):
         gaps.append("candidate.model")
+    if payload.constraints.min_success_rate is None:
+        gaps.append("constraints.min_success_rate")
     if payload.constraints.max_cost_per_outcome_usd is not None:
         gaps.append("max_cost_per_outcome_usd is unsupported by isolated node replay")
     if payload.constraints.max_critical_error_rate is not None:
@@ -73,7 +76,8 @@ def decide(
     digest: str,
     evaluated_at: datetime,
 ) -> EconomicBacktest:
-    reasons = list(computation.reasons)
+    missing_evidence = list(dict.fromkeys([*evidence_gaps(payload), *computation.reasons]))
+    reasons = list(missing_evidence)
     if computation.candidate_success_rate is None:
         reasons.append("candidate success rate is unavailable")
     failed = False
@@ -88,7 +92,7 @@ def decide(
         failed = True
         reasons.append("candidate does not reduce projected model cost")
 
-    if computation.reasons or computation.candidate_success_rate is None or computation.savings_pct is None:
+    if missing_evidence or computation.candidate_success_rate is None or computation.savings_pct is None:
         verdict = "abstain"
         action = "collect_evidence"
     elif failed:
@@ -96,9 +100,16 @@ def decide(
         action = "keep_incumbent"
     else:
         verdict = "pass"
-        action = "approve_candidate"
+        action = "review_candidate"
     candidate_model = payload.candidate.get("model")
     return EconomicBacktest(
+        claim_class="exploratory_model_experiment",
+        method_version="observed-replay-policy/1",
+        limitations=[
+            "judge_not_calibrated",
+            "projection_excludes_nontext_and_unobserved_charges",
+            "no_statistical_causal_or_forecast_authorization",
+        ],
         backtest_id="pending",
         request_digest=digest,
         workflow=payload.workflow,
@@ -120,6 +131,7 @@ def decide(
         candidate_observations=computation.candidate_observations,
         period_request_counts=computation.period_request_counts,
         evaluated_at=evaluated_at,
+        **computation.model_dump(include=set(BacktestCostEvidence.model_fields)),
     )
 
 

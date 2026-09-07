@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+import math
 from typing import Literal
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.plane.debugger.models import OutcomeDefinition
@@ -21,7 +23,9 @@ from zeroth.econ.plane.debugger.schemas import (
     OutcomeDefinitionCreate,
     TimelinePoint,
 )
+from zeroth.econ.plane.instrumentation.charge_costs import CostAmounts, resolve_costs
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.instrumentation.identity import RunKey, outcomes_for_events, run_identity
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 MAX_DEBUGGER_EVENTS = 50_000
@@ -42,20 +46,33 @@ def _require_exact_scoped_session(db: object) -> ScopedSession:
 
 def _outcome_value(outcome: OutcomeEvent) -> object:
     payload = outcome.outcome_payload_json or {}
-    return payload.get("value", outcome.outcome_value)
+    if "value" in payload:
+        return payload["value"]
+    # Historical SDK assertions stored an explicit boolean without a value key.
+    if type(payload.get("accepted")) is bool:
+        return payload["accepted"]
+    return outcome.outcome_value if outcome.outcome_value != "" else None
 
 
 def _matches_definition(outcome: OutcomeEvent, definition: OutcomeDefinition) -> bool | None:
+    if outcome.maturity != "final":
+        return None
     value = _outcome_value(outcome)
+    if value is None:
+        return None
     target = definition.target_json
     operator = definition.operator
+    if any(isinstance(item, float) and not math.isfinite(item) for item in (value, target)):
+        return None
     if operator in {"greater_than_or_equal", "less_than_or_equal"}:
         if isinstance(value, bool) or isinstance(target, bool):
             return None
         try:
             observed = Decimal(str(value))
             boundary = Decimal(str(target))
-        except Exception:  # noqa: BLE001
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+        if not observed.is_finite() or not boundary.is_finite():
             return None
         if operator == "greater_than_or_equal":
             return observed >= boundary
@@ -83,12 +100,11 @@ def create_outcome_definition(
 ) -> tuple[bool, OutcomeDefinition]:
     db = _require_exact_scoped_session(db)
     digest = _definition_digest(payload)
-    existing = db.execute(
-        select(OutcomeDefinition).where(
-            OutcomeDefinition.workflow_id == payload.workflow_id,
-            OutcomeDefinition.workflow_version == payload.workflow_version,
-        )
-    ).scalar_one_or_none()
+    statement = select(OutcomeDefinition).where(
+        OutcomeDefinition.workflow_id == payload.workflow_id,
+        OutcomeDefinition.workflow_version == payload.workflow_version,
+    )
+    existing = db.execute(statement).scalar_one_or_none()
     if existing is not None:
         if existing.definition_digest != digest:
             raise ValueError("Outcome definition is immutable for this workflow version")
@@ -103,7 +119,16 @@ def create_outcome_definition(
         created_at=datetime.now(UTC),
     )
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        winner = db.execute(statement).scalar_one_or_none()
+        if winner is None:
+            raise
+        if winner.definition_digest != digest:
+            raise ValueError("Outcome definition is immutable for this workflow version") from None
+        return False, winner
     db.refresh(row)
     return True, row
 
@@ -126,25 +151,15 @@ def list_outcome_definitions(
 
 def resolve_outcomes_for_events(
     db: ScopedSession, events: list[ExecutionEvent]
-) -> dict[str, bool]:
+) -> dict[RunKey, bool]:
     """Resolve run outcomes consistently for debugger and financial reports."""
 
     db = _require_exact_scoped_session(db)
-    identities_by_run: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    for event in events:
-        if event.run_id and event.workflow_id and event.workflow_version:
-            identities_by_run[event.run_id].add(
-                (event.workflow_id, event.workflow_version)
-            )
-    run_ids = set(identities_by_run)
-    if not run_ids:
+    keys = {run_identity(event) for event in events}
+    if not keys:
         return {}
-    workflows = {
-        workflow for identities in identities_by_run.values() for workflow, _ in identities
-    }
-    versions = {
-        version for identities in identities_by_run.values() for _, version in identities
-    }
+    workflows = {workflow for workflow, _, _ in keys}
+    versions = {version for _, version, _ in keys}
     definitions = {
         (row.workflow_id, row.workflow_version): row
         for row in db.execute(
@@ -154,27 +169,18 @@ def resolve_outcomes_for_events(
             )
         ).scalars()
     }
-    outcomes = list(
-        db.execute(
-            select(OutcomeEvent)
-            .where(OutcomeEvent.join_key.in_(run_ids))
-            .order_by(OutcomeEvent.occurred_at.desc(), OutcomeEvent.id.desc())
-            .limit(MAX_DEBUGGER_EVENTS)
-        ).scalars()
-    )
-    status: dict[str, bool] = {}
-    for outcome in outcomes:
-        if outcome.join_key in status:
-            continue
-        identities = identities_by_run.get(outcome.join_key, set())
-        if len(identities) != 1:
-            continue
-        definition = definitions.get(next(iter(identities)))
+    status: dict[RunKey, bool] = {}
+    selected: set[RunKey] = set()
+    for key, outcome in outcomes_for_events(db, events, limit=MAX_DEBUGGER_EVENTS):
+        definition = definitions.get(key[:2])
         if definition is None or outcome.outcome_type != definition.outcome_type:
             continue
+        if key in selected:
+            continue
+        selected.add(key)
         accepted = _matches_definition(outcome, definition)
         if accepted is not None:
-            status[outcome.join_key] = accepted
+            status[key] = accepted
     return status
 
 
@@ -184,7 +190,7 @@ def _load_evidence(
     workflow_id: str,
     start: datetime | None,
     end: datetime | None,
-) -> tuple[list[ExecutionEvent], dict[str, bool]]:
+) -> tuple[list[ExecutionEvent], dict[RunKey, bool]]:
     db = _require_exact_scoped_session(db)
     statement = select(ExecutionEvent).where(ExecutionEvent.workflow_id == workflow_id)
     if start is not None:
@@ -194,35 +200,39 @@ def _load_evidence(
     events = list(
         db.execute(
             statement.order_by(ExecutionEvent.timestamp.desc(), ExecutionEvent.id.desc()).limit(
-                MAX_DEBUGGER_EVENTS
+                MAX_DEBUGGER_EVENTS + 1
             )
         ).scalars()
     )
+    if len(events) > MAX_DEBUGGER_EVENTS:
+        raise ValueError(
+            f"Debugger window exceeds {MAX_DEBUGGER_EVENTS:,} execution events. "
+            "Narrow the time window; a partial population cannot represent its totals."
+        )
     events.reverse()
     return events, resolve_outcomes_for_events(db, events)
 
 
-def _cost(event: ExecutionEvent) -> tuple[Decimal, Decimal, bool]:
-    total = sum(
-        (
-            value or Decimal("0")
-            for value in (
-                event.token_cost_usd,
-                event.tool_cost_usd,
-                event.compute_cost_usd,
-            )
-        ),
-        Decimal("0"),
-    )
-    if event.cost_measurement == MeasurementState.MEASURED.value:
+def _cost(event: ExecutionEvent, cost: CostAmounts) -> tuple[Decimal, Decimal, bool]:
+    if event.cost_role == "summary":
+        return Decimal("0"), Decimal("0"), False
+    total = cost.total
+    if cost.cost_measurement == MeasurementState.MEASURED.value:
         return total, Decimal("0"), False
-    if event.cost_measurement == MeasurementState.ESTIMATED.value:
+    if cost.cost_measurement == MeasurementState.ESTIMATED.value:
         return Decimal("0"), total, False
     return Decimal("0"), Decimal("0"), True
 
 
 def _round(value: Decimal) -> float:
     return float(round(value, 8))
+
+
+def _summary_only_runs(events: list[ExecutionEvent]) -> set[RunKey]:
+    """Structural spans cannot establish that a run incurred zero dollars."""
+    return {run_identity(event) for event in events} - {
+        run_identity(event) for event in events if event.cost_role != "summary"
+    }
 
 
 def _ratio(value: Decimal, denominator: int) -> float | None:
@@ -247,6 +257,7 @@ def timeline(
     end: datetime | None = None,
 ) -> list[TimelinePoint]:
     events, outcomes = _load_evidence(db, workflow_id=workflow_id, start=start, end=end)
+    costs, _revisions = resolve_costs(db, events)
     groups: dict[tuple[datetime, str], list[ExecutionEvent]] = defaultdict(list)
     for event in events:
         period = event.timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -254,16 +265,18 @@ def timeline(
 
     points: list[TimelinePoint] = []
     for (period, version), rows in sorted(groups.items()):
-        run_ids = {row.run_id for row in rows if row.run_id}
+        summary_only = _summary_only_runs(rows)
+        run_ids = {run_identity(row) for row in rows}
         successful = {run_id for run_id in run_ids if outcomes.get(run_id) is True}
         failed = {run_id for run_id in run_ids if outcomes.get(run_id) is False}
         measured = estimated = measured_failure = estimated_failure = Decimal("0")
         incomplete = 0
         for row in rows:
-            row_measured, row_estimated, missing = _cost(row)
+            row_measured, row_estimated, missing = _cost(row, costs[row.id])
+            missing = missing or run_identity(row) in summary_only
             measured += row_measured
             estimated += row_estimated
-            if row.run_id in failed:
+            if run_identity(row) in failed:
                 measured_failure += row_measured
                 estimated_failure += row_estimated
             incomplete += int(_incomplete(row, missing))
@@ -299,6 +312,7 @@ def cohorts(
     if group_by == "dimension" and not dimension:
         raise ValueError("dimension is required when group_by=dimension")
     events, outcomes = _load_evidence(db, workflow_id=workflow_id, start=start, end=end)
+    costs, _revisions = resolve_costs(db, events)
     groups: dict[str, list[ExecutionEvent]] = defaultdict(list)
     for event in events:
         cohort = event.subject_id if group_by == "subject_id" else event.dimensions.get(dimension)
@@ -306,13 +320,15 @@ def cohorts(
 
     points: list[CohortPoint] = []
     for cohort, rows in sorted(groups.items()):
-        run_ids = {row.run_id for row in rows if row.run_id}
+        summary_only = _summary_only_runs(rows)
+        run_ids = {run_identity(row) for row in rows}
         successful = {run_id for run_id in run_ids if outcomes.get(run_id) is True}
         failed = {run_id for run_id in run_ids if outcomes.get(run_id) is False}
         measured = estimated = Decimal("0")
         incomplete = 0
         for row in rows:
-            row_measured, row_estimated, missing = _cost(row)
+            row_measured, row_estimated, missing = _cost(row, costs[row.id])
+            missing = missing or run_identity(row) in summary_only
             measured += row_measured
             estimated += row_estimated
             incomplete += int(missing or cohort == _UNKNOWN)
@@ -340,17 +356,18 @@ def breakage(
     end: datetime | None = None,
 ) -> list[BreakagePoint]:
     events, outcomes = _load_evidence(db, workflow_id=workflow_id, start=start, end=end)
+    costs, _revisions = resolve_costs(db, events)
     failed_runs = {run_id for run_id, accepted in outcomes.items() if accepted is False}
     groups: dict[tuple[str, str], list[ExecutionEvent]] = defaultdict(list)
     for event in events:
-        if event.run_id in failed_runs:
+        if run_identity(event) in failed_runs:
             groups[(event.workflow_version or _UNKNOWN, event.step_id or _UNKNOWN)].append(event)
 
     points: list[BreakagePoint] = []
     for (version, step_id), rows in groups.items():
         measured = estimated = repeated_measured = repeated_estimated = Decimal("0")
         for row in rows:
-            row_measured, row_estimated, _missing = _cost(row)
+            row_measured, row_estimated, _missing = _cost(row, costs[row.id])
             measured += row_measured
             estimated += row_estimated
             if row.attempt > 1:
@@ -361,7 +378,7 @@ def breakage(
                 workflow_id=workflow_id,
                 workflow_version=version,
                 step_id=step_id,
-                failed_runs=len({row.run_id for row in rows if row.run_id}),
+                failed_runs=len({run_identity(row) for row in rows}),
                 measured_failure_exposure_usd=_round(measured),
                 estimated_failure_exposure_usd=_round(estimated),
                 measured_repeated_attempt_cost_usd=_round(repeated_measured),
@@ -457,10 +474,11 @@ def diagnostic_report(
     cohort_dimension: str | None = None,
 ) -> EconomicDiagnosticReport | None:
     events, outcomes = _load_evidence(db, workflow_id=workflow_id, start=start, end=end)
+    costs, _revisions = resolve_costs(db, events)
     if not events:
         return None
 
-    run_ids = {event.run_id for event in events if event.run_id}
+    run_ids = {run_identity(event) for event in events}
     successful = {run_id for run_id in run_ids if outcomes.get(run_id) is True}
     failed = {run_id for run_id in run_ids if outcomes.get(run_id) is False}
     unresolved = run_ids - successful - failed
@@ -481,16 +499,18 @@ def diagnostic_report(
     ]
     measured = estimated = measured_failure = estimated_failure = Decimal("0")
     measured_events = estimated_events = unmeasured_events = incomplete_events = 0
+    summary_only = _summary_only_runs(events)
     for event in events:
-        event_measured, event_estimated, missing_cost = _cost(event)
+        event_measured, event_estimated, missing_cost = _cost(event, costs[event.id])
+        missing_cost = missing_cost or run_identity(event) in summary_only
         measured += event_measured
         estimated += event_estimated
-        if event.run_id in failed:
+        if run_identity(event) in failed:
             measured_failure += event_measured
             estimated_failure += event_estimated
-        measured_events += int(event.cost_measurement == MeasurementState.MEASURED.value)
-        estimated_events += int(event.cost_measurement == MeasurementState.ESTIMATED.value)
-        unmeasured_events += int(missing_cost)
+        measured_events += int(costs[event.id].cost_measurement == MeasurementState.MEASURED.value)
+        estimated_events += int(costs[event.id].cost_measurement == MeasurementState.ESTIMATED.value)
+        unmeasured_events += int(missing_cost and event.cost_role != "summary")
         incomplete_events += int(_incomplete(event, missing_cost))
 
     failure_points = breakage(db, workflow_id=workflow_id, start=start, end=end)
@@ -555,6 +575,7 @@ def diagnostic_report(
         measured_events=measured_events,
         estimated_events=estimated_events,
         unmeasured_events=unmeasured_events,
+        summary_events=sum(event.cost_role == "summary" for event in events),
         incomplete_events=incomplete_events,
         measured_cost_usd=_round(measured),
         estimated_cost_usd=_round(estimated),

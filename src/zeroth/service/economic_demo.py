@@ -92,6 +92,7 @@ def _seed(db: ScopedSession) -> None:
                 implementation_id=f"{_WORKFLOW_ID}:{_VERSION}",
                 outcome_type="approval",
                 outcome_value=approved,
+                maturity="final",
                 occurred_at=_START + timedelta(days=3),
             ),
         )

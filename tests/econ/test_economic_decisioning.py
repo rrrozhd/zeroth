@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from zeroth.econ.decisioning import (
     DecisionPolicy,
+    EconomicDecision,
     RunEvidence,
     VersionEvidence,
     compare_workflow_versions,
@@ -48,7 +51,7 @@ def test_comparison_abstains_when_candidate_outcome_coverage_is_too_low() -> Non
     report = compare_workflow_versions(
         baseline,
         candidate,
-        policy=DecisionPolicy(min_runs=10, min_outcome_coverage=0.8),
+        policy=DecisionPolicy(min_runs=10, min_outcome_coverage=0.8, min_success_rate=0),
     )
 
     assert report.verdict == "abstain"
@@ -92,7 +95,7 @@ def test_comparison_holds_candidate_that_breaks_success_constraint() -> None:
         "candidate_success_rate_drop_exceeds_limit",
     ]
     assert report.success_rate_change == -0.2
-    assert report.candidate.cost_per_accepted_outcome_usd == Decimal("0.714286")
+    assert report.candidate.cost_per_accepted_outcome_usd == Decimal("5") / 7
 
 
 def test_comparison_investigates_cost_per_outcome_regression() -> None:
@@ -108,7 +111,7 @@ def test_comparison_investigates_cost_per_outcome_regression() -> None:
     report = compare_workflow_versions(
         baseline,
         candidate,
-        policy=DecisionPolicy(max_cost_per_outcome_increase=0.1),
+        policy=DecisionPolicy(max_cost_per_outcome_increase=0.1, min_success_rate=0),
     )
 
     assert report.verdict == "fail"
@@ -140,7 +143,7 @@ def test_comparison_approves_cheaper_candidate_with_preserved_outcomes() -> None
     )
 
     assert report.verdict == "pass"
-    assert report.recommended_action == "approve"
+    assert report.recommended_action == "review_candidate"
     assert report.reason_codes == ["economic_constraints_satisfied"]
     assert report.cost_per_outcome_change == -0.4
 
@@ -164,7 +167,7 @@ def test_comparison_abstains_from_estimated_or_missing_cost_by_default() -> None
         ],
     )
 
-    report = compare_workflow_versions(baseline, candidate)
+    report = compare_workflow_versions(baseline, candidate, policy=DecisionPolicy(min_success_rate=0))
 
     assert report.verdict == "abstain"
     assert report.reason_codes == [
@@ -195,8 +198,43 @@ def test_comparison_abstains_from_inferred_outcomes_by_default() -> None:
         ],
     )
 
-    report = compare_workflow_versions(baseline, candidate)
+    report = compare_workflow_versions(baseline, candidate, policy=DecisionPolicy(min_success_rate=0))
 
     assert report.verdict == "abstain"
     assert report.reason_codes == ["candidate_contains_inferred_outcomes"]
     assert report.candidate.inferred_outcome_runs == 1
+
+
+@pytest.mark.parametrize("accepted", [0, 2, 4])
+@pytest.mark.parametrize("cost", ["0.5", "1", "2"])
+def test_version_policy_requires_an_explicit_quality_floor(accepted, cost):
+    baseline = _version("v1", [_run(str(i), cost="1", accepted=True) for i in range(4)])
+    candidate = _version("v2", [_run(str(i), cost=cost, accepted=i < accepted) for i in range(4)])
+    report = compare_workflow_versions(baseline, candidate, policy=DecisionPolicy(min_runs=1))
+    assert report.verdict == "abstain"
+    assert "policy.min_success_rate" in report.reason_codes
+    assert report.claim_class == "observed_comparison"
+    assert report.method_version == "observed-policy/1"
+
+
+def test_policy_pass_is_an_observed_result_including_when_cost_growth_is_tolerated():
+    baseline = _version("v1", [_run("b", cost="1", accepted=True)])
+    candidate = _version("v2", [_run("c", cost="1.09", accepted=True)])
+    report = compare_workflow_versions(
+        baseline, candidate, policy=DecisionPolicy(min_runs=1, min_success_rate=0),
+    )
+    assert report.verdict == "pass"
+    assert report.recommended_action == "review_candidate"
+    assert report.cost_per_outcome_change == 0.09
+    assert report.claim_class == "observed_comparison"
+    assert report.method_version == "observed-policy/1"
+    assert "source_completeness_unverified" in report.limitations
+    assert "no_statistical_causal_or_forecast_authorization" in report.limitations
+
+    old_report = report.model_dump(exclude={"claim_class", "method_version", "limitations"})
+    old_report["recommended_action"] = "approve"
+    restored = EconomicDecision.model_validate(old_report)
+    assert restored.claim_class == "legacy_unclassified"
+    assert restored.method_version == "legacy_unversioned"
+    assert restored.recommended_action == "approve"
+    assert restored.cost_per_outcome_change == 0.09

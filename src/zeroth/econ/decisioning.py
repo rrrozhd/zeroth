@@ -8,15 +8,15 @@ never becomes a confident approval by default.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.econ.measurement import MeasurementState
-
-_MONEY_QUANTUM = Decimal("0.000001")
 
 
 class RunEvidence(BaseModel):
@@ -39,6 +39,71 @@ class RunEvidence(BaseModel):
         return self
 
 
+class EvidenceFingerprint(BaseModel):
+    """Identity of selected stored assertions; not a completeness guarantee."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[
+        "stored-assertions/1", "stored-assertions/2", "stored-assertions/3", "stored-assertions/4",
+        "stored-assertions/5",
+    ] = "stored-assertions/1"
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cost_revision_records: int = Field(default=0, ge=0)
+    execution_records: int = Field(ge=0)
+    outcome_records: int = Field(ge=0)
+
+
+class SourceDelivery(BaseModel):
+    """Reconciliation with caller inventory; no guarantee of physical source truth."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_window_id: str
+    inventory_version: Literal["source-inventory/1"] = "source-inventory/1"
+    inventory_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Literal["matched", "mismatch"]
+    expected_runs: int = Field(ge=0)
+    observed_runs: int = Field(ge=0)
+    expected_executions: int = Field(ge=0)
+    observed_executions: int = Field(ge=0)
+    missing_runs: int = Field(ge=0)
+    unexpected_runs: int = Field(ge=0)
+    mismatched_runs: int = Field(ge=0)
+    out_of_window_executions: int = Field(ge=0)
+    scan_truncated: bool = False
+
+
+class ChargeOwnership(BaseModel):
+    """Declared monetary owners; no inference of provider billing truth."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["declared", "unverified"]
+    owned_charge_records: int = Field(ge=0)
+    summary_records: int = Field(ge=0)
+    unattributed_records: int = Field(ge=0)
+
+
+class OutcomeSemantics(BaseModel):
+    """The selected immutable success rule; no claim of business label maturity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["defined", "missing", "type_mismatch"]
+    definition_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    rule_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _binding_matches_status(self) -> OutcomeSemantics:
+        if self.status == "missing":
+            if self.definition_digest is not None or self.rule_digest is not None:
+                raise ValueError("missing outcome semantics cannot carry a definition binding")
+        elif self.definition_digest is None or self.rule_digest is None:
+            raise ValueError("present outcome semantics require both definition and rule digests")
+        return self
+
+
 class VersionEvidence(BaseModel):
     """All in-window run evidence for one exact workflow version."""
 
@@ -47,6 +112,10 @@ class VersionEvidence(BaseModel):
     workflow: str = Field(min_length=1)
     version: str = Field(min_length=1)
     runs: list[RunEvidence] = Field(default_factory=list)
+    source_fingerprint: EvidenceFingerprint | None = None
+    source_delivery: SourceDelivery | None = None
+    charge_ownership: ChargeOwnership | None = None
+    outcome_semantics: OutcomeSemantics | None = None
 
 
 class DecisionPolicy(BaseModel):
@@ -56,9 +125,9 @@ class DecisionPolicy(BaseModel):
 
     min_runs: int = Field(default=10, ge=1)
     min_outcome_coverage: float = Field(default=0.8, ge=0, le=1)
-    min_success_rate: float = Field(default=0.0, ge=0, le=1)
+    min_success_rate: float | None = Field(default=None, ge=0, le=1)
     max_success_rate_drop: float = Field(default=0.05, ge=0, le=1)
-    max_cost_per_outcome_increase: float = Field(default=0.1, ge=0)
+    max_cost_per_outcome_increase: float = Field(default=0.1, ge=0, allow_inf_nan=False)
     allow_estimated_cost: bool = False
     allow_inferred_outcomes: bool = False
 
@@ -85,6 +154,53 @@ class VersionEconomics(BaseModel):
     cost_per_accepted_outcome_usd: Decimal | None
 
 
+class CalculationInput(BaseModel):
+    """One distinct normalized input tuple and its run multiplicity; no source IDs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cost_usd: Decimal | None = Field(default=None, ge=0)
+    cost_measurement: MeasurementState
+    accepted: bool | None
+    outcome_measurement: MeasurementState
+    runs: int = Field(ge=1, strict=True)
+
+    @model_validator(mode="after")
+    def _cost_matches_provenance(self) -> CalculationInput:
+        if (self.cost_measurement is MeasurementState.UNMEASURED) != (self.cost_usd is None):
+            raise ValueError("unknown cost requires unmeasured provenance and no amount")
+        return self
+
+
+class CalculationInputs(BaseModel):
+    """Portable arithmetic inputs, not a source snapshot or completeness proof."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["run-economics/1"] = "run-economics/1"
+    baseline: list[CalculationInput]
+    candidate: list[CalculationInput]
+
+
+def _calculation_rows(runs: list[RunEvidence]) -> list[CalculationInput]:
+    grouped = Counter(
+        (run.cost_usd, run.cost_measurement, run.accepted, run.outcome_measurement)
+        for run in runs
+    )
+    rows = []
+    for (cost, state, accepted, provenance), count in grouped.items():
+        # Equal decimals serialize equally without Decimal.normalize()'s context rounding.
+        if cost is not None:
+            amount = format(cost, "f")
+            canonical = amount.rstrip("0").rstrip(".") if "." in amount else amount
+            cost = Decimal(canonical) if cost else Decimal(0)
+        rows.append(CalculationInput(
+            cost_usd=cost, cost_measurement=state, accepted=accepted,
+            outcome_measurement=provenance, runs=count,
+        ))
+    return sorted(rows, key=lambda row: row.model_dump_json())
+
+
 class EconomicDecision(BaseModel):
     """Auditable economic release decision for a candidate workflow version."""
 
@@ -94,7 +210,9 @@ class EconomicDecision(BaseModel):
     baseline_version: str
     candidate_version: str
     verdict: Literal["pass", "fail", "abstain"]
-    recommended_action: Literal["approve", "hold", "investigate", "collect_evidence"]
+    recommended_action: Literal[
+        "approve", "review_candidate", "hold", "investigate", "collect_evidence"
+    ]
     reason_codes: list[str]
     baseline: VersionEconomics
     candidate: VersionEconomics
@@ -103,10 +221,22 @@ class EconomicDecision(BaseModel):
     policy: DecisionPolicy
     decision_id: str | None = None
     evaluated_at: datetime | None = None
-
-
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(_MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    claim_class: Literal["legacy_unclassified", "observed_comparison"] = "legacy_unclassified"
+    method_version: str = "legacy_unversioned"
+    limitations: list[str] = Field(default_factory=list)
+    source_evidence: dict[Literal["baseline", "candidate"], EvidenceFingerprint] = Field(
+        default_factory=dict
+    )
+    source_delivery: dict[Literal["baseline", "candidate"], SourceDelivery] = Field(
+        default_factory=dict
+    )
+    charge_ownership: dict[Literal["baseline", "candidate"], ChargeOwnership] = Field(
+        default_factory=dict
+    )
+    outcome_semantics: dict[Literal["baseline", "candidate"], OutcomeSemantics] = Field(
+        default_factory=dict
+    )
+    calculation_inputs: CalculationInputs | None = None
 
 
 def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> VersionEconomics:
@@ -124,14 +254,14 @@ def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> Vers
     ]
     measured_cost = sum((run.cost_usd or Decimal("0") for run in measured), Decimal("0"))
     estimated_cost = sum((run.cost_usd or Decimal("0") for run in estimated), Decimal("0"))
-    coverage = round(len(labeled) / runs, 6) if runs else 0.0
-    success_rate = round(accepted / len(labeled), 6) if labeled else None
+    coverage = len(labeled) / runs if runs else 0.0
+    success_rate = accepted / len(labeled) if labeled else None
 
     comparable_cost: Decimal | None = None
-    if coverage == 1 and not unmeasured and (allow_estimated_cost or not estimated):
+    if len(labeled) == runs and not unmeasured and (allow_estimated_cost or not estimated):
         comparable_cost = measured_cost + (estimated_cost if allow_estimated_cost else Decimal("0"))
     cost_per_outcome = (
-        _money(comparable_cost / accepted) if comparable_cost is not None and accepted else None
+        comparable_cost / accepted if comparable_cost is not None and accepted else None
     )
 
     return VersionEconomics(
@@ -144,8 +274,8 @@ def _summarize(evidence: VersionEvidence, *, allow_estimated_cost: bool) -> Vers
         inferred_outcome_runs=inferred_outcomes,
         outcome_coverage=coverage,
         success_rate=success_rate,
-        measured_cost_usd=_money(measured_cost),
-        estimated_cost_usd=_money(estimated_cost),
+        measured_cost_usd=measured_cost,
+        estimated_cost_usd=estimated_cost,
         measured_runs=len(measured),
         estimated_runs=len(estimated),
         unmeasured_runs=len(unmeasured),
@@ -161,7 +291,8 @@ def _evidence_reasons(
     reasons: list[str] = []
     if summary.runs < policy.min_runs:
         reasons.append(f"{label}_runs_below_minimum")
-    if summary.outcome_coverage < policy.min_outcome_coverage:
+    coverage = Fraction(summary.labeled_runs, summary.runs) if summary.runs else Fraction(0)
+    if coverage < Fraction(str(policy.min_outcome_coverage)):
         reasons.append(f"{label}_outcome_coverage_below_minimum")
     if not policy.allow_inferred_outcomes and summary.inferred_outcome_runs:
         reasons.append(f"{label}_contains_inferred_outcomes")
@@ -170,6 +301,16 @@ def _evidence_reasons(
     if summary.unmeasured_runs:
         reasons.append(f"{label}_contains_unmeasured_cost")
     return reasons
+
+
+def _cost_per_outcome(summary: VersionEconomics, *, allow_estimated_cost: bool) -> Fraction | None:
+    """Use exact totals and counts; a displayed decimal quotient is not a policy input."""
+    if summary.cost_per_accepted_outcome_usd is None:
+        return None
+    total = Fraction(summary.measured_cost_usd)
+    if allow_estimated_cost:
+        total += Fraction(summary.estimated_cost_usd)
+    return total / summary.accepted_runs
 
 
 def compare_workflow_versions(
@@ -188,6 +329,46 @@ def compare_workflow_versions(
     if baseline_evidence.workflow != candidate_evidence.workflow:
         raise ValueError("baseline and candidate must describe the same workflow")
     active_policy = policy or DecisionPolicy()
+    semantics = {
+        label: evidence.outcome_semantics
+        for label, evidence in (("baseline", baseline_evidence), ("candidate", candidate_evidence))
+        if evidence.outcome_semantics is not None
+    }
+    claim_fields = {
+        "calculation_inputs": CalculationInputs(
+            baseline=_calculation_rows(baseline_evidence.runs),
+            candidate=_calculation_rows(candidate_evidence.runs),
+        ),
+        "claim_class": "observed_comparison",
+        "method_version": "observed-policy/3" if semantics else "observed-policy/1",
+        "limitations": [
+            "source_completeness_unverified",
+            "no_statistical_causal_or_forecast_authorization",
+            "outcome_maturity_unverified" if semantics else "outcome_semantics_unverified",
+        ],
+        "outcome_semantics": semantics,
+        "source_evidence": {
+            label: evidence.source_fingerprint
+            for label, evidence in (
+                ("baseline", baseline_evidence), ("candidate", candidate_evidence)
+            )
+            if evidence.source_fingerprint is not None
+        },
+        "source_delivery": {
+            label: evidence.source_delivery
+            for label, evidence in (
+                ("baseline", baseline_evidence), ("candidate", candidate_evidence)
+            )
+            if evidence.source_delivery is not None
+        },
+        "charge_ownership": {
+            label: evidence.charge_ownership
+            for label, evidence in (
+                ("baseline", baseline_evidence), ("candidate", candidate_evidence)
+            )
+            if evidence.charge_ownership is not None
+        },
+    }
     baseline = _summarize(
         baseline_evidence, allow_estimated_cost=active_policy.allow_estimated_cost
     )
@@ -199,10 +380,37 @@ def compare_workflow_versions(
         *_evidence_reasons("baseline", baseline, active_policy),
         *_evidence_reasons("candidate", candidate, active_policy),
     ]
+    for label, evidence in (("baseline", baseline_evidence), ("candidate", candidate_evidence)):
+        if evidence.source_delivery is not None and evidence.source_delivery.status != "matched":
+            evidence_reasons.append(f"{label}_source_delivery_mismatch")
+        if semantics and (
+            evidence.outcome_semantics is None or evidence.outcome_semantics.status != "defined"
+        ):
+            evidence_reasons.append(f"{label}_outcome_definition_unavailable")
+    if (
+        len(semantics) == 2
+        and all(value.status == "defined" for value in semantics.values())
+        and semantics["baseline"].rule_digest != semantics["candidate"].rule_digest
+    ):
+        evidence_reasons.append("outcome_semantics_incompatible")
+    if active_policy.min_success_rate is None:
+        evidence_reasons.insert(0, "policy.min_success_rate")
     if baseline.accepted_runs == 0:
         evidence_reasons.append("baseline_has_no_accepted_outcomes")
+    baseline_cpo = _cost_per_outcome(
+        baseline, allow_estimated_cost=active_policy.allow_estimated_cost,
+    )
+    candidate_cpo = _cost_per_outcome(
+        candidate, allow_estimated_cost=active_policy.allow_estimated_cost,
+    )
+    if not evidence_reasons and (
+        baseline_cpo in {None, 0}
+        or (candidate_cpo is None and candidate.accepted_runs > 0)
+    ):
+        evidence_reasons.append("cost_per_outcome_comparison_unavailable")
     if evidence_reasons:
         return EconomicDecision(
+            **claim_fields,
             workflow=baseline.workflow,
             baseline_version=baseline.version,
             candidate_version=candidate.version,
@@ -214,34 +422,40 @@ def compare_workflow_versions(
             policy=active_policy,
         )
 
-    success_change = (
-        round(candidate.success_rate - baseline.success_rate, 6)
-        if candidate.success_rate is not None and baseline.success_rate is not None
+    candidate_success = (
+        Fraction(candidate.accepted_runs, candidate.labeled_runs)
+        if candidate.labeled_runs else None
+    )
+    baseline_success = (
+        Fraction(baseline.accepted_runs, baseline.labeled_runs) if baseline.labeled_runs else None
+    )
+    exact_success_change = (
+        candidate_success - baseline_success
+        if candidate_success is not None and baseline_success is not None
         else None
     )
-    cost_change = (
-        round(
-            float(
-                (candidate.cost_per_accepted_outcome_usd - baseline.cost_per_accepted_outcome_usd)
-                / baseline.cost_per_accepted_outcome_usd
-            ),
-            6,
-        )
-        if candidate.cost_per_accepted_outcome_usd is not None
-        and baseline.cost_per_accepted_outcome_usd not in {None, Decimal("0")}
+    exact_cost_change = (
+        (candidate_cpo - baseline_cpo) / baseline_cpo
+        if candidate_cpo is not None and baseline_cpo not in {None, 0}
         else None
     )
+    success_change = float(exact_success_change) if exact_success_change is not None else None
+    cost_change = float(exact_cost_change) if exact_cost_change is not None else None
 
     outcome_failures: list[str] = []
-    if candidate.success_rate is None or candidate.accepted_runs == 0:
+    if candidate_success is None or candidate.accepted_runs == 0:
         outcome_failures.append("candidate_has_no_accepted_outcomes")
     else:
-        if candidate.success_rate < active_policy.min_success_rate:
+        if candidate_success < Fraction(str(active_policy.min_success_rate)):
             outcome_failures.append("candidate_success_rate_below_minimum")
-        if success_change is not None and success_change < -active_policy.max_success_rate_drop:
+        if (
+            exact_success_change is not None
+            and exact_success_change < -Fraction(str(active_policy.max_success_rate_drop))
+        ):
             outcome_failures.append("candidate_success_rate_drop_exceeds_limit")
     if outcome_failures:
         return EconomicDecision(
+            **claim_fields,
             workflow=baseline.workflow,
             baseline_version=baseline.version,
             candidate_version=candidate.version,
@@ -255,8 +469,9 @@ def compare_workflow_versions(
             policy=active_policy,
         )
 
-    if cost_change is None:
+    if exact_cost_change is None:
         return EconomicDecision(
+            **claim_fields,
             workflow=baseline.workflow,
             baseline_version=baseline.version,
             candidate_version=candidate.version,
@@ -268,8 +483,9 @@ def compare_workflow_versions(
             success_rate_change=success_change,
             policy=active_policy,
         )
-    if cost_change > active_policy.max_cost_per_outcome_increase:
+    if exact_cost_change > Fraction(str(active_policy.max_cost_per_outcome_increase)):
         return EconomicDecision(
+            **claim_fields,
             workflow=baseline.workflow,
             baseline_version=baseline.version,
             candidate_version=candidate.version,
@@ -284,11 +500,12 @@ def compare_workflow_versions(
         )
 
     return EconomicDecision(
+        **claim_fields,
         workflow=baseline.workflow,
         baseline_version=baseline.version,
         candidate_version=candidate.version,
         verdict="pass",
-        recommended_action="approve",
+        recommended_action="review_candidate",
         reason_codes=["economic_constraints_satisfied"],
         baseline=baseline,
         candidate=candidate,
@@ -300,6 +517,7 @@ def compare_workflow_versions(
 
 __all__ = [
     "DecisionPolicy",
+    "EvidenceFingerprint",
     "EconomicDecision",
     "RunEvidence",
     "VersionEconomics",

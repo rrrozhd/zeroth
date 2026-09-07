@@ -7,33 +7,87 @@ from decimal import Decimal
 from math import isfinite
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
+from zeroth.protocol.cost_ownership import (
+    CostRole,
+    validate_charge_cost_input,
+    validate_cost_ownership,
+)
+from zeroth.protocol.outcome_maturity import OutcomeMaturity, validate_outcome_maturity
+from zeroth.protocol.source_inventory import SourceWindowInventory, validate_source_windows
 
 
 class ExecutionEvent(BaseModel):
-    """Measured cost and latency for one workflow step."""
+    """Caller-reported cost and latency for one workflow step; missing cost is unknown."""
 
     workflow: str = Field(min_length=1)
     workflow_version: str = Field(default="unversioned", min_length=1)
     run_id: str = Field(min_length=1)
     step: str = Field(min_length=1)
     attempt: int = Field(default=1, ge=1)
+    source_window_id: str | None = Field(default=None, min_length=1, max_length=128)
+    cost_role: CostRole = "legacy_unknown"
+    charge_id: str | None = Field(default=None, min_length=1, max_length=128)
     event_id: str | None = Field(default=None, min_length=1, max_length=128)
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     model_version: str = Field(default="unknown", min_length=1)
-    cost_usd: Decimal | None = Field(default=Decimal("0"), ge=0)
-    cost_measurement: Literal["measured", "estimated", "unmeasured"] = "measured"
+    cost_usd: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=8)
+    cost_measurement: Literal["measured", "estimated", "unmeasured"] = "unmeasured"
     latency_ms: int = Field(default=0, ge=0)
     subject_id: str | None = None
     dimensions: dict[str, str | int | float | bool] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    _exact_charge_cost = field_validator("cost_usd", mode="before")(validate_charge_cost_input)
+
     @model_validator(mode="after")
     def _cost_matches_measurement(self) -> ExecutionEvent:
+        if self.source_window_id is not None:
+            self.source_window_id.encode("utf-8")
+            if not 1 <= len(self.run_id) <= 128:
+                raise ValueError("windowed executions require a run_id of 1–128 characters")
+            if self.event_id is None:
+                raise ValueError("windowed executions require an explicit event_id")
+            if self.recorded_at.tzinfo is None or self.recorded_at.utcoffset() is None:
+                raise ValueError("windowed executions require an aware recorded_at")
+            self.recorded_at = self.recorded_at.astimezone(UTC)
+        validate_cost_ownership(self.cost_role, self.charge_id, (self.cost_usd,))
+        # Preserve explicit-amount callers without inventing an omitted amount.
+        if "cost_measurement" not in self.model_fields_set and self.cost_usd is not None:
+            self.cost_measurement = "measured"
         if self.cost_measurement == "unmeasured" and self.cost_usd is not None:
             raise ValueError("unmeasured cost must not include a value")
         if self.cost_measurement != "unmeasured" and self.cost_usd is None:
             raise ValueError("measured or estimated cost requires a value")
+        return self
+
+
+class OutcomeDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    workflow_id: str
+    workflow_version: str
+    outcome_type: str
+    operator: Literal["equals", "not_equals", "greater_than_or_equal", "less_than_or_equal"]
+    target: bool | float | str
+
+    @model_validator(mode="after")
+    def validate_target(self) -> OutcomeDefinition:
+        if self.operator in {"greater_than_or_equal", "less_than_or_equal"} and (
+            isinstance(self.target, bool) or not isinstance(self.target, float | int)
+        ):
+            raise ValueError("ordered outcome predicates require a numeric target")
+        if not self.workflow_id.strip() or not self.workflow_version.strip():
+            raise ValueError("workflow_id and workflow_version must be non-empty")
+        if not self.outcome_type.strip():
+            raise ValueError("outcome_type must be non-empty")
         return self
 
 
@@ -43,7 +97,8 @@ class OutcomeEvent(BaseModel):
     workflow: str = Field(min_length=1)
     workflow_version: str = Field(default="unversioned", min_length=1)
     run_id: str = Field(min_length=1)
-    accepted: bool
+    accepted: bool | None = None
+    maturity: OutcomeMaturity = "unknown"
     outcome_type: str = Field(default="accepted", min_length=1)
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     provenance: Literal["measured", "inferred", "mixed"] = "measured"
@@ -52,6 +107,13 @@ class OutcomeEvent(BaseModel):
     subject_id: str | None = None
     dimensions: dict[str, str | int | float | bool] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _maturity_contract(self) -> OutcomeEvent:
+        validate_outcome_maturity(self.maturity, self.accepted, self.occurred_at)
+        if self.maturity != "unknown":
+            self.occurred_at = self.occurred_at.astimezone(UTC)
+        return self
 
 
 class EconomicConstraints(BaseModel):
@@ -88,9 +150,9 @@ class DecisionPolicy(BaseModel):
 
     min_runs: int = Field(default=10, ge=1)
     min_outcome_coverage: float = Field(default=0.8, ge=0, le=1)
-    min_success_rate: float = Field(default=0.0, ge=0, le=1)
+    min_success_rate: float | None = Field(default=None, ge=0, le=1)
     max_success_rate_drop: float = Field(default=0.05, ge=0, le=1)
-    max_cost_per_outcome_increase: float = Field(default=0.1, ge=0)
+    max_cost_per_outcome_increase: float = Field(default=0.1, ge=0, allow_inf_nan=False)
     allow_estimated_cost: bool = False
     allow_inferred_outcomes: bool = False
 
@@ -98,15 +160,24 @@ class DecisionPolicy(BaseModel):
 class VersionComparisonRequest(BaseModel):
     """Request an evidence-gated comparison of two exact workflow versions."""
 
+    model_config = ConfigDict(extra="forbid")
+
     workflow: str = Field(min_length=1)
     baseline_version: str = Field(min_length=1)
     candidate_version: str = Field(min_length=1)
     outcome_type: str = Field(default="accepted", min_length=1)
     policy: DecisionPolicy = Field(default_factory=DecisionPolicy)
 
+    source_windows: dict[Literal["baseline", "candidate"], SourceWindowInventory] = Field(
+        default_factory=dict
+    )
+    _paired_windows = field_validator("source_windows")(validate_source_windows)
+
 
 class DecisionScheduleRequest(BaseModel):
     """Create a recurring economic comparison for two workflow versions."""
+
+    model_config = ConfigDict(extra="forbid")
 
     workflow: str = Field(min_length=1)
     baseline_version: str = Field(min_length=1)

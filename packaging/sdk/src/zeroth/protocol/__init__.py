@@ -1,5 +1,6 @@
 """Public request and event contracts shared with Zeroth Cloud."""
 
+from zeroth.protocol.charge_costs import ChargeCostRevision
 from zeroth.protocol.models import (
     BacktestCase,
     BacktestRequest,
@@ -18,6 +19,7 @@ from zeroth.protocol.models import (
     MigrationEvidenceSource,
     MigrationObservation,
     MigrationRiskPolicy,
+    OutcomeDefinition,
     OutcomeEvent,
     ProbabilisticDecisionScheduleRequest,
     ProbabilisticMigrationRequest,
@@ -26,8 +28,17 @@ from zeroth.protocol.models import (
     RandomizedRolloutVerifyRequest,
     VersionComparisonRequest,
 )
+from zeroth.protocol.source_inventory import (
+    RunInventory,
+    SourceWindowInventory,
+    execution_ids_digest,
+)
 
 __all__ = [
+    "ChargeCostRevision",
+    "RunInventory",
+    "SourceWindowInventory",
+    "execution_ids_digest",
     "BacktestCase",
     "BacktestRequest",
     "CohortRoutingAction",
@@ -51,5 +62,6 @@ __all__ = [
     "RandomizedRolloutAssignmentRequest",
     "RandomizedRolloutRequest",
     "RandomizedRolloutVerifyRequest",
+    "OutcomeDefinition",
     "VersionComparisonRequest",
 ]

@@ -47,6 +47,52 @@ protected capability requires evidence that covers static and dynamic
 reachability, exports, documentation, examples, service schemas, and optional
 integrations before its canonical mapping can be removed.
 
+### Paid-product contract amendments
+
+The owner approved D01 (unknown costs and explicit evidence contracts) and D02
+(exploratory claims with an explicit quality floor) on 2026-09-06. These amendments
+change economic behavior after the import migration; they do not promise the old
+zero defaults or undeclared outcome maturity remain sufficient evidence. No symbol
+moves or disappears. Existing execution constructors now expose all their validated
+fields through Pydantic's normal signature, including optional runtime attribution.
+
+The immutable legacy fixture stays unchanged. The canonical fixture records the
+following signatures and eight D01 amendment receipts, each binding the exact old
+identity/signature and current identity/signature with SHA-256. An absent, stale or
+unrelated receipt fails the gate. Updating another signature requires its own
+reviewed contract change; these receipts are not blanket exemptions. Canonical
+fixture and guide record the accepted contract changes explicitly.
+
+| Protected legacy identity | Canonical identity | Approved contract change |
+| --- | --- | --- |
+| `zeroth.core.econ.instrumentation:ExecutionEvent` | `zeroth.econ.instrumentation:ExecutionEvent` | D01: expose the validated evidence fields; missing costs are `None`, with the declared 18-digit, 8-decimal-place bounds. |
+| `zeroth.core.econ.instrumentation.schemas:ExecutionEvent` | `zeroth.econ.instrumentation.schemas:ExecutionEvent` | D01: same execution class and contract. |
+| `zeroth.econ_plane.instrumentation.schemas:ExecutionEventCreate` | `zeroth.econ.plane.instrumentation.schemas:ExecutionEventCreate` | D01: expose validated evidence fields and actual unknown-cost defaults and bounds. |
+| `zeroth.core.econ.instrumentation:OutcomeEvent` | `zeroth.econ.instrumentation:OutcomeEvent` | D01: nullable outcome value and explicit maturity, defaulting to unknown. |
+| `zeroth.core.econ.instrumentation.schemas:OutcomeEvent` | `zeroth.econ.instrumentation.schemas:OutcomeEvent` | D01: same outcome class and contract. |
+| `zeroth.econ_plane.instrumentation.schemas:OutcomeEventCreate` | `zeroth.econ.plane.instrumentation.schemas:OutcomeEventCreate` | D01: explicit outcome maturity, defaulting to unknown. |
+| `zeroth.econ_plane.instrumentation.schemas:OutcomeQueryResponse` | `zeroth.econ.plane.instrumentation.schemas:OutcomeQueryResponse` | D01: return outcome maturity, defaulting to unknown for older records. |
+| `zeroth.econ_plane.instrumentation.schemas:IngestResult` | `zeroth.econ.plane.instrumentation.schemas:IngestResult` | D01/A01: expose the accepted server-owned arrival time as optional `ingested_at`; older receipts remain valid. |
+
+The following models were introduced after the legacy snapshot. Their canonical
+signatures remain pinned, with empty legacy mappings rather than invented IDs.
+
+| Canonical identity | Approved contract change |
+| --- | --- |
+| `zeroth.econ.plane.debugger.schemas:EconomicDiagnosticReport` | D01: expose the count of nonmonetary summary events. |
+| `zeroth.econ.plane.cloud.schemas:SdkExecutionEvent` | D01: source-window and charge ownership fields; unknown/unmeasured cost defaults and precision bounds. |
+| `zeroth.econ.plane.cloud.schemas:SdkOutcomeEvent` | D01: nullable acceptance and explicit outcome maturity. |
+| `zeroth.econ.plane.decisioning.schemas:VersionComparisonRequest` | D01: optional paired source-window inventories. |
+| `zeroth.econ.plane.backtesting.schemas:BacktestCostEvidence` | D01: inventory the added observed-usage cost basis, amounts, pricing snapshot and usage by role. |
+| `zeroth.econ.plane.backtesting.schemas:BacktestComputation` | D01: include that cost evidence in the computed result. |
+| `zeroth.econ.plane.backtesting.schemas:EconomicBacktest` | D01/D02: retain cost evidence, exploratory claim/method/limitations and the `review_candidate` action. |
+
+Owned fractional charges must be supplied as exact decimal strings, not binary
+floats. Missing amounts stay unknown; explicit zero stays zero. Declaring measured
+cost or final outcome maturity remains the caller's assertion, not certification of
+source completeness. See `packaging/sdk/README.md` and `PROJECT_MODEL.md` in the
+repository for ingestion, migration and reader rules.
+
 ### Deferred structural work
 
 This cleanup does not split the oversized run repository, LangGraph tool guard,

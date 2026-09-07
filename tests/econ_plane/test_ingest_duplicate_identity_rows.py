@@ -20,16 +20,12 @@ holding duplicates is operator-induced rather than migration-induced.  It is
 covered anyway: both execution sites read that table with that key, and neither
 may answer a caller with a 500 or with somebody else's payload.
 
-The three sites need three different answers, and mirroring one onto the others
-would itself be the bug:
+The immutable event contract applies to outcomes and executions:
 
-* An outcome duplicate is duplicate *by identity key* and an outcome carries no
-  immutable fields, so the colliding rows are the same logical event and picking
-  one deterministically is safe.
-* An execution duplicate need not be: two rows sharing an ``execution_id`` can
-  differ in immutable fields, which is exactly why
-  ``_resolve_existing_execution`` exists.  Picking one arbitrarily would tell a
-  caller its payload was stored when a different one was.
+* Colliding outcomes must agree on value, typed payload, provenance, linkage
+  and asserted timestamps. A shared identity alone does not prove equivalence.
+* Colliding executions must likewise agree on their immutable fields. Picking
+  either kind arbitrarily would tell a caller that different evidence landed.
 * The ``linked_execution`` lookup is on the *outcome* endpoint and reads three
   fields off the row it finds.  Refusing an outcome over the other nine would
   punish it for a divergence that cannot reach it.
@@ -227,6 +223,7 @@ def _execution_row(
         timestamp=_NOW.replace(tzinfo=None),
         capability_id="cap-a",
         implementation_id=implementation_id,
+        evidence_kind="production",
         model_version=model_version,
         latency_ms=10,
         compute_time_ms=5,
@@ -235,6 +232,7 @@ def _execution_row(
 
 
 def _outcome_row(join_key: str) -> OutcomeEvent:
+    """The assertions `_outcome_payload` sends, with a synthetic receipt time."""
     return OutcomeEvent(
         tenant_id=_TENANT,
         join_key=join_key,
@@ -242,7 +240,8 @@ def _outcome_row(join_key: str) -> OutcomeEvent:
         capability_id="cap-a",
         implementation_id="impl-a",
         outcome_type="conversion",
-        outcome_payload_json={},
+        outcome_payload_json={"value": True},
+        outcome_value="True",
         occurred_at=_NOW,
         ingested_at=_NOW,
         outcome_timestamp=_NOW,
@@ -275,14 +274,7 @@ def _stored_executions(engine) -> list[tuple[str, str]]:
 
 
 def test_duplicate_outcome_rows_report_a_duplicate_not_a_500(unguarded_outcomes) -> None:
-    """Colliding outcome rows are the same logical event, and are reported as one.
-
-    They agree on every column of the identity by construction -- that is what
-    "colliding" means -- and an outcome carries no immutable fields for them to
-    disagree about, so there is no payload the caller could have sent that one of
-    them answers differently from the other.  Reporting a duplicate is therefore
-    the whole truth, and which row backs the report cannot change it.
-    """
+    """Rows agreeing on identity and all assertions are reported as one event."""
     _seed(unguarded_outcomes, _outcome_row("case-dup"), _outcome_row("case-dup"))
 
     response = _client(unguarded_outcomes).post(
@@ -290,7 +282,10 @@ def test_duplicate_outcome_rows_report_a_duplicate_not_a_500(unguarded_outcomes)
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"status": "duplicate", "execution_id": "case-dup"}
+    assert response.json() == {
+        "status": "duplicate", "execution_id": "case-dup",
+        "ingested_at": _NOW.isoformat().replace("+00:00", "Z"),
+    }
     # Reported, not stored again: a duplicate must not become a third row.
     assert _stored_outcomes(unguarded_outcomes) == ["case-dup", "case-dup"]
 
@@ -332,6 +327,35 @@ def test_the_reported_outcome_duplicate_does_not_move_as_more_duplicates_land(
     assert still_earliest == earliest
 
 
+def test_disagreeing_historical_outcome_rows_reject_replay_without_deletion(unguarded_outcomes):
+    first = _outcome_row("case-ambiguous")
+    second = _outcome_row("case-ambiguous")
+    second.outcome_payload_json = {"value": False}
+    second.outcome_value = "False"
+    _seed(unguarded_outcomes, first, second)
+    response = _client(unguarded_outcomes).post(
+        "/v1/instrumentation/outcomes", json=_outcome_payload("case-ambiguous"),
+    )
+    assert response.status_code == 422, response.text
+    assert "immutable outcome" in response.json()["detail"]
+    assert _stored_outcomes(unguarded_outcomes) == ["case-ambiguous", "case-ambiguous"]
+
+
+def test_historical_missing_outcome_value_is_not_acknowledged_as_a_measured_true(unguarded_outcomes):
+    unknown = _outcome_row("case-unknown")
+    unknown.outcome_payload_json = {}
+    unknown.outcome_value = ""
+    _seed(unguarded_outcomes, unknown)
+    response = _client(unguarded_outcomes).post(
+        "/v1/instrumentation/outcomes", json=_outcome_payload("case-unknown"),
+    )
+    assert response.status_code == 422, response.text
+    with Session(unguarded_outcomes) as db:
+        row = db.scalars(select(OutcomeEvent)).one()
+        assert row.outcome_payload_json == {}
+        assert row.outcome_value == ""
+
+
 # --------------------------------------------------------------------------
 # (b) the execution identity: the stored rows may not be the same execution
 # --------------------------------------------------------------------------
@@ -353,7 +377,9 @@ def test_duplicate_identical_execution_rows_report_a_duplicate_not_a_500(
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"status": "duplicate", "execution_id": "exec-dup"}
+    assert response.json() == {
+        "status": "duplicate", "execution_id": "exec-dup", "ingested_at": None,
+    }
     assert _stored_executions(unguarded_executions) == [
         ("exec-dup", "v1"),
         ("exec-dup", "v1"),
@@ -449,7 +475,9 @@ def test_an_outcome_linking_to_agreeing_duplicate_executions_is_ingested(
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"status": "inserted", "execution_id": "exec-linked"}
+    receipt = response.json()
+    assert datetime.fromisoformat(receipt.pop("ingested_at")).utcoffset().total_seconds() == 0
+    assert receipt == {"status": "inserted", "execution_id": "exec-linked"}
     assert _stored_outcomes(unguarded_executions) == ["exec-linked"]
 
 

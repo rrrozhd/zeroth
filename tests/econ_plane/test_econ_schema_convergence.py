@@ -205,8 +205,13 @@ def test_non_sqlite_startup_refuses_a_schema_the_chain_has_not_reached(
             connection.execute(text(_PRE_MEASUREMENT_EXECUTION_EVENTS))
         monkeypatch.setattr(database_module, "engine", engine)
 
-        # bootstrap()'s schema prefix, in order.
-        Base.metadata.create_all(bind=engine)
+        # Real startup must refuse before creating an FK against old parent
+        # columns, while still naming the migration that repairs those columns.
+        from zeroth.econ.plane.common import bootstrap as bootstrap_module
+
+        monkeypatch.setattr(bootstrap_module, "engine", engine)
+        with pytest.raises(EconSchemaNotConverged) as refusal:
+            bootstrap_module.bootstrap()
 
         # Negative control: create_all left the pre-existing tables alone, so the
         # mapper names a column that is not there and the read is a hard break --
@@ -215,9 +220,6 @@ def test_non_sqlite_startup_refuses_a_schema_the_chain_has_not_reached(
             session.execute(select(PolicyAction)).scalars().all()
         assert "enforcement_action_id" in str(undefined.value)
 
-        with pytest.raises(EconSchemaNotConverged) as refusal:
-            database_module._ensure_sqlite_compat()
-
         message = str(refusal.value)
         for expected in (
             "connector_delivery_log.tenant_id (revision 20260811_05)",
@@ -225,7 +227,7 @@ def test_non_sqlite_startup_refuses_a_schema_the_chain_has_not_reached(
             "execution_events.usage_measurement (revision 20260812_04)",
             "policy_actions.enforcement_action_id (revision 20260812_06)",
             "'20260811_04'",  # applied
-            "'20260902_20'",  # shipped head
+            "'20260907_25'",  # shipped head
             "behind",
             "alembic upgrade head",
             "postgresql",

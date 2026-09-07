@@ -15,9 +15,14 @@ Governing law and dispute forum: [COUNSEL_APPROVED_JURISDICTION]
 Privacy/data-rights email: [PRIVACY_EMAIL]
 Support email and response target: [SUPPORT_EMAIL / RESPONSE_TARGET]
 Security/incident email: [SECURITY_EMAIL]
-Minimum customer age and permitted customer regions: [AGE / REGIONS]
+Minimum customer age: [AGE]
+Initial permitted customer regions: United States and United Kingdom (owner direction, 2026-09-06)
 Policy effective date and version owner: [DATE / OWNER]
 ```
+
+The region selection is an intended launch scope. The legal entity, its country,
+contacts and region-specific policy review remain unresolved; this entry does
+not establish legal readiness or authorize opening production checkout.
 
 ## Product and billing facts
 

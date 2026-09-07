@@ -309,6 +309,12 @@ def seed_sqlalchemy_mapping(
             parent_model,
             tenant_id=tenant_id,
             token=token,
+            # An optional parent key must be populated when this child requires it.
+            overrides={
+                element.column.name: _mapped_column_value(element.column, token)
+                for element in constraint.elements
+                if not element.parent.nullable and element.column.nullable
+            },
             seeded=cache,
         )
         for element in constraint.elements:

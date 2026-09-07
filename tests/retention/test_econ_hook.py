@@ -149,7 +149,7 @@ async def test_sqlalchemy_econ_eraser_predicates_tenant_and_join_key(monkeypatch
     deleted = SqlAlchemyEconEventEraser()._delete_sync("tenant-a", ["shared-key"], "econ-operation")
 
     assert deleted == 0
-    assert len(statements) == 2
+    assert len(statements) == 3
     for statement in statements:
         compiled = statement.compile()
         assert "tenant_id" in str(compiled)
@@ -197,8 +197,8 @@ async def test_sqlalchemy_econ_eraser_replays_durable_receipt(monkeypatch) -> No
     first = eraser._delete_sync("tenant-a", ["join"], "stable-operation")
     second = eraser._delete_sync("tenant-a", ["join"], "stable-operation")
 
-    assert first == second == 2
-    assert execute_calls == 2
+    assert first == second == 3
+    assert execute_calls == 3
 
 
 async def test_sqlalchemy_econ_eraser_uses_injected_session_factory(monkeypatch) -> None:

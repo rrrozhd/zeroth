@@ -12,6 +12,7 @@ from sqlalchemy import select
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
 from zeroth.econ.plane.cloud.authkit import require_authkit_enabled
+from zeroth.econ.plane.cloud.entitlements import PLAN_CATALOG
 from zeroth.econ.plane.cloud.keys_schemas import ApiKeyCreate
 from zeroth.econ.plane.cloud.keys_service import issue_api_key, list_api_keys, revoke_api_key
 from zeroth.econ.plane.cloud.models import CloudSubscription, CloudUsageCounter
@@ -36,30 +37,36 @@ def _page(title: str, content: str) -> HTMLResponse:
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>{escape(title)} · Zeroth</title>
   <style>
     :root {{ color-scheme: light; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; min-width: 960px; color: #171717; background: #f4f1e8; }}
-    main {{ width: 880px; margin: 0 auto; padding: 72px 0 96px; }}
-    header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #171717;
-      padding-bottom: 18px; margin-bottom: 56px; }}
-    h1 {{ font: 600 42px/1.08 ui-sans-serif, system-ui, sans-serif; max-width: 760px; margin: 0 0 20px; }}
+    body {{ margin: 0; color: #171717; background: #f4f1e8; }}
+    main {{ width: min(880px, calc(100% - 32px)); margin: 0 auto;
+      padding: clamp(32px, 7.5vw, 72px) 0 clamp(48px, 10vw, 96px); }}
+    header {{ display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between;
+      border-bottom: 2px solid #171717; padding-bottom: 18px; margin-bottom: clamp(32px, 6vw, 56px); }}
+    h1 {{ font: 600 clamp(32px, 5vw, 42px)/1.08 ui-sans-serif, system-ui, sans-serif;
+      max-width: 760px; margin: 0 0 20px; }}
     h2 {{ font: 600 21px/1.2 ui-sans-serif, system-ui, sans-serif; margin: 0 0 16px; }}
     p, li {{ font: 16px/1.65 ui-sans-serif, system-ui, sans-serif; }}
     .muted {{ color: #5b5b55; }}
-    .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 32px 0; }}
-    .panel {{ border: 1px solid #171717; background: #fffdf6; padding: 24px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+      gap: 18px; margin: 32px 0; }}
+    .panel {{ min-width: 0; overflow-wrap: anywhere; border: 1px solid #171717;
+      background: #fffdf6; padding: 24px; }}
     .key {{ display: block; overflow-wrap: anywhere; border: 2px solid #171717;
       background: #fff; padding: 18px; margin: 18px 0; user-select: all; }}
-    .actions {{ display: flex; gap: 12px; align-items: center; margin-top: 24px; }}
+    .actions {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 24px; }}
     button, .button {{ appearance: none; border: 1px solid #171717; border-radius: 0;
       background: #171717; color: #fff; cursor: pointer; display: inline-block;
       font: 600 14px/1 ui-sans-serif, system-ui, sans-serif; padding: 14px 18px;
       text-decoration: none; }}
     button.secondary, .button.secondary {{ background: transparent; color: #171717; }}
-    table {{ border-collapse: collapse; width: 100%; background: #fffdf6; margin: 18px 0 34px; }}
+    .table-scroll {{ overflow-x: auto; margin: 18px 0 34px; }}
+    table {{ border-collapse: collapse; width: 100%; background: #fffdf6; }}
     th, td {{ border: 1px solid #171717; padding: 12px; text-align: left; }}
     code {{ font-family: inherit; }}
     form {{ margin: 0; }}
@@ -93,7 +100,7 @@ def activation_page(*, tenant_id: str, key_id: str, api_key: str | None) -> HTML
     return _page(
         "Trial ready",
         f"""<h1>Your Zeroth trial is ready.</h1>
-<p>Run one bounded production-economic backtest, then keep continuous evidence for
+<p>Run one exploratory model comparison on your labeled cases, then retain results for
 $39/month. Paddle will show the 14-day trial and renewal terms before confirmation.</p>
 {reveal}
 <div class="grid">
@@ -112,11 +119,16 @@ def landing(_enabled: None = Depends(require_authkit_enabled)) -> HTMLResponse: 
     return _page(
         "Economic debugger",
         """<h1>Economic debugger for production AI.</h1>
-<p>See which model or workflow change improves outcomes before it reaches production.
-Retain the decision, the measured cost, and the evidence behind it.</p>
+<p>Run an exploratory model comparison on your labeled cases. Review observed
+correctness and estimated text-model costs, then retain the results for your next
+comparison.</p>
 <div class="grid">
-  <div class="panel"><h2>14-day trial</h2><p>One bounded backtest and 100 provider calls.</p></div>
-  <div class="panel"><h2>$39/month</h2><p>Three backtests, 300 provider calls, retained history and scheduled decisions.</p></div>
+  <div class="panel"><h2>14-day trial</h2>
+    <p>One bounded backtest, 100 provider calls and one decision scan for the trial.</p></div>
+  <div class="panel"><h2>$39/month</h2>
+    <p>Three backtests, 300 provider calls and retained history.</p>
+    <p>155 decision scans per billing period, shared by manual comparisons and up to
+    five schedules. Each schedule can run at most once every 24 hours.</p></div>
 </div>
 <div class="actions"><a class="button" href="/v1/cloud/auth/login">Start with AuthKit</a></div>""",
     )
@@ -135,6 +147,10 @@ def account(
     db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
 ) -> HTMLResponse:
     subscription = _subscription(db, user.tenant_id)
+    limits = PLAN_CATALOG.get(
+        "trial" if subscription.status == "trialing" else subscription.plan
+    )
+    scan_allowance = f" / {limits.decision_scan_limit}" if limits else ""
     keys = list_api_keys(db)
     usage = {
         row.meter: row.quantity
@@ -169,13 +185,18 @@ def account(
   <div class="panel"><h2>{escape(subscription.plan.title())}</h2>
     <p>Status: {escape(subscription.status)}</p>
     <p class="muted">Period ends {escape(subscription.period_end.isoformat())}</p></div>
-  <div class="panel"><h2>Usage</h2>
+  <div class="panel"><h2>Usage this period</h2>
     <p>Backtests: {usage.get('backtests', 0)} · provider calls: {usage.get('backtest_calls', 0)}</p>
-    <p>Events: {usage.get('events', 0)} · decisions: {usage.get('decision_scans', 0)}</p></div>
+    <p>Events: {usage.get('events', 0)}</p>
+    <p>Decision scans: {usage.get('decision_scans', 0)}{scan_allowance}</p>
+    <p class="muted">Manual and scheduled comparisons share this period's
+    decision-scan allowance.</p></div>
 </div>
-<h2>Project keys</h2>
+<h2 id="project-keys">Project keys</h2>
+<div class="table-scroll" role="region" aria-labelledby="project-keys" tabindex="0">
 <table><thead><tr><th>Name</th><th>Fingerprint</th><th>Status</th><th></th></tr></thead>
 <tbody>{key_rows}</tbody></table>
+</div>
 <div class="actions">
   <form action="/account/api-keys" method="post"><button class="secondary" type="submit">Create replacement key</button></form>
   {checkout}{portal}

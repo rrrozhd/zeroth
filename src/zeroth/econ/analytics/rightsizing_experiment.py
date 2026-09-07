@@ -31,16 +31,18 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.econ.analytics.rightsizing import ModelOption
+from zeroth.econ.measurement import MeasurementState
 from zeroth.eval.models import EvalCase, EvalDataset, Score
 from zeroth.eval.runner import run_eval
 from zeroth.eval.scorers import JudgeVerdict, LLMJudgeScorer
 from zeroth.governance.audit.models import NodeAuditRecord
-from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest
+from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 
 # Fields that commonly hold "the answer" in a node's output snapshot. The default agent
 # output model is ``{"content": "..."}``; contract-typed nodes vary, so we look for a few
@@ -673,6 +675,63 @@ class HostedBacktestResult:
     savings_pct: float | None = None
     provider_calls: int = 0
     reasons: list[str] = field(default_factory=list)
+    cost_basis: str = "unavailable"
+    incumbent_replay_cost_usd: Decimal | None = None
+    candidate_replay_cost_usd: Decimal | None = None
+    judge_cost_usd: Decimal | None = None
+    pricing_snapshot: dict[str, dict[str, str]] = field(default_factory=dict)
+    usage_by_role: dict[str, dict[str, int]] = field(default_factory=dict)
+
+
+class _HostedUsageMeter:
+    """Price observed text usage; attempted calls with no usage remain unresolved."""
+
+    def __init__(self, provider: ProviderAdapter, option: ModelOption) -> None:
+        self.provider = provider
+        self.option = option
+        self.calls = 0
+        self.unresolved = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+
+    async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
+        self.calls += 1
+        self.unresolved += 1
+        response = await self.provider.ainvoke(request)
+        usage = response.token_usage
+        if (
+            usage is not None
+            and response.usage_measurement is MeasurementState.MEASURED
+            and {"input_tokens", "output_tokens"} <= usage.model_fields_set
+            and usage.input_tokens >= 0 and usage.output_tokens >= 0
+            and usage.model_name == request.model_name == self.option.ref
+            and not response.tool_calls
+            and (
+                "total_tokens" not in usage.model_fields_set
+                or usage.total_tokens == usage.input_tokens + usage.output_tokens
+            )
+        ):
+            self.input_tokens += usage.input_tokens
+            self.output_tokens += usage.output_tokens
+            self.unresolved -= 1
+        return response
+
+    @property
+    def cost(self) -> Decimal | None:
+        if not self.calls or self.unresolved:
+            return None
+        return (
+            Decimal(str(self.option.input_per_mtok_usd)) * self.input_tokens
+            + Decimal(str(self.option.output_per_mtok_usd)) * self.output_tokens
+        ) / Decimal(1_000_000)
+
+    def usage(self) -> dict[str, int]:
+        return {
+            "adapter_invocations": self.calls,
+            "unresolved_invocations": self.unresolved,
+            "observed_input_tokens": self.input_tokens,
+            "observed_output_tokens": self.output_tokens,
+        }
 
 
 class HostedModelBacktest:
@@ -686,9 +745,13 @@ class HostedModelBacktest:
 
         incumbent = describe(request.incumbent_model)
         candidate = describe(request.candidate_model)
-        if incumbent is None or candidate is None:
+        if incumbent is None or candidate is None or any(
+            not Decimal(str(rate)).is_finite() or Decimal(str(rate)) < 0
+            for option in (incumbent, candidate)
+            for rate in (option.input_per_mtok_usd, option.output_per_mtok_usd)
+        ):
             return HostedBacktestResult(
-                reasons=["pricing is unavailable for the incumbent or candidate model"]
+                reasons=["pricing is unavailable or invalid for the incumbent or candidate model"]
             )
         dataset = EvalDataset(
             name=f"hosted:{request.workflow}:{request.node_id or 'node'}",
@@ -702,41 +765,54 @@ class HostedModelBacktest:
             from zeroth.runtime.agents.provider import LiteLLMProviderAdapter
 
             provider = LiteLLMProviderAdapter()
-        report = await run_experiment(
-            incumbent=incumbent,
-            candidates=[candidate],
+        incumbent_meter = _HostedUsageMeter(provider, incumbent)
+        candidate_meter = _HostedUsageMeter(provider, candidate)
+        judge_meter = _HostedUsageMeter(provider, incumbent)
+        inc_quality, _inc_errors, inc_n, inc_failed = await _measure_equivalence(
+            incumbent.ref,
             dataset=dataset,
             instruction=request.instruction,
-            replay_provider=provider,
-            judge_provider=provider,
-            judge_model=request.incumbent_model,
-            mean_input_tokens=1000,
-            mean_output_tokens=300,
-            node_id=request.node_id,
-            min_cases=5,
+            replay_provider=incumbent_meter,
+            judge_provider=judge_meter,
+            judge_model=incumbent.ref,
             mode="correctness",
         )
-        incumbent_outcome = next((item for item in report.outcomes if item.is_incumbent), None)
-        candidate_outcome = next((item for item in report.outcomes if not item.is_incumbent), None)
-        provider_calls = sum(item.cases_evaluated * 2 for item in report.outcomes)
-        execution_inconclusive = candidate_outcome is None or (
-            candidate_outcome.cases_evaluated > 0
-            and candidate_outcome.cases_errored == candidate_outcome.cases_evaluated
-        )
-        reasons = (
-            [report.note or "experiment was inconclusive"] if execution_inconclusive else []
-        )
+        cand_quality = cand_errors = None
+        reasons: list[str] = []
+        if inc_n and inc_failed < inc_n:
+            cand_quality, cand_errors, _cand_n, _cand_failed = await _measure_equivalence(
+                candidate.ref,
+                dataset=dataset, instruction=request.instruction,
+                replay_provider=candidate_meter, judge_provider=judge_meter,
+                judge_model=incumbent.ref, mode="correctness",
+            )
+        else:
+            reasons.append("incumbent replay did not produce evaluable cases")
+
+        meters = {"incumbent": incumbent_meter, "candidate": candidate_meter, "judge": judge_meter}
+        for role, meter in meters.items():
+            if meter.cost is None:
+                reasons.append(f"{role} cost is unavailable: observed text usage is incomplete")
+        savings = None
+        if incumbent_meter.cost is not None and candidate_meter.cost is not None:
+            if incumbent_meter.cost > 0:
+                savings = float((1 - candidate_meter.cost / incumbent_meter.cost) * 100)
+            else:
+                reasons.append("incumbent replay cost is zero; relative savings are undefined")
         return HostedBacktestResult(
-            incumbent_success_rate=(
-                incumbent_outcome.equivalence_rate if incumbent_outcome is not None else None
-            ),
-            candidate_success_rate=(
-                candidate_outcome.equivalence_rate if candidate_outcome is not None else None
-            ),
-            candidate_error_rate=(
-                candidate_outcome.error_rate if candidate_outcome is not None else None
-            ),
-            savings_pct=candidate_outcome.savings_pct if candidate_outcome is not None else None,
-            provider_calls=provider_calls,
+            incumbent_success_rate=inc_quality,
+            candidate_success_rate=cand_quality,
+            candidate_error_rate=cand_errors,
+            savings_pct=savings,
+            provider_calls=sum(meter.calls for meter in meters.values()),
             reasons=reasons,
+            cost_basis="rate_card_from_observed_usage" if savings is not None else "unavailable",
+            incumbent_replay_cost_usd=incumbent_meter.cost,
+            candidate_replay_cost_usd=candidate_meter.cost,
+            judge_cost_usd=judge_meter.cost,
+            pricing_snapshot={option.ref: {
+                "input_per_mtok_usd": str(option.input_per_mtok_usd),
+                "output_per_mtok_usd": str(option.output_per_mtok_usd),
+            } for option in (incumbent, candidate)},
+            usage_by_role={role: meter.usage() for role, meter in meters.items()},
         )

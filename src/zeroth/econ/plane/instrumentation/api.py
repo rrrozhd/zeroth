@@ -10,6 +10,7 @@ from zeroth.econ.plane.auth.deps import (
     require_roles,
 )
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
+from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
 from zeroth.econ.plane.debugger.schemas import (
     BreakagePoint,
     CohortPoint,
@@ -90,6 +91,7 @@ def _outcome_out(row: object) -> OutcomeQueryResponse:
             "outcome_payload_json": payload,
             "occurred_at": occurred_at,
             "provenance": getattr(row, "provenance", "MEASURED"),
+            "maturity": getattr(row, "maturity", None),
         }
     )
 
@@ -117,7 +119,7 @@ def post_execution(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=_EXECUTION_IDENTITY_CONFLICT) from exc
-    return IngestResult(status=status, execution_id=row.execution_id)
+    return IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)
 
 
 @router.post("/instrumentation/outcomes", response_model=IngestResult)
@@ -137,7 +139,7 @@ def post_outcome(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=_IDENTITY_CONFLICT) from exc
-    return IngestResult(status=status, execution_id=row.execution_id)
+    return IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)
 
 
 @router.post("/outcomes/ingest", response_model=list[IngestResult])
@@ -163,7 +165,8 @@ def ingest_outcome_batch(
         db.rollback()
         raise HTTPException(status_code=409, detail=_IDENTITY_CONFLICT) from exc
     return [
-        IngestResult(status=status, execution_id=row.execution_id) for status, row in results
+        IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)
+        for status, row in results
     ]
 
 
@@ -200,7 +203,10 @@ def get_debugger_timeline(
         require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
     ),
 ) -> list[TimelinePoint]:
-    return timeline(db, workflow_id=workflow_id, start=start, end=end)
+    try:
+        return timeline(db, workflow_id=workflow_id, start=start, end=end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/debugger/cohorts", response_model=list[CohortPoint])
@@ -238,7 +244,10 @@ def get_debugger_breakage(
         require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
     ),
 ) -> list[BreakagePoint]:
-    return breakage(db, workflow_id=workflow_id, start=start, end=end)
+    try:
+        return breakage(db, workflow_id=workflow_id, start=start, end=end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post(
@@ -249,8 +258,8 @@ def get_debugger_breakage(
 def post_outcome_definition(
     payload: OutcomeDefinitionCreate,
     response: Response,
-    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
-    _user: UserClaims = Depends(require_roles("Admin")),  # noqa: B008
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin")),  # noqa: B008
 ) -> OutcomeDefinitionOut:
     try:
         created, row = create_outcome_definition(db, payload)
@@ -264,9 +273,9 @@ def post_outcome_definition(
 @router.get("/debugger/outcome-definitions", response_model=list[OutcomeDefinitionOut])
 def get_outcome_definitions(
     workflow_id: str | None = None,
-    db: ScopedSession = Depends(get_current_scoped_db),  # noqa: B008
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
     _user: UserClaims = Depends(  # noqa: B008
-        require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
+        require_cloud_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
     ),
 ) -> list[OutcomeDefinitionOut]:
     return [
@@ -286,13 +295,16 @@ def get_debugger_report(
         require_roles("Admin", "Analyst", "Approver", "Viewer")  # noqa: B008
     ),
 ) -> EconomicDiagnosticReport:
-    report = diagnostic_report(
-        db,
-        workflow_id=workflow_id,
-        start=start,
-        end=end,
-        cohort_dimension=cohort_dimension,
-    )
+    try:
+        report = diagnostic_report(
+            db,
+            workflow_id=workflow_id,
+            start=start,
+            end=end,
+            cohort_dimension=cohort_dimension,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if report is None:
         raise HTTPException(
             status_code=404,

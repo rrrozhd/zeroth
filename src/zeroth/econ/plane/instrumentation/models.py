@@ -2,14 +2,37 @@ from datetime import datetime
 from decimal import Decimal
 from typing import ClassVar
 
-from sqlalchemy import DateTime, Index, Integer, Numeric, String, UniqueConstraint, text
+from sqlalchemy import DateTime, ForeignKeyConstraint, Index, Integer, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 from zeroth.econ.plane.database import Base
 from zeroth.platform.storage.scoping import ResourceOperation, ResourceScopeDefinition
 
 _ALL_OPERATIONS = frozenset(ResourceOperation)
+
+
+class _StoredCost(TypeDecorator[Decimal]):
+    """Preserve exact monetary assertions on SQLite and PostgreSQL."""
+
+    impl = Numeric(18, 8)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        return dialect.type_descriptor(String(20) if dialect.name == "sqlite" else Numeric(18, 8))
+
+    def process_bind_param(self, value, dialect):
+        if value is None or dialect.name != "sqlite":
+            return value
+        amount = Decimal(str(value))
+        if amount == 0:
+            return "0"
+        encoded = format(amount, "f")
+        return encoded.rstrip("0").rstrip(".") if "." in encoded else encoded
+
+    def process_result_value(self, value, dialect):
+        return Decimal(value) if value is not None else None
 
 
 class ExecutionEvent(Base):
@@ -23,6 +46,7 @@ class ExecutionEvent(Base):
             "execution_id",
             name="uq_execution_events_tenant_execution_id",
         ),
+        Index("uq_execution_events_tenant_charge_id", "tenant_id", "charge_id", unique=True),
         Index(
             "ix_execution_events_tenant_time_capability",
             "tenant_id",
@@ -36,6 +60,7 @@ class ExecutionEvent(Base):
             "workflow_id",
             "timestamp",
         ),
+        Index("ix_execution_events_tenant_source_window", "tenant_id", "source_window_id"),
         Index("ix_execution_events_tenant_subject", "tenant_id", "subject_id"),
     )
 
@@ -49,6 +74,9 @@ class ExecutionEvent(Base):
     cleanup_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     workflow_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
     workflow_version: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
+    source_window_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    cost_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    charge_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     run_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     step_id: Mapped[str | None] = mapped_column(String(192), index=True, nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, default=1)
@@ -57,17 +85,43 @@ class ExecutionEvent(Base):
     execution_id: Mapped[str] = mapped_column(String(128), index=True)
     join_key: Mapped[str] = mapped_column(String(128), index=True, default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
+    ingested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
     implementation_id: Mapped[str] = mapped_column(String(128), index=True)
     model_version: Mapped[str] = mapped_column(String(128))
-    token_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
-    tool_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
-    compute_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    token_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    tool_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    compute_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
     cost_measurement: Mapped[str] = mapped_column(String(16), default="unmeasured")
     usage_measurement: Mapped[str] = mapped_column(String(16), default="unmeasured")
     latency_ms: Mapped[int] = mapped_column(default=0)
     compute_time_ms: Mapped[int] = mapped_column(default=0)
     event_metadata: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+
+
+class ChargeCostRevisionRecord(Base):
+    __tablename__ = "charge_cost_revisions"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.charge_cost_revision", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "charge_id"], ["execution_events.tenant_id", "execution_events.charge_id"],
+            name="fk_charge_cost_revision_owner", ondelete="CASCADE",
+        ),
+        UniqueConstraint("tenant_id", "charge_id", "asserted_at", name="uq_charge_cost_revision_identity"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    charge_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    asserted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    token_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    tool_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    compute_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    cost_measurement: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str] = mapped_column(String(256), nullable=False)
 
 
 class OutcomeEvent(Base):
@@ -106,6 +160,9 @@ class OutcomeEvent(Base):
             "capability_id",
         ),
         Index("ix_outcome_events_tenant_join_key", "tenant_id", "join_key"),
+        Index(
+            "ix_outcome_events_tenant_workflow_version", "tenant_id", "workflow_id", "workflow_version"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -114,6 +171,8 @@ class OutcomeEvent(Base):
     execution_id: Mapped[str] = mapped_column(String(128), index=True, default="")
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
     implementation_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    workflow_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    workflow_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     outcome_type: Mapped[str] = mapped_column(String(64))
     outcome_payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
     outcome_value: Mapped[str] = mapped_column(String(255), default="")
@@ -121,6 +180,7 @@ class OutcomeEvent(Base):
     ingested_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     outcome_timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
     provenance: Mapped[str] = mapped_column(String(16), default="MEASURED")
+    maturity: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class EconErasureReceipt(Base):

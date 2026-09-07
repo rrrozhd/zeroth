@@ -26,17 +26,17 @@ about what to cut, change, or retain.
 The local debugger is the free trust layer. The subscription sells continuous
 hosted operation and decision history rather than a basic cost dashboard.
 
-| Free forever | Paid managed service, after activation |
+| Free forever | Approved Solo scope, pending release acceptance |
 |---|---|
 | SDK, ingestion, and local verification | Managed ingestion and retained evidence |
 | Single-team cost per successful outcome | Scheduled workflow-version decisions |
-| Run and step economic timeline | Hosted simulations and post-change verification |
-| Cohort and breakage queries | Decision history, notifications, and collaboration |
-| Local caps and enforcement mechanics | Multi-team rollups, chargeback, SSO/RBAC, and retention |
-| Local model-swap backtests | Signed proof-of-savings and compliance evidence bundles |
+| Run and step economic timeline | Bounded exploratory model experiments |
+| Cohort and breakage queries | Retained comparison and experiment history |
+| Local caps and enforcement mechanics | Metered managed experiment calls |
+| Local model-swap backtests | Observed usage and rate-card projections |
 
 The land user may be a solo developer or small AI team that needs a recurring,
-low-touch answer to “is this cheaper version safe to ship?” Organization finance
+low-touch way to review observed cost and outcome changes. Organization finance
 and governance controls are the expansion motion. Project API keys, retained
 decisions, schedules, enforced quotas, and a vendor-neutral subscription
 projection are implemented. The approved self-serve offer is Solo at $39/month
@@ -132,8 +132,16 @@ cost per accepted outcome. It returns an immutable decision artifact with a
 pass, fail, or abstain verdict and a recommended action. The engine abstains
 when the run count or outcome coverage is too low, cost is estimated or
 unmeasured, outcomes are inferred, or the baseline has no accepted outcomes.
+It also requires an explicit `policy.min_success_rate`, including in schedules.
+Omission or `null` abstains; zero is an explicit customer choice. A policy pass
+uses `review_candidate` and means the declared sample constraints were met.
+The default cost-growth tolerance is 10%, so a pass is not a savings claim.
 It does not convert missing evidence into zero or market a projected saving as
 realized value.
+
+Threshold comparisons use exact ratios of counts and decimal cost totals.
+Presentation rounding does not determine the verdict. A zero baseline cost
+leaves relative cost change undefined; that comparison abstains.
 
 `GET /v1/decisions` returns retained history. `POST` and `GET
 /v1/decision-schedules` manage recurring comparisons, and the worker discovers
@@ -152,6 +160,140 @@ correctness, checks the minimum success-rate constraint, and requires positive
 projected model savings before it can pass. Raw inputs, expected outputs, and
 instructions are not retained: history stores a keyed request digest plus the
 result. Exact retries return that immutable result without another model call.
+The quality floor must be supplied as `constraints.min_success_rate` before
+provider work starts. Input/output usage is priced separately for incumbent,
+candidate and judge using retained rates. Judge expense is not workload savings.
+Missing usage abstains; rate-card estimates do not establish invoice charges.
+
+### Claim and method contract
+
+| Output | Claim class / method | Evidence scope and limitations |
+| --- | --- | --- |
+| Version comparison and scheduled result | `observed_comparison` / `observed-policy/3` | Received evidence for the named versions; outcomes use the latest non-future assertion and resolve only with declared final maturity and compatible definitions. Source completeness and business truth are not established. Policy checks describe that evidence only. |
+| Hosted model backtest | `exploratory_model_experiment` / `observed-replay-policy/1` | Supplied 5–25 cases; observed correctness according to the current judge and text-usage projections at retained rates. Judge calibration and population generalization are unvalidated. Cache, tools, downstream charges and unobserved retries are excluded. |
+| Historical result without these fields | `legacy_unclassified` / `legacy_unversioned` | Original values and action remain readable. Missing metadata cannot establish the current method or completeness. |
+| Legacy counterfactual estimates | Legacy OSS method only | Heuristic confidence, calibration and proxy-dollar outputs are not paid statistical, causal or forecasting authorization. |
+
+New reports retain `claim_class`, `method_version` and `limitations`. Both current
+methods use `review_candidate` for a pass, never automatic rollout. Their
+`no_statistical_causal_or_forecast_authorization` limitation applies even when
+all observed cases pass. Repeated scheduled looks do not create population
+confidence. Retained normalized calculation inputs make comparison arithmetic
+reproducible. Raw source snapshots, source closure and independent outcome truth
+remain acceptance work.
+
+Hosted comparisons bind each version to a `source_evidence` fingerprint tagged
+`stored-assertions/1` (v2 for capture-window identity, v3 for charge ownership,
+v4 for declared outcome maturity, v5 for charge-cost revisions), with selected
+execution, outcome and cost-revision counts. The digest
+covers immutable assertions and their multiplicity, independent of record order,
+database row IDs and receipt times. A later selected outcome or zero-cost step
+creates a new retained revision even when the totals do not change. No raw
+payload is copied into the report. A fingerprint cannot prove missing streams
+were delivered, reconstruct erased source records, or serve as a signature.
+Historical reports keep an empty source binding.
+
+### Reconstruct a retained comparison
+
+New comparison results include `calculation_inputs`, version `run-economics/1`.
+Its `baseline` and `candidate` lists preserve the normalized economic inputs used
+for that report. Each row contains `cost_usd`, `cost_measurement`, `accepted`,
+`outcome_measurement` and `runs`. Identical input tuples are grouped; `runs` is
+their multiplicity. Zero is an observed amount and null is unknown. Amounts are
+exact decimal strings and may use exponent notation such as `1E-8`; parse them
+with decimal or rational arithmetic, not binary floating point.
+
+For each side, these rules reconstruct `VersionEconomics`:
+
+| Number | Calculation from input rows |
+| --- | --- |
+| Runs | Sum `runs` over every row. |
+| Labeled, accepted, rejected runs | Sum multiplicities where `accepted` is non-null, true, or false, respectively. |
+| Outcome coverage | Labeled runs / all runs; zero when there are no runs. |
+| Success rate | Accepted / labeled runs; unavailable when there are no labels. |
+| Inferred outcome runs | Labeled multiplicities whose `outcome_measurement` is not `measured`. |
+| Measured, estimated, unmeasured runs | Sum multiplicities by `cost_measurement`. |
+| Measured and estimated cost | Sum `cost_usd × runs` separately for each provenance. |
+| Cost per accepted outcome | Divide eligible total cost by accepted runs, only when all runs are labeled, no cost is unknown, at least one run is accepted, and estimated costs are either absent or explicitly allowed by the retained policy. |
+
+The input unit is a whole run. If one required charge is unknown or execution
+delivery mismatches the inventory, that run's cost is unknown here. A debugger's
+visible subtotal of known components has a different scope. Unresolved outcomes
+never become rejected outcomes merely to complete a denominator. Inferred labels
+and estimated costs keep their provenance even when a policy permits them.
+
+The report also retains the policy and source/definition bindings. Use exact
+ratios of the retained totals and counts when checking its cost-change or
+success-change constraints; displayed decimal quotients and floating-point changes
+are presentation values. A calculation replay does not establish statistical or
+causal validity, source delivery, invoice truth or the correctness of normalization.
+
+Late evidence produces a new comparison record. Read the original decision ID in
+`GET /v1/decisions` to retrieve its original calculation inputs; do not recompute
+the old report from today's event selection. These inputs remain with retained
+reports after source erasure, but add no run, event, charge or subject identifiers,
+prompts, metadata or outcome payloads. Small-population economic figures are not
+promised to be anonymous. Existing report-retention obligations still apply.
+Historical reports without `calculation_inputs` return null; they cannot acquire
+missing inputs retrospectively. The independent source ledger is still needed to
+trace assertions to provider charges and verify their meaning.
+
+The application must assign a new workflow version when prompts, models, tools
+or other execution configuration affecting economics change. An unchanged label
+does not prove an unchanged configuration. Comparisons permit the same version
+on both sides, including distinct declared execution windows; identical inputs
+describe the same observations, not a new improvement. No automatic freshness
+cutoff is applied. Review window age and population relevance before using old
+observations for a new change. Identical requests and selected evidence reuse the
+original retained decision and evaluation time. Policy or selected evidence changes
+produce another report revision; rerunning unchanged evidence does not refresh it.
+
+Comparisons can also receive caller-owned source inventories for both versions.
+Executions carry an immutable `source_window_id`; each inventory declares its
+inclusive capture interval, terminal runs, and expected event counts/ID digests.
+The producer must construct this inventory independently of successful delivery.
+Entirely missing runs remain visible with unknown cost. Partial runs, unexpected
+records and mismatched IDs cannot pass the comparison. Reports retain the inventory
+digest and reconciliation counts in `source_delivery`; a changed inventory or
+selected record set creates another immutable report revision. They do not retain
+another list of customer run IDs.
+
+This is bounded reconciliation of received executions with a supplied declaration.
+It does not freeze business outcomes, prove physical charge ownership, or verify
+that all source windows were declared. A matched inventory retains the existing
+source-completeness limitation. Fixed inventories are optional for direct
+comparisons; recurring schedules retain their observed-history behavior. See the
+standalone SDK README for the wire format and independent producer-ledger example.
+
+Stored comparisons require an immutable outcome definition for each workflow
+version, using the same predicate as the debugger and provider allocation. Missing
+rules and wrong outcome types remain unresolved; different cross-version predicates
+force abstention. The latest uninterpretable observation cannot restore an older
+success. Reports retain `outcome_semantics` definition/rule digests in the existing
+decision identity, so later definitions create a new revision without changing old
+history. Definitions specify interpretation, not outcome maturity or independent
+business truth. The existing outcome-definition endpoint accepts Admin cloud
+credentials; the lean SDK exposes `create_outcome_definition`. See its README for
+the declaration and compatibility transition.
+
+Explicit monetary ownership uses `cost_role="charge"` plus a tenant-wide
+`charge_id`. The existing execution table admits one owner per declared charge
+identity; another capture cannot claim its dollars, even in a concurrent write.
+Structural `summary` events carry no money and their metadata usage is not priced.
+Distinct charged attempts remain additive. Comparisons retain `charge_ownership`
+counts and declaration status. The debugger reports structural `summary_events`
+separately from measured, estimated and unmeasured monetary events; a summary-only
+run remains incomplete. Legacy amounts remain visible with ownership unverified.
+These identities are caller assertions, not independent invoice evidence. Use the
+existing append-only charge-cost revisions and explicit outcome maturity contracts
+described in the standalone SDK guide; they preserve assertions and interpretation,
+not independently verified business truth.
+
+Paid project keys and WorkOS browser sessions cannot authenticate the legacy
+`/v1/evaluations/*` routes. Those retain the legacy JWT boundary for self-hosted
+use. Hosted deployment must keep the development token issuer disabled and
+protect service credentials; local credential tests do not replace deployed
+security acceptance.
 
 The isolated node replay abstains when pricing is unknown or when asked to
 prove cost per business outcome or critical-error limits that its evidence
@@ -191,7 +333,8 @@ for every workflow version in the selected window. Undefined versions remain
 unresolved and are named in the diagnostic; Zeroth does not infer success from
 positive numbers, booleans, strings, fraud flags, or other business values.
 
-Queries deliberately scan at most 50,000 recent execution events per request.
+Debugger windows accept at most 50,000 execution events per request. Larger
+windows return HTTP 422, so their totals cannot silently describe a truncated population.
 This is a bounded single-team debugger, not an organization-scale warehouse.
 Paid rollups should be pre-aggregated rather than increasing that request-time
 limit indefinitely.

@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -17,9 +19,24 @@ from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db
 from zeroth.econ.plane.database import Base
 from zeroth.econ.plane.decisioning.api import router as decisioning_router
 from zeroth.econ.plane.decisioning.models import EconomicDecisionRecord
+from zeroth.econ.plane.debugger.models import OutcomeDefinition
+from zeroth.econ.plane.debugger.schemas import OutcomeDefinitionCreate
+from zeroth.econ.plane.debugger.service import _definition_digest
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
+
+
+def _seed_definition(db: Session, *, tenant_id: str, version: str) -> None:
+    payload = OutcomeDefinitionCreate(
+        workflow_id="invoice-agent", workflow_version=version,
+        outcome_type="accepted", operator="equals", target=True,
+    )
+    db.add(OutcomeDefinition(
+        tenant_id=tenant_id, workflow_id=payload.workflow_id, workflow_version=version,
+        outcome_type=payload.outcome_type, operator=payload.operator, target_json=True,
+        definition_digest=_definition_digest(payload), created_at=datetime(2026, 8, 31, tzinfo=UTC),
+    ))
 
 
 def _seed_version(
@@ -30,6 +47,7 @@ def _seed_version(
     cost: str,
     accepted: int,
 ) -> None:
+    _seed_definition(db, tenant_id=tenant_id, version=version)
     now = datetime(2026, 8, 31, tzinfo=UTC)
     for index in range(10):
         run_id = f"{version}-{index}"
@@ -55,6 +73,7 @@ def _seed_version(
         )
         db.add(
             OutcomeEvent(
+                maturity="final",
                 tenant_id=tenant_id,
                 join_key=run_id,
                 execution_id="",
@@ -71,12 +90,15 @@ def _seed_version(
         )
 
 
-def test_compare_route_reads_only_the_authenticated_tenant(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("baseline_cost,candidate_cost", [("1", "0.6"), ("0.00000005", "0.00000003")])
+def test_compare_route_reads_only_the_authenticated_tenant(
+    tmp_path: Path, monkeypatch, baseline_cost, candidate_cost,
+) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'decisions.db'}")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
-        _seed_version(db, tenant_id="tenant-a", version="v1", cost="1", accepted=9)
-        _seed_version(db, tenant_id="tenant-a", version="v2", cost="0.6", accepted=9)
+        _seed_version(db, tenant_id="tenant-a", version="v1", cost=baseline_cost, accepted=9)
+        _seed_version(db, tenant_id="tenant-a", version="v2", cost=candidate_cost, accepted=9)
         _seed_version(db, tenant_id="tenant-b", version="v2", cost="99", accepted=1)
         db.commit()
 
@@ -116,7 +138,9 @@ def test_compare_route_reads_only_the_authenticated_tenant(tmp_path: Path, monke
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["verdict"] == "pass"
-    assert payload["recommended_action"] == "approve"
+    assert payload["recommended_action"] == "review_candidate"
+    assert payload["claim_class"] == "observed_comparison"
+    assert payload["method_version"] == "observed-policy/3"
     assert payload["baseline"]["runs"] == 10
     assert payload["candidate"]["runs"] == 10
     assert payload["cost_per_outcome_change"] == -0.4
@@ -146,6 +170,7 @@ def test_compare_route_reads_only_the_authenticated_tenant(tmp_path: Path, monke
     assert repeated.json()["decision_id"] == payload["decision_id"]
     assert history.status_code == 200
     assert [item["decision_id"] for item in history.json()] == [payload["decision_id"]]
+    assert history.json()[0] == repeated.json() == payload
     with Session(engine) as db:
         assert db.scalar(select(func.count()).select_from(EconomicDecisionRecord)) == 1
 

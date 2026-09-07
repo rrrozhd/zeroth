@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -25,11 +27,13 @@ from zeroth.econ.plane.decisioning.workers import _run_due_decision_scans
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
+from tests.econ_plane.test_economic_decision_api import _seed_definition
 
 
 def _seed(db: Session) -> None:
     now = datetime(2026, 8, 31, tzinfo=UTC)
     for version, cost in (("v1", "1"), ("v2", "0.6")):
+        _seed_definition(db, tenant_id="tenant-a", version=version)
         for index in range(10):
             run_id = f"{version}-{index}"
             timestamp = now + timedelta(seconds=index)
@@ -54,6 +58,7 @@ def _seed(db: Session) -> None:
             )
             db.add(
                 OutcomeEvent(
+                    maturity="final",
                     tenant_id="tenant-a",
                     join_key=run_id,
                     execution_id="",
@@ -70,9 +75,11 @@ def _seed(db: Session) -> None:
             )
 
 
+@pytest.mark.parametrize("quality_floor", [None, 0.85])
 def test_schedule_api_and_due_runner_retain_a_recurring_decision(
     tmp_path: Path,
     monkeypatch,
+    quality_floor,
 ) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'schedules.db'}")
     Base.metadata.create_all(engine)
@@ -104,6 +111,7 @@ def test_schedule_api_and_due_runner_retain_a_recurring_decision(
             "candidate_version": "v2",
             "outcome_type": "accepted",
             "interval_minutes": 60,
+            "policy": {} if quality_floor is None else {"min_success_rate": quality_floor},
         },
     )
 
@@ -120,7 +128,13 @@ def test_schedule_api_and_due_runner_retain_a_recurring_decision(
         )
 
     assert len(decisions) == 1
-    assert decisions[0].verdict == "pass"
+    assert decisions[0].verdict == ("abstain" if quality_floor is None else "pass")
+    assert decisions[0].claim_class == "observed_comparison"
+    assert decisions[0].method_version == "observed-policy/3"
+    if quality_floor is None:
+        assert "policy.min_success_rate" in decisions[0].reason_codes
+    else:
+        assert decisions[0].recommended_action == "review_candidate"
     assert decisions[0].decision_id
 
     listed = client.get("/v1/decision-schedules", headers=headers)

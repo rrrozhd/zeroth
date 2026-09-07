@@ -13,6 +13,7 @@ from zeroth.econ.plane.costing.models import (
     PricingCatalog,
 )
 from zeroth.econ.plane.costing.schemas import CostProfileCreate, PricingCatalogCreate
+from zeroth.econ.plane.instrumentation.charge_costs import resolve_costs
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.statistics.service import hierarchical_interval
@@ -96,8 +97,9 @@ def estimate_cost_for_period(
     )
     if implementation_id:
         stmt = stmt.where(ExecutionEvent.implementation_id == implementation_id)
-    executions = list(db.execute(stmt).scalars())
+    executions = [event for event in db.execute(stmt).scalars() if event.cost_role != "summary"]
 
+    costs, _revisions = resolve_costs(db, executions)
     measured_llm = 0.0
     measured_tool = 0.0
     measured_compute = 0.0
@@ -105,15 +107,15 @@ def estimate_cost_for_period(
     inferred_samples: list[float] = []
 
     for e in executions:
-        state = MeasurementState(e.cost_measurement)
+        state = MeasurementState(costs[e.id].cost_measurement)
         if state is MeasurementState.MEASURED:
             has_measured = True
-            measured_llm += float(e.token_cost_usd or 0)
-            measured_tool += float(e.tool_cost_usd or 0)
-            measured_compute += float(e.compute_cost_usd or 0)
+            measured_llm += float(costs[e.id].token_cost_usd or 0)
+            measured_tool += float(costs[e.id].tool_cost_usd or 0)
+            measured_compute += float(costs[e.id].compute_cost_usd or 0)
         elif state is MeasurementState.ESTIMATED:
             inferred_samples.append(
-                float((e.token_cost_usd or 0) + (e.tool_cost_usd or 0) + (e.compute_cost_usd or 0))
+                float((costs[e.id].token_cost_usd or 0) + (costs[e.id].tool_cost_usd or 0) + (costs[e.id].compute_cost_usd or 0))
             )
 
         md = e.event_metadata or {}
@@ -152,7 +154,7 @@ def estimate_cost_for_period(
         data_quality = "mixed"
     elif inferred_samples:
         data_quality = "inferred"
-    elif executions and all(e.cost_measurement == "measured" for e in executions):
+    elif executions and all(costs[e.id].cost_measurement == "measured" for e in executions):
         data_quality = "measured"
 
     low = max(0.0, total - abs(inferred_high - inferred_llm_mean) * max(len(executions), 1))

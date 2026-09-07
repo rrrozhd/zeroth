@@ -42,8 +42,10 @@ migration chain with `zeroth migrate-econ`, and set
 destination exist. The hosted SKU does not create the broader runtime's service
 tables or `alembic_version`; its schema authority is `alembic_version_econ`.
 The single API replica runs the database-claimed decision scheduler in-process.
-If that task exits, `/health/ready` reports a degraded body so Railway replaces
-the replica. A future multi-replica deployment may run the same loop safely
+If that task exits, `/health/ready` returns HTTP 503 and a degraded body. It also
+returns 503 for an outdated or unknown economic schema. This checks task liveness;
+it does not yet prove that recent scheduled work succeeded. Host restart and alert
+behavior must be configured and verified separately. A future multi-replica deployment may run the same loop safely
 because schedule claims are conditional database updates, but the launch shape
 deliberately remains one replica.
 
@@ -81,6 +83,12 @@ deliberately remains one replica.
   invalid signature is rejected without changing subscription state.
 - Rollback of revision `20260901_17` removes only external identity bindings;
   it deliberately preserves subscription and billing evidence.
+- Revision `20260906_18` adds nullable public workflow/version fields to outcomes
+  and a tenant lookup index. Apply the economic migration chain before upgrading
+  the service on PostgreSQL. The migration preserves old rows and rejects a
+  downgrade when public outcome identity has been populated. A rollback build
+  must understand both legacy and scoped SDK identities and retain the columns;
+  an older binary that only queries raw capability IDs is not compatible.
 - A Paddle subscription in `trialing` state always receives Trial quotas even
   though its catalog plan is Solo. Solo quotas begin only after Paddle reports
   `active`; checkout cannot prematurely expand free usage.
@@ -88,13 +96,21 @@ deliberately remains one replica.
 ## Approved launch offer
 
 Solo is the only purchasable plan at launch: **$39/month after a 14-day
-trial**. Its enforceable billing-period limits are 100,000 ingested events, 31
+trial**. Its enforceable billing-period limits are 100,000 ingested events, 155
 decision scans, three hosted backtests, 300 provider-call credits across those
-backtests, and five daily schedules. A backtest reserves its count and provider
+backtests, and up to five configured schedules, each with a minimum 24-hour interval.
+Manual and scheduled comparisons of stored evidence share the 155-scan allowance;
+manual use leaves fewer scans for schedules. Reading retained history does not
+consume scans. Usage resets with the subscription's billing period. The account
+page shows scans used against the applicable period allowance, including trial limits.
+
+A backtest reserves its count and provider
 calls atomically; if either allowance is exhausted, neither meter advances.
 Unused call credits are returned after execution.
 
-The trial permits one hosted backtest and 100 provider-call credits. Team and
+The trial permits one hosted backtest, 100 provider-call credits, one total
+decision scan and one configured schedule with a minimum 24-hour interval. The
+trial does not include a new scan each day. Team and
 Scale remain internal entitlement shapes for compatibility and future
 expansion, but checkout rejects them. Do not advertise or sell Team until
 member, governance, and collaboration limits are enforced rather than merely
@@ -112,8 +128,9 @@ The repository does not publish Railway project state or infrastructure as
 code. Create one managed Postgres service and one headless economic-plane API
 built from `Dockerfile.cloud` in the Railway project itself. Configure
 `zeroth migrate-econ` as the pre-deploy command and use `/health/ready` as
-the healthcheck. Inspect its JSON as well as its HTTP status because readiness
-intentionally reports dependency degradation in the body.
+the healthcheck. HTTP 200 means the economic schema is current and the enabled
+scheduler task is running; HTTP 503 means either check failed. Inspect the JSON
+to identify the degraded dependency.
 
 Set the WorkOS and Paddle values listed above, plus `ECP_JWT_SECRET`, on the API
 service. Wire the managed Postgres URL to `ECP_DATABASE_URL`, set

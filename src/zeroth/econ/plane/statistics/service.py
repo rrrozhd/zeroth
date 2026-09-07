@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from math import sqrt
-from statistics import mean, pstdev
+from numbers import Integral, Real
+from statistics import NormalDist, mean, pstdev
 
 import numpy as np
 
 
+def _normal_quantile(confidence: float) -> float:
+    if not isinstance(confidence, Real) or not 0 < confidence < 1:
+        raise ValueError("confidence must be strictly between zero and one")
+    # The lower tail avoids rounding (1 + confidence) / 2 to 1 near full confidence.
+    return -NormalDist().inv_cdf((1 - confidence) / 2)
+
+
 def hierarchical_interval(values: list[float], prior_mean: float = 0.0, prior_weight: float = 5.0, confidence: float = 0.95) -> tuple[float, float, float]:
+    z = _normal_quantile(confidence)
     if not values:
         return prior_mean, prior_mean - 1.0, prior_mean + 1.0
 
@@ -15,19 +24,28 @@ def hierarchical_interval(values: list[float], prior_mean: float = 0.0, prior_we
     post_mean = ((prior_mean * prior_weight) + (sample_mean * n)) / (prior_weight + n)
     sigma = pstdev(values) if n > 1 else max(abs(sample_mean) * 0.25, 1.0)
     se = sigma / sqrt(max(n, 1))
-    z = 1.96 if confidence >= 0.95 else 1.64
     return post_mean, post_mean - z * se, post_mean + z * se
 
 
 def wilson_interval(successes: int, n: int, confidence: float = 0.95) -> tuple[float, float, float]:
-    if n <= 0:
+    z = _normal_quantile(confidence)
+    if (
+        not isinstance(successes, Integral) or isinstance(successes, bool)
+        or not isinstance(n, Integral) or isinstance(n, bool)
+        or not 0 <= successes <= n
+    ):
+        raise ValueError("counts must be integers satisfying 0 <= successes <= n")
+    if n == 0:
         return 0.0, 0.0, 1.0
-    z = 1.96 if confidence >= 0.95 else 1.64
     phat = successes / n
     denom = 1 + (z * z / n)
     center = (phat + (z * z) / (2 * n)) / denom
     radius = (z * sqrt((phat * (1 - phat) / n) + (z * z / (4 * n * n)))) / denom
-    return center, max(0.0, center - radius), min(1.0, center + radius)
+    # Score-test roots are exactly 0/1 at zero/all successes; preserve those
+    # boundaries when center +/- radius loses an ulp to floating-point rounding.
+    low = 0.0 if successes == 0 else max(0.0, center - radius)
+    high = 1.0 if successes == n else min(1.0, center + radius)
+    return center, low, high
 
 
 def bootstrap_interval(values: list[float], confidence: float = 0.95, iters: int = 800) -> tuple[float, float, float]:

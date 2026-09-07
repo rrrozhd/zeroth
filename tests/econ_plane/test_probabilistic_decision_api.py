@@ -165,7 +165,8 @@ def test_model_migration_route_retains_an_immutable_tenant_decision(
     assert payload["recommended_candidate_share"] == 0
     assert "experimental_predictive_reliability_unapproved" in payload["reason_codes"]
     assert payload["evidence_lineage"]["predictive_reliability"] == "unapproved"
-    assert payload["actions"]  # Keep numerical diagnostics, not an authorization.
+    assert payload["actions"] == []
+    assert "risk_law_unqualified" in payload["reason_codes"]
     assert payload["decision_id"].startswith("pdec_")
     assert payload["evaluated_at"]
     assert repeated.status_code == 200
@@ -277,7 +278,8 @@ def test_public_cutoff_and_missingness_survive_api_storage_roundtrip(
     if variant != "override":
         assert result["actions"] == []
     else:
-        assert result["actions"]
+        assert result["actions"] == []
+        assert "risk_law_unqualified" in result["reason_codes"]
         assert result["evidence_lineage"]["predictive_reliability"] == "unapproved"
     with Session(engine) as db:
         record = db.get(ProbabilisticMigrationDecisionRecord, result["decision_id"])

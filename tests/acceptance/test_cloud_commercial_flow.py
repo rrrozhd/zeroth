@@ -239,7 +239,8 @@ def test_signup_backtest_upgrade_portal_and_cancellation(
         http_client=httpx.Client(transport=httpx.MockTransport(dispatch)),
     )
     trial_backtest = sdk.create_backtest(_backtest_request())
-    assert trial_backtest["recommended_action"] == "approve_candidate"
+    assert trial_backtest["recommended_action"] == "review_candidate"
+    assert trial_backtest["claim_class"] == "exploratory_model_experiment"
     assert sdk.list_backtests() == [trial_backtest]
 
     browser_headers = {"Origin": "https://app.example.test"}

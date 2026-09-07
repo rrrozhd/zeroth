@@ -13,9 +13,10 @@ carries fifteen fields. This module is that record: every hidden field is listed
 here, the list is checked against reality in both directions, and no class may
 start hiding fields without appearing in it.
 
-The list may only shrink. Exposing a hidden field is a surface change with a
-fixture-regeneration procedure nobody has written down yet, which is recorded as
-a deferred observation rather than attempted here (ZER-41 / A03-14).
+The list may only shrink. Exposing a hidden field requires an explicit contract
+amendment in docs/backend-import-migration.md and the canonical fixture. D01
+removes the two economic execution overrides so unknown costs and validated
+evidence fields are visible to callers.
 """
 
 from __future__ import annotations
@@ -50,23 +51,6 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "zeroth.econ.analytics.client:RegulusClient": ("_asgi_app",),
     "zeroth.econ.instrumentation.client:InstrumentationClient": ("_asgi_app",),
-    "zeroth.econ.instrumentation.schemas:ExecutionEvent": (
-        "attempt",
-        "campaign_id",
-        "cleanup_status",
-        "cost_measurement",
-        "dimensions",
-        "deployment_ref",
-        "evidence_kind",
-        "operation_id",
-        "provider_request_id",
-        "run_id",
-        "step_id",
-        "subject_id",
-        "usage_measurement",
-        "workflow_id",
-        "workflow_version",
-    ),
     "zeroth.econ.analytics.adapter:InstrumentedProviderAdapter": (
         "branch_id",
         "campaign_id",
@@ -92,23 +76,6 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     "zeroth.econ.plane.enforcement.schemas:CostReservationOut": (
         "deployment_ref",
         "evidence_kind",
-    ),
-    "zeroth.econ.plane.instrumentation.schemas:ExecutionEventCreate": (
-        "attempt",
-        "campaign_id",
-        "cleanup_status",
-        "cost_measurement",
-        "dimensions",
-        "deployment_ref",
-        "evidence_kind",
-        "operation_id",
-        "provider_request_id",
-        "run_id",
-        "step_id",
-        "subject_id",
-        "usage_measurement",
-        "workflow_id",
-        "workflow_version",
     ),
     "zeroth.governance.audit.models:NodeAuditRecord": (
         "campaign_id",
@@ -362,6 +329,19 @@ def test_service_bootstrap_records_internal_template_dependency_checker() -> Non
     assert "template_dependency_checker" in declared_fields(_resolve(reference))
     assert "template_dependency_checker" in hidden_fields(_resolve(reference))
     assert "template_dependency_checker" in HIDDEN_CONSTRUCTOR_FIELDS[reference]
+
+
+@pytest.mark.parametrize("reference", [
+    "zeroth.econ.instrumentation.schemas:ExecutionEvent",
+    "zeroth.econ.plane.instrumentation.schemas:ExecutionEventCreate",
+])
+def test_economic_constructors_report_validated_fields_and_unknown_cost(reference: str) -> None:
+    target = _resolve(reference)
+    signature = inspect.signature(target)
+    assert hidden_fields(target) == set()
+    for name in ("token_cost_usd", "tool_cost_usd", "compute_cost_usd"):
+        assert real_default(target, name) is None
+        assert signature.parameters[name].default is None
 
 
 @pytest.mark.parametrize("reference", sorted(HIDDEN_CONSTRUCTOR_FIELDS))

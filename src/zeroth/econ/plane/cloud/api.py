@@ -7,12 +7,15 @@ import json
 from datetime import datetime
 from typing import Any, Literal, Union
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.measurement import MeasurementState
+from zeroth.econ.charge_costs import ChargeCostRevision
+from zeroth.econ.plane.instrumentation.charge_costs import find_revision, ingest_revision, revision_history
+from zeroth.econ.outcome_maturity import OutcomeMaturity
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
 from zeroth.econ.plane.cloud.entitlements import EntitlementError, release_usage, reserve_usage
@@ -22,6 +25,7 @@ from zeroth.econ.plane.instrumentation.schemas import (
     IngestResult,
 )
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.instrumentation.identity import sdk_registry_ids
 from zeroth.econ.plane.instrumentation.service import (
     ingest_execution,
     ingest_outcome_with_status,
@@ -29,6 +33,40 @@ from zeroth.econ.plane.instrumentation.service import (
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["zeroth-cloud-sdk"])
+
+
+@router.post("/charge-cost-revisions")
+def record_charge_cost_revision(
+    payload: ChargeCostRevision,
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
+) -> dict[str, str]:
+    try:
+        reserved = False if find_revision(db, payload) is not None else reserve_usage(db, "events")
+    except EntitlementError as exc:
+        raise HTTPException(status_code=402, detail=exc.detail) from exc
+    try:
+        status, _row = ingest_revision(db, payload)
+    except (ValueError, IntegrityError) as exc:
+        db.rollback()
+        if reserved:
+            release_usage(db, "events")
+        code = 422 if isinstance(exc, ValueError) else 409
+        detail = str(exc) if code == 422 else "charge revision identity conflict; retry"
+        raise HTTPException(status_code=code, detail=detail) from exc
+    if reserved and status != "inserted":
+        release_usage(db, "events")
+    return {"status": status, "charge_id": payload.charge_id, "asserted_at": payload.asserted_at.isoformat()}
+
+
+@router.get("/charge-cost-revisions", response_model=list[ChargeCostRevision])
+def list_charge_cost_revisions(
+    charge_id: str = Query(min_length=1, max_length=128),  # noqa: B008
+    limit: int = Query(default=100, ge=1, le=1000),  # noqa: B008
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst", "Approver", "Viewer")),  # noqa: B008
+) -> list[ChargeCostRevision]:
+    return revision_history(db, charge_id, limit)
 
 
 class _CloudOutcomeCreate(BaseModel):
@@ -39,8 +77,11 @@ class _CloudOutcomeCreate(BaseModel):
     join_key: str
     capability_id: str
     implementation_id: str
+    workflow_id: str | None = None
+    workflow_version: str | None = None
     outcome_type: str = Field(min_length=1, max_length=64)
     outcome_value: Union[float, bool, str] | None = None
+    maturity: OutcomeMaturity = "unknown"
     outcome_payload_json: dict[str, Any] = Field(default_factory=dict)
     occurred_at: datetime
     outcome_timestamp: datetime
@@ -71,8 +112,11 @@ def record_execution(
     user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
 ) -> IngestResult:
     execution_id = _stable_execution_id(payload)
+    capability_id, implementation_id = sdk_registry_ids(
+        db, payload.workflow, payload.workflow_version
+    )
     already_recorded = db.scalars(
-        select(ExecutionEvent.id).where(ExecutionEvent.execution_id == execution_id)
+        select(ExecutionEvent).where(ExecutionEvent.execution_id == execution_id)
     ).first()
     try:
         reserved = False if already_recorded is not None else reserve_usage(db, "events")
@@ -86,24 +130,41 @@ def record_execution(
         metadata["dimensions"] = payload.dimensions
     metadata["tenant_id"] = user.tenant_id
     measured = payload.cost_measurement != "unmeasured"
-    event = ExecutionEventCreate(
-        tenant_id=user.tenant_id,
-        execution_id=execution_id,
-        join_key=payload.run_id,
-        timestamp=payload.recorded_at,
-        capability_id=payload.workflow,
-        implementation_id=payload.workflow_version,
-        model_version=payload.model_version,
-        token_cost_usd=payload.cost_usd if measured else None,
-        tool_cost_usd=None,
-        compute_cost_usd=None,
-        cost_measurement=MeasurementState(payload.cost_measurement),
-        usage_measurement=MeasurementState.UNMEASURED,
-        latency_ms=payload.latency_ms,
-        metadata=metadata,
-    )
     try:
-        status, row = ingest_execution(db, event)
+        event = ExecutionEventCreate(
+            tenant_id=user.tenant_id,
+            execution_id=execution_id,
+            join_key=payload.run_id,
+            timestamp=payload.recorded_at,
+            capability_id=capability_id,
+            implementation_id=implementation_id,
+            workflow_id=payload.workflow,
+            workflow_version=payload.workflow_version,
+            source_window_id=payload.source_window_id,
+            cost_role=payload.cost_role,
+            charge_id=payload.charge_id,
+            # Declared ownership/window contracts bind public identity. Legacy
+            # unwindowed clients keep their original debugger mapping for retries.
+            run_id=payload.run_id if (
+                payload.source_window_id is not None or payload.cost_role != "legacy_unknown"
+            ) else None,
+            step_id=payload.step if payload.cost_role != "legacy_unknown" else None,
+            # Older SDK ingestion stored attempt=1 but kept the raw value in
+            # metadata. Preserve that immutable representation on exact replay;
+            # metadata comparison still rejects a changed source attempt.
+            attempt=(already_recorded.attempt or 1) if already_recorded is not None else payload.attempt,
+            model_version=payload.model_version,
+            token_cost_usd=payload.cost_usd if measured else None,
+            tool_cost_usd=None,
+            compute_cost_usd=None,
+            cost_measurement=MeasurementState(payload.cost_measurement),
+            usage_measurement=MeasurementState.UNMEASURED,
+            latency_ms=payload.latency_ms,
+            metadata=metadata,
+        )
+        status, row = ingest_execution(
+            db, event, registry_names=(payload.workflow, payload.workflow_version)
+        )
     except ValueError as exc:
         db.rollback()
         if reserved:
@@ -116,7 +177,7 @@ def record_execution(
         raise HTTPException(status_code=409, detail="execution identity conflict; retry") from exc
     if reserved and status != "inserted":
         release_usage(db, "events")
-    return IngestResult(status=status, execution_id=row.execution_id)
+    return IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)
 
 
 @router.post("/outcomes", response_model=IngestResult)
@@ -125,11 +186,14 @@ def record_outcome(
     db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
     user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
 ) -> IngestResult:
+    capability_id, implementation_id = sdk_registry_ids(
+        db, payload.workflow, payload.workflow_version
+    )
     already_recorded = db.scalars(
         select(OutcomeEvent.id).where(
             OutcomeEvent.join_key == payload.run_id,
-            OutcomeEvent.capability_id == payload.workflow,
-            OutcomeEvent.implementation_id == payload.workflow_version,
+            OutcomeEvent.capability_id == capability_id,
+            OutcomeEvent.implementation_id == implementation_id,
             OutcomeEvent.outcome_type == payload.outcome_type,
             OutcomeEvent.occurred_at == payload.occurred_at,
         )
@@ -153,14 +217,17 @@ def record_outcome(
     event = _CloudOutcomeCreate(
         tenant_id=user.tenant_id,
         join_key=payload.run_id,
-        capability_id=payload.workflow,
-        implementation_id=payload.workflow_version,
+        capability_id=capability_id,
+        implementation_id=implementation_id,
+        workflow_id=payload.workflow,
+        workflow_version=payload.workflow_version,
         outcome_type=payload.outcome_type,
         outcome_value=payload.accepted,
         outcome_payload_json=outcome_payload,
         occurred_at=payload.occurred_at,
         outcome_timestamp=payload.occurred_at,
         provenance=payload.provenance.upper(),
+        maturity=payload.maturity,
     )
     try:
         status, row = ingest_outcome_with_status(db, event)
@@ -176,4 +243,4 @@ def record_outcome(
         raise HTTPException(status_code=409, detail="outcome identity conflict; retry") from exc
     if reserved and status != "inserted":
         release_usage(db, "events")
-    return IngestResult(status=status, execution_id=row.execution_id)
+    return IngestResult(status=status, execution_id=row.execution_id, ingested_at=row.ingested_at)

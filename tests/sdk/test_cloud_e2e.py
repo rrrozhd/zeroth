@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -21,6 +22,7 @@ from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.database import Base
 from zeroth.econ.plane.decisioning.api import router as decisioning_router
+from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
 
@@ -36,8 +38,9 @@ class _BacktestExecutor:
         )
 
 
-def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypatch) -> None:
-    from zeroth.protocol import ExecutionEvent, OutcomeEvent, VersionComparisonRequest
+@pytest.mark.parametrize("candidate_cost", [Decimal("0.6"), Decimal("0"), None])
+def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypatch, candidate_cost) -> None:
+    from zeroth.protocol import DecisionPolicy, ExecutionEvent, OutcomeEvent, VersionComparisonRequest, OutcomeDefinition
     from zeroth.sdk import ZerothClient
 
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'sdk-e2e.db'}")
@@ -45,6 +48,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
     app = FastAPI()
     app.include_router(cloud_router, prefix="/v1")
     app.include_router(decisioning_router, prefix="/v1")
+    app.include_router(instrumentation_router, prefix="/v1")
 
     def scoped_db():
         with Session(engine) as db:
@@ -77,7 +81,11 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
         http_client=httpx.Client(transport=httpx.MockTransport(dispatch)),
     )
     now = datetime(2026, 8, 31, tzinfo=UTC)
-    for version, cost in (("v1", Decimal("1")), ("v2", Decimal("0.6"))):
+    for version, cost in (("v1", Decimal("1")), ("v2", candidate_cost)):
+        sdk.create_outcome_definition(OutcomeDefinition(
+            workflow_id="invoice-agent", workflow_version=version,
+            outcome_type="accepted", operator="equals", target=True,
+        ))
         for index in range(10):
             run_id = f"{version}-{index}"
             timestamp = now + timedelta(seconds=index)
@@ -88,11 +96,12 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
                     run_id=run_id,
                     step="generate",
                     recorded_at=timestamp,
-                    cost_usd=cost,
+                    **({"cost_usd": cost} if cost is not None else {}),
                 )
             )
             sdk.record_outcome(
                 OutcomeEvent(
+                    maturity="final",
                     workflow="invoice-agent",
                     workflow_version=version,
                     run_id=run_id,
@@ -106,12 +115,22 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
             workflow="invoice-agent",
             baseline_version="v1",
             candidate_version="v2",
+            policy=DecisionPolicy(min_success_rate=0.85),
         )
     )
 
-    assert decision["verdict"] == "pass"
-    assert decision["recommended_action"] == "approve"
-    assert decision["cost_per_outcome_change"] == -0.4
+    if candidate_cost is None:
+        assert decision["verdict"] == "abstain"
+        assert decision["recommended_action"] == "collect_evidence"
+        assert "candidate_contains_unmeasured_cost" in decision["reason_codes"]
+        assert decision["candidate"]["unmeasured_runs"] == 10
+        assert decision["candidate"]["measured_runs"] == 0
+        assert decision["candidate"]["cost_per_accepted_outcome_usd"] is None
+        assert decision["cost_per_outcome_change"] is None
+    else:
+        assert decision["verdict"] == "pass"
+        assert decision["recommended_action"] == "review_candidate"
+        assert decision["cost_per_outcome_change"] == (-1 if candidate_cost == 0 else -0.4)
 
 
 def test_sdk_submits_and_reads_a_real_hosted_backtest_route(tmp_path: Path, monkeypatch) -> None:
@@ -291,5 +310,6 @@ def test_sdk_submits_and_reads_a_probabilistic_model_migration_decision(
     assert result["recommended_action"] == "collect_evidence"
     assert "experimental_predictive_reliability_unapproved" in result["reason_codes"]
     assert result["evidence_lineage"]["predictive_reliability"] == "unapproved"
-    assert Decimal(result["actions"][0]["cvar_loss_usd"]) < 0
+    assert result["actions"] == []
+    assert "risk_law_unqualified" in result["reason_codes"]
     assert sdk.list_model_migration_decisions() == [result]

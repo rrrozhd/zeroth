@@ -2,11 +2,16 @@
 
 ## Bottom line
 
-Sell one self-serve result: **backtest an AI cost cut before production and get
-an evidence-backed ship, hold, or collect-more-evidence decision**. The SDK and
+Sell one self-serve result: **compare models on 5–25 labeled cases and retain an
+exploratory result for candidate review**. The SDK and
 self-hosted UI remain open source. Zeroth Cloud charges $39/month for hosted
 history, recurring comparisons, quotas, and post-change evidence after a
 14-day trial.
+
+Correctness is judged on the supplied cases; text-model costs use captured usage
+and retained rates. These results do not establish production savings or authorize
+rollout. The [claim and method contract](../concepts/economic-optimization.md#claim-and-method-contract)
+defines the evidence limits and excluded charges.
 
 Do not lead with observability, generic workflow management, FinOps, provider
 routing, or governance. Those are mechanisms or expansion paths. The first
@@ -15,8 +20,8 @@ buyer must understand the transaction without a call:
 ```text
 5–25 labeled cases + incumbent + candidate
   → bounded economic backtest
-  → cost and outcome comparison
-  → approve candidate | keep incumbent | collect evidence
+  → observed correctness and estimated text-model cost comparison
+  → review candidate | keep incumbent | collect evidence
 ```
 
 ## Initial user
@@ -25,7 +30,7 @@ Target a solo developer or AI engineer who:
 
 - owns a production or near-production AI feature;
 - can label success for a small representative case set;
-- is considering a cheaper model, prompt, or implementation change; and
+- is considering a cheaper model; and
 - cares about avoiding either a quality regression or an unjustified AI bill.
 
 This is narrower than the eventual enterprise buyer. It is intentionally
@@ -34,9 +39,11 @@ before Zeroth builds sales, Team collaboration, or enterprise procurement.
 
 ## Offer and activation
 
-- Trial: 14 days, one hosted backtest, 100 provider calls.
+- Trial: 14 days, one hosted backtest, 100 provider calls and one total decision scan.
 - Solo: $39/month, three backtests, 300 provider calls, retained history, and
-  five daily schedules.
+  155 decision scans per billing period. Manual comparisons and up to five
+  configured schedules share those scans; each schedule has a minimum 24-hour
+  interval. Manual use leaves fewer scans for schedules.
 - First value: one retained decision from at least five labeled cases.
 - Recurring value: a second backtest, scheduled decision, or post-change
   verification during the first paid period.
@@ -69,9 +76,9 @@ not require cross-site tracking:
 
 Suggested launch sentence:
 
-> Zeroth tells you whether a cheaper model or workflow change should ship. Give
-> it 5–25 labeled cases; it compares cost and accepted outcomes, refuses false
-> certainty, and retains the decision for the next production change.
+> Compare a candidate model with your incumbent on 5–25 labeled cases. Zeroth
+> reports observed correctness, estimated text-model costs and evidence gaps,
+> then retains the exploratory result for your review and next comparison.
 
 Do not claim proven savings from synthetic data, imply causal waste from a
 failed run, or advertise enterprise governance that is not purchasable.

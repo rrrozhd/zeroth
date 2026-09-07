@@ -82,6 +82,8 @@ def test_cost_precision_migration_upgrades_sqlite_and_preserves_micro_cost(
             text(
                 "CREATE TABLE execution_events ("
                 "id INTEGER PRIMARY KEY, "
+                # This fixture is stamped after the tenant-scope migration.
+                "tenant_id VARCHAR(128) NOT NULL, "
                 "token_cost_usd NUMERIC(12, 4), "
                 "tool_cost_usd NUMERIC(12, 4), "
                 "compute_cost_usd NUMERIC(12, 4))"
@@ -90,8 +92,8 @@ def test_cost_precision_migration_upgrades_sqlite_and_preserves_micro_cost(
         connection.execute(
             text(
                 "INSERT INTO execution_events "
-                "(id, token_cost_usd, tool_cost_usd, compute_cost_usd) "
-                "VALUES (1, :cost, :cost, :cost)"
+                "(id, tenant_id, token_cost_usd, tool_cost_usd, compute_cost_usd) "
+                "VALUES (1, 'tenant-a', :cost, :cost, :cost)"
             ),
             {"cost": str(_MICRO_COST)},
         )
@@ -110,12 +112,12 @@ def test_cost_precision_migration_upgrades_sqlite_and_preserves_micro_cost(
             "compute_cost_usd",
         ):
             column_type = columns[column_name]["type"]
-            assert (column_type.precision, column_type.scale) == (18, 8)
+            assert str(column_type) == "VARCHAR(20)"
 
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20260902_20"
+                == "20260907_25"
             )
             costs = connection.execute(
                 text(
@@ -167,6 +169,6 @@ def test_sqlite_runtime_convergence_upgrades_pre_alembic_cost_precision(
             "tool_cost_usd",
             "compute_cost_usd",
         ):
-            assert (after[column].precision, after[column].scale) == (18, 8)
+            assert str(after[column]) == "VARCHAR(20)"
     finally:
         engine.dispose()

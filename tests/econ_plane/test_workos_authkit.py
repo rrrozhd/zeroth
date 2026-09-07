@@ -265,6 +265,25 @@ def test_sealed_workos_session_resolves_trusted_tenant_and_role(tmp_path: Path, 
     assert response.json()["sub"] == "workos:user_01"
 
 
+def test_paid_browser_session_cannot_invoke_legacy_confidence_routes(tmp_path: Path, monkeypatch):
+    from zeroth.econ.plane.counterfactual.api import router
+
+    client = _protected_client(tmp_path, monkeypatch, _FakeWorkOS())
+    client.app.include_router(router, prefix="/v1")
+    assert client.get("/protected").status_code == 200
+    for method, path in [
+        ("POST", "/v1/evaluations/run"),
+        ("POST", "/v1/evaluations/run/async"),
+        ("GET", "/v1/evaluations/invoice-agent/latest"),
+        ("GET", "/v1/evaluations/invoice-agent/history"),
+    ]:
+        response = client.request(
+            method, path, headers={"Origin": "https://app.example.test"},
+            **({"json": {"capability_id": "invoice-agent"}} if method == "POST" else {}),
+        )
+        assert response.status_code in {401, 403}, response.text
+
+
 def test_unknown_workos_role_fails_closed(tmp_path: Path, monkeypatch) -> None:
     gateway = _FakeWorkOS()
     gateway.session_auth.role = "mystery-role"

@@ -1,8 +1,9 @@
 """API contracts for economic workflow-version decisions."""
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from zeroth.econ.decisioning import DecisionPolicy
 from zeroth.econ.probabilistic import (
@@ -11,6 +12,7 @@ from zeroth.econ.probabilistic import (
     MigrationRiskPolicy,
 )
 from zeroth.econ.rollout_verification import RolloutAssignment, RolloutVerification
+from zeroth.econ.source_inventory import SourceWindowInventory, validate_source_windows
 
 
 class MigrationEvidenceSource(BaseModel):
@@ -34,6 +36,11 @@ class VersionComparisonRequest(BaseModel):
     candidate_version: str = Field(min_length=1)
     outcome_type: str = Field(default="accepted", min_length=1)
     policy: DecisionPolicy = Field(default_factory=DecisionPolicy)
+
+    source_windows: dict[Literal["baseline", "candidate"], SourceWindowInventory] = Field(
+        default_factory=dict
+    )
+    _paired_windows = field_validator("source_windows")(validate_source_windows)
 
 
 class ProbabilisticMigrationRequest(BaseModel):

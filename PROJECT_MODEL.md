@@ -10,7 +10,14 @@ outcome, and provenance evidence, then turns that evidence into inspectable chan
 The first probabilistic decision concerns moving a workload from an incumbent model
 to a candidate. Currently every public forecast remains experimental and abstains;
 its action distributions are diagnostics, not permission to ship or reroute.
+An unqualified risk law yields no action distributions at all.
 Zeroth does not modify customer routing.
+
+The hosted Solo offer uses that evidence layer for applications that remain in the
+customer's runtime. Customers define business outcomes and control rollout. The
+Phase 1 was accepted on `a0d65ab9` for its documented local configuration; later
+product/release gates remain open. Consolidation onto main must preserve both that
+evidence contract and the experimental forecast safeguards below.
 
 ## Relevant architecture
 
@@ -118,13 +125,97 @@ Zeroth does not modify customer routing.
 - Debug a retained report from `probabilistic_migration_decisions.report_json`, then compare its
   `request_digest`, evidence snapshot, policy, seed, and calibration state.
 
+## Evidence ingestion and observed decisions
+
+- SDK wire models in `packaging/sdk/src/zeroth/protocol/` remain independent of
+  the platform. `cloud/api.py` authenticates, then `instrumentation/service.py`
+  persists immutable execution/outcome assertions within the tenant scope.
+- Tenant/workflow/version/run identify a run; execution and physical charge IDs
+  identify deliveries and charge ownership. New SDK registry keys include the
+  authenticated tenant. Shared `instrumentation/identity.py` joins exact public
+  identities, or proven legacy mappings; bare run IDs and ambiguous mappings do
+  not establish ownership. Concurrent replays use the same full assertion check.
+- Costs default to unknown. Explicit caller amounts preserve their provenance;
+  measured usage, rate-card estimates, reported charges and invoice allocation
+  are separate. A charge has one retained owner; structural summaries never add
+  dollars. Legacy collapsed attempts, lost digits and ambiguous zero stay uncertified.
+- `instrumentation/charge_costs.py` resolves append-only charge revisions without
+  changing the owner or attempt count. Replacements cover all cost components and
+  provenance; zero refunds the asserted amount and unmeasured withdraws it. Erasure
+  removes revisions before owners; retained report arithmetic remains available.
+- Outcomes follow an immutable workflow-version definition. Latest matching typed
+  assertions must be final to resolve success; provisional/withdrawn/invalid latest
+  evidence cannot revive an older success. Technical completion or cancellation is
+  separate from business acceptance. Cancelled framework calls retain interruption
+  evidence and propagate cancellation unchanged.
+- `econ/decisioning.py` applies observed policy using exact count ratios and Decimal
+  totals before display rounding. Comparisons require an explicit quality floor;
+  passing policy recommends review and does not certify statistical/causal savings.
+  Hosted experiments price observed incumbent/candidate/judge usage separately;
+  missing or unsupported usage remains unresolved.
+- Caller-owned source inventories originate before delivery and close a fixed
+  execution window. Missing/unexpected events, changed digests or overflow cause
+  abstention; incomplete run costs make comparison CPO unavailable. The SDK is
+  synchronous and caller-managed; buffered adapter capture is best-effort, not a
+  durable outbox. Callers must retain payloads for retry after uncertain delivery.
+- Retained decisions bind selected source/definition/inventory digests and normalized
+  `calculation_inputs` with run multiplicities. These reconstruct arithmetic after
+  late evidence/erasure, not independent source truth or an atomic raw snapshot.
+  Changed policy/selected evidence yields a new revision; identical requests and
+  evidence retain the original ID/time. Old reports keep their original semantics.
+- Applications declare new versions for economics-relevant configuration changes.
+  Same-version comparisons and old windows remain descriptive, with no automatic
+  freshness cutoff. Debugger requests exceeding 50,000 execution events return 422
+  rather than omit older events. Narrow the window on that response.
+- Native execution acknowledgements expose server-owned UTC `ingested_at`, separate
+  from source event time. Exact retry preserves first arrival; historic unknown
+  arrivals stay null. Investigate a discrepancy from source IDs, acknowledgements,
+  stored rows, revision history and the retained calculation/definition bindings.
+
+See `packaging/sdk/README.md`, `docs/concepts/economic-optimization.md`,
+`docs/how-to/economic-debugger.md`, `docs/how-to/provider-bill-reconciliation.md`
+and `docs/backend-import-migration.md` for contracts and precise calculation rules.
+The live provider export used for Phase 1 is a timestamped provisional snapshot;
+matching aggregate estimates are not request-level invoice facts. All provider
+money stays visibly unallocated where measured request-dollar weights are absent.
+
 ## Deployment and rollback
 
-Apply `uv run alembic -c alembic-econ.ini upgrade head` before serving the new routes. The service
-remains advisory, so rollback does not require reverting customer traffic. Application rollback
-may leave the additive tables in place. Downgrading revision 20 destroys generated report artifacts
-and delivery audit rows. Downgrading revision 19 destroys schedules, assignments, verification
-reports, and calibration history, so export the applicable records before rollback.
+Run `zeroth migrate-econ` before serving a PostgreSQL database. The standalone
+cloud image applies the economic chain in `alembic_version_econ`; the platform's
+other migration chain remains separate. Readiness returns 503 for a noncurrent
+schema or a missing/finished enabled scheduler task. A live task does not prove
+successful recent work. No deployment is implied by a local merge.
+
+Economic head `20260907_25` joins the existing `20260902_20` forecast/report branch
+and `20260907_24` evidence branch without rewriting either history or issuing new
+DDL in the merge revision. Upgrading either parent applies its missing branch.
+Evidence migrations preserve public identity, source windows, physical ownership,
+outcome maturity, charge revisions, exact original costs and first arrival time.
+Historical unknowns are not backfilled with invented meaning.
+
+Stop application writes before an SQLite exact-cost upgrade. That migration uses
+an offline connection with foreign_keys=OFF and preserves IDs, child rows and
+indexes; run PRAGMA foreign_key_check before enabling enforcement again. SQLite
+amounts are exact decimal text, PostgreSQL uses Numeric(18,8). Sum the scoped
+Decimal reader values, not SQLite SQL arithmetic that coerces text to floats.
+Historical mapper values are preserved; already-lost decimal digits cannot recover.
+
+Prefer application rollback to a compatible reader that keeps additive columns,
+revision tables and retained report formats. Evidence downgrades refuse to discard
+populated protected fields/history. Forecast revision 20 downgrade destroys report
+artifacts/delivery audit; revision 19 destroys schedules, assignments, verification
+and calibration history. The merge revision itself has no destructive operation.
+No assembled rollback image or release gate is certified by local integration.
+
+Solo remains $39/month, monthly only, a 14-day trial, WorkOS AuthKit, Paddle and
+Railway/Postgres, with no Team sale. Its 155 shared decision scans and up to five
+schedules retain the existing minimum 24-hour interval; trial allowance is one
+scan. Verified billing events own entitlement, not redirects. History reads do not
+reserve scans. Debug quotas in `cloud/entitlements.py` and scheduler `last_error`.
+Release/restore/vendor procedures remain in `docs/operations/hosted-commerce.md`
+and the existing launch-policy/evidence runbooks. Independent provider truth,
+customer adoption and full R2 compatibility are distinct acceptance obligations.
 
 ## Current risks and unfinished work
 

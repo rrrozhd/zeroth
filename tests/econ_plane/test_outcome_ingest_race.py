@@ -194,7 +194,13 @@ def memory_engine():
 # --------------------------------------------------------------------------
 
 
-def test_concurrent_identical_outcome_ingests_report_a_duplicate_not_a_500(race_engine) -> None:
+@pytest.mark.parametrize("change", [
+    {}, {"outcome_value": False}, {"provenance": "INFERRED"},
+    {"maturity": "final"},
+    {"outcome_payload_json": {"accepted": 1}},
+    {"outcome_timestamp": "2026-08-12T01:00:00Z"},
+])
+def test_concurrent_outcome_ingests_distinguish_duplicate_from_conflict(race_engine, change) -> None:
     barrier = threading.Barrier(2)
     lost: list[str] = []
     app = _app(
@@ -206,7 +212,9 @@ def test_concurrent_identical_outcome_ingests_report_a_duplicate_not_a_500(race_
     def _ingest(slot: str) -> None:
         try:
             response = TestClient(app, raise_server_exceptions=False).post(
-                "/v1/instrumentation/outcomes", json=_event(1)
+                "/v1/instrumentation/outcomes",
+                json={**_event(1), "outcome_payload_json": {"accepted": True},
+                      **(change if slot == "second" else {})},
             )
             seen[slot] = (response.status_code, response.text)
         except BaseException as exc:  # noqa: BLE001 - the assertion is on the list
@@ -226,10 +234,27 @@ def test_concurrent_identical_outcome_ingests_report_a_duplicate_not_a_500(race_
     # resolve. Both raced -- the barrier is the pre-check, so both observed
     # "no such outcome" -- and exactly one of them stored the row.
     assert len(lost) == 1, f"expected exactly one caller to hit the constraint, got {lost!r}"
-    assert sorted(code for code, _ in seen.values()) == [200, 200], f"seen={seen!r}"
-    statuses = sorted(json.loads(body)["status"] for _, body in seen.values())
-    assert statuses == ["duplicate", "inserted"], f"seen={seen!r}"
+    assert sorted(code for code, _ in seen.values()) == [200, 422 if change else 200], f"seen={seen!r}"
+    if change:
+        assert "immutable outcome" in next(body for code, body in seen.values() if code == 422)
+    else:
+        statuses = sorted(json.loads(body)["status"] for _, body in seen.values())
+        assert statuses == ["duplicate", "inserted"], f"seen={seen!r}"
     assert _stored(race_engine) == ["case-1"]
+
+
+def test_outcome_object_key_order_does_not_change_replay_identity(memory_engine):
+    client = TestClient(_app(_plain_sessionmaker(memory_engine)))
+    first = client.post(
+        "/v1/instrumentation/outcomes",
+        json={**_event(1), "outcome_payload_json": {"a": True, "b": 2}},
+    )
+    repeated = client.post(
+        "/v1/instrumentation/outcomes",
+        json={**_event(1), "outcome_payload_json": {"b": 2, "a": True}},
+    )
+    assert first.status_code == repeated.status_code == 200
+    assert repeated.json()["status"] == "duplicate"
 
 
 # --------------------------------------------------------------------------
@@ -237,8 +262,10 @@ def test_concurrent_identical_outcome_ingests_report_a_duplicate_not_a_500(race_
 # --------------------------------------------------------------------------
 
 
-def test_a_batch_losing_the_race_on_one_event_still_stores_the_other_events(
+@pytest.mark.parametrize("rival_change", [{}, {"outcome_value": False}])
+def test_a_batch_losing_a_race_replays_exact_values_or_rejects_the_changed_batch(
     race_engine,
+    rival_change,
 ) -> None:
     reached_precheck = threading.Event()
     rival_committed = threading.Event()
@@ -270,7 +297,7 @@ def test_a_batch_losing_the_race_on_one_event_still_stores_the_other_events(
         try:
             assert reached_precheck.wait(timeout=_WAIT), "the batch never reached its pre-check"
             response = TestClient(rival_app, raise_server_exceptions=False).post(
-                "/v1/instrumentation/outcomes", json=_event(1)
+                "/v1/instrumentation/outcomes", json={**_event(1), **rival_change}
             )
             assert response.status_code == 200, response.text
             assert response.json()["status"] == "inserted", response.text
@@ -285,6 +312,10 @@ def test_a_batch_losing_the_race_on_one_event_still_stores_the_other_events(
     # The batch must not be handed a 500, and losing one event must not take the
     # events it *did* own down with it -- so the stored rows are in the message.
     assert len(lost) == 1, f"the batch never actually lost a race: {lost!r}"
+    if rival_change:
+        assert batch["code"] == 422, batch
+        assert _stored(race_engine) == ["case-1"]
+        return
     assert batch["code"] == 200, f"{batch!r} stored={_stored(race_engine)!r}"
     # The event the rival won is reported as the duplicate it is; the three the
     # batch owned outright are not collateral damage.
@@ -492,7 +523,9 @@ def test_without_the_identity_index_the_precheck_is_all_there_is(unindexed_engin
     resolving the duplicates and re-running the migration closes that.
     """
     sequential = TestClient(_app(_plain_sessionmaker(unindexed_engine)))
-    assert sequential.post("/v1/instrumentation/outcomes", json=_event(1)).json() == {
+    receipt = sequential.post("/v1/instrumentation/outcomes", json=_event(1)).json()
+    assert datetime.fromisoformat(receipt.pop("ingested_at")).utcoffset().total_seconds() == 0
+    assert receipt == {
         "status": "inserted",
         "execution_id": "case-1",
     }

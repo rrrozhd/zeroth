@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+import json
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +12,7 @@ from zeroth.econ.plane.capabilities.service import active_experiment, pick_ab_ar
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.instrumentation.identity import workflow_identity
 from zeroth.econ.plane.instrumentation.schemas import ExecutionEventCreate, OutcomeEventCreate
 from zeroth.econ.plane.scoped_session import ScopedSession
 
@@ -68,6 +70,7 @@ def _ensure_capability_and_implementation(
     tenant_id: str,
     capability_id: str,
     implementation_id: str | None,
+    registry_names: tuple[str, str] | None = None,
 ) -> None:
     """Upsert the capability/implementation an execution event names, so
     platform-emitted telemetry (capability_id=node_id, implementation_id=model)
@@ -97,11 +100,15 @@ def _ensure_capability_and_implementation(
     ).scalar_one_or_none()
     if capability is None:
         try:
-            db.add(Capability(id=capability_id, tenant_id=tenant_id, name=capability_id))
+            db.add(Capability(
+                id=capability_id, tenant_id=tenant_id,
+                name=registry_names[0] if registry_names else capability_id,
+            ))
             db.flush()
         except IntegrityError as exc:
             db.rollback()
-            raise ValueError("capability does not exist in the bound tenant") from exc
+            if db.get(Capability, capability_id) is None:
+                raise ValueError("capability does not exist in the bound tenant") from exc
     if implementation_id is None:
         return
     implementation = db.execute(
@@ -114,15 +121,21 @@ def _ensure_capability_and_implementation(
                     id=implementation_id,
                     tenant_id=tenant_id,
                     capability_id=capability_id,
-                    name=implementation_id,
+                    name=registry_names[1] if registry_names else implementation_id,
                 )
             )
             db.flush()
         except IntegrityError as exc:
             db.rollback()
-            raise ValueError(
-                "implementation does not belong to the capability in the bound tenant"
-            ) from exc
+            # Rollback may also discard our newly staged capability. Recover
+            # only when both owned rows survived in the winning transaction.
+            if (
+                db.get(Capability, capability_id) is None
+                or db.get(Implementation, implementation_id) is None
+            ):
+                raise ValueError(
+                    "implementation does not belong to the capability in the bound tenant"
+                ) from exc
 
 
 def _derive_join_key_from_metadata(metadata: dict) -> str:
@@ -168,8 +181,13 @@ def _execution_identity_fields(row: ExecutionEvent) -> dict:
         "execution_id": row.execution_id,
         "campaign_id": row.campaign_id,
         "operation_id": row.operation_id,
+        "deployment_ref": row.deployment_ref,
+        "evidence_kind": row.evidence_kind,
         "provider_request_id": row.provider_request_id,
         "cleanup_status": row.cleanup_status,
+        "source_window_id": row.source_window_id,
+        "cost_role": row.cost_role or "legacy_unknown",
+        "charge_id": row.charge_id,
         "workflow_id": row.workflow_id or row.capability_id,
         "workflow_version": row.workflow_version or row.implementation_id,
         "run_id": row.run_id or row.join_key,
@@ -185,6 +203,8 @@ def _execution_identity_fields(row: ExecutionEvent) -> dict:
         "token_cost_usd": row.token_cost_usd,
         "tool_cost_usd": row.tool_cost_usd,
         "compute_cost_usd": row.compute_cost_usd,
+        "cost_measurement": row.cost_measurement,
+        "usage_measurement": row.usage_measurement,
         "latency_ms": row.latency_ms,
         "compute_time_ms": row.compute_time_ms,
         "metadata": _event_metadata_identity(row.event_metadata),
@@ -204,8 +224,13 @@ def _execution_payload_fields(
         "execution_id": payload.execution_id,
         "campaign_id": payload.campaign_id,
         "operation_id": payload.operation_id,
+        "deployment_ref": payload.deployment_ref,
+        "evidence_kind": payload.evidence_kind,
         "provider_request_id": payload.provider_request_id,
         "cleanup_status": payload.cleanup_status,
+        "source_window_id": payload.source_window_id,
+        "cost_role": payload.cost_role,
+        "charge_id": payload.charge_id,
         **debugger,
         "capability_id": payload.capability_id,
         "implementation_id": payload.implementation_id,
@@ -215,6 +240,8 @@ def _execution_payload_fields(
         "token_cost_usd": payload.token_cost_usd,
         "tool_cost_usd": payload.tool_cost_usd,
         "compute_cost_usd": payload.compute_cost_usd,
+        "cost_measurement": payload.cost_measurement.value,
+        "usage_measurement": payload.usage_measurement.value,
         "latency_ms": payload.latency_ms,
         "compute_time_ms": payload.compute_time_ms,
         "metadata": _event_metadata_identity(metadata),
@@ -342,6 +369,20 @@ def _resolve_existing_execution(
     return existing
 
 
+def _assert_charge_available(
+    db: ScopedSession, charge_id: str | None, execution_id: str,
+) -> None:
+    if charge_id is None:
+        return
+    owner = db.scalars(
+        select(ExecutionEvent).where(ExecutionEvent.charge_id == charge_id)
+    ).first()
+    # An identical execution may commit after the identity pre-check. Let the
+    # insert/unique-constraint path reconcile its complete immutable payload.
+    if owner is not None and owner.execution_id != execution_id:
+        raise ValueError("charge_id is already owned by another execution")
+
+
 def _stage_execution(
     db: ScopedSession,
     row: ExecutionEvent,
@@ -386,7 +427,9 @@ def _stage_execution(
     reachable when the database has *both* a live constraint and duplicates that
     predate it.  Both are ``ValueError`` and both become the 422 that names the
     fields, which is what the sequential caller is told; only the empty re-query
-    re-raises the ``IntegrityError`` for the endpoint to turn into a 409.
+    re-raises the ``IntegrityError`` for the endpoint to turn into a 409, unless
+    a different execution owns the declared charge ID. That permanent ownership
+    conflict is a ``ValueError`` (422), exactly as in the sequential pre-check.
     """
     db.add(row)
     try:
@@ -397,6 +440,7 @@ def _stage_execution(
             db, tenant_id=tenant_id, execution_id=payload.execution_id
         )
         if winner is None:
+            _assert_charge_available(db, payload.charge_id, payload.execution_id)
             raise
         return _resolve_existing_execution(
             winner, payload, join_key=join_key, metadata=metadata
@@ -405,7 +449,8 @@ def _stage_execution(
 
 
 def ingest_execution(
-    db: ScopedSession, payload: ExecutionEventCreate
+    db: ScopedSession, payload: ExecutionEventCreate, *,
+    registry_names: tuple[str, str] | None = None,
 ) -> tuple[str, ExecutionEvent]:
     db = _require_exact_scoped_session(db)
     tenant_id = _bound_tenant(db)
@@ -427,12 +472,15 @@ def ingest_execution(
             existing, payload, join_key=join_key, metadata=metadata
         )
 
+    _assert_charge_available(db, payload.charge_id, payload.execution_id)
+
     if settings.auto_register_ingest_capabilities:
         _ensure_capability_and_implementation(
             db,
             tenant_id=tenant_id,
             capability_id=payload.capability_id,
             implementation_id=payload.implementation_id,
+            registry_names=registry_names,
         )
     else:
         _require_capability_and_implementation(
@@ -466,10 +514,14 @@ def ingest_execution(
         evidence_kind=payload.evidence_kind,
         provider_request_id=payload.provider_request_id,
         cleanup_status=payload.cleanup_status,
+        source_window_id=payload.source_window_id,
+        cost_role=payload.cost_role,
+        charge_id=payload.charge_id,
         **debugger,
         execution_id=payload.execution_id,
         join_key=join_key,
         timestamp=payload.timestamp,
+        ingested_at=datetime.now(UTC),
         capability_id=payload.capability_id,
         implementation_id=payload.implementation_id,
         model_version=payload.model_version,
@@ -519,6 +571,36 @@ def ingest_execution(
     return "inserted", row
 
 
+def _outcome_assertions(row: OutcomeEvent) -> dict:
+    """Caller assertions; receipt time and database row IDs are not event content."""
+    return {
+        "tenant_id": row.tenant_id,
+        "join_key": row.join_key,
+        "execution_id": row.execution_id or row.join_key,
+        "capability_id": row.capability_id,
+        "implementation_id": row.implementation_id or "",
+        "workflow_identity": workflow_identity(row),
+        "outcome_type": row.outcome_type,
+        "outcome_value": row.outcome_value,
+        # JSON types matter: accepted=true must not equal accepted=1. Key order
+        # does not matter; non-finite numbers cannot be compared as valid JSON.
+        "outcome_payload_json": json.dumps(
+            row.outcome_payload_json or {}, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ),
+        "occurred_at": _datetime_identity(row.occurred_at),
+        "outcome_timestamp": _datetime_identity(row.outcome_timestamp),
+        "provenance": row.provenance,
+        "maturity": row.maturity or "unknown",
+    }
+
+
+def _assert_same_outcome(expected: OutcomeEvent, actual: OutcomeEvent) -> None:
+    before, after = _outcome_assertions(expected), _outcome_assertions(actual)
+    conflicts = sorted(key for key in before if before[key] != after[key])
+    if conflicts:
+        raise ValueError(f"immutable outcome fields differ: {', '.join(conflicts)}")
+
+
 def _existing_outcome(
     db: ScopedSession,
     *,
@@ -528,42 +610,14 @@ def _existing_outcome(
     occurred_at: datetime,
     implementation_id: str | None,
 ) -> OutcomeEvent | None:
-    """Return the already-stored outcome with this identity, if any.
+    """Read the indexed identity; reject ambiguous historical duplicate rows.
 
-    The identity matches ``uq_outcome_events_tenant_identity``.  The database
-    constraint is the race-proof guard -- this lookup holds no lock, so between
-    it and the flush that follows a concurrent caller can store the same
-    identity.  What it buys is that the common cases never reach the constraint
-    at all: a sequential retry is reported as a duplicate, and a repeat *inside
-    one batch* resolves without the constraint aborting a transaction that
-    carries the rest of the batch.  A caller that loses the race anyway is
-    recovered by :func:`_persist_outcome` and :func:`ingest_outcomes`.
-
-    ``implementation_id`` is keyed exactly the way the index keys it, through
-    ``coalesce(implementation_id, '')``: NULL and ``''`` are one key at the
-    database, so a lookup that branched to ``IS NULL`` *or* ``= value`` would ask
-    two disjoint questions and let a resolved ``''`` miss a stored NULL row.
-
-    The index is also the only thing that makes this identity single-valued, and a
-    database can be serving without it: ``20260812_07`` refuses rather than
-    deleting rows out of an erasure-audited table when it finds colliding
-    identities, so one that already held duplicates converges *without* the index
-    and keeps taking ingests.  There ``scalar_one_or_none()`` raised
-    ``MultipleResultsFound`` -- neither a ``ValueError`` nor an ``IntegrityError``,
-    so it escaped ``post_outcome`` as a 500.  Capping at one row answers instead,
-    and unlike the execution identity that is not a choice between rival records:
-    colliding rows agree on every column of the identity by construction and an
-    outcome carries no immutable fields, so they are one logical event and no
-    payload can be a duplicate of one and a conflict with another.
-
-    The order is ascending ``id`` rather than the plane's ``.desc()`` idiom
-    (``latest_cost_estimate`` and its siblings), which is for genuinely versioned
-    records where the newest row is the answer.  Here there is no newest: the
-    first-stored row is the one a sequential retry was told about before the
-    duplicates accrued, and reporting it keeps the answer fixed as further
-    duplicates land instead of moving with them.
+    The unique index, not this unlocked lookup, is the concurrency guard. NULL
+    and empty implementations match the index's COALESCE identity. Historical
+    databases may lack the index because migration refuses to delete colliding
+    rows. Return their earliest row only when all caller assertions agree.
     """
-    return (
+    rows = (
         db.execute(
             select(OutcomeEvent)
             .where(
@@ -574,11 +628,15 @@ def _existing_outcome(
                 func.coalesce(OutcomeEvent.implementation_id, "") == (implementation_id or ""),
             )
             .order_by(OutcomeEvent.id)
-            .limit(1)
         )
         .scalars()
-        .first()
+        .all()
     )
+    if not rows:
+        return None
+    for row in rows[1:]:
+        _assert_same_outcome(rows[0], row)
+    return rows[0]
 
 
 #: What an outcome actually reads off the execution it claims to close.
@@ -661,8 +719,8 @@ def ingest_outcomes(
     The rollback is explicit: the request-scoped session outlives this call, and
     a half-built transaction left on it would leak into whatever ran next.
 
-    Losing an identity race is the one failure that is *not* a rejection, so it
-    is the one failure the batch replays instead of surfacing.  The rollback
+    Losing an identity race permits a replay to compare the winning assertions;
+    a changed value remains a rejection. The rollback
     boundary has to be the whole batch: :class:`ScopedSession` exposes no
     ``begin_nested``, and a SAVEPOINT around each event would in any case break
     the invariant above by letting events 1..N-1 commit behind a later 422.  So
@@ -772,6 +830,7 @@ def _stage_outcome(
         )
         if winner is None:
             raise
+        _assert_same_outcome(winner, row)
         return winner
     return None
 
@@ -818,6 +877,23 @@ def ingest_outcome_with_status(
     if payload.outcome_value is not None and "value" not in outcome_payload:
         outcome_payload["value"] = payload.outcome_value
 
+    row = OutcomeEvent(
+        tenant_id=tenant_id,
+        join_key=join_key,
+        execution_id=payload.execution_id or join_key,
+        capability_id=payload.capability_id,
+        implementation_id=implementation_id,
+        outcome_type=payload.outcome_type,
+        workflow_id=getattr(payload, "workflow_id", None),
+        workflow_version=getattr(payload, "workflow_version", None),
+        outcome_payload_json=outcome_payload,
+        outcome_value=str(payload.outcome_value) if payload.outcome_value is not None else "",
+        occurred_at=occurred_at,
+        ingested_at=datetime.now(UTC),
+        outcome_timestamp=payload.outcome_timestamp or occurred_at,
+        provenance=payload.provenance,
+        maturity=payload.maturity,
+    )
     duplicate = _existing_outcome(
         db,
         tenant_id=tenant_id,
@@ -827,22 +903,8 @@ def ingest_outcome_with_status(
         implementation_id=implementation_id,
     )
     if duplicate is not None:
+        _assert_same_outcome(duplicate, row)
         return "duplicate", duplicate
-
-    row = OutcomeEvent(
-        tenant_id=tenant_id,
-        join_key=join_key,
-        execution_id=payload.execution_id or join_key,
-        capability_id=payload.capability_id,
-        implementation_id=implementation_id,
-        outcome_type=payload.outcome_type,
-        outcome_payload_json=outcome_payload,
-        outcome_value=str(payload.outcome_value) if payload.outcome_value is not None else "",
-        occurred_at=occurred_at,
-        ingested_at=datetime.now(UTC),
-        outcome_timestamp=payload.outcome_timestamp or occurred_at,
-        provenance=payload.provenance,
-    )
     winner = _stage_outcome(
         db,
         row,

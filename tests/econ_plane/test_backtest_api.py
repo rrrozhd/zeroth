@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -134,7 +135,9 @@ def test_backtest_is_retained_without_raw_cases_and_duplicate_is_free(
 
     assert first.status_code == 200, first.text
     assert first.json()["verdict"] == "pass"
-    assert first.json()["recommended_action"] == "approve_candidate"
+    assert first.json()["recommended_action"] == "review_candidate"
+    assert first.json()["claim_class"] == "exploratory_model_experiment"
+    assert first.json()["method_version"] == "observed-replay-policy/1"
     assert first.json()["provider_call_credits"] == 20
     assert duplicate.status_code == 200
     assert duplicate.json() == first.json()
@@ -305,8 +308,13 @@ def test_backtest_abstains_without_executable_evidence(tmp_path: Path, monkeypat
     assert executor.calls == 0
 
 
+@pytest.mark.parametrize(
+    "constraints, reason",
+    [({"max_critical_error_rate": 0.01}, "critical-error evidence"),
+     ({}, "constraints.min_success_rate")],
+)
 def test_backtest_abstains_for_constraints_the_node_replay_cannot_prove(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, constraints, reason
 ) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'unsupported.db'}")
     Base.metadata.create_all(engine)
@@ -325,7 +333,7 @@ def test_backtest_abstains_for_constraints_the_node_replay_cannot_prove(
     token = mint_econ_service_token()
     assert token is not None
     payload = _payload()
-    payload["constraints"] = {"max_critical_error_rate": 0.01}
+    payload["constraints"] = constraints
 
     response = TestClient(app).post(
         "/v1/backtests", headers={"Authorization": f"Bearer {token}"}, json=payload
@@ -333,5 +341,5 @@ def test_backtest_abstains_for_constraints_the_node_replay_cannot_prove(
 
     assert response.status_code == 200
     assert response.json()["verdict"] == "abstain"
-    assert "critical-error evidence" in " ".join(response.json()["reasons"])
+    assert reason in " ".join(response.json()["reasons"])
     assert executor.calls == 0

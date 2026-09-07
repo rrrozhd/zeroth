@@ -449,6 +449,86 @@
         "title": "BudgetStatusOut",
         "type": "object"
       },
+      "CalculationInput": {
+        "additionalProperties": false,
+        "description": "One distinct normalized input tuple and its run multiplicity; no source IDs.",
+        "properties": {
+          "accepted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
+          },
+          "cost_measurement": {
+            "$ref": "#/components/schemas/MeasurementState"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "outcome_measurement": {
+            "$ref": "#/components/schemas/MeasurementState"
+          },
+          "runs": {
+            "minimum": 1.0,
+            "title": "Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cost_measurement",
+          "accepted",
+          "outcome_measurement",
+          "runs"
+        ],
+        "title": "CalculationInput",
+        "type": "object"
+      },
+      "CalculationInputs": {
+        "additionalProperties": false,
+        "description": "Portable arithmetic inputs, not a source snapshot or completeness proof.",
+        "properties": {
+          "baseline": {
+            "items": {
+              "$ref": "#/components/schemas/CalculationInput"
+            },
+            "title": "Baseline",
+            "type": "array"
+          },
+          "candidate": {
+            "items": {
+              "$ref": "#/components/schemas/CalculationInput"
+            },
+            "title": "Candidate",
+            "type": "array"
+          },
+          "version": {
+            "const": "run-economics/1",
+            "default": "run-economics/1",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseline",
+          "candidate"
+        ],
+        "title": "CalculationInputs",
+        "type": "object"
+      },
       "CalibrationSummary": {
         "properties": {
           "bias": {
@@ -815,6 +895,238 @@
         "title": "CapabilityValueRow",
         "type": "object"
       },
+      "CausalMetricEffect": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_mean": {
+            "title": "Candidate Mean",
+            "type": "number"
+          },
+          "confidence_high": {
+            "title": "Confidence High",
+            "type": "number"
+          },
+          "confidence_low": {
+            "title": "Confidence Low",
+            "type": "number"
+          },
+          "estimated_difference": {
+            "title": "Estimated Difference",
+            "type": "number"
+          },
+          "incumbent_mean": {
+            "title": "Incumbent Mean",
+            "type": "number"
+          },
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "incumbent_mean",
+          "candidate_mean",
+          "estimated_difference",
+          "confidence_low",
+          "confidence_high"
+        ],
+        "title": "CausalMetricEffect",
+        "type": "object"
+      },
+      "ChargeCostRevision-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "asserted_at": {
+            "format": "date-time",
+            "title": "Asserted At",
+            "type": "string"
+          },
+          "charge_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Charge Id",
+            "type": "string"
+          },
+          "compute_cost_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compute Cost Usd"
+          },
+          "cost_measurement": {
+            "enum": [
+              "measured",
+              "estimated",
+              "unmeasured"
+            ],
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "token_cost_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Cost Usd"
+          },
+          "tool_cost_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Cost Usd"
+          }
+        },
+        "required": [
+          "charge_id",
+          "asserted_at",
+          "cost_measurement",
+          "reason"
+        ],
+        "title": "ChargeCostRevision",
+        "type": "object"
+      },
+      "ChargeCostRevision-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "asserted_at": {
+            "format": "date-time",
+            "title": "Asserted At",
+            "type": "string"
+          },
+          "charge_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Charge Id",
+            "type": "string"
+          },
+          "compute_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compute Cost Usd"
+          },
+          "cost_measurement": {
+            "enum": [
+              "measured",
+              "estimated",
+              "unmeasured"
+            ],
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "token_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Cost Usd"
+          },
+          "tool_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Cost Usd"
+          }
+        },
+        "required": [
+          "charge_id",
+          "asserted_at",
+          "cost_measurement",
+          "reason"
+        ],
+        "title": "ChargeCostRevision",
+        "type": "object"
+      },
+      "ChargeOwnership": {
+        "additionalProperties": false,
+        "description": "Declared monetary owners; no inference of provider billing truth.",
+        "properties": {
+          "owned_charge_records": {
+            "minimum": 0.0,
+            "title": "Owned Charge Records",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "declared",
+              "unverified"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary_records": {
+            "minimum": 0.0,
+            "title": "Summary Records",
+            "type": "integer"
+          },
+          "unattributed_records": {
+            "minimum": 0.0,
+            "title": "Unattributed Records",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "owned_charge_records",
+          "summary_records",
+          "unattributed_records"
+        ],
+        "title": "ChargeOwnership",
+        "type": "object"
+      },
       "CheckoutRequest": {
         "additionalProperties": false,
         "properties": {
@@ -896,6 +1208,32 @@
           "incomplete_events"
         ],
         "title": "CohortPoint",
+        "type": "object"
+      },
+      "CohortRoutingAction": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Action Id",
+            "type": "string"
+          },
+          "cohort_candidate_shares": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "maxProperties": 32,
+            "minProperties": 1,
+            "title": "Cohort Candidate Shares",
+            "type": "object"
+          }
+        },
+        "required": [
+          "action_id",
+          "cohort_candidate_shares"
+        ],
+        "title": "CohortRoutingAction",
         "type": "object"
       },
       "ConfidenceGateConfig": {
@@ -1596,14 +1934,182 @@
             "type": "integer"
           },
           "min_success_rate": {
-            "default": 0.0,
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Min Success Rate",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Success Rate"
           }
         },
         "title": "DecisionPolicy",
+        "type": "object"
+      },
+      "DecisionReportCreate": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "DecisionReportCreate",
+        "type": "object"
+      },
+      "DecisionReportDeliveryCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "delivery_mode": {
+            "default": "link",
+            "enum": [
+              "attachment",
+              "link"
+            ],
+            "title": "Delivery Mode",
+            "type": "string"
+          },
+          "recipients": {
+            "items": {
+              "format": "email",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Recipients",
+            "type": "array"
+          }
+        },
+        "required": [
+          "recipients"
+        ],
+        "title": "DecisionReportDeliveryCreate",
+        "type": "object"
+      },
+      "DecisionReportDeliveryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "delivery_id": {
+            "title": "Delivery Id",
+            "type": "string"
+          },
+          "delivery_mode": {
+            "enum": [
+              "attachment",
+              "link"
+            ],
+            "title": "Delivery Mode",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "recipients": {
+            "items": {
+              "format": "email",
+              "type": "string"
+            },
+            "title": "Recipients",
+            "type": "array"
+          },
+          "report_id": {
+            "title": "Report Id",
+            "type": "string"
+          },
+          "report_sha256": {
+            "title": "Report Sha256",
+            "type": "string"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
+          "status": {
+            "enum": [
+              "sent",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delivery_id",
+          "report_id",
+          "report_sha256",
+          "recipients",
+          "delivery_mode",
+          "status",
+          "last_error",
+          "created_at",
+          "sent_at"
+        ],
+        "title": "DecisionReportDeliveryOut",
+        "type": "object"
+      },
+      "DecisionReportOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "download_path": {
+            "title": "Download Path",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "report_id": {
+            "title": "Report Id",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "template_version": {
+            "title": "Template Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_id",
+          "decision_id",
+          "template_version",
+          "media_type",
+          "sha256",
+          "download_path",
+          "created_at"
+        ],
+        "title": "DecisionReportOut",
         "type": "object"
       },
       "DecisionRequest": {
@@ -1926,6 +2432,26 @@
             ],
             "title": "Candidate Model"
           },
+          "candidate_observations": {
+            "items": {
+              "$ref": "#/components/schemas/MigrationObservation-Output"
+            },
+            "maxItems": 25,
+            "title": "Candidate Observations",
+            "type": "array"
+          },
+          "candidate_replay_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Replay Cost Usd"
+          },
           "candidate_success_rate": {
             "anyOf": [
               {
@@ -1943,8 +2469,26 @@
             "title": "Cases",
             "type": "integer"
           },
+          "claim_class": {
+            "default": "legacy_unclassified",
+            "enum": [
+              "legacy_unclassified",
+              "exploratory_model_experiment"
+            ],
+            "title": "Claim Class",
+            "type": "string"
+          },
           "constraints": {
             "$ref": "#/components/schemas/EconomicConstraints-Output"
+          },
+          "cost_basis": {
+            "default": "unavailable",
+            "enum": [
+              "unavailable",
+              "rate_card_from_observed_usage"
+            ],
+            "title": "Cost Basis",
+            "type": "string"
           },
           "evaluated_at": {
             "format": "date-time",
@@ -1962,6 +2506,26 @@
             ],
             "title": "Incumbent Model"
           },
+          "incumbent_observations": {
+            "items": {
+              "$ref": "#/components/schemas/MigrationObservation-Output"
+            },
+            "maxItems": 25,
+            "title": "Incumbent Observations",
+            "type": "array"
+          },
+          "incumbent_replay_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incumbent Replay Cost Usd"
+          },
           "incumbent_success_rate": {
             "anyOf": [
               {
@@ -1973,6 +2537,30 @@
             ],
             "title": "Incumbent Success Rate"
           },
+          "judge_cost_usd": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Cost Usd"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
+          },
           "node_id": {
             "anyOf": [
               {
@@ -1983,6 +2571,24 @@
               }
             ],
             "title": "Node Id"
+          },
+          "period_request_counts": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 366,
+            "title": "Period Request Counts",
+            "type": "array"
+          },
+          "pricing_snapshot": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Pricing Snapshot",
+            "type": "object"
           },
           "provider_call_credits": {
             "minimum": 0.0,
@@ -1999,6 +2605,7 @@
           "recommended_action": {
             "enum": [
               "approve_candidate",
+              "review_candidate",
               "keep_incumbent",
               "collect_evidence"
             ],
@@ -2019,6 +2626,16 @@
               }
             ],
             "title": "Savings Pct"
+          },
+          "usage_by_role": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "title": "Usage By Role",
+            "type": "object"
           },
           "verdict": {
             "enum": [
@@ -2157,11 +2774,43 @@
             "title": "Baseline Version",
             "type": "string"
           },
+          "calculation_inputs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CalculationInputs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "candidate": {
             "$ref": "#/components/schemas/VersionEconomics"
           },
           "candidate_version": {
             "title": "Candidate Version",
+            "type": "string"
+          },
+          "charge_ownership": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ChargeOwnership"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Charge Ownership",
+            "type": "object"
+          },
+          "claim_class": {
+            "default": "legacy_unclassified",
+            "enum": [
+              "legacy_unclassified",
+              "observed_comparison"
+            ],
+            "title": "Claim Class",
             "type": "string"
           },
           "cost_per_outcome_change": {
@@ -2198,6 +2847,31 @@
             ],
             "title": "Evaluated At"
           },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
+          },
+          "outcome_semantics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/OutcomeSemantics"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Outcome Semantics",
+            "type": "object"
+          },
           "policy": {
             "$ref": "#/components/schemas/DecisionPolicy"
           },
@@ -2211,12 +2885,39 @@
           "recommended_action": {
             "enum": [
               "approve",
+              "review_candidate",
               "hold",
               "investigate",
               "collect_evidence"
             ],
             "title": "Recommended Action",
             "type": "string"
+          },
+          "source_delivery": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SourceDelivery"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Source Delivery",
+            "type": "object"
+          },
+          "source_evidence": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EvidenceFingerprint"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Source Evidence",
+            "type": "object"
           },
           "success_rate_change": {
             "anyOf": [
@@ -2384,6 +3085,11 @@
           },
           "successful_runs": {
             "title": "Successful Runs",
+            "type": "integer"
+          },
+          "summary_events": {
+            "default": 0,
+            "title": "Summary Events",
             "type": "integer"
           },
           "top_failure_exposure": {
@@ -2665,6 +3371,52 @@
         "title": "EvaluationRunRequest",
         "type": "object"
       },
+      "EvidenceFingerprint": {
+        "additionalProperties": false,
+        "description": "Identity of selected stored assertions; not a completeness guarantee.",
+        "properties": {
+          "cost_revision_records": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Cost Revision Records",
+            "type": "integer"
+          },
+          "digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Digest",
+            "type": "string"
+          },
+          "execution_records": {
+            "minimum": 0.0,
+            "title": "Execution Records",
+            "type": "integer"
+          },
+          "outcome_records": {
+            "minimum": 0.0,
+            "title": "Outcome Records",
+            "type": "integer"
+          },
+          "version": {
+            "default": "stored-assertions/1",
+            "enum": [
+              "stored-assertions/1",
+              "stored-assertions/2",
+              "stored-assertions/3",
+              "stored-assertions/4",
+              "stored-assertions/5"
+            ],
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "digest",
+          "execution_records",
+          "outcome_records"
+        ],
+        "title": "EvidenceFingerprint",
+        "type": "object"
+      },
       "ExecutionEventCreate": {
         "properties": {
           "attempt": {
@@ -2689,6 +3441,19 @@
             "title": "Capability Id",
             "type": "string"
           },
+          "charge_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charge Id"
+          },
           "cleanup_status": {
             "anyOf": [
               {
@@ -2706,7 +3471,7 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
                 "type": "string"
               },
               {
@@ -2729,6 +3494,16 @@
                 "type": "null"
               }
             ]
+          },
+          "cost_role": {
+            "default": "legacy_unknown",
+            "enum": [
+              "legacy_unknown",
+              "charge",
+              "summary"
+            ],
+            "title": "Cost Role",
+            "type": "string"
           },
           "deployment_ref": {
             "anyOf": [
@@ -2837,6 +3612,19 @@
             ],
             "title": "Run Id"
           },
+          "source_window_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Window Id"
+          },
           "step_id": {
             "anyOf": [
               {
@@ -2881,7 +3669,7 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
                 "type": "string"
               },
               {
@@ -2896,7 +3684,7 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
                 "type": "string"
               },
               {
@@ -3108,6 +3896,281 @@
           "constraints_json"
         ],
         "title": "ExperimentOut",
+        "type": "object"
+      },
+      "ForecastCalibrationObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "forecast_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Forecast Id",
+            "type": "string"
+          },
+          "metric": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Metric",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "number"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "predicted_high": {
+            "title": "Predicted High",
+            "type": "number"
+          },
+          "predicted_low": {
+            "title": "Predicted Low",
+            "type": "number"
+          },
+          "predicted_mean": {
+            "title": "Predicted Mean",
+            "type": "number"
+          }
+        },
+        "required": [
+          "forecast_id",
+          "metric",
+          "predicted_mean",
+          "predicted_low",
+          "predicted_high",
+          "observed",
+          "observed_at"
+        ],
+        "title": "ForecastCalibrationObservation",
+        "type": "object"
+      },
+      "ForecastReadiness-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "alpha_critical": {
+            "anyOf": [
+              {
+                "exclusiveMaximum": 1.0,
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alpha Critical"
+          },
+          "alpha_warning": {
+            "anyOf": [
+              {
+                "exclusiveMaximum": 1.0,
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alpha Warning"
+          },
+          "assessed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessed At"
+          },
+          "calibration_periods": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Calibration Periods",
+            "type": "integer"
+          },
+          "calibration_state": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "calibrated",
+              "warning",
+              "critical"
+            ],
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "drift_state": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "stable",
+              "warning",
+              "critical"
+            ],
+            "title": "Drift State",
+            "type": "string"
+          },
+          "family_tests": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Family Tests",
+            "type": "integer"
+          },
+          "interval_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Coverage"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricForecastReadiness-Input"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "missing_metrics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Metrics",
+            "type": "array"
+          },
+          "relative_bias": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Bias"
+          },
+          "relative_residual_shift": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Residual Shift"
+          }
+        },
+        "title": "ForecastReadiness",
+        "type": "object"
+      },
+      "ForecastReadiness-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "assessed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessed At"
+          },
+          "calibration_periods": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Calibration Periods",
+            "type": "integer"
+          },
+          "calibration_state": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "calibrated",
+              "warning",
+              "critical"
+            ],
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "drift_state": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "stable",
+              "warning",
+              "critical"
+            ],
+            "title": "Drift State",
+            "type": "string"
+          },
+          "interval_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Coverage"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricForecastReadiness-Output"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "missing_metrics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Metrics",
+            "type": "array"
+          },
+          "relative_bias": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Bias"
+          },
+          "relative_residual_shift": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Residual Shift"
+          }
+        },
+        "title": "ForecastReadiness",
         "type": "object"
       },
       "GroundTruthCostIn": {
@@ -3399,6 +4462,18 @@
             "title": "Execution Id",
             "type": "string"
           },
+          "ingested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingested At"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -3453,6 +4528,1002 @@
         ],
         "title": "MeasurementState",
         "type": "string"
+      },
+      "MetricForecastReadiness-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "assessed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessed At"
+          },
+          "bias_p_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias P Value"
+          },
+          "bias_standard_errors": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Standard Errors"
+          },
+          "calibration_periods": {
+            "minimum": 0.0,
+            "title": "Calibration Periods",
+            "type": "integer"
+          },
+          "calibration_state": {
+            "enum": [
+              "unknown",
+              "calibrated",
+              "warning",
+              "critical"
+            ],
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "coverage_p_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage P Value"
+          },
+          "drift_p_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drift P Value"
+          },
+          "drift_standard_errors": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drift Standard Errors"
+          },
+          "drift_state": {
+            "enum": [
+              "unknown",
+              "stable",
+              "warning",
+              "critical"
+            ],
+            "title": "Drift State",
+            "type": "string"
+          },
+          "interval_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Coverage"
+          },
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          },
+          "relative_bias": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Bias"
+          },
+          "relative_residual_shift": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Residual Shift"
+          }
+        },
+        "required": [
+          "metric",
+          "calibration_state",
+          "drift_state",
+          "calibration_periods"
+        ],
+        "title": "MetricForecastReadiness",
+        "type": "object"
+      },
+      "MetricForecastReadiness-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "assessed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessed At"
+          },
+          "calibration_periods": {
+            "minimum": 0.0,
+            "title": "Calibration Periods",
+            "type": "integer"
+          },
+          "calibration_state": {
+            "enum": [
+              "unknown",
+              "calibrated",
+              "warning",
+              "critical"
+            ],
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "drift_state": {
+            "enum": [
+              "unknown",
+              "stable",
+              "warning",
+              "critical"
+            ],
+            "title": "Drift State",
+            "type": "string"
+          },
+          "interval_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Coverage"
+          },
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          },
+          "relative_bias": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Bias"
+          },
+          "relative_residual_shift": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Residual Shift"
+          }
+        },
+        "required": [
+          "metric",
+          "calibration_state",
+          "drift_state",
+          "calibration_periods"
+        ],
+        "title": "MetricForecastReadiness",
+        "type": "object"
+      },
+      "MigrationActionForecast": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "default": "global",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "candidate_share": {
+            "title": "Candidate Share",
+            "type": "number"
+          },
+          "cohort_candidate_shares": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Cohort Candidate Shares",
+            "type": "object"
+          },
+          "critical_error_rate_lower_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critical Error Rate Lower Bound"
+          },
+          "critical_error_rate_p05": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critical Error Rate P05"
+          },
+          "critical_error_rate_p95": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critical Error Rate P95"
+          },
+          "critical_error_rate_upper_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critical Error Rate Upper Bound"
+          },
+          "cvar_loss_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cvar Loss Usd",
+            "type": "string"
+          },
+          "expected_critical_error_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Critical Error Rate"
+          },
+          "expected_monthly_cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expected Monthly Cost Usd",
+            "type": "string"
+          },
+          "expected_monthly_savings_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expected Monthly Savings Usd",
+            "type": "string"
+          },
+          "expected_p95_latency_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected P95 Latency Ms"
+          },
+          "expected_success_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Success Rate"
+          },
+          "feasible": {
+            "title": "Feasible",
+            "type": "boolean"
+          },
+          "minimum_critical_error_rate_limit": {
+            "title": "Minimum Critical Error Rate Limit",
+            "type": "number"
+          },
+          "minimum_cvar_loss_limit_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Minimum Cvar Loss Limit Usd",
+            "type": "string"
+          },
+          "minimum_p95_latency_limit_ms": {
+            "title": "Minimum P95 Latency Limit Ms",
+            "type": "integer"
+          },
+          "minimum_quality_drop_tolerance": {
+            "title": "Minimum Quality Drop Tolerance",
+            "type": "number"
+          },
+          "monthly_cost_p05_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Monthly Cost P05 Usd",
+            "type": "string"
+          },
+          "monthly_cost_p95_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Monthly Cost P95 Usd",
+            "type": "string"
+          },
+          "monthly_savings_p05_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Monthly Savings P05 Usd",
+            "type": "string"
+          },
+          "monthly_savings_p95_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Monthly Savings P95 Usd",
+            "type": "string"
+          },
+          "p95_latency_p05_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Latency P05 Ms"
+          },
+          "p95_latency_p95_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Latency P95 Ms"
+          },
+          "probability_critical_error_breach": {
+            "title": "Probability Critical Error Breach",
+            "type": "number"
+          },
+          "probability_latency_breach": {
+            "title": "Probability Latency Breach",
+            "type": "number"
+          },
+          "probability_negative_savings": {
+            "title": "Probability Negative Savings",
+            "type": "number"
+          },
+          "probability_quality_breach": {
+            "title": "Probability Quality Breach",
+            "type": "number"
+          },
+          "success_rate_lower_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate Lower Bound"
+          },
+          "success_rate_p05": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate P05"
+          },
+          "success_rate_p95": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate P95"
+          },
+          "success_rate_upper_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate Upper Bound"
+          },
+          "value_at_risk_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Value At Risk Usd",
+            "type": "string"
+          },
+          "violated_constraints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Violated Constraints",
+            "type": "array"
+          }
+        },
+        "required": [
+          "candidate_share",
+          "expected_monthly_cost_usd",
+          "monthly_cost_p05_usd",
+          "monthly_cost_p95_usd",
+          "expected_monthly_savings_usd",
+          "monthly_savings_p05_usd",
+          "monthly_savings_p95_usd",
+          "probability_negative_savings",
+          "probability_quality_breach",
+          "probability_latency_breach",
+          "probability_critical_error_breach",
+          "value_at_risk_usd",
+          "cvar_loss_usd",
+          "minimum_quality_drop_tolerance",
+          "minimum_p95_latency_limit_ms",
+          "minimum_critical_error_rate_limit",
+          "minimum_cvar_loss_limit_usd",
+          "feasible",
+          "violated_constraints"
+        ],
+        "title": "MigrationActionForecast",
+        "type": "object"
+      },
+      "MigrationEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "items": {
+              "$ref": "#/components/schemas/MigrationObservation-Input"
+            },
+            "maxItems": 5000,
+            "minItems": 1,
+            "title": "Candidate",
+            "type": "array"
+          },
+          "candidate_model": {
+            "minLength": 1,
+            "title": "Candidate Model",
+            "type": "string"
+          },
+          "demand_horizon": {
+            "default": "unknown",
+            "enum": [
+              "month",
+              "unknown"
+            ],
+            "title": "Demand Horizon",
+            "type": "string"
+          },
+          "incumbent": {
+            "items": {
+              "$ref": "#/components/schemas/MigrationObservation-Input"
+            },
+            "maxItems": 5000,
+            "minItems": 1,
+            "title": "Incumbent",
+            "type": "array"
+          },
+          "incumbent_model": {
+            "minLength": 1,
+            "title": "Incumbent Model",
+            "type": "string"
+          },
+          "period_request_counts": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 366,
+            "minItems": 1,
+            "title": "Period Request Counts",
+            "type": "array"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/ForecastReadiness-Input"
+          },
+          "workload": {
+            "minLength": 1,
+            "title": "Workload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workload",
+          "incumbent_model",
+          "candidate_model",
+          "incumbent",
+          "candidate",
+          "period_request_counts"
+        ],
+        "title": "MigrationEvidence",
+        "type": "object"
+      },
+      "MigrationEvidenceRefreshRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_source": {
+            "$ref": "#/components/schemas/MigrationEvidenceSource"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/MigrationRiskPolicy-Input"
+          },
+          "seed": {
+            "default": 7,
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "simulations": {
+            "default": 10000,
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Simulations",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "evidence_source",
+          "policy"
+        ],
+        "title": "MigrationEvidenceRefreshRequest",
+        "type": "object"
+      },
+      "MigrationEvidenceSource": {
+        "additionalProperties": false,
+        "description": "A durable selector from which fresh migration evidence can be rebuilt.",
+        "properties": {
+          "candidate_model": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Candidate Model",
+            "type": "string"
+          },
+          "cohort_dimension": {
+            "default": "cohort",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Cohort Dimension",
+            "type": "string"
+          },
+          "incumbent_model": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Incumbent Model",
+            "type": "string"
+          },
+          "lookback_days": {
+            "default": 30,
+            "maximum": 366.0,
+            "minimum": 1.0,
+            "title": "Lookback Days",
+            "type": "integer"
+          },
+          "outcome_type": {
+            "default": "accepted",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "workload": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Workload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workload",
+          "incumbent_model",
+          "candidate_model"
+        ],
+        "title": "MigrationEvidenceSource",
+        "type": "object"
+      },
+      "MigrationObservation-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "case_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Case Id",
+            "type": "string"
+          },
+          "cohort": {
+            "default": "default",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Cohort",
+            "type": "string"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "critical_error": {
+            "default": false,
+            "title": "Critical Error",
+            "type": "boolean"
+          },
+          "latency_ms": {
+            "minimum": 0.0,
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "source": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id",
+          "cost_usd",
+          "latency_ms",
+          "accepted",
+          "source"
+        ],
+        "title": "MigrationObservation",
+        "type": "object"
+      },
+      "MigrationObservation-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "case_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Case Id",
+            "type": "string"
+          },
+          "cohort": {
+            "default": "default",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Cohort",
+            "type": "string"
+          },
+          "cost_usd": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cost Usd",
+            "type": "string"
+          },
+          "critical_error": {
+            "default": false,
+            "title": "Critical Error",
+            "type": "boolean"
+          },
+          "latency_ms": {
+            "minimum": 0.0,
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "source": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id",
+          "cost_usd",
+          "latency_ms",
+          "accepted",
+          "source"
+        ],
+        "title": "MigrationObservation",
+        "type": "object"
+      },
+      "MigrationRiskPolicy-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_drift_warning": {
+            "default": false,
+            "title": "Allow Drift Warning",
+            "type": "boolean"
+          },
+          "candidate_shares": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 8,
+            "title": "Candidate Shares",
+            "type": "array"
+          },
+          "critical_error_penalty_usd": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "0",
+            "title": "Critical Error Penalty Usd"
+          },
+          "cvar_confidence": {
+            "default": 0.95,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Cvar Confidence",
+            "type": "number"
+          },
+          "max_constraint_breach_probability": {
+            "default": 0.05,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Constraint Breach Probability",
+            "type": "number"
+          },
+          "max_critical_error_rate": {
+            "default": 0.005,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Max Critical Error Rate",
+            "type": "number"
+          },
+          "max_cvar_loss_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "0",
+            "title": "Max Cvar Loss Usd"
+          },
+          "max_p95_latency_ms": {
+            "default": 2000,
+            "minimum": 0.0,
+            "title": "Max P95 Latency Ms",
+            "type": "integer"
+          },
+          "max_quality_drop": {
+            "default": 0.01,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Quality Drop",
+            "type": "number"
+          },
+          "min_demand_periods": {
+            "default": 12,
+            "minimum": 1.0,
+            "title": "Min Demand Periods",
+            "type": "integer"
+          },
+          "min_paired_cases": {
+            "default": 30,
+            "minimum": 1.0,
+            "title": "Min Paired Cases",
+            "type": "integer"
+          },
+          "require_calibrated_forecast": {
+            "default": true,
+            "title": "Require Calibrated Forecast",
+            "type": "boolean"
+          },
+          "routing_actions": {
+            "items": {
+              "$ref": "#/components/schemas/CohortRoutingAction"
+            },
+            "maxItems": 8,
+            "title": "Routing Actions",
+            "type": "array"
+          }
+        },
+        "title": "MigrationRiskPolicy",
+        "type": "object"
+      },
+      "MigrationRiskPolicy-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_drift_warning": {
+            "default": false,
+            "title": "Allow Drift Warning",
+            "type": "boolean"
+          },
+          "candidate_shares": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 8,
+            "title": "Candidate Shares",
+            "type": "array"
+          },
+          "critical_error_penalty_usd": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Critical Error Penalty Usd",
+            "type": "string"
+          },
+          "cvar_confidence": {
+            "default": 0.95,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Cvar Confidence",
+            "type": "number"
+          },
+          "max_constraint_breach_probability": {
+            "default": 0.05,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Constraint Breach Probability",
+            "type": "number"
+          },
+          "max_critical_error_rate": {
+            "default": 0.005,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Max Critical Error Rate",
+            "type": "number"
+          },
+          "max_cvar_loss_usd": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Max Cvar Loss Usd",
+            "type": "string"
+          },
+          "max_p95_latency_ms": {
+            "default": 2000,
+            "minimum": 0.0,
+            "title": "Max P95 Latency Ms",
+            "type": "integer"
+          },
+          "max_quality_drop": {
+            "default": 0.01,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Quality Drop",
+            "type": "number"
+          },
+          "min_demand_periods": {
+            "default": 12,
+            "minimum": 1.0,
+            "title": "Min Demand Periods",
+            "type": "integer"
+          },
+          "min_paired_cases": {
+            "default": 30,
+            "minimum": 1.0,
+            "title": "Min Paired Cases",
+            "type": "integer"
+          },
+          "require_calibrated_forecast": {
+            "default": true,
+            "title": "Require Calibrated Forecast",
+            "type": "boolean"
+          },
+          "routing_actions": {
+            "items": {
+              "$ref": "#/components/schemas/CohortRoutingAction"
+            },
+            "maxItems": 8,
+            "title": "Routing Actions",
+            "type": "array"
+          }
+        },
+        "title": "MigrationRiskPolicy",
+        "type": "object"
       },
       "OutcomeBatchIngestRequest": {
         "properties": {
@@ -3620,6 +5691,17 @@
             ],
             "title": "Join Key"
           },
+          "maturity": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "provisional",
+              "final",
+              "withdrawn"
+            ],
+            "title": "Maturity",
+            "type": "string"
+          },
           "occurred_at": {
             "anyOf": [
               {
@@ -3731,6 +5813,17 @@
             "title": "Join Key",
             "type": "string"
           },
+          "maturity": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "provisional",
+              "final",
+              "withdrawn"
+            ],
+            "title": "Maturity",
+            "type": "string"
+          },
           "occurred_at": {
             "format": "date-time",
             "title": "Occurred At",
@@ -3766,6 +5859,50 @@
           "provenance"
         ],
         "title": "OutcomeQueryResponse",
+        "type": "object"
+      },
+      "OutcomeSemantics": {
+        "additionalProperties": false,
+        "description": "The selected immutable success rule; no claim of business label maturity.",
+        "properties": {
+          "definition_digest": {
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition Digest"
+          },
+          "rule_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Digest"
+          },
+          "status": {
+            "enum": [
+              "defined",
+              "missing",
+              "type_mismatch"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "OutcomeSemantics",
         "type": "object"
       },
       "PerformanceSummary": {
@@ -4045,6 +6182,300 @@
           "effective_from"
         ],
         "title": "PricingCatalogCreate",
+        "type": "object"
+      },
+      "ProbabilisticDecisionScheduleCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_source": {
+            "$ref": "#/components/schemas/MigrationEvidenceSource"
+          },
+          "interval_minutes": {
+            "default": 1440,
+            "maximum": 43200.0,
+            "minimum": 60.0,
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/MigrationRiskPolicy-Input"
+          },
+          "seed": {
+            "default": 7,
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "simulations": {
+            "default": 10000,
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Simulations",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "evidence_source",
+          "policy"
+        ],
+        "title": "ProbabilisticDecisionScheduleCreate",
+        "type": "object"
+      },
+      "ProbabilisticDecisionScheduleOut": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evidence_source": {
+            "$ref": "#/components/schemas/MigrationEvidenceSource"
+          },
+          "interval_minutes": {
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "last_decision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Decision Id"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "next_run_at": {
+            "format": "date-time",
+            "title": "Next Run At",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/MigrationRiskPolicy-Output"
+          },
+          "schedule_id": {
+            "title": "Schedule Id",
+            "type": "string"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "simulations": {
+            "title": "Simulations",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schedule_id",
+          "evidence_source",
+          "policy",
+          "interval_minutes",
+          "simulations",
+          "seed",
+          "active",
+          "next_run_at",
+          "last_run_at",
+          "last_decision_id",
+          "last_error",
+          "created_at"
+        ],
+        "title": "ProbabilisticDecisionScheduleOut",
+        "type": "object"
+      },
+      "ProbabilisticMigrationDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/MigrationActionForecast"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "additional_cases_required": {
+            "default": 0,
+            "title": "Additional Cases Required",
+            "type": "integer"
+          },
+          "additional_demand_periods_required": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Additional Demand Periods Required",
+            "type": "integer"
+          },
+          "candidate_model": {
+            "title": "Candidate Model",
+            "type": "string"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "evidence_lineage": {
+            "additionalProperties": true,
+            "title": "Evidence Lineage",
+            "type": "object"
+          },
+          "forecast_readiness": {
+            "$ref": "#/components/schemas/ForecastReadiness-Output"
+          },
+          "incumbent_model": {
+            "title": "Incumbent Model",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "recommended_action": {
+            "enum": [
+              "ship_candidate",
+              "hybrid_route",
+              "cohort_route",
+              "keep_incumbent",
+              "collect_evidence"
+            ],
+            "title": "Recommended Action",
+            "type": "string"
+          },
+          "recommended_candidate_share": {
+            "title": "Recommended Candidate Share",
+            "type": "number"
+          },
+          "recommended_routing": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Recommended Routing",
+            "type": "object"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "simulations": {
+            "title": "Simulations",
+            "type": "integer"
+          },
+          "verdict": {
+            "enum": [
+              "recommend",
+              "hold",
+              "abstain"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          },
+          "workload": {
+            "title": "Workload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workload",
+          "incumbent_model",
+          "candidate_model",
+          "verdict",
+          "recommended_action",
+          "recommended_candidate_share",
+          "reason_codes",
+          "simulations",
+          "seed",
+          "actions",
+          "forecast_readiness"
+        ],
+        "title": "ProbabilisticMigrationDecision",
+        "type": "object"
+      },
+      "ProbabilisticMigrationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "calibration_observations": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastCalibrationObservation"
+            },
+            "maxItems": 200,
+            "title": "Calibration Observations",
+            "type": "array"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/MigrationEvidence"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/MigrationRiskPolicy-Input"
+          },
+          "seed": {
+            "default": 7,
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "simulations": {
+            "default": 10000,
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Simulations",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "evidence",
+          "policy"
+        ],
+        "title": "ProbabilisticMigrationRequest",
         "type": "object"
       },
       "ProviderBillAllocation": {
@@ -4460,6 +6891,196 @@
         "title": "ProviderCostBucketIn",
         "type": "object"
       },
+      "RandomizedRolloutAssignmentCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "cohort": {
+            "default": "default",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Cohort",
+            "type": "string"
+          },
+          "subject_id": {
+            "maxLength": 192,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id"
+        ],
+        "title": "RandomizedRolloutAssignmentCreate",
+        "type": "object"
+      },
+      "RandomizedRolloutAssignmentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "arm": {
+            "enum": [
+              "incumbent",
+              "candidate"
+            ],
+            "title": "Arm",
+            "type": "string"
+          },
+          "assigned_at": {
+            "format": "date-time",
+            "title": "Assigned At",
+            "type": "string"
+          },
+          "assigned_model": {
+            "title": "Assigned Model",
+            "type": "string"
+          },
+          "rollout_id": {
+            "title": "Rollout Id",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id",
+          "arm",
+          "assigned_model",
+          "assigned_at",
+          "rollout_id"
+        ],
+        "title": "RandomizedRolloutAssignmentOut",
+        "type": "object"
+      },
+      "RandomizedRolloutCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_probability": {
+            "default": 0.5,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Candidate Probability",
+            "type": "number"
+          },
+          "cohort_candidate_probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Cohort Candidate Probabilities",
+            "type": "object"
+          },
+          "decision_id": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "minimum_per_arm": {
+            "default": 100,
+            "maximum": 10000.0,
+            "minimum": 20.0,
+            "title": "Minimum Per Arm",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decision_id"
+        ],
+        "title": "RandomizedRolloutCreate",
+        "type": "object"
+      },
+      "RandomizedRolloutOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "candidate_model": {
+            "title": "Candidate Model",
+            "type": "string"
+          },
+          "candidate_probability": {
+            "title": "Candidate Probability",
+            "type": "number"
+          },
+          "cohort_candidate_probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Cohort Candidate Probabilities",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "incumbent_model": {
+            "title": "Incumbent Model",
+            "type": "string"
+          },
+          "minimum_per_arm": {
+            "title": "Minimum Per Arm",
+            "type": "integer"
+          },
+          "rollout_id": {
+            "title": "Rollout Id",
+            "type": "string"
+          },
+          "workload": {
+            "title": "Workload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rollout_id",
+          "decision_id",
+          "workload",
+          "incumbent_model",
+          "candidate_model",
+          "candidate_probability",
+          "cohort_candidate_probabilities",
+          "minimum_per_arm",
+          "active",
+          "created_at"
+        ],
+        "title": "RandomizedRolloutOut",
+        "type": "object"
+      },
+      "RandomizedRolloutVerify": {
+        "additionalProperties": false,
+        "properties": {
+          "bootstrap_samples": {
+            "default": 2000,
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Bootstrap Samples",
+            "type": "integer"
+          },
+          "outcome_type": {
+            "default": "accepted",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Outcome Type",
+            "type": "string"
+          },
+          "seed": {
+            "default": 7,
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "title": "RandomizedRolloutVerify",
+        "type": "object"
+      },
       "RetryOutboxResponse": {
         "properties": {
           "id": {
@@ -4483,6 +7104,122 @@
           "status"
         ],
         "title": "RetryOutboxResponse",
+        "type": "object"
+      },
+      "RolloutVerification": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_samples": {
+            "title": "Candidate Samples",
+            "type": "integer"
+          },
+          "causal_status": {
+            "enum": [
+              "verified",
+              "inconclusive",
+              "invalid"
+            ],
+            "title": "Causal Status",
+            "type": "string"
+          },
+          "effects": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CausalMetricEffect"
+            },
+            "title": "Effects",
+            "type": "object"
+          },
+          "excluded_noncompliant": {
+            "title": "Excluded Noncompliant",
+            "type": "integer"
+          },
+          "excluded_pre_assignment": {
+            "title": "Excluded Pre Assignment",
+            "type": "integer"
+          },
+          "incumbent_samples": {
+            "title": "Incumbent Samples",
+            "type": "integer"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "rollout_id": {
+            "title": "Rollout Id",
+            "type": "string"
+          },
+          "verification_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Id"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "title": "Verified At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rollout_id",
+          "causal_status",
+          "reason_codes",
+          "incumbent_samples",
+          "candidate_samples",
+          "excluded_noncompliant",
+          "excluded_pre_assignment",
+          "effects",
+          "verified_at"
+        ],
+        "title": "RolloutVerification",
+        "type": "object"
+      },
+      "RunInventory": {
+        "additionalProperties": false,
+        "properties": {
+          "execution_count": {
+            "maximum": 50000.0,
+            "minimum": 0.0,
+            "title": "Execution Count",
+            "type": "integer"
+          },
+          "execution_ids_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Execution Ids Digest",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "terminal_state": {
+            "enum": [
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Terminal State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "terminal_state",
+          "execution_count",
+          "execution_ids_digest"
+        ],
+        "title": "RunInventory",
         "type": "object"
       },
       "ScopedLoginRequest": {
@@ -4589,14 +7326,37 @@
             "title": "Attempt",
             "type": "integer"
           },
+          "charge_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charge Id"
+          },
           "cost_measurement": {
-            "default": "measured",
+            "default": "unmeasured",
             "enum": [
               "measured",
               "estimated",
               "unmeasured"
             ],
             "title": "Cost Measurement",
+            "type": "string"
+          },
+          "cost_role": {
+            "default": "legacy_unknown",
+            "enum": [
+              "legacy_unknown",
+              "charge",
+              "summary"
+            ],
+            "title": "Cost Role",
             "type": "string"
           },
           "cost_usd": {
@@ -4606,14 +7366,13 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,19}0*$)\\d{0,10}\\.\\d{0,8}0*$)",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "default": "0",
             "title": "Cost Usd"
           },
           "dimensions": {
@@ -4676,6 +7435,19 @@
             "title": "Run Id",
             "type": "string"
           },
+          "source_window_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Window Id"
+          },
           "step": {
             "minLength": 1,
             "title": "Step",
@@ -4715,8 +7487,15 @@
       "SdkOutcomeEvent": {
         "properties": {
           "accepted": {
-            "title": "Accepted",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
           },
           "dimensions": {
             "additionalProperties": {
@@ -4737,6 +7516,17 @@
             },
             "title": "Dimensions",
             "type": "object"
+          },
+          "maturity": {
+            "default": "unknown",
+            "enum": [
+              "unknown",
+              "provisional",
+              "final",
+              "withdrawn"
+            ],
+            "title": "Maturity",
+            "type": "string"
           },
           "metadata": {
             "additionalProperties": true,
@@ -4823,10 +7613,141 @@
         },
         "required": [
           "workflow",
-          "run_id",
-          "accepted"
+          "run_id"
         ],
         "title": "SdkOutcomeEvent",
+        "type": "object"
+      },
+      "SourceDelivery": {
+        "additionalProperties": false,
+        "description": "Reconciliation with caller inventory; no guarantee of physical source truth.",
+        "properties": {
+          "expected_executions": {
+            "minimum": 0.0,
+            "title": "Expected Executions",
+            "type": "integer"
+          },
+          "expected_runs": {
+            "minimum": 0.0,
+            "title": "Expected Runs",
+            "type": "integer"
+          },
+          "inventory_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Inventory Digest",
+            "type": "string"
+          },
+          "inventory_version": {
+            "const": "source-inventory/1",
+            "default": "source-inventory/1",
+            "title": "Inventory Version",
+            "type": "string"
+          },
+          "mismatched_runs": {
+            "minimum": 0.0,
+            "title": "Mismatched Runs",
+            "type": "integer"
+          },
+          "missing_runs": {
+            "minimum": 0.0,
+            "title": "Missing Runs",
+            "type": "integer"
+          },
+          "observed_executions": {
+            "minimum": 0.0,
+            "title": "Observed Executions",
+            "type": "integer"
+          },
+          "observed_runs": {
+            "minimum": 0.0,
+            "title": "Observed Runs",
+            "type": "integer"
+          },
+          "out_of_window_executions": {
+            "minimum": 0.0,
+            "title": "Out Of Window Executions",
+            "type": "integer"
+          },
+          "scan_truncated": {
+            "default": false,
+            "title": "Scan Truncated",
+            "type": "boolean"
+          },
+          "source_window_id": {
+            "title": "Source Window Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "matched",
+              "mismatch"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unexpected_runs": {
+            "minimum": 0.0,
+            "title": "Unexpected Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_window_id",
+          "inventory_digest",
+          "status",
+          "expected_runs",
+          "observed_runs",
+          "expected_executions",
+          "observed_executions",
+          "missing_runs",
+          "unexpected_runs",
+          "mismatched_runs",
+          "out_of_window_executions"
+        ],
+        "title": "SourceDelivery",
+        "type": "object"
+      },
+      "SourceWindowInventory": {
+        "additionalProperties": false,
+        "properties": {
+          "closed_at": {
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunInventory"
+            },
+            "maxItems": 5000,
+            "title": "Runs",
+            "type": "array"
+          },
+          "source_window_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Source Window Id",
+            "type": "string"
+          },
+          "version": {
+            "const": "source-inventory/1",
+            "default": "source-inventory/1",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_window_id",
+          "opened_at",
+          "closed_at",
+          "runs"
+        ],
+        "title": "SourceWindowInventory",
         "type": "object"
       },
       "TenantBudgetUpsert": {
@@ -5230,6 +8151,19 @@
           },
           "policy": {
             "$ref": "#/components/schemas/DecisionPolicy"
+          },
+          "source_windows": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SourceWindowInventory"
+            },
+            "propertyNames": {
+              "enum": [
+                "baseline",
+                "candidate"
+              ]
+            },
+            "title": "Source Windows",
+            "type": "object"
           },
           "workflow": {
             "minLength": 1,
@@ -5947,6 +8881,119 @@
         "tags": [
           "capabilities",
           "registry"
+        ]
+      }
+    },
+    "/v1/charge-cost-revisions": {
+      "get": {
+        "operationId": "list_charge_cost_revisions_v1_charge_cost_revisions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "charge_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Charge Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChargeCostRevision-Output"
+                  },
+                  "title": "Response List Charge Cost Revisions V1 Charge Cost Revisions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Charge Cost Revisions",
+        "tags": [
+          "zeroth-cloud-sdk"
+        ]
+      },
+      "post": {
+        "operationId": "record_charge_cost_revision_v1_charge_cost_revisions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChargeCostRevision-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Record Charge Cost Revision V1 Charge Cost Revisions Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Charge Cost Revision",
+        "tags": [
+          "zeroth-cloud-sdk"
         ]
       }
     },
@@ -7842,6 +10889,223 @@
         ]
       }
     },
+    "/v1/decisions/model-migration": {
+      "post": {
+        "operationId": "evaluate_model_migration_v1_decisions_model_migration_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbabilisticMigrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbabilisticMigrationDecision"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Evaluate Model Migration",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/decisions/model-migration/refresh": {
+      "post": {
+        "operationId": "refresh_model_migration_v1_decisions_model_migration_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrationEvidenceRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbabilisticMigrationDecision"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh Model Migration",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/decisions/model-migrations": {
+      "get": {
+        "operationId": "probabilistic_migration_history_v1_decisions_model_migrations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workload",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workload"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProbabilisticMigrationDecision"
+                  },
+                  "title": "Response Probabilistic Migration History V1 Decisions Model Migrations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Probabilistic Migration History",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/decisions/{decision_id}/reports": {
+      "post": {
+        "operationId": "create_report_v1_decisions__decision_id__reports_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionReportCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Report",
+        "tags": [
+          "economic-decision-reports"
+        ]
+      }
+    },
     "/v1/enforcement/actions": {
       "get": {
         "operationId": "list_all_v1_enforcement_actions_get",
@@ -8754,6 +12018,240 @@
         ]
       }
     },
+    "/v1/probabilistic-decision-schedules": {
+      "get": {
+        "operationId": "probabilistic_schedules_v1_probabilistic_decision_schedules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProbabilisticDecisionScheduleOut"
+                  },
+                  "title": "Response Probabilistic Schedules V1 Probabilistic Decision Schedules Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Probabilistic Schedules",
+        "tags": [
+          "economic-change-control"
+        ]
+      },
+      "post": {
+        "operationId": "create_probabilistic_schedule_v1_probabilistic_decision_schedules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbabilisticDecisionScheduleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbabilisticDecisionScheduleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Probabilistic Schedule",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/randomized-rollouts": {
+      "post": {
+        "operationId": "create_rollout_v1_randomized_rollouts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RandomizedRolloutCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RandomizedRolloutOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Rollout",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/randomized-rollouts/{rollout_id}/assignments": {
+      "post": {
+        "operationId": "assign_rollout_v1_randomized_rollouts__rollout_id__assignments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rollout_id",
+            "required": true,
+            "schema": {
+              "title": "Rollout Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RandomizedRolloutAssignmentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RandomizedRolloutAssignmentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assign Rollout",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/randomized-rollouts/{rollout_id}/verify": {
+      "post": {
+        "operationId": "verify_rollout_v1_randomized_rollouts__rollout_id__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rollout_id",
+            "required": true,
+            "schema": {
+              "title": "Rollout Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RandomizedRolloutVerify"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolloutVerification"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Rollout",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
     "/v1/reconciliation/calibration-summary": {
       "get": {
         "operationId": "calibration_summary_v1_reconciliation_calibration_summary_get",
@@ -9346,6 +12844,108 @@
         "tags": [
           "capabilities",
           "registry"
+        ]
+      }
+    },
+    "/v1/reports/{report_id}": {
+      "get": {
+        "operationId": "download_report_v1_reports__report_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Report",
+        "tags": [
+          "economic-decision-reports"
+        ]
+      }
+    },
+    "/v1/reports/{report_id}/deliveries": {
+      "post": {
+        "operationId": "deliver_report_v1_reports__report_id__deliveries_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionReportDeliveryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionReportDeliveryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deliver Report",
+        "tags": [
+          "economic-decision-reports"
         ]
       }
     }

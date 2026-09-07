@@ -860,6 +860,20 @@
       "methods": [
         "GET"
       ],
+      "path": "/regulus/v1/charge-cost-revisions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/charge-cost-revisions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
       "path": "/regulus/v1/cloud/api-keys"
     },
     {
@@ -1338,7 +1352,6 @@
       ],
       "path": "/regulus/v1/randomized-rollouts/{rollout_id}/verify"
     },
-
     {
       "kind": "http",
       "methods": [
@@ -12784,6 +12797,20 @@
       "methods": [
         "GET"
       ],
+      "path": "/regulus/v1/charge-cost-revisions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/charge-cost-revisions"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "GET"
+      ],
       "path": "/regulus/v1/cloud/api-keys"
     },
     {
@@ -13262,7 +13289,6 @@
       ],
       "path": "/regulus/v1/randomized-rollouts/{rollout_id}/verify"
     },
-
     {
       "kind": "http",
       "methods": [

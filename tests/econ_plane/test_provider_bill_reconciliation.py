@@ -128,6 +128,7 @@ def _seed_resolved_runs(engine) -> None:
             ingest_outcome(
                 db,
                 OutcomeEventCreate(
+                    maturity="final",
                     execution_id=execution_id,
                     join_key=run_id,
                     capability_id="invoice-processing",
@@ -406,7 +407,7 @@ def test_provider_bill_migration_is_tenant_bound_and_independently_reversible(
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20260902_20"
+                == "20260907_25"
             )
     finally:
         engine.dispose()

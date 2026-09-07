@@ -22,6 +22,7 @@ from zeroth.service.economic_diagnostic_cli import render_markdown
 from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, get_current_user
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims
+from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, get_cloud_user
 from zeroth.econ.plane import database as database_module
 from zeroth.econ.plane.database import Base
 from zeroth.econ.plane.debugger.schemas import OutcomeDefinitionCreate
@@ -258,6 +259,7 @@ def _seed_debugger_fixture(engine, tenant_id: str = "tenant-a") -> None:
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="success-verify",
                 join_key="run-success",
                 capability_id=capability_id,
@@ -270,6 +272,7 @@ def _seed_debugger_fixture(engine, tenant_id: str = "tenant-a") -> None:
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="failure-extract-2",
                 join_key="run-failed",
                 capability_id=capability_id,
@@ -290,6 +293,7 @@ def _client(engine, tenant_id: str = "tenant-a", roles: list[str] | None = None)
             yield ScopedSession(raw, TenantWideScopeContext(tenant_id=tenant_id))
 
     app.dependency_overrides[get_current_scoped_db] = scoped_db
+    app.dependency_overrides[get_cloud_scoped_db] = scoped_db
     app.dependency_overrides[get_current_user] = lambda: ScopedUserClaims(
         sub="debugger-test",
         email="debugger@example.com",
@@ -298,6 +302,7 @@ def _client(engine, tenant_id: str = "tenant-a", roles: list[str] | None = None)
         exp=int(time()) + 300,
         iss="zeroth-test",
     )
+    app.dependency_overrides[get_cloud_user] = app.dependency_overrides[get_current_user]
     return TestClient(app)
 
 
@@ -409,6 +414,7 @@ def test_diagnostic_report_turns_evidence_into_one_honest_next_action(econ_engin
         "measured_events": 3,
         "estimated_events": 1,
         "unmeasured_events": 0,
+        "summary_events": 0,
         "incomplete_events": 0,
         "measured_cost_usd": 0.5,
         "estimated_cost_usd": 0.2,
@@ -532,6 +538,7 @@ def test_diagnostic_report_does_not_infer_success_without_an_outcome_definition(
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="ambiguous-outcome",
                 join_key="run-ambiguous",
                 capability_id=capability_id,
@@ -576,6 +583,7 @@ def test_versioned_outcome_definition_controls_business_success(econ_engine) -> 
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="fraud-outcome",
                 join_key="run-fraud",
                 capability_id=capability_id,
@@ -667,6 +675,7 @@ def test_numeric_outcome_definition_applies_a_versioned_threshold(econ_engine) -
         ingest_outcome(
             db,
             OutcomeEventCreate(
+                maturity="final",
                 execution_id="reopen-outcome",
                 join_key="run-reopened",
                 capability_id=capability_id,
@@ -763,7 +772,7 @@ def test_debugger_spine_migration_backfills_existing_execution_identity(
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == ("20260902_20")
+            ).scalar_one() == ("20260907_25")
             identity = connection.execute(
                 text(
                     "SELECT workflow_id, workflow_version, run_id, attempt, dimensions "

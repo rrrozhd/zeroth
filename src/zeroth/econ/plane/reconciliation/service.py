@@ -15,6 +15,8 @@ from zeroth.econ.plane.costing.service import (
     compute_calibration_summary as _compute_calibration_summary,
 )
 from zeroth.econ.plane.debugger.service import resolve_outcomes_for_events
+from zeroth.econ.plane.instrumentation.identity import run_identity
+from zeroth.econ.plane.instrumentation.charge_costs import CostAmounts, resolve_costs
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 from zeroth.econ.plane.reconciliation.models import ProviderBill, ProviderCostBucket
 from zeroth.econ.plane.reconciliation.schemas import (
@@ -129,20 +131,10 @@ def import_provider_bill(
     return True, bill
 
 
-def _measured_cost(event: ExecutionEvent) -> Decimal:
-    if event.cost_measurement != MeasurementState.MEASURED.value:
+def _measured_cost(event: ExecutionEvent, cost: CostAmounts) -> Decimal:
+    if event.cost_role == "summary" or cost.cost_measurement != MeasurementState.MEASURED.value:
         return Decimal("0")
-    return sum(
-        (
-            value or Decimal("0")
-            for value in (
-                event.token_cost_usd,
-                event.tool_cost_usd,
-                event.compute_cost_usd,
-            )
-        ),
-        Decimal("0"),
-    )
+    return cost.total
 
 
 def _provider_matches(event: ExecutionEvent, provider: str) -> bool:
@@ -157,8 +149,8 @@ def _bucket_matches(event: ExecutionEvent, bucket: ProviderCostBucket) -> bool:
     return all(str(metadata.get(key, "")) == value for key, value in bucket.provider_dimensions.items())
 
 
-def _allocate(amount: Decimal, events: list[ExecutionEvent]) -> list[tuple[ExecutionEvent, Decimal]]:
-    weights = [_measured_cost(event) for event in events]
+def _allocate(amount: Decimal, events: list[ExecutionEvent], costs: dict[int, CostAmounts]) -> list[tuple[ExecutionEvent, Decimal]]:
+    weights = [_measured_cost(event, costs[event.id]) for event in events]
     total = sum(weights, Decimal("0"))
     allocated: list[tuple[ExecutionEvent, Decimal]] = []
     running = Decimal("0")
@@ -196,6 +188,7 @@ def provider_bill_report(
         raise ValueError(
             f"Provider bill exceeds the {MAX_RECONCILIATION_EVENTS}-event request-time limit"
         )
+    costs, _revisions = resolve_costs(db, events)
     provider_events = [event for event in events if _provider_matches(event, provider)]
     candidates: dict[int, list[ExecutionEvent]] = {}
     memberships: dict[int, set[int]] = defaultdict(set)
@@ -205,7 +198,7 @@ def provider_bill_report(
             for event in provider_events
             if bucket.period_start <= event.timestamp < bucket.period_end
             and _bucket_matches(event, bucket)
-            and _measured_cost(event) > 0
+            and _measured_cost(event, costs[event.id]) > 0
         ]
         candidates[bucket.id] = matched
         for event in matched:
@@ -253,9 +246,9 @@ def provider_bill_report(
             continue
         matched_bucket_count += 1
         allocated_total += bucket.amount_usd
-        telemetry_total += sum((_measured_cost(event) for event in matched), Decimal("0"))
-        for event, billed_share in _allocate(bucket.amount_usd, matched):
-            status = outcome_status.get(event.run_id or "")
+        telemetry_total += sum((_measured_cost(event, costs[event.id]) for event in matched), Decimal("0"))
+        for event, billed_share in _allocate(bucket.amount_usd, matched, costs):
+            status = outcome_status.get(run_identity(event))
             outcome = "success" if status is True else "failure" if status is False else "unresolved"
             key = (
                 bucket.id,
@@ -265,10 +258,9 @@ def provider_bill_report(
             )
             row = allocation_rows[key]
             row["billed"] += billed_share
-            row["telemetry"] += _measured_cost(event)
+            row["telemetry"] += _measured_cost(event, costs[event.id])
             row["events"] += 1
-            if event.run_id:
-                row["runs"].add(event.run_id)
+            row["runs"].add(run_identity(event))
     bucket_by_id = {bucket.id: bucket for bucket in buckets}
     allocations = [
         ProviderBillAllocation(
@@ -299,7 +291,7 @@ def provider_bill_report(
     matched_event_ids = set(memberships)
     unbilled_telemetry = sum(
         (
-            _measured_cost(event)
+            _measured_cost(event, costs[event.id])
             for event in provider_events
             if event.id not in matched_event_ids
         ),

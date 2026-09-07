@@ -213,6 +213,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/charge-cost-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Charge Cost Revisions */
+        get: operations["list_charge_cost_revisions_v1_charge_cost_revisions_get"];
+        put?: never;
+        /** Record Charge Cost Revision */
+        post: operations["record_charge_cost_revision_v1_charge_cost_revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/cloud/api-keys": {
         parameters: {
             query?: never;
@@ -879,6 +897,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/decisions/model-migration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Evaluate Model Migration */
+        post: operations["evaluate_model_migration_v1_decisions_model_migration_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/decisions/model-migration/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Model Migration */
+        post: operations["refresh_model_migration_v1_decisions_model_migration_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/decisions/model-migrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Probabilistic Migration History */
+        get: operations["probabilistic_migration_history_v1_decisions_model_migrations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/decisions/{decision_id}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Report */
+        post: operations["create_report_v1_decisions__decision_id__reports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/enforcement/actions": {
         parameters: {
             query?: never;
@@ -1169,6 +1255,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/probabilistic-decision-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Probabilistic Schedules */
+        get: operations["probabilistic_schedules_v1_probabilistic_decision_schedules_get"];
+        put?: never;
+        /** Create Probabilistic Schedule */
+        post: operations["create_probabilistic_schedule_v1_probabilistic_decision_schedules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/randomized-rollouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Rollout */
+        post: operations["create_rollout_v1_randomized_rollouts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/randomized-rollouts/{rollout_id}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assign Rollout */
+        post: operations["assign_rollout_v1_randomized_rollouts__rollout_id__assignments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/randomized-rollouts/{rollout_id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Rollout */
+        post: operations["verify_rollout_v1_randomized_rollouts__rollout_id__verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/reconciliation/calibration-summary": {
         parameters: {
             query?: never;
@@ -1374,6 +1529,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reports/{report_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Report */
+        get: operations["download_report_v1_reports__report_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reports/{report_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deliver Report */
+        post: operations["deliver_report_v1_reports__report_id__deliveries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1561,6 +1750,36 @@ export interface components {
             /** Window Start */
             window_start?: string | null;
         };
+        /**
+         * CalculationInput
+         * @description One distinct normalized input tuple and its run multiplicity; no source IDs.
+         */
+        CalculationInput: {
+            /** Accepted */
+            accepted: boolean | null;
+            cost_measurement: components["schemas"]["MeasurementState"];
+            /** Cost Usd */
+            cost_usd?: string | null;
+            outcome_measurement: components["schemas"]["MeasurementState"];
+            /** Runs */
+            runs: number;
+        };
+        /**
+         * CalculationInputs
+         * @description Portable arithmetic inputs, not a source snapshot or completeness proof.
+         */
+        CalculationInputs: {
+            /** Baseline */
+            baseline: components["schemas"]["CalculationInput"][];
+            /** Candidate */
+            candidate: components["schemas"]["CalculationInput"][];
+            /**
+             * Version
+             * @default run-economics/1
+             * @constant
+             */
+            version: "run-economics/1";
+        };
         /** CalibrationSummary */
         CalibrationSummary: {
             /** Bias */
@@ -1704,6 +1923,84 @@ export interface components {
             /** Net Margin Usd */
             net_margin_usd: number;
         };
+        /** CausalMetricEffect */
+        CausalMetricEffect: {
+            /** Candidate Mean */
+            candidate_mean: number;
+            /** Confidence High */
+            confidence_high: number;
+            /** Confidence Low */
+            confidence_low: number;
+            /** Estimated Difference */
+            estimated_difference: number;
+            /** Incumbent Mean */
+            incumbent_mean: number;
+            /** Metric */
+            metric: string;
+        };
+        /** ChargeCostRevision */
+        "ChargeCostRevision-Input": {
+            /**
+             * Asserted At
+             * Format: date-time
+             */
+            asserted_at: string;
+            /** Charge Id */
+            charge_id: string;
+            /** Compute Cost Usd */
+            compute_cost_usd?: string | number | null;
+            /**
+             * Cost Measurement
+             * @enum {string}
+             */
+            cost_measurement: "measured" | "estimated" | "unmeasured";
+            /** Reason */
+            reason: string;
+            /** Token Cost Usd */
+            token_cost_usd?: string | number | null;
+            /** Tool Cost Usd */
+            tool_cost_usd?: string | number | null;
+        };
+        /** ChargeCostRevision */
+        "ChargeCostRevision-Output": {
+            /**
+             * Asserted At
+             * Format: date-time
+             */
+            asserted_at: string;
+            /** Charge Id */
+            charge_id: string;
+            /** Compute Cost Usd */
+            compute_cost_usd?: string | null;
+            /**
+             * Cost Measurement
+             * @enum {string}
+             */
+            cost_measurement: "measured" | "estimated" | "unmeasured";
+            /** Reason */
+            reason: string;
+            /** Token Cost Usd */
+            token_cost_usd?: string | null;
+            /** Tool Cost Usd */
+            tool_cost_usd?: string | null;
+        };
+        /**
+         * ChargeOwnership
+         * @description Declared monetary owners; no inference of provider billing truth.
+         */
+        ChargeOwnership: {
+            /** Owned Charge Records */
+            owned_charge_records: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "declared" | "unverified";
+            /** Summary Records */
+            summary_records: number;
+            /** Unattributed Records */
+            unattributed_records: number;
+        };
         /** CheckoutRequest */
         CheckoutRequest: {
             /**
@@ -1732,6 +2029,15 @@ export interface components {
             runs: number;
             /** Successful Runs */
             successful_runs: number;
+        };
+        /** CohortRoutingAction */
+        CohortRoutingAction: {
+            /** Action Id */
+            action_id: string;
+            /** Cohort Candidate Shares */
+            cohort_candidate_shares: {
+                [key: string]: number;
+            };
         };
         /** ConfidenceGateConfig */
         ConfidenceGateConfig: {
@@ -2053,11 +2359,71 @@ export interface components {
              * @default 10
              */
             min_runs: number;
+            /** Min Success Rate */
+            min_success_rate?: number | null;
+        };
+        /** DecisionReportCreate */
+        DecisionReportCreate: Record<string, never>;
+        /** DecisionReportDeliveryCreate */
+        DecisionReportDeliveryCreate: {
             /**
-             * Min Success Rate
-             * @default 0
+             * Delivery Mode
+             * @default link
+             * @enum {string}
              */
-            min_success_rate: number;
+            delivery_mode: "attachment" | "link";
+            /** Recipients */
+            recipients: string[];
+        };
+        /** DecisionReportDeliveryOut */
+        DecisionReportDeliveryOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Delivery Id */
+            delivery_id: string;
+            /**
+             * Delivery Mode
+             * @enum {string}
+             */
+            delivery_mode: "attachment" | "link";
+            /** Last Error */
+            last_error: string | null;
+            /** Recipients */
+            recipients: string[];
+            /** Report Id */
+            report_id: string;
+            /** Report Sha256 */
+            report_sha256: string;
+            /** Sent At */
+            sent_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "sent" | "failed";
+        };
+        /** DecisionReportOut */
+        DecisionReportOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decision Id */
+            decision_id: string;
+            /** Download Path */
+            download_path: string;
+            /** Media Type */
+            media_type: string;
+            /** Report Id */
+            report_id: string;
+            /** Sha256 */
+            sha256: string;
+            /** Template Version */
+            template_version: string;
         };
         /** DecisionRequest */
         DecisionRequest: {
@@ -2184,11 +2550,27 @@ export interface components {
             candidate_error_rate?: number | null;
             /** Candidate Model */
             candidate_model: string | null;
+            /** Candidate Observations */
+            candidate_observations?: components["schemas"]["MigrationObservation-Output"][];
+            /** Candidate Replay Cost Usd */
+            candidate_replay_cost_usd?: string | null;
             /** Candidate Success Rate */
             candidate_success_rate?: number | null;
             /** Cases */
             cases: number;
+            /**
+             * Claim Class
+             * @default legacy_unclassified
+             * @enum {string}
+             */
+            claim_class: "legacy_unclassified" | "exploratory_model_experiment";
             constraints: components["schemas"]["EconomicConstraints-Output"];
+            /**
+             * Cost Basis
+             * @default unavailable
+             * @enum {string}
+             */
+            cost_basis: "unavailable" | "rate_card_from_observed_usage";
             /**
              * Evaluated At
              * Format: date-time
@@ -2196,10 +2578,31 @@ export interface components {
             evaluated_at: string;
             /** Incumbent Model */
             incumbent_model: string | null;
+            /** Incumbent Observations */
+            incumbent_observations?: components["schemas"]["MigrationObservation-Output"][];
+            /** Incumbent Replay Cost Usd */
+            incumbent_replay_cost_usd?: string | null;
             /** Incumbent Success Rate */
             incumbent_success_rate?: number | null;
+            /** Judge Cost Usd */
+            judge_cost_usd?: string | null;
+            /** Limitations */
+            limitations?: string[];
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
             /** Node Id */
             node_id: string | null;
+            /** Period Request Counts */
+            period_request_counts?: number[];
+            /** Pricing Snapshot */
+            pricing_snapshot?: {
+                [key: string]: {
+                    [key: string]: string;
+                };
+            };
             /** Provider Call Credits */
             provider_call_credits: number;
             /** Reasons */
@@ -2208,11 +2611,17 @@ export interface components {
              * Recommended Action
              * @enum {string}
              */
-            recommended_action: "approve_candidate" | "keep_incumbent" | "collect_evidence";
+            recommended_action: "approve_candidate" | "review_candidate" | "keep_incumbent" | "collect_evidence";
             /** Request Digest */
             request_digest: string;
             /** Savings Pct */
             savings_pct?: number | null;
+            /** Usage By Role */
+            usage_by_role?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
             /**
              * Verdict
              * @enum {string}
@@ -2247,15 +2656,37 @@ export interface components {
             baseline: components["schemas"]["VersionEconomics"];
             /** Baseline Version */
             baseline_version: string;
+            calculation_inputs?: components["schemas"]["CalculationInputs"] | null;
             candidate: components["schemas"]["VersionEconomics"];
             /** Candidate Version */
             candidate_version: string;
+            /** Charge Ownership */
+            charge_ownership?: {
+                [key: string]: components["schemas"]["ChargeOwnership"];
+            };
+            /**
+             * Claim Class
+             * @default legacy_unclassified
+             * @enum {string}
+             */
+            claim_class: "legacy_unclassified" | "observed_comparison";
             /** Cost Per Outcome Change */
             cost_per_outcome_change?: number | null;
             /** Decision Id */
             decision_id?: string | null;
             /** Evaluated At */
             evaluated_at?: string | null;
+            /** Limitations */
+            limitations?: string[];
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
+            /** Outcome Semantics */
+            outcome_semantics?: {
+                [key: string]: components["schemas"]["OutcomeSemantics"];
+            };
             policy: components["schemas"]["DecisionPolicy"];
             /** Reason Codes */
             reason_codes: string[];
@@ -2263,7 +2694,15 @@ export interface components {
              * Recommended Action
              * @enum {string}
              */
-            recommended_action: "approve" | "hold" | "investigate" | "collect_evidence";
+            recommended_action: "approve" | "review_candidate" | "hold" | "investigate" | "collect_evidence";
+            /** Source Delivery */
+            source_delivery?: {
+                [key: string]: components["schemas"]["SourceDelivery"];
+            };
+            /** Source Evidence */
+            source_evidence?: {
+                [key: string]: components["schemas"]["EvidenceFingerprint"];
+            };
             /** Success Rate Change */
             success_rate_change?: number | null;
             /**
@@ -2326,6 +2765,11 @@ export interface components {
             runs: number;
             /** Successful Runs */
             successful_runs: number;
+            /**
+             * Summary Events
+             * @default 0
+             */
+            summary_events: number;
             top_failure_exposure: components["schemas"]["BreakagePoint"] | null;
             /** Undefined Outcome Versions */
             undefined_outcome_versions: string[];
@@ -2428,6 +2872,29 @@ export interface components {
              */
             period_start: string;
         };
+        /**
+         * EvidenceFingerprint
+         * @description Identity of selected stored assertions; not a completeness guarantee.
+         */
+        EvidenceFingerprint: {
+            /**
+             * Cost Revision Records
+             * @default 0
+             */
+            cost_revision_records: number;
+            /** Digest */
+            digest: string;
+            /** Execution Records */
+            execution_records: number;
+            /** Outcome Records */
+            outcome_records: number;
+            /**
+             * Version
+             * @default stored-assertions/1
+             * @enum {string}
+             */
+            version: "stored-assertions/1" | "stored-assertions/2" | "stored-assertions/3" | "stored-assertions/4" | "stored-assertions/5";
+        };
         /** ExecutionEventCreate */
         ExecutionEventCreate: {
             /**
@@ -2439,6 +2906,8 @@ export interface components {
             campaign_id?: string | null;
             /** Capability Id */
             capability_id: string;
+            /** Charge Id */
+            charge_id?: string | null;
             /** Cleanup Status */
             cleanup_status?: string | null;
             /** Compute Cost Usd */
@@ -2449,6 +2918,12 @@ export interface components {
              */
             compute_time_ms: number;
             cost_measurement?: components["schemas"]["MeasurementState"] | null;
+            /**
+             * Cost Role
+             * @default legacy_unknown
+             * @enum {string}
+             */
+            cost_role: "legacy_unknown" | "charge" | "summary";
             /** Deployment Ref */
             deployment_ref?: string | null;
             /** Dimensions */
@@ -2484,6 +2959,8 @@ export interface components {
             provider_request_id?: string | null;
             /** Run Id */
             run_id?: string | null;
+            /** Source Window Id */
+            source_window_id?: string | null;
             /** Step Id */
             step_id?: string | null;
             /** Subject Id */
@@ -2581,6 +3058,99 @@ export interface components {
             target_pct: number;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /** ForecastCalibrationObservation */
+        ForecastCalibrationObservation: {
+            /** Forecast Id */
+            forecast_id: string;
+            /** Metric */
+            metric: string;
+            /** Observed */
+            observed: number;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Predicted High */
+            predicted_high: number;
+            /** Predicted Low */
+            predicted_low: number;
+            /** Predicted Mean */
+            predicted_mean: number;
+        };
+        /** ForecastReadiness */
+        "ForecastReadiness-Input": {
+            /** Alpha Critical */
+            alpha_critical?: number | null;
+            /** Alpha Warning */
+            alpha_warning?: number | null;
+            /** Assessed At */
+            assessed_at?: string | null;
+            /**
+             * Calibration Periods
+             * @default 0
+             */
+            calibration_periods: number;
+            /**
+             * Calibration State
+             * @default unknown
+             * @enum {string}
+             */
+            calibration_state: "unknown" | "calibrated" | "warning" | "critical";
+            /**
+             * Drift State
+             * @default unknown
+             * @enum {string}
+             */
+            drift_state: "unknown" | "stable" | "warning" | "critical";
+            /**
+             * Family Tests
+             * @default 0
+             */
+            family_tests: number;
+            /** Interval Coverage */
+            interval_coverage?: number | null;
+            /** Metrics */
+            metrics?: components["schemas"]["MetricForecastReadiness-Input"][];
+            /** Missing Metrics */
+            missing_metrics?: string[];
+            /** Relative Bias */
+            relative_bias?: number | null;
+            /** Relative Residual Shift */
+            relative_residual_shift?: number | null;
+        };
+        /** ForecastReadiness */
+        "ForecastReadiness-Output": {
+            /** Assessed At */
+            assessed_at?: string | null;
+            /**
+             * Calibration Periods
+             * @default 0
+             */
+            calibration_periods: number;
+            /**
+             * Calibration State
+             * @default unknown
+             * @enum {string}
+             */
+            calibration_state: "unknown" | "calibrated" | "warning" | "critical";
+            /**
+             * Drift State
+             * @default unknown
+             * @enum {string}
+             */
+            drift_state: "unknown" | "stable" | "warning" | "critical";
+            /** Interval Coverage */
+            interval_coverage?: number | null;
+            /** Metrics */
+            metrics?: components["schemas"]["MetricForecastReadiness-Output"][];
+            /** Missing Metrics */
+            missing_metrics?: string[];
+            /** Relative Bias */
+            relative_bias?: number | null;
+            /** Relative Residual Shift */
+            relative_residual_shift?: number | null;
         };
         /** GroundTruthCostIn */
         GroundTruthCostIn: {
@@ -2725,6 +3295,8 @@ export interface components {
         IngestResult: {
             /** Execution Id */
             execution_id: string;
+            /** Ingested At */
+            ingested_at?: string | null;
             /** Status */
             status: string;
         };
@@ -2747,6 +3319,376 @@ export interface components {
          * @enum {string}
          */
         MeasurementState: "measured" | "estimated" | "unmeasured";
+        /** MetricForecastReadiness */
+        "MetricForecastReadiness-Input": {
+            /** Assessed At */
+            assessed_at?: string | null;
+            /** Bias P Value */
+            bias_p_value?: number | null;
+            /** Bias Standard Errors */
+            bias_standard_errors?: number | null;
+            /** Calibration Periods */
+            calibration_periods: number;
+            /**
+             * Calibration State
+             * @enum {string}
+             */
+            calibration_state: "unknown" | "calibrated" | "warning" | "critical";
+            /** Coverage P Value */
+            coverage_p_value?: number | null;
+            /** Drift P Value */
+            drift_p_value?: number | null;
+            /** Drift Standard Errors */
+            drift_standard_errors?: number | null;
+            /**
+             * Drift State
+             * @enum {string}
+             */
+            drift_state: "unknown" | "stable" | "warning" | "critical";
+            /** Interval Coverage */
+            interval_coverage?: number | null;
+            /** Metric */
+            metric: string;
+            /** Relative Bias */
+            relative_bias?: number | null;
+            /** Relative Residual Shift */
+            relative_residual_shift?: number | null;
+        };
+        /** MetricForecastReadiness */
+        "MetricForecastReadiness-Output": {
+            /** Assessed At */
+            assessed_at?: string | null;
+            /** Calibration Periods */
+            calibration_periods: number;
+            /**
+             * Calibration State
+             * @enum {string}
+             */
+            calibration_state: "unknown" | "calibrated" | "warning" | "critical";
+            /**
+             * Drift State
+             * @enum {string}
+             */
+            drift_state: "unknown" | "stable" | "warning" | "critical";
+            /** Interval Coverage */
+            interval_coverage?: number | null;
+            /** Metric */
+            metric: string;
+            /** Relative Bias */
+            relative_bias?: number | null;
+            /** Relative Residual Shift */
+            relative_residual_shift?: number | null;
+        };
+        /** MigrationActionForecast */
+        MigrationActionForecast: {
+            /**
+             * Action Id
+             * @default global
+             */
+            action_id: string;
+            /** Candidate Share */
+            candidate_share: number;
+            /** Cohort Candidate Shares */
+            cohort_candidate_shares?: {
+                [key: string]: number;
+            };
+            /** Critical Error Rate Lower Bound */
+            critical_error_rate_lower_bound?: number | null;
+            /** Critical Error Rate P05 */
+            critical_error_rate_p05?: number | null;
+            /** Critical Error Rate P95 */
+            critical_error_rate_p95?: number | null;
+            /** Critical Error Rate Upper Bound */
+            critical_error_rate_upper_bound?: number | null;
+            /** Cvar Loss Usd */
+            cvar_loss_usd: string;
+            /** Expected Critical Error Rate */
+            expected_critical_error_rate?: number | null;
+            /** Expected Monthly Cost Usd */
+            expected_monthly_cost_usd: string;
+            /** Expected Monthly Savings Usd */
+            expected_monthly_savings_usd: string;
+            /** Expected P95 Latency Ms */
+            expected_p95_latency_ms?: number | null;
+            /** Expected Success Rate */
+            expected_success_rate?: number | null;
+            /** Feasible */
+            feasible: boolean;
+            /** Minimum Critical Error Rate Limit */
+            minimum_critical_error_rate_limit: number;
+            /** Minimum Cvar Loss Limit Usd */
+            minimum_cvar_loss_limit_usd: string;
+            /** Minimum P95 Latency Limit Ms */
+            minimum_p95_latency_limit_ms: number;
+            /** Minimum Quality Drop Tolerance */
+            minimum_quality_drop_tolerance: number;
+            /** Monthly Cost P05 Usd */
+            monthly_cost_p05_usd: string;
+            /** Monthly Cost P95 Usd */
+            monthly_cost_p95_usd: string;
+            /** Monthly Savings P05 Usd */
+            monthly_savings_p05_usd: string;
+            /** Monthly Savings P95 Usd */
+            monthly_savings_p95_usd: string;
+            /** P95 Latency P05 Ms */
+            p95_latency_p05_ms?: number | null;
+            /** P95 Latency P95 Ms */
+            p95_latency_p95_ms?: number | null;
+            /** Probability Critical Error Breach */
+            probability_critical_error_breach: number;
+            /** Probability Latency Breach */
+            probability_latency_breach: number;
+            /** Probability Negative Savings */
+            probability_negative_savings: number;
+            /** Probability Quality Breach */
+            probability_quality_breach: number;
+            /** Success Rate Lower Bound */
+            success_rate_lower_bound?: number | null;
+            /** Success Rate P05 */
+            success_rate_p05?: number | null;
+            /** Success Rate P95 */
+            success_rate_p95?: number | null;
+            /** Success Rate Upper Bound */
+            success_rate_upper_bound?: number | null;
+            /** Value At Risk Usd */
+            value_at_risk_usd: string;
+            /** Violated Constraints */
+            violated_constraints: string[];
+        };
+        /** MigrationEvidence */
+        MigrationEvidence: {
+            /** Candidate */
+            candidate: components["schemas"]["MigrationObservation-Input"][];
+            /** Candidate Model */
+            candidate_model: string;
+            /**
+             * Demand Horizon
+             * @default unknown
+             * @enum {string}
+             */
+            demand_horizon: "month" | "unknown";
+            /** Incumbent */
+            incumbent: components["schemas"]["MigrationObservation-Input"][];
+            /** Incumbent Model */
+            incumbent_model: string;
+            /** Period Request Counts */
+            period_request_counts: number[];
+            readiness?: components["schemas"]["ForecastReadiness-Input"];
+            /** Workload */
+            workload: string;
+        };
+        /** MigrationEvidenceRefreshRequest */
+        MigrationEvidenceRefreshRequest: {
+            evidence_source: components["schemas"]["MigrationEvidenceSource"];
+            policy: components["schemas"]["MigrationRiskPolicy-Input"];
+            /**
+             * Seed
+             * @default 7
+             */
+            seed: number;
+            /**
+             * Simulations
+             * @default 10000
+             */
+            simulations: number;
+        };
+        /**
+         * MigrationEvidenceSource
+         * @description A durable selector from which fresh migration evidence can be rebuilt.
+         */
+        MigrationEvidenceSource: {
+            /** Candidate Model */
+            candidate_model: string;
+            /**
+             * Cohort Dimension
+             * @default cohort
+             */
+            cohort_dimension: string;
+            /** Incumbent Model */
+            incumbent_model: string;
+            /**
+             * Lookback Days
+             * @default 30
+             */
+            lookback_days: number;
+            /**
+             * Outcome Type
+             * @default accepted
+             */
+            outcome_type: string;
+            /** Workload */
+            workload: string;
+        };
+        /** MigrationObservation */
+        "MigrationObservation-Input": {
+            /** Accepted */
+            accepted: boolean;
+            /** Case Id */
+            case_id: string;
+            /**
+             * Cohort
+             * @default default
+             */
+            cohort: string;
+            /** Cost Usd */
+            cost_usd: number | string;
+            /**
+             * Critical Error
+             * @default false
+             */
+            critical_error: boolean;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Source */
+            source: string;
+        };
+        /** MigrationObservation */
+        "MigrationObservation-Output": {
+            /** Accepted */
+            accepted: boolean;
+            /** Case Id */
+            case_id: string;
+            /**
+             * Cohort
+             * @default default
+             */
+            cohort: string;
+            /** Cost Usd */
+            cost_usd: string;
+            /**
+             * Critical Error
+             * @default false
+             */
+            critical_error: boolean;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Source */
+            source: string;
+        };
+        /** MigrationRiskPolicy */
+        "MigrationRiskPolicy-Input": {
+            /**
+             * Allow Drift Warning
+             * @default false
+             */
+            allow_drift_warning: boolean;
+            /** Candidate Shares */
+            candidate_shares?: number[];
+            /**
+             * Critical Error Penalty Usd
+             * @default 0
+             */
+            critical_error_penalty_usd: number | string;
+            /**
+             * Cvar Confidence
+             * @default 0.95
+             */
+            cvar_confidence: number;
+            /**
+             * Max Constraint Breach Probability
+             * @default 0.05
+             */
+            max_constraint_breach_probability: number;
+            /**
+             * Max Critical Error Rate
+             * @default 0.005
+             */
+            max_critical_error_rate: number;
+            /**
+             * Max Cvar Loss Usd
+             * @default 0
+             */
+            max_cvar_loss_usd: number | string;
+            /**
+             * Max P95 Latency Ms
+             * @default 2000
+             */
+            max_p95_latency_ms: number;
+            /**
+             * Max Quality Drop
+             * @default 0.01
+             */
+            max_quality_drop: number;
+            /**
+             * Min Demand Periods
+             * @default 12
+             */
+            min_demand_periods: number;
+            /**
+             * Min Paired Cases
+             * @default 30
+             */
+            min_paired_cases: number;
+            /**
+             * Require Calibrated Forecast
+             * @default true
+             */
+            require_calibrated_forecast: boolean;
+            /** Routing Actions */
+            routing_actions?: components["schemas"]["CohortRoutingAction"][];
+        };
+        /** MigrationRiskPolicy */
+        "MigrationRiskPolicy-Output": {
+            /**
+             * Allow Drift Warning
+             * @default false
+             */
+            allow_drift_warning: boolean;
+            /** Candidate Shares */
+            candidate_shares?: number[];
+            /**
+             * Critical Error Penalty Usd
+             * @default 0
+             */
+            critical_error_penalty_usd: string;
+            /**
+             * Cvar Confidence
+             * @default 0.95
+             */
+            cvar_confidence: number;
+            /**
+             * Max Constraint Breach Probability
+             * @default 0.05
+             */
+            max_constraint_breach_probability: number;
+            /**
+             * Max Critical Error Rate
+             * @default 0.005
+             */
+            max_critical_error_rate: number;
+            /**
+             * Max Cvar Loss Usd
+             * @default 0
+             */
+            max_cvar_loss_usd: string;
+            /**
+             * Max P95 Latency Ms
+             * @default 2000
+             */
+            max_p95_latency_ms: number;
+            /**
+             * Max Quality Drop
+             * @default 0.01
+             */
+            max_quality_drop: number;
+            /**
+             * Min Demand Periods
+             * @default 12
+             */
+            min_demand_periods: number;
+            /**
+             * Min Paired Cases
+             * @default 30
+             */
+            min_paired_cases: number;
+            /**
+             * Require Calibrated Forecast
+             * @default true
+             */
+            require_calibrated_forecast: boolean;
+            /** Routing Actions */
+            routing_actions?: components["schemas"]["CohortRoutingAction"][];
+        };
         /** OutcomeBatchIngestRequest */
         OutcomeBatchIngestRequest: {
             /** Events */
@@ -2801,6 +3743,12 @@ export interface components {
             implementation_id?: string | null;
             /** Join Key */
             join_key?: string | null;
+            /**
+             * Maturity
+             * @default unknown
+             * @enum {string}
+             */
+            maturity: "unknown" | "provisional" | "final" | "withdrawn";
             /** Occurred At */
             occurred_at?: string | null;
             /** Outcome Payload Json */
@@ -2836,6 +3784,12 @@ export interface components {
             /** Join Key */
             join_key: string;
             /**
+             * Maturity
+             * @default unknown
+             * @enum {string}
+             */
+            maturity: "unknown" | "provisional" | "final" | "withdrawn";
+            /**
              * Occurred At
              * Format: date-time
              */
@@ -2850,6 +3804,21 @@ export interface components {
             provenance: string;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /**
+         * OutcomeSemantics
+         * @description The selected immutable success rule; no claim of business label maturity.
+         */
+        OutcomeSemantics: {
+            /** Definition Digest */
+            definition_digest?: string | null;
+            /** Rule Digest */
+            rule_digest?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "defined" | "missing" | "type_mismatch";
         };
         /** PerformanceSummary */
         PerformanceSummary: {
@@ -2968,6 +3937,126 @@ export interface components {
              * @default global
              */
             region: string;
+        };
+        /** ProbabilisticDecisionScheduleCreate */
+        ProbabilisticDecisionScheduleCreate: {
+            evidence_source: components["schemas"]["MigrationEvidenceSource"];
+            /**
+             * Interval Minutes
+             * @default 1440
+             */
+            interval_minutes: number;
+            policy: components["schemas"]["MigrationRiskPolicy-Input"];
+            /**
+             * Seed
+             * @default 7
+             */
+            seed: number;
+            /**
+             * Simulations
+             * @default 10000
+             */
+            simulations: number;
+        };
+        /** ProbabilisticDecisionScheduleOut */
+        ProbabilisticDecisionScheduleOut: {
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            evidence_source: components["schemas"]["MigrationEvidenceSource"];
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Last Decision Id */
+            last_decision_id: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Run At */
+            last_run_at: string | null;
+            /**
+             * Next Run At
+             * Format: date-time
+             */
+            next_run_at: string;
+            policy: components["schemas"]["MigrationRiskPolicy-Output"];
+            /** Schedule Id */
+            schedule_id: string;
+            /** Seed */
+            seed: number;
+            /** Simulations */
+            simulations: number;
+        };
+        /** ProbabilisticMigrationDecision */
+        ProbabilisticMigrationDecision: {
+            /** Actions */
+            actions: components["schemas"]["MigrationActionForecast"][];
+            /**
+             * Additional Cases Required
+             * @default 0
+             */
+            additional_cases_required: number;
+            /**
+             * Additional Demand Periods Required
+             * @default 0
+             */
+            additional_demand_periods_required: number;
+            /** Candidate Model */
+            candidate_model: string;
+            /** Decision Id */
+            decision_id?: string | null;
+            /** Evaluated At */
+            evaluated_at?: string | null;
+            /** Evidence Lineage */
+            evidence_lineage?: {
+                [key: string]: unknown;
+            };
+            forecast_readiness: components["schemas"]["ForecastReadiness-Output"];
+            /** Incumbent Model */
+            incumbent_model: string;
+            /** Reason Codes */
+            reason_codes: string[];
+            /**
+             * Recommended Action
+             * @enum {string}
+             */
+            recommended_action: "ship_candidate" | "hybrid_route" | "cohort_route" | "keep_incumbent" | "collect_evidence";
+            /** Recommended Candidate Share */
+            recommended_candidate_share: number;
+            /** Recommended Routing */
+            recommended_routing?: {
+                [key: string]: number;
+            };
+            /** Seed */
+            seed: number;
+            /** Simulations */
+            simulations: number;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "recommend" | "hold" | "abstain";
+            /** Workload */
+            workload: string;
+        };
+        /** ProbabilisticMigrationRequest */
+        ProbabilisticMigrationRequest: {
+            /** Calibration Observations */
+            calibration_observations?: components["schemas"]["ForecastCalibrationObservation"][];
+            evidence: components["schemas"]["MigrationEvidence"];
+            policy: components["schemas"]["MigrationRiskPolicy-Input"];
+            /**
+             * Seed
+             * @default 7
+             */
+            seed: number;
+            /**
+             * Simulations
+             * @default 10000
+             */
+            simulations: number;
         };
         /** ProviderBillAllocation */
         ProviderBillAllocation: {
@@ -3146,6 +4235,100 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** RandomizedRolloutAssignmentCreate */
+        RandomizedRolloutAssignmentCreate: {
+            /**
+             * Cohort
+             * @default default
+             */
+            cohort: string;
+            /** Subject Id */
+            subject_id: string;
+        };
+        /** RandomizedRolloutAssignmentOut */
+        RandomizedRolloutAssignmentOut: {
+            /**
+             * Arm
+             * @enum {string}
+             */
+            arm: "incumbent" | "candidate";
+            /**
+             * Assigned At
+             * Format: date-time
+             */
+            assigned_at: string;
+            /** Assigned Model */
+            assigned_model: string;
+            /** Rollout Id */
+            rollout_id: string;
+            /** Subject Id */
+            subject_id: string;
+        };
+        /** RandomizedRolloutCreate */
+        RandomizedRolloutCreate: {
+            /**
+             * Candidate Probability
+             * @default 0.5
+             */
+            candidate_probability: number;
+            /** Cohort Candidate Probabilities */
+            cohort_candidate_probabilities?: {
+                [key: string]: number;
+            };
+            /** Decision Id */
+            decision_id: string;
+            /**
+             * Minimum Per Arm
+             * @default 100
+             */
+            minimum_per_arm: number;
+        };
+        /** RandomizedRolloutOut */
+        RandomizedRolloutOut: {
+            /** Active */
+            active: boolean;
+            /** Candidate Model */
+            candidate_model: string;
+            /** Candidate Probability */
+            candidate_probability: number;
+            /** Cohort Candidate Probabilities */
+            cohort_candidate_probabilities: {
+                [key: string]: number;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decision Id */
+            decision_id: string;
+            /** Incumbent Model */
+            incumbent_model: string;
+            /** Minimum Per Arm */
+            minimum_per_arm: number;
+            /** Rollout Id */
+            rollout_id: string;
+            /** Workload */
+            workload: string;
+        };
+        /** RandomizedRolloutVerify */
+        RandomizedRolloutVerify: {
+            /**
+             * Bootstrap Samples
+             * @default 2000
+             */
+            bootstrap_samples: number;
+            /**
+             * Outcome Type
+             * @default accepted
+             */
+            outcome_type: string;
+            /**
+             * Seed
+             * @default 7
+             */
+            seed: number;
+        };
         /** RetryOutboxResponse */
         RetryOutboxResponse: {
             /** Id */
@@ -3155,6 +4338,51 @@ export interface components {
              * @enum {string}
              */
             status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "DEAD_LETTER";
+        };
+        /** RolloutVerification */
+        RolloutVerification: {
+            /** Candidate Samples */
+            candidate_samples: number;
+            /**
+             * Causal Status
+             * @enum {string}
+             */
+            causal_status: "verified" | "inconclusive" | "invalid";
+            /** Effects */
+            effects: {
+                [key: string]: components["schemas"]["CausalMetricEffect"];
+            };
+            /** Excluded Noncompliant */
+            excluded_noncompliant: number;
+            /** Excluded Pre Assignment */
+            excluded_pre_assignment: number;
+            /** Incumbent Samples */
+            incumbent_samples: number;
+            /** Reason Codes */
+            reason_codes: string[];
+            /** Rollout Id */
+            rollout_id: string;
+            /** Verification Id */
+            verification_id?: string | null;
+            /**
+             * Verified At
+             * Format: date-time
+             */
+            verified_at: string;
+        };
+        /** RunInventory */
+        RunInventory: {
+            /** Execution Count */
+            execution_count: number;
+            /** Execution Ids Digest */
+            execution_ids_digest: string;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Terminal State
+             * @enum {string}
+             */
+            terminal_state: "completed" | "failed" | "cancelled";
         };
         /** ScopedLoginRequest */
         ScopedLoginRequest: {
@@ -3202,17 +4430,22 @@ export interface components {
              * @default 1
              */
             attempt: number;
+            /** Charge Id */
+            charge_id?: string | null;
             /**
              * Cost Measurement
-             * @default measured
+             * @default unmeasured
              * @enum {string}
              */
             cost_measurement: "measured" | "estimated" | "unmeasured";
             /**
-             * Cost Usd
-             * @default 0
+             * Cost Role
+             * @default legacy_unknown
+             * @enum {string}
              */
-            cost_usd: number | string | null;
+            cost_role: "legacy_unknown" | "charge" | "summary";
+            /** Cost Usd */
+            cost_usd?: number | string | null;
             /** Dimensions */
             dimensions?: {
                 [key: string]: string | number | boolean;
@@ -3240,6 +4473,8 @@ export interface components {
             recorded_at?: string;
             /** Run Id */
             run_id: string;
+            /** Source Window Id */
+            source_window_id?: string | null;
             /** Step */
             step: string;
             /** Subject Id */
@@ -3255,11 +4490,17 @@ export interface components {
         /** SdkOutcomeEvent */
         SdkOutcomeEvent: {
             /** Accepted */
-            accepted: boolean;
+            accepted?: boolean | null;
             /** Dimensions */
             dimensions?: {
                 [key: string]: string | number | boolean;
             };
+            /**
+             * Maturity
+             * @default unknown
+             * @enum {string}
+             */
+            maturity: "unknown" | "provisional" | "final" | "withdrawn";
             /** Metadata */
             metadata?: {
                 [key: string]: unknown;
@@ -3295,6 +4536,71 @@ export interface components {
              * @default unversioned
              */
             workflow_version: string;
+        };
+        /**
+         * SourceDelivery
+         * @description Reconciliation with caller inventory; no guarantee of physical source truth.
+         */
+        SourceDelivery: {
+            /** Expected Executions */
+            expected_executions: number;
+            /** Expected Runs */
+            expected_runs: number;
+            /** Inventory Digest */
+            inventory_digest: string;
+            /**
+             * Inventory Version
+             * @default source-inventory/1
+             * @constant
+             */
+            inventory_version: "source-inventory/1";
+            /** Mismatched Runs */
+            mismatched_runs: number;
+            /** Missing Runs */
+            missing_runs: number;
+            /** Observed Executions */
+            observed_executions: number;
+            /** Observed Runs */
+            observed_runs: number;
+            /** Out Of Window Executions */
+            out_of_window_executions: number;
+            /**
+             * Scan Truncated
+             * @default false
+             */
+            scan_truncated: boolean;
+            /** Source Window Id */
+            source_window_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "matched" | "mismatch";
+            /** Unexpected Runs */
+            unexpected_runs: number;
+        };
+        /** SourceWindowInventory */
+        SourceWindowInventory: {
+            /**
+             * Closed At
+             * Format: date-time
+             */
+            closed_at: string;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Runs */
+            runs: components["schemas"]["RunInventory"][];
+            /** Source Window Id */
+            source_window_id: string;
+            /**
+             * Version
+             * @default source-inventory/1
+             * @constant
+             */
+            version: "source-inventory/1";
         };
         /** TenantBudgetUpsert */
         TenantBudgetUpsert: {
@@ -3468,6 +4774,10 @@ export interface components {
              */
             outcome_type: string;
             policy?: components["schemas"]["DecisionPolicy"];
+            /** Source Windows */
+            source_windows?: {
+                [key: string]: components["schemas"]["SourceWindowInventory"];
+            };
             /** Workflow */
             workflow: string;
         };
@@ -3905,6 +5215,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImplementationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_charge_cost_revisions_v1_charge_cost_revisions_get: {
+        parameters: {
+            query: {
+                charge_id: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChargeCostRevision-Output"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_charge_cost_revision_v1_charge_cost_revisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChargeCostRevision-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -5057,6 +6434,139 @@ export interface operations {
             };
         };
     };
+    evaluate_model_migration_v1_decisions_model_migration_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProbabilisticMigrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProbabilisticMigrationDecision"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_model_migration_v1_decisions_model_migration_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MigrationEvidenceRefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProbabilisticMigrationDecision"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    probabilistic_migration_history_v1_decisions_model_migrations_get: {
+        parameters: {
+            query?: {
+                workload?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProbabilisticMigrationDecision"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_report_v1_decisions__decision_id__reports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionReportCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_all_v1_enforcement_actions_get: {
         parameters: {
             query?: {
@@ -5610,6 +7120,162 @@ export interface operations {
             };
         };
     };
+    probabilistic_schedules_v1_probabilistic_decision_schedules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProbabilisticDecisionScheduleOut"][];
+                };
+            };
+        };
+    };
+    create_probabilistic_schedule_v1_probabilistic_decision_schedules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProbabilisticDecisionScheduleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProbabilisticDecisionScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_rollout_v1_randomized_rollouts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RandomizedRolloutCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RandomizedRolloutOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_rollout_v1_randomized_rollouts__rollout_id__assignments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rollout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RandomizedRolloutAssignmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RandomizedRolloutAssignmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_rollout_v1_randomized_rollouts__rollout_id__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rollout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RandomizedRolloutVerify"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolloutVerification"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     calibration_summary_v1_reconciliation_calibration_summary_get: {
         parameters: {
             query?: never;
@@ -5993,6 +7659,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImplementationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_report_v1_reports__report_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deliver_report_v1_reports__report_id__deliveries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionReportDeliveryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionReportDeliveryOut"];
                 };
             };
             /** @description Validation Error */

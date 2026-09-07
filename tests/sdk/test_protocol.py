@@ -52,11 +52,86 @@ def test_unmeasured_execution_cannot_manufacture_a_zero_cost() -> None:
         )
 
 
+@pytest.mark.parametrize("model_name", ["sdk", "server"])
+@pytest.mark.parametrize(
+    "cost_fields, expected_cost, expected_measurement",
+    [
+        ({}, None, "unmeasured"),
+        ({"cost_usd": None}, None, "unmeasured"),
+        ({"cost_measurement": "unmeasured"}, None, "unmeasured"),
+        ({"cost_usd": "0"}, Decimal("0"), "measured"),
+        ({"cost_usd": "0.031250"}, Decimal("0.031250"), "measured"),
+        ({"cost_usd": "0", "cost_measurement": "estimated"}, Decimal("0"), "estimated"),
+        ({"cost_usd": "2.25", "cost_measurement": "estimated"}, Decimal("2.25"), "estimated"),
+    ],
+)
+def test_execution_cost_defaults_and_wire_parity(
+    model_name, cost_fields, expected_cost, expected_measurement
+) -> None:
+    from zeroth.econ.plane.cloud.schemas import SdkExecutionEvent
+    from zeroth.protocol import ExecutionEvent
+
+    model, peer = (
+        (ExecutionEvent, SdkExecutionEvent)
+        if model_name == "sdk"
+        else (SdkExecutionEvent, ExecutionEvent)
+    )
+    event = model(workflow="cost-parity", run_id="run-1", step="call", **cost_fields)
+    assert event.cost_usd == expected_cost
+    assert event.cost_measurement == expected_measurement
+    wire = event.model_dump_json()
+    assert peer.model_validate_json(wire).model_dump(mode="json") == event.model_dump(mode="json")
+
+
+@pytest.mark.parametrize("model_name", ["sdk", "server"])
+@pytest.mark.parametrize(
+    "cost_fields",
+    [
+        {"cost_measurement": "measured"},
+        {"cost_measurement": "estimated"},
+        {"cost_usd": None, "cost_measurement": "measured"},
+        {"cost_usd": "0", "cost_measurement": "unmeasured"},
+        {"cost_usd": "-1"},
+        {"cost_usd": "NaN"},
+        {"cost_usd": "Infinity"},
+    ],
+)
+def test_execution_rejects_missing_contradictory_or_invalid_money(model_name, cost_fields) -> None:
+    from zeroth.econ.plane.cloud.schemas import SdkExecutionEvent
+    from zeroth.protocol import ExecutionEvent
+
+    model = ExecutionEvent if model_name == "sdk" else SdkExecutionEvent
+    with pytest.raises(ValidationError):
+        model(workflow="cost-parity", run_id="run-1", step="call", **cost_fields)
+
+
 def test_backtest_constraints_reject_invalid_rates() -> None:
     from zeroth.protocol import EconomicConstraints
 
     with pytest.raises(ValidationError):
         EconomicConstraints(min_success_rate=1.1)
+
+
+@pytest.mark.parametrize("fields,minimum", [({}, None), ({"min_success_rate": None}, None),
+                                        ({"min_success_rate": 0}, 0), ({"min_success_rate": 1}, 1)])
+def test_decision_policy_quality_floor_round_trips_between_sdk_and_server(fields, minimum):
+    from zeroth.econ.decisioning import DecisionPolicy as ServerPolicy
+    from zeroth.protocol import DecisionPolicy
+
+    for model, peer in [(DecisionPolicy, ServerPolicy), (ServerPolicy, DecisionPolicy)]:
+        policy = model(**fields)
+        assert policy.min_success_rate == minimum
+        assert peer.model_validate_json(policy.model_dump_json()).min_success_rate == minimum
+
+
+def test_decision_policy_rejects_nonfinite_tolerance_before_comparison():
+    from zeroth.econ.decisioning import DecisionPolicy as ServerPolicy
+    from zeroth.protocol import DecisionPolicy
+
+    for model in [DecisionPolicy, ServerPolicy]:
+        for value in [float("inf"), float("-inf"), float("nan")]:
+            with pytest.raises(ValidationError):
+                model(max_cost_per_outcome_increase=value)
 
 
 def test_backtest_request_carries_candidate_and_governance_constraints() -> None:
