@@ -2,9 +2,11 @@ from sqlalchemy import select
 
 from zeroth.econ.plane.auth.models import Role
 from zeroth.econ.plane.billing import models as _billing_models  # noqa: F401
+from zeroth.econ.plane.capabilities import models as _capability_models  # noqa: F401
 from zeroth.econ.plane.database import Base, SessionLocal, _ensure_sqlite_compat, engine
 from zeroth.econ.plane.instrumentation.models import ChargeCostRevisionRecord
 from zeroth.econ.plane.migrations import ECON_VERSION_TABLE
+from zeroth.econ.plane.performance import models as _performance_models  # noqa: F401
 from zeroth.platform.storage.schema_revision import (
     SchemaRevision,
     read_schema_revision,

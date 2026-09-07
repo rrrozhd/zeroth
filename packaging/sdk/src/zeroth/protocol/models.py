@@ -7,7 +7,11 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from zeroth.protocol.cost_ownership import CostRole, validate_cost_ownership
+from zeroth.protocol.cost_ownership import (
+    CostRole,
+    validate_charge_cost_input,
+    validate_cost_ownership,
+)
 from zeroth.protocol.outcome_maturity import OutcomeMaturity, validate_outcome_maturity
 from zeroth.protocol.source_inventory import SourceWindowInventory, validate_source_windows
 
@@ -26,12 +30,14 @@ class ExecutionEvent(BaseModel):
     event_id: str | None = Field(default=None, min_length=1, max_length=128)
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     model_version: str = Field(default="unknown", min_length=1)
-    cost_usd: Decimal | None = Field(default=None, ge=0)
+    cost_usd: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=8)
     cost_measurement: Literal["measured", "estimated", "unmeasured"] = "unmeasured"
     latency_ms: int = Field(default=0, ge=0)
     subject_id: str | None = None
     dimensions: dict[str, str | int | float | bool] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    _exact_charge_cost = field_validator("cost_usd", mode="before")(validate_charge_cost_input)
 
     @model_validator(mode="after")
     def _cost_matches_measurement(self) -> ExecutionEvent:

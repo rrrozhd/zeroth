@@ -210,6 +210,37 @@ checks/converges migrated parent columns, then creates the dependent revision ta
 The migration-only topology can omit the runtime execution table; revision creation
 waits for bootstrap there. This preserves existing offline FK installation rules.
 
+Migration `20260906_23` extends exact SQLite storage to original execution amounts,
+reusing the private ORM cost type. All original protocol mirrors enforce the existing
+18,8 monetary range; owned charges require decimal strings/Decimal or integers.
+Representable legacy floats remain compatible. PostgreSQL keeps Numeric(18,8).
+SQLite migration reads historical amounts through the old Numeric(18,8) result
+processor and stages exact text in batches of 1000 during the table rebuild. Raw
+SQLite CAST/printf would change historical assertions and must not replace it.
+Already-lost digits are not recoverable. IDs, charge ownership, child revisions and
+indexes stay intact; the connection-local staging table is removed after conversion.
+
+Stop application writes before the SQLite upgrade. The migration requires an offline
+connection with foreign_keys=OFF and refuses before rebuilding when enforcement is
+on; otherwise dropping/recreating the parent could delete child revisions. Run the
+packaged economic migration on that connection, then verify PRAGMA foreign_key_check
+returns no rows before enabling enforcement and starting compatible readers. Fresh
+exact-text tables need no rebuild. PostgreSQL follows the normal economic migration
+chain. A downgrade with any retained monetary amount is refused. Rollback readers
+must understand exact SQLite text and existing report contracts; no assembled
+rollback image is certified. Unknown amounts and original source-truth limitations
+remain unchanged.
+
+Budget status and admission stream the original amount columns through the scoped
+reader and sum Decimals before applying their existing policy. SQLite SQL arithmetic
+would coerce the exact text back to binary floats and can wrongly reject a request
+at its ceiling. Reservation/cap storage, event inclusion rules and response types
+are unchanged; their broader acceptance remains open. Application-side scanning is
+bounded in memory, but capacity and lock duration still require A11 measurements.
+The execution constructors expose their actual validated fields and unknown-cost
+defaults. Approved D01/D02 signature changes are recorded in
+`docs/backend-import-migration.md`; the immutable legacy fixture is preserved.
+
 ## Current risks and unfinished work
 
 Missing-cost defaults now preserve unknown values; closure/ownership and

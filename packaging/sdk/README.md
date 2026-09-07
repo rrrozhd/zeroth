@@ -200,6 +200,14 @@ to their provider/billing account when constructing charge IDs. Distinct billabl
 retries get distinct IDs, even when their inputs, model, timing and price match.
 The SDK does not infer these identities from metadata or elapsed time.
 
+Original execution amounts use the same 18,8 storage range as charge revisions:
+at most ten integer digits and eight fractional digits. Unsupported precision or
+range is rejected before storage. For `cost_role="charge"`, supply decimal strings,
+Python Decimal objects or integers; floats can round before validation and are
+rejected. Representable legacy-role floats remain accepted, with unverified charge
+ownership. New SQLite storage preserves exact decimal text; PostgreSQL retains
+Numeric(18,8). This does not recover digits already lost in historical SQLite rows.
+
 
 ```python
 from zeroth.protocol import ExecutionEvent

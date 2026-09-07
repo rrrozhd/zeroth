@@ -3,7 +3,16 @@
 from decimal import Decimal
 from typing import Literal
 
+from pydantic import ValidationInfo
+
 CostRole = Literal["legacy_unknown", "charge", "summary"]
+
+
+def validate_charge_cost_input(value, info: ValidationInfo):
+    """Owned monetary assertions must not first pass through binary float parsing."""
+    if info.data.get("cost_role") == "charge" and isinstance(value, float):
+        raise ValueError("send fractional charge amounts as decimal strings")
+    return value
 
 
 def validate_cost_ownership(

@@ -13,6 +13,28 @@ from zeroth.platform.storage.scoping import ResourceOperation, ResourceScopeDefi
 _ALL_OPERATIONS = frozenset(ResourceOperation)
 
 
+class _StoredCost(TypeDecorator[Decimal]):
+    """Preserve exact monetary assertions on SQLite and PostgreSQL."""
+
+    impl = Numeric(18, 8)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        return dialect.type_descriptor(String(20) if dialect.name == "sqlite" else Numeric(18, 8))
+
+    def process_bind_param(self, value, dialect):
+        if value is None or dialect.name != "sqlite":
+            return value
+        amount = Decimal(str(value))
+        if amount == 0:
+            return "0"
+        encoded = format(amount, "f")
+        return encoded.rstrip("0").rstrip(".") if "." in encoded else encoded
+
+    def process_result_value(self, value, dialect):
+        return Decimal(value) if value is not None else None
+
+
 class ExecutionEvent(Base):
     __tablename__ = "execution_events"
     scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
@@ -66,30 +88,14 @@ class ExecutionEvent(Base):
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
     implementation_id: Mapped[str] = mapped_column(String(128), index=True)
     model_version: Mapped[str] = mapped_column(String(128))
-    token_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
-    tool_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
-    compute_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    token_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    tool_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    compute_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
     cost_measurement: Mapped[str] = mapped_column(String(16), default="unmeasured")
     usage_measurement: Mapped[str] = mapped_column(String(16), default="unmeasured")
     latency_ms: Mapped[int] = mapped_column(default=0)
     compute_time_ms: Mapped[int] = mapped_column(default=0)
     event_metadata: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
-
-
-class _RevisionCost(TypeDecorator[Decimal]):
-    """Preserve the declared USD precision on SQLite's dynamic storage engine."""
-
-    impl = Numeric(18, 8)
-    cache_ok = True
-
-    def load_dialect_impl(self, dialect):
-        return dialect.type_descriptor(String(20) if dialect.name == "sqlite" else Numeric(18, 8))
-
-    def process_bind_param(self, value, dialect):
-        return format(value, "f") if value is not None and dialect.name == "sqlite" else value
-
-    def process_result_value(self, value, dialect):
-        return Decimal(value) if value is not None else None
 
 
 class ChargeCostRevisionRecord(Base):
@@ -110,9 +116,9 @@ class ChargeCostRevisionRecord(Base):
     charge_id: Mapped[str] = mapped_column(String(128), nullable=False)
     asserted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     ingested_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    token_cost_usd: Mapped[Decimal | None] = mapped_column(_RevisionCost(), nullable=True)
-    tool_cost_usd: Mapped[Decimal | None] = mapped_column(_RevisionCost(), nullable=True)
-    compute_cost_usd: Mapped[Decimal | None] = mapped_column(_RevisionCost(), nullable=True)
+    token_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    tool_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
+    compute_cost_usd: Mapped[Decimal | None] = mapped_column(_StoredCost(), nullable=True)
     cost_measurement: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[str] = mapped_column(String(256), nullable=False)
 

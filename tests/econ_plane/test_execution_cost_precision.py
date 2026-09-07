@@ -112,12 +112,12 @@ def test_cost_precision_migration_upgrades_sqlite_and_preserves_micro_cost(
             "compute_cost_usd",
         ):
             column_type = columns[column_name]["type"]
-            assert (column_type.precision, column_type.scale) == (18, 8)
+            assert str(column_type) == "VARCHAR(20)"
 
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20260906_22"
+                == "20260906_23"
             )
             costs = connection.execute(
                 text(
@@ -169,6 +169,6 @@ def test_sqlite_runtime_convergence_upgrades_pre_alembic_cost_precision(
             "tool_cost_usd",
             "compute_cost_usd",
         ):
-            assert (after[column].precision, after[column].scale) == (18, 8)
+            assert str(after[column]) == "VARCHAR(20)"
     finally:
         engine.dispose()

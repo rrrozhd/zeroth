@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from datetime import UTC, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal, Union
@@ -18,7 +17,7 @@ from pydantic import (
 )
 
 from zeroth.econ.measurement import MeasurementState
-from zeroth.econ.cost_ownership import CostRole, validate_cost_ownership
+from zeroth.econ.cost_ownership import CostRole, validate_cost_ownership, validate_charge_cost_input
 from zeroth.econ.outcome_maturity import OutcomeMaturity, validate_outcome_maturity
 
 DimensionValue = Union[StrictStr, StrictInt, StrictFloat, StrictBool]
@@ -60,14 +59,18 @@ class ExecutionEvent(BaseModel):
     capability_id: str
     implementation_id: str
     model_version: str = "unknown"
-    token_cost_usd: Decimal | None = None
-    tool_cost_usd: Decimal | None = None
-    compute_cost_usd: Decimal | None = None
+    token_cost_usd: Decimal | None = Field(default=None, max_digits=18, decimal_places=8)
+    tool_cost_usd: Decimal | None = Field(default=None, max_digits=18, decimal_places=8)
+    compute_cost_usd: Decimal | None = Field(default=None, max_digits=18, decimal_places=8)
     cost_measurement: MeasurementState | None = None
     usage_measurement: MeasurementState = MeasurementState.UNMEASURED
     latency_ms: int = 0
     compute_time_ms: int = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    _exact_charge_cost = field_validator(
+        "token_cost_usd", "tool_cost_usd", "compute_cost_usd", mode="before",
+    )(validate_charge_cost_input)
 
     _bounded_dimensions = field_validator("dimensions")(validate_dimensions)
 
@@ -99,38 +102,6 @@ class ExecutionEvent(BaseModel):
         ):
             raise ValueError("measured or estimated cost requires a value")
         return self
-
-
-_execution_event_signature = inspect.signature(ExecutionEvent)
-ExecutionEvent.__signature__ = _execution_event_signature.replace(
-    parameters=[
-        parameter.replace(annotation=Decimal, default=Decimal("0"))
-        if name in {"token_cost_usd", "tool_cost_usd", "compute_cost_usd"}
-        else parameter
-        for name, parameter in _execution_event_signature.parameters.items()
-        if name
-        not in {
-            "campaign_id",
-            "operation_id",
-            "deployment_ref",
-            "evidence_kind",
-            "provider_request_id",
-            "cleanup_status",
-            "cost_measurement",
-            "usage_measurement",
-            "workflow_id",
-            "workflow_version",
-            "source_window_id",
-            "cost_role",
-            "charge_id",
-            "run_id",
-            "step_id",
-            "attempt",
-            "subject_id",
-            "dimensions",
-        }
-    ]
-)
 
 
 class OutcomeEvent(BaseModel):

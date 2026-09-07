@@ -323,33 +323,6 @@ def _ensure_sqlite_compat() -> None:
                         existing_type=Numeric(12, 4),
                         nullable=True,
                     )
-        # Guarded like every other access in this function. Reflection raises
-        # NoSuchTableError on a database that has no execution_events, and a
-        # database missing tables is precisely what this compatibility shim
-        # exists to repair -- an unguarded read here made it crash on the one
-        # input it is for. PRAGMA returns nothing for an absent table, so an
-        # empty `execution_columns` is the existence check already in hand.
-        execution_types = (
-            {
-                column["name"]: column["type"]
-                for column in inspect(conn).get_columns("execution_events")
-            }
-            if execution_columns
-            else {}
-        )
-        if any(
-            (
-                getattr(execution_types.get(column), "precision", None),
-                getattr(execution_types.get(column), "scale", None),
-            )
-            != (18, 8)
-            for column in cost_columns
-            if column in execution_types
-        ):
-            _load_compat_migration(
-                conn,
-                "20260824_10_execution_cost_precision.py",
-            ).upgrade()
         _load_compat_migration(
             conn,
             "20260830_11_economic_debugger_spine.py",
@@ -360,6 +333,7 @@ def _ensure_sqlite_compat() -> None:
         _load_compat_migration(conn, "20260906_20_charge_ownership.py").upgrade()
         _load_compat_migration(conn, "20260906_21_outcome_maturity.py").upgrade()
         _load_compat_migration(conn, "20260906_22_charge_cost_revisions.py").upgrade()
+        _load_compat_migration(conn, "20260906_23_exact_execution_costs.py").upgrade()
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")  # noqa: E501

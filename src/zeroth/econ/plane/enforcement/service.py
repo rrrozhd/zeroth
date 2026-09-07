@@ -276,6 +276,20 @@ def decide_action(
     return row
 
 
+def _sum_execution_costs(db: ScopedSession, *conditions) -> Decimal:
+    """Sum original assertions without SQLite coercing exact text to binary floats."""
+    from zeroth.econ.plane.instrumentation.models import ExecutionEvent
+
+    rows = db.execute(
+        select(
+            ExecutionEvent.token_cost_usd,
+            ExecutionEvent.tool_cost_usd,
+            ExecutionEvent.compute_cost_usd,
+        ).where(*conditions).execution_options(yield_per=1000)
+    )
+    return sum((amount for row in rows for amount in row if amount is not None), Decimal("0"))
+
+
 def get_budget_status(
     db: ScopedSession, tenant_id: str, deployment_ref: str | None = None
 ) -> dict:
@@ -287,11 +301,6 @@ def get_budget_status(
     window_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     start = window_start.replace(tzinfo=None)
     billable = ("production", "legacy_unknown")
-    event_cost = (
-        func.coalesce(ExecutionEvent.token_cost_usd, 0)
-        + func.coalesce(ExecutionEvent.tool_cost_usd, 0)
-        + func.coalesce(ExecutionEvent.compute_cost_usd, 0)
-    )
     event_scope = (
         [ExecutionEvent.deployment_ref == deployment_ref]
         if deployment_ref is not None
@@ -304,18 +313,14 @@ def get_budget_status(
     )
 
     def event_sum(measurement: str) -> Decimal:
-        return Decimal(
-            db.execute(
-                select(func.coalesce(func.sum(event_cost), 0)).where(
-                    ExecutionEvent.tenant_id == tenant_id,
-                    ExecutionEvent.timestamp >= start,
-                    ExecutionEvent.operation_id.is_(None),
-                    ExecutionEvent.evidence_kind.in_(billable),
-                    ExecutionEvent.cost_measurement == measurement,
-                    *event_scope,
-                )
-            ).scalar_one()
-            or 0
+        return _sum_execution_costs(
+            db,
+            ExecutionEvent.tenant_id == tenant_id,
+            ExecutionEvent.timestamp >= start,
+            ExecutionEvent.operation_id.is_(None),
+            ExecutionEvent.evidence_kind.in_(billable),
+            ExecutionEvent.cost_measurement == measurement,
+            *event_scope,
         )
 
     def reservation_sum(*, status: str, measurement: str | None = None) -> Decimal:
@@ -520,21 +525,7 @@ def reserve_cost(
         )
         from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 
-        ordinary_spend = Decimal(
-            db.execute(
-                select(
-                    func.coalesce(
-                        func.sum(
-                            func.coalesce(ExecutionEvent.token_cost_usd, 0)
-                            + func.coalesce(ExecutionEvent.tool_cost_usd, 0)
-                            + func.coalesce(ExecutionEvent.compute_cost_usd, 0)
-                        ),
-                        0,
-                    )
-                ).where(ExecutionEvent.operation_id.is_(None))
-            ).scalar_one()
-            or 0
-        )
+        ordinary_spend = _sum_execution_costs(db, ExecutionEvent.operation_id.is_(None))
         if ordinary_spend + held + requested > _money(budget.budget_cap_usd):
             raise CostReservationDenied("tenant ceiling would be exceeded")
 
