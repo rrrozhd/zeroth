@@ -9,6 +9,7 @@ import migration guide when ownership changes.
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib
 import importlib.util
 import inspect
@@ -413,8 +414,44 @@ def test_comparable_signature_normalizes_integral_constraint_repr_only() -> None
     )
 
 
-def test_immutable_legacy_capabilities_remain_available_with_original_signatures() -> None:
-    """Legacy capabilities may move, but they cannot silently disappear or change."""
+def _signature_pair_digest(capability: dict[str, Any], current: dict[str, Any]) -> str:
+    """Bind a reviewed amendment to both identities and both exact signatures."""
+    pair = [
+        capability["id"],
+        capability["signature"],
+        f"{current['module']}:{current['name']}",
+        current["signature"],
+    ]
+    return hashlib.sha256(json.dumps(pair, separators=(",", ":")).encode()).hexdigest()
+
+
+def _has_signature_amendment(capability, current, amendments) -> bool:
+    return amendments.get(capability["id"], {}).get("pair_sha256") == _signature_pair_digest(
+        capability, current
+    )
+
+
+@pytest.mark.parametrize(
+    "changed", ["missing", "id", "legacy_signature", "module", "name", "signature", "receipt"]
+)
+def test_signature_amendment_cannot_authorize_a_different_pair(changed: str) -> None:
+    legacy = {"id": "old:Event", "signature": "(*, cost=0)"}
+    current = {"module": "new", "name": "Event", "signature": "(*, cost=None)"}
+    amendments = {legacy["id"]: {"pair_sha256": _signature_pair_digest(legacy, current)}}
+    assert _has_signature_amendment(legacy, current, amendments)
+    if changed == "missing":
+        amendments.clear()
+    elif changed == "receipt":
+        amendments[legacy["id"]]["pair_sha256"] = "unreviewed"
+    elif changed in {"id", "legacy_signature"}:
+        legacy["signature" if changed == "legacy_signature" else changed] += "changed"
+    else:
+        current[changed] += "changed"
+    assert not _has_signature_amendment(legacy, current, amendments)
+
+
+def test_immutable_legacy_capabilities_remain_available_with_recorded_signatures() -> None:
+    """Legacy signatures stay pinned unless an exact, documented amendment exists."""
     legacy = _load("backend_surface_legacy.json")
     canonical = _load("backend_surface_canonical.json")
 
@@ -434,10 +471,22 @@ def test_immutable_legacy_capabilities_remain_available_with_original_signatures
     ]
     assert not missing, f"legacy capabilities missing canonical replacements: {missing}"
 
+    amendments = canonical.get("signature_amendments", {})
+    used_amendments = set()
+    guide = (REPO_ROOT / canonical["migration_guide"]).read_text()
     mismatches = []
     for capability in legacy["capabilities"]:
         current = current_by_legacy_id[capability["id"]]
         if _comparable(current["signature"]) != _comparable(capability["signature"]):
+            amendment = amendments.get(capability["id"], {})
+            if _has_signature_amendment(capability, current, amendments):
+                assert amendment["decision"] == "D01"
+                assert amendment["guide"] == (
+                    canonical["migration_guide"] + "#paid-product-contract-amendments"
+                )
+                assert capability["id"] in guide
+                used_amendments.add(capability["id"])
+                continue
             mismatches.append(
                 {
                     "capability": capability["id"],
@@ -446,6 +495,7 @@ def test_immutable_legacy_capabilities_remain_available_with_original_signatures
                 }
             )
     assert not mismatches, f"legacy signature changes: {mismatches}"
+    assert set(amendments) == used_amendments, "unused or unknown signature amendments"
 
 
 # A capability may keep its identity without staying importable. ZER-25 demotes

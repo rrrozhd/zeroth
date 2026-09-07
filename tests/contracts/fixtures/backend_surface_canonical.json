@@ -2781,7 +2781,7 @@
       ],
       "module": "zeroth.econ.instrumentation",
       "name": "ExecutionEvent",
-      "signature": "(*, execution_id: str = <factory>, join_key: str | None = None, tenant_id: str | None = None, timestamp: datetime.datetime = <factory>, capability_id: str, implementation_id: str, model_version: str = 'unknown', token_cost_usd: decimal.Decimal = Decimal('0'), tool_cost_usd: decimal.Decimal = Decimal('0'), compute_cost_usd: decimal.Decimal = Decimal('0'), latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, execution_id: str = <factory>, join_key: str | None = None, tenant_id: str | None = None, campaign_id: str | None = None, operation_id: str | None = None, deployment_ref: str | None = None, evidence_kind: Literal['production', 'synthetic_control', 'legacy_unknown'] = 'production', provider_request_id: str | None = None, cleanup_status: str | None = None, workflow_id: str | None = None, workflow_version: str | None = None, source_window_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, cost_role: Literal['legacy_unknown', 'charge', 'summary'] = 'legacy_unknown', charge_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, run_id: str | None = None, step_id: str | None = None, attempt: Annotated[int, Ge(ge=1), Le(le=1000)] = 1, subject_id: str | None = None, dimensions: dict[str, typing.Union[typing.Annotated[str, Strict(strict=True)], typing.Annotated[int, Strict(strict=True)], typing.Annotated[float, Strict(strict=True)], typing.Annotated[bool, Strict(strict=True)]]] = <factory>, timestamp: datetime.datetime = <factory>, capability_id: str, implementation_id: str, model_version: str = 'unknown', token_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, tool_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, compute_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, cost_measurement: zeroth.platform.measurement.MeasurementState | None = None, usage_measurement: zeroth.platform.measurement.MeasurementState = <MeasurementState.UNMEASURED: 'unmeasured'>, latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -2833,7 +2833,7 @@
       ],
       "module": "zeroth.econ.instrumentation",
       "name": "OutcomeEvent",
-      "signature": "(*, execution_id: str, join_key: str | None = None, capability_id: str, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom'], outcome_value: Union[float, bool, str], outcome_timestamp: datetime.datetime = <factory>) -> None"
+      "signature": "(*, execution_id: str, join_key: str | None = None, capability_id: str, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom'], outcome_value: Union[float, bool, str, NoneType] = None, maturity: Literal['unknown', 'provisional', 'final', 'withdrawn'] = 'unknown', outcome_timestamp: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -3211,7 +3211,7 @@
       ],
       "module": "zeroth.econ.instrumentation.schemas",
       "name": "ExecutionEvent",
-      "signature": "(*, execution_id: str = <factory>, join_key: str | None = None, tenant_id: str | None = None, timestamp: datetime.datetime = <factory>, capability_id: str, implementation_id: str, model_version: str = 'unknown', token_cost_usd: decimal.Decimal = Decimal('0'), tool_cost_usd: decimal.Decimal = Decimal('0'), compute_cost_usd: decimal.Decimal = Decimal('0'), latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, execution_id: str = <factory>, join_key: str | None = None, tenant_id: str | None = None, campaign_id: str | None = None, operation_id: str | None = None, deployment_ref: str | None = None, evidence_kind: Literal['production', 'synthetic_control', 'legacy_unknown'] = 'production', provider_request_id: str | None = None, cleanup_status: str | None = None, workflow_id: str | None = None, workflow_version: str | None = None, source_window_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, cost_role: Literal['legacy_unknown', 'charge', 'summary'] = 'legacy_unknown', charge_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, run_id: str | None = None, step_id: str | None = None, attempt: Annotated[int, Ge(ge=1), Le(le=1000)] = 1, subject_id: str | None = None, dimensions: dict[str, typing.Union[typing.Annotated[str, Strict(strict=True)], typing.Annotated[int, Strict(strict=True)], typing.Annotated[float, Strict(strict=True)], typing.Annotated[bool, Strict(strict=True)]]] = <factory>, timestamp: datetime.datetime = <factory>, capability_id: str, implementation_id: str, model_version: str = 'unknown', token_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, tool_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, compute_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, cost_measurement: zeroth.platform.measurement.MeasurementState | None = None, usage_measurement: zeroth.platform.measurement.MeasurementState = <MeasurementState.UNMEASURED: 'unmeasured'>, latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -3223,7 +3223,7 @@
       ],
       "module": "zeroth.econ.instrumentation.schemas",
       "name": "OutcomeEvent",
-      "signature": "(*, execution_id: str, join_key: str | None = None, capability_id: str, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom'], outcome_value: Union[float, bool, str], outcome_timestamp: datetime.datetime = <factory>) -> None"
+      "signature": "(*, execution_id: str, join_key: str | None = None, capability_id: str, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom'], outcome_value: Union[float, bool, str, NoneType] = None, maturity: Literal['unknown', 'provisional', 'final', 'withdrawn'] = 'unknown', outcome_timestamp: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -3856,7 +3856,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.debugger.schemas",
       "name": "EconomicDiagnosticReport",
-      "signature": "(*, workflow_id: str, window_start: datetime.datetime | None, window_end: datetime.datetime | None, cohort_dimension: str | None, claim_scope: Literal['observed_economic_exposure'] = 'observed_economic_exposure', decision_state: Literal['insufficient_evidence', 'economic_risk_observed', 'stable_observation'], data_quality: Literal['incomplete', 'estimated_only', 'measured_only', 'mixed_cost_evidence'], event_count: int, runs: int, successful_runs: int, failed_runs: int, unresolved_runs: int, undefined_outcome_versions: list[str], outcome_coverage: float, measured_events: int, estimated_events: int, unmeasured_events: int, incomplete_events: int, measured_cost_usd: float, estimated_cost_usd: float, measured_failure_exposure_usd: float, estimated_failure_exposure_usd: float, measured_cost_per_successful_outcome_usd: float | None, estimated_cost_per_successful_outcome_usd: float | None, top_failure_exposure: zeroth.econ.plane.debugger.schemas.BreakagePoint | None, highest_failure_rate_cohort: zeroth.econ.plane.debugger.schemas.CohortPoint | None, recommended_action: zeroth.econ.plane.debugger.schemas.DiagnosticAction, limitations: list[str]) -> None"
+      "signature": "(*, workflow_id: str, window_start: datetime.datetime | None, window_end: datetime.datetime | None, cohort_dimension: str | None, claim_scope: Literal['observed_economic_exposure'] = 'observed_economic_exposure', decision_state: Literal['insufficient_evidence', 'economic_risk_observed', 'stable_observation'], data_quality: Literal['incomplete', 'estimated_only', 'measured_only', 'mixed_cost_evidence'], event_count: int, runs: int, successful_runs: int, failed_runs: int, unresolved_runs: int, undefined_outcome_versions: list[str], outcome_coverage: float, measured_events: int, estimated_events: int, unmeasured_events: int, summary_events: int = 0, incomplete_events: int, measured_cost_usd: float, estimated_cost_usd: float, measured_failure_exposure_usd: float, estimated_failure_exposure_usd: float, measured_cost_per_successful_outcome_usd: float | None, estimated_cost_per_successful_outcome_usd: float | None, top_failure_exposure: zeroth.econ.plane.debugger.schemas.BreakagePoint | None, highest_failure_rate_cohort: zeroth.econ.plane.debugger.schemas.CohortPoint | None, recommended_action: zeroth.econ.plane.debugger.schemas.DiagnosticAction, limitations: list[str]) -> None"
     },
     {
       "evidence": [
@@ -3898,7 +3898,7 @@
       ],
       "module": "zeroth.econ.plane.instrumentation.schemas",
       "name": "ExecutionEventCreate",
-      "signature": "(*, tenant_id: str | None = None, execution_id: str, join_key: str | None = None, timestamp: datetime.datetime, capability_id: str, implementation_id: str, model_version: str, token_cost_usd: decimal.Decimal = Decimal('0'), tool_cost_usd: decimal.Decimal = Decimal('0'), compute_cost_usd: decimal.Decimal = Decimal('0'), latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, tenant_id: str | None = None, campaign_id: str | None = None, operation_id: str | None = None, deployment_ref: str | None = None, evidence_kind: Literal['production', 'synthetic_control', 'legacy_unknown'] = 'production', provider_request_id: str | None = None, cleanup_status: str | None = None, workflow_id: str | None = None, workflow_version: str | None = None, source_window_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, cost_role: Literal['legacy_unknown', 'charge', 'summary'] = 'legacy_unknown', charge_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, run_id: str | None = None, step_id: str | None = None, attempt: Annotated[int, Ge(ge=1), Le(le=1000)] = 1, subject_id: str | None = None, dimensions: dict[str, typing.Union[typing.Annotated[str, Strict(strict=True)], typing.Annotated[int, Strict(strict=True)], typing.Annotated[float, Strict(strict=True)], typing.Annotated[bool, Strict(strict=True)]]] = <factory>, execution_id: str, join_key: str | None = None, timestamp: datetime.datetime, capability_id: str, implementation_id: str, model_version: str, token_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, tool_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, compute_cost_usd: Annotated[decimal.Decimal | None, _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, cost_measurement: zeroth.platform.measurement.MeasurementState | None = None, usage_measurement: zeroth.platform.measurement.MeasurementState = <MeasurementState.UNMEASURED: 'unmeasured'>, latency_ms: int = 0, compute_time_ms: int = 0, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -3934,7 +3934,7 @@
       ],
       "module": "zeroth.econ.plane.instrumentation.schemas",
       "name": "OutcomeEventCreate",
-      "signature": "(*, tenant_id: str | None = None, execution_id: str | None = None, join_key: str | None = None, capability_id: str, implementation_id: str | None = None, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom', 'reopen_rate'], outcome_value: Union[float, bool, str, NoneType] = None, outcome_payload_json: dict[str, typing.Any] = <factory>, occurred_at: datetime.datetime | None = None, outcome_timestamp: datetime.datetime | None = None, provenance: Literal['MEASURED', 'INFERRED', 'MIXED'] = 'MEASURED') -> None"
+      "signature": "(*, tenant_id: str | None = None, execution_id: str | None = None, join_key: str | None = None, capability_id: str, implementation_id: str | None = None, outcome_type: Literal['conversion', 'fraud_flag', 'approval', 'custom', 'reopen_rate'], outcome_value: Union[float, bool, str, NoneType] = None, maturity: Literal['unknown', 'provisional', 'final', 'withdrawn'] = 'unknown', outcome_payload_json: dict[str, typing.Any] = <factory>, occurred_at: datetime.datetime | None = None, outcome_timestamp: datetime.datetime | None = None, provenance: Literal['MEASURED', 'INFERRED', 'MIXED'] = 'MEASURED') -> None"
     },
     {
       "evidence": [
@@ -3946,7 +3946,7 @@
       ],
       "module": "zeroth.econ.plane.instrumentation.schemas",
       "name": "OutcomeQueryResponse",
-      "signature": "(*, id: int, tenant_id: str, join_key: str, capability_id: str, implementation_id: str | None, outcome_type: str, outcome_payload_json: dict[str, typing.Any], occurred_at: datetime.datetime, provenance: str) -> None"
+      "signature": "(*, id: int, tenant_id: str, join_key: str, capability_id: str, implementation_id: str | None, outcome_type: str, outcome_payload_json: dict[str, typing.Any], occurred_at: datetime.datetime, provenance: str, maturity: Literal['unknown', 'provisional', 'final', 'withdrawn'] = 'unknown') -> None"
     },
     {
       "evidence": [
@@ -12944,7 +12944,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.cloud.schemas",
       "name": "SdkExecutionEvent",
-      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], workflow_version: Annotated[str, MinLen(min_length=1)] = 'unversioned', run_id: Annotated[str, MinLen(min_length=1)], step: Annotated[str, MinLen(min_length=1)], attempt: Annotated[int, Ge(ge=1)] = 1, event_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, recorded_at: datetime.datetime = <factory>, model_version: Annotated[str, MinLen(min_length=1)] = 'unknown', cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = Decimal('0'), cost_measurement: Literal['measured', 'estimated', 'unmeasured'] = 'measured', latency_ms: Annotated[int, Ge(ge=0)] = 0, subject_id: str | None = None, dimensions: dict[str, str | int | float | bool] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], workflow_version: Annotated[str, MinLen(min_length=1)] = 'unversioned', run_id: Annotated[str, MinLen(min_length=1)], step: Annotated[str, MinLen(min_length=1)], attempt: Annotated[int, Ge(ge=1)] = 1, source_window_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, cost_role: Literal['legacy_unknown', 'charge', 'summary'] = 'legacy_unknown', charge_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, event_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=128)] = None, recorded_at: datetime.datetime = <factory>, model_version: Annotated[str, MinLen(min_length=1)] = 'unknown', cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0), _PydanticGeneralMetadata(max_digits=18, decimal_places=8)] = None, cost_measurement: Literal['measured', 'estimated', 'unmeasured'] = 'unmeasured', latency_ms: Annotated[int, Ge(ge=0)] = 0, subject_id: str | None = None, dimensions: dict[str, str | int | float | bool] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": ["schema_model:zeroth.econ.plane.cloud.schemas"],
@@ -12952,7 +12952,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.cloud.schemas",
       "name": "SdkOutcomeEvent",
-      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], workflow_version: Annotated[str, MinLen(min_length=1)] = 'unversioned', run_id: Annotated[str, MinLen(min_length=1)], accepted: bool, outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', occurred_at: datetime.datetime = <factory>, provenance: Literal['measured', 'inferred', 'mixed'] = 'measured', value_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, score: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, subject_id: str | None = None, dimensions: dict[str, str | int | float | bool] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], workflow_version: Annotated[str, MinLen(min_length=1)] = 'unversioned', run_id: Annotated[str, MinLen(min_length=1)], accepted: bool | None = None, maturity: Literal['unknown', 'provisional', 'final', 'withdrawn'] = 'unknown', outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', occurred_at: datetime.datetime = <factory>, provenance: Literal['measured', 'inferred', 'mixed'] = 'measured', value_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, score: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, subject_id: str | None = None, dimensions: dict[str, str | int | float | bool] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": ["schema_model:zeroth.econ.plane.decisioning.schemas"],
@@ -12976,7 +12976,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.decisioning.schemas",
       "name": "VersionComparisonRequest",
-      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], baseline_version: Annotated[str, MinLen(min_length=1)], candidate_version: Annotated[str, MinLen(min_length=1)], outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', policy: zeroth.econ.decisioning.DecisionPolicy = <factory>) -> None"
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], baseline_version: Annotated[str, MinLen(min_length=1)], candidate_version: Annotated[str, MinLen(min_length=1)], outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', policy: zeroth.econ.decisioning.DecisionPolicy = <factory>, source_windows: dict[typing.Literal['baseline', 'candidate'], zeroth.econ.source_inventory.SourceWindowInventory] = <factory>) -> None"
     },
     {
       "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
@@ -12992,7 +12992,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.backtesting.schemas",
       "name": "BacktestComputation",
-      "signature": "(*, incumbent_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_error_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, savings_pct: float | None = None, provider_calls: Annotated[int, Ge(ge=0)] = 0, reasons: list[str] = <factory>) -> None"
+      "signature": "(*, cost_basis: Literal['unavailable', 'rate_card_from_observed_usage'] = 'unavailable', incumbent_replay_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, candidate_replay_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, judge_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, pricing_snapshot: dict[str, dict[str, str]] = <factory>, usage_by_role: dict[str, dict[str, int]] = <factory>, incumbent_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_success_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, candidate_error_rate: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, savings_pct: float | None = None, provider_calls: Annotated[int, Ge(ge=0)] = 0, reasons: list[str] = <factory>) -> None"
     },
     {
       "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
@@ -13008,7 +13008,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.backtesting.schemas",
       "name": "EconomicBacktest",
-      "signature": "(*, backtest_id: str, request_digest: str, workflow: str, baseline_version: str | None, node_id: str | None, incumbent_model: str | None, candidate_model: str | None, verdict: Literal['pass', 'fail', 'abstain'], recommended_action: Literal['approve_candidate', 'keep_incumbent', 'collect_evidence'], cases: Annotated[int, Ge(ge=0), Le(le=25)], provider_call_credits: Annotated[int, Ge(ge=0)], incumbent_success_rate: float | None = None, candidate_success_rate: float | None = None, candidate_error_rate: float | None = None, savings_pct: float | None = None, constraints: zeroth.econ.plane.backtesting.schemas.EconomicConstraints, reasons: list[str] = <factory>, evaluated_at: datetime.datetime) -> None"
+      "signature": "(*, cost_basis: Literal['unavailable', 'rate_card_from_observed_usage'] = 'unavailable', incumbent_replay_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, candidate_replay_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, judge_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, pricing_snapshot: dict[str, dict[str, str]] = <factory>, usage_by_role: dict[str, dict[str, int]] = <factory>, backtest_id: str, request_digest: str, workflow: str, baseline_version: str | None, node_id: str | None, incumbent_model: str | None, candidate_model: str | None, verdict: Literal['pass', 'fail', 'abstain'], recommended_action: Literal['approve_candidate', 'review_candidate', 'keep_incumbent', 'collect_evidence'], cases: Annotated[int, Ge(ge=0), Le(le=25)], provider_call_credits: Annotated[int, Ge(ge=0)], incumbent_success_rate: float | None = None, candidate_success_rate: float | None = None, candidate_error_rate: float | None = None, savings_pct: float | None = None, constraints: zeroth.econ.plane.backtesting.schemas.EconomicConstraints, reasons: list[str] = <factory>, evaluated_at: datetime.datetime, claim_class: Literal['legacy_unclassified', 'exploratory_model_experiment'] = 'legacy_unclassified', method_version: str = 'legacy_unversioned', limitations: list[str] = <factory>) -> None"
     },
     {
       "evidence": ["schema_model:zeroth.econ.plane.backtesting.schemas"],
@@ -13033,6 +13033,53 @@
       "module": "zeroth.econ.plane.billing.schemas",
       "name": "BillingSyncResult",
       "signature": "(*, disposition: Literal['applied', 'duplicate', 'ignored_stale'], provider: str, event_id: str, tenant_id: str) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.econ.plane.backtesting.schemas"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.backtesting.schemas",
+      "name": "BacktestCostEvidence",
+      "signature": "(*, cost_basis: Literal['unavailable', 'rate_card_from_observed_usage'] = 'unavailable', incumbent_replay_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, candidate_replay_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, judge_cost_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, pricing_snapshot: dict[str, dict[str, str]] = <factory>, usage_by_role: dict[str, dict[str, int]] = <factory>) -> None"
     }
-  ]
+  ],
+  "signature_amendments": {
+    "zeroth.core.econ.instrumentation.schemas:ExecutionEvent": {
+      "decision": "D01",
+      "guide": "docs/backend-import-migration.md#paid-product-contract-amendments",
+      "pair_sha256": "5baa27867078e013a35cb9bea46fd1b309244c31ef14fefcf568f36c0cd35cd5"
+    },
+    "zeroth.core.econ.instrumentation.schemas:OutcomeEvent": {
+      "decision": "D01",
+      "guide": "docs/backend-import-migration.md#paid-product-contract-amendments",
+      "pair_sha256": "715442b3200e95f940b8495cfb3727b8d3c9bff07319d93c1cebc223d9bd1075"
+    },
+    "zeroth.core.econ.instrumentation:ExecutionEvent": {
+      "decision": "D01",
+      "guide": "docs/backend-import-migration.md#paid-product-contract-amendments",
+      "pair_sha256": "6e2778d479f9b3fee6eedc15f606f338bc4d8e173330d2cc2a8224746441fb4c"
+    },
+    "zeroth.core.econ.instrumentation:OutcomeEvent": {
+      "decision": "D01",
+      "guide": "docs/backend-import-migration.md#paid-product-contract-amendments",
+      "pair_sha256": "41b3a43f46f0f4fbc6760d2e5756768a85bd6ced9a719c4d6013852d0b4f1978"
+    },
+    "zeroth.econ_plane.instrumentation.schemas:ExecutionEventCreate": {
+      "decision": "D01",
+      "guide": "docs/backend-import-migration.md#paid-product-contract-amendments",
+      "pair_sha256": "832072bd364d44c70fbc0f6bb30633271eaa9f96c8bbca3a2016221660b9162b"
+    },
+    "zeroth.econ_plane.instrumentation.schemas:OutcomeEventCreate": {
+      "decision": "D01",
+      "guide": "docs/backend-import-migration.md#paid-product-contract-amendments",
+      "pair_sha256": "7a5a885a6503ef9e768424b3fada6d391df76c0445aa7df9381f384dee7c171d"
+    },
+    "zeroth.econ_plane.instrumentation.schemas:OutcomeQueryResponse": {
+      "decision": "D01",
+      "guide": "docs/backend-import-migration.md#paid-product-contract-amendments",
+      "pair_sha256": "137f091b19b6701fdd14f68cd7ec8d8969fd3c6ded4158c30cde716e3247bd3f"
+    }
+  }
 }
