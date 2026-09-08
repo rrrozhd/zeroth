@@ -14,10 +14,9 @@ An unqualified risk law yields no action distributions at all.
 Zeroth does not modify customer routing.
 
 The hosted Solo offer uses that evidence layer for applications that remain in the
-customer's runtime. Customers define business outcomes and control rollout. The
-Phase 1 was accepted on `a0d65ab9` for its documented local configuration; later
-product/release gates remain open. Consolidation onto main must preserve both that
-evidence contract and the experimental forecast safeguards below.
+customer's runtime. Customers define business outcomes and control rollout.
+The observed-evidence contract and experimental forecast safeguards apply to
+both the hosted service and self-hosted platform.
 
 ## Relevant architecture
 
@@ -119,9 +118,6 @@ evidence contract and the experimental forecast safeguards below.
   -q`
 - Reports: `uv run pytest tests/econ_plane/test_decision_reports.py
   tests/econ_plane/test_decision_report_migration.py -q`
-- Release candidate verification on 2026-09-02: 12,623 passed, 9 skipped, and 465
-  deselected by the repository's default test selection. Semantic lint, changed-file
-  formatting, docs-reference scanning, all four distribution builds, and clean installs passed.
 - Debug a retained report from `probabilistic_migration_decisions.report_json`, then compare its
   `request_digest`, evidence snapshot, policy, seed, and calibration state.
 
@@ -175,8 +171,7 @@ evidence contract and the experimental forecast safeguards below.
 See `packaging/sdk/README.md`, `docs/concepts/economic-optimization.md`,
 `docs/how-to/economic-debugger.md`, `docs/how-to/provider-bill-reconciliation.md`
 and `docs/backend-import-migration.md` for contracts and precise calculation rules.
-The live provider export used for Phase 1 is a timestamped provisional snapshot;
-matching aggregate estimates are not request-level invoice facts. All provider
+Matching aggregate estimates are not request-level invoice facts. All provider
 money stays visibly unallocated where measured request-dollar weights are absent.
 
 ## Deployment and rollback
@@ -219,12 +214,10 @@ customer adoption and full R2 compatibility are distinct acceptance obligations.
 
 ## Current risks and unfinished work
 
-- Frozen economic evaluation contract v1 is now under independent acceptance testing.
-  Earlier test counts above describe the source baseline, not acceptance under this
-  contract. Production predictive validity and customer sufficiency remain blocked.
-  See `docs/operations/economic-evaluation-implementation-status.md` for current
-  evidence and `docs/operations/economic-evaluation-design-decisions.md` for pending
-  public-contract decisions. The new evaluation CLI intentionally fails while
+- Production predictive validity and customer sufficiency remain unestablished.
+  The evaluation contract and reference inputs are pinned by `release/inputs-v1.json`
+  and restored from the external archive before evaluation.
+  The evaluation CLI intentionally fails while
   required delivery, fidelity, mutation, or statistical gates are unresolved.
 - Scenario pairing now uses IDs for joins and paired outcome content for canonical
   ordering, preserving independent duplicate-valued units. Common routing uniforms
@@ -235,16 +228,13 @@ customer adoption and full R2 compatibility are distinct acceptance obligations.
 - Missing critical outcomes survive API/SDK JSON round trips as missing, not false.
   Daily telemetry demand remains unknown-horizon and abstains; no automatic month conversion.
   Calibration deduplicates identical forecast IDs per metric and rejects conflicting copies.
-- The owner approved nested future-request sampling, the temporary 50m planned-work
-  ceiling and fixed-N 99% numerical bounds. The previous fractional-request support
-  witness now passes focused tests. Overflow abstains before RNG construction; no
+- Nested future-request sampling uses a 50m planned-work ceiling and fixed-N 99%
+  numerical bounds. Overflow abstains before RNG construction; no
   demand/evidence truncation or runtime enable flag is provided. Algorithm version
   `nested-paired-monthly-v2-hoeffding99` enters new request digests; old records remain unchanged.
-- The v3 descriptive synthetic protocol and its summary-stream supplement are independently
-  approved. Initial run on 27e5f226 completed and was independently checked, but did not
-  establish predictive validity. New generative-law adapters require an independently
-  reviewed amendment and frozen source before rerunning numerical/descriptive suites.
-  All requested proof notebooks, graphs and generated raw evidence remain untracked.
+- Descriptive synthetic evaluation does not establish predictive validity.
+  Generative-law adapters are bound to the frozen protocol and amendments supplied
+  by the external release-input archive.
 - Local SMTP acceptance followed by a crash currently loses the uncommitted audit
   attempt; partial recipient rejection is silently ignored. These are reproduced
   failing gates, not repaired behavior. No delivery-state schema change is approved.

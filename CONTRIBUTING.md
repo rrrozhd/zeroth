@@ -13,10 +13,19 @@ and task runner.
 git clone https://github.com/rrrozhd/zeroth.git
 cd zeroth
 uv sync --all-extras --all-groups     # install base + every extra + dev deps
+python scripts/restore_release_inputs.py --archive /path/to/release-inputs.tar.gz
 uv run pytest -v                      # run the test suite
 uv run ruff check src tests           # lint
 uv run ruff format src                # format
 ```
+
+Release checks use frozen benchmark measurements and evaluation protocols supplied
+as an external archive. Obtain the archive identified by `release/inputs-v1.json`
+from the release maintainer before running the full suite. The restore command
+verifies the archive and every file against pinned hashes, refuses tracked or
+modified destinations, and writes only ignored files. Keep new run output outside
+Git; changing a reference input requires a separate review of its measurements
+and acceptance thresholds.
 
 CI balances its four pytest runners with the tracked `.test_durations` baseline.
 Refresh it after adding or materially changing slow tests, then commit the updated

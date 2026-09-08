@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "archive_sha256": "045b2b14138f0e47d4b05e5fde8eae814e740c8275c98849fdbc44e4dd81e0ef",
+  "archive_size": 251974,
+  "files": {
+    "docs/operations/economic-evaluation-contract-v1.md": {
+      "sha256": "1ccc8604b6632c39fecb6fcaed4dd6e1b4648f520bb677e46311be4f4dbe04da",
+      "size": 11772
+    },
+    "release/economic_evaluation/nested_adapter_amendment_v1.md": {
+      "sha256": "0e543c2718e518e9655f3b1a65c23dd041bd720ccceb33638d56f44a9f651eac",
+      "size": 3516
+    },
+    "release/economic_evaluation/predictive_manifest_proposal_v2.md": {
+      "sha256": "0badd72b8c63917bc08525763efc0d78df0cc971926207e6e032c4290ef86223",
+      "size": 16586
+    },
+    "release/economic_evaluation/predictive_manifest_proposal_v3.md": {
+      "sha256": "d459fa29237905fa5d90f0948a9d4190a746220bfc5051bc88aa1c69fa28ed74",
+      "size": 19945
+    },
+    "release/economic_evaluation/predictive_manifest_v3_supplement.md": {
+      "sha256": "b3ddcd402c56259c4a18d7dc9e2fe6dc74cebf2008c1d02b67d01e460dbe8cd4",
+      "size": 2230
+    },
+    "release/langgraph/benchmark-baseline-0.16.1.7.json": {
+      "sha256": "763b79d5f291f8412e0491d7605b59077bf157b0d3f9b55d532b950f5111be6d",
+      "size": 675
+    },
+    "release/langgraph/benchmark-evidence.json": {
+      "sha256": "0f8b8af0113055c88b8ffa357fd50735e81155ec982f5289dea64d8832239441",
+      "size": 5837
+    },
+    "release/live_evaluation/FULL_READINESS_CAMPAIGN.md": {
+      "sha256": "a84384c6e1266604a35edcafbe9a4c8253a478c4d8fa41c335981fa87e642779",
+      "size": 25160
+    },
+    "release/live_evaluation/acceptance-source-map-v1.json": {
+      "sha256": "1ed02389d9c3f7c03e36825dedda605af6fc7bb0f72e24aa9a1b5702047c63c9",
+      "size": 36721
+    },
+    "release/live_evaluation/handoff/discrepancy-register.md": {
+      "sha256": "6cebeacee14e68a4669ea8c1c0b389ec7a7087f0fcd3c961b58ded383ef799e9",
+      "size": 13474
+    },
+    "release/load/baseline-source-v1.json": {
+      "sha256": "d8bd310e99dbbfedffe9224ced24ae0faabe1010febfc4bb11aea2d0d1db199d",
+      "size": 264
+    },
+    "release/load/baseline-v1.json": {
+      "sha256": "64dfed760b1cb8de729560fbbfc768ca4805a7c44c32bcc475864e15fba9a609",
+      "size": 1015565
+    },
+    "release/product_validation/evidence-index-v1.json": {
+      "sha256": "44a561cd5a3b4846024384bd9d5d1bfc05a699e4fc8fc006436e1e9c2c5cc4c0",
+      "size": 34972
+    },
+    "release/product_validation/evidence-source-map-v1.json": {
+      "sha256": "c9454dda59a12186ca5acd5c8893d852867bee51402765811475060b208c64fc",
+      "size": 68074
+    }
+  }
+}

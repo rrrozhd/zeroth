@@ -50,6 +50,12 @@ CLAUDE.md
 PLAN.md
 PROGRESS.md
 .claude/
+.codex/
+.agents/
+.aider/
+.continue/
+.cursor/
+.gemini/
 /.planning/
 phases/
 live_scenarios/
@@ -104,3 +110,31 @@ apps/vendor_dd/.runbook_state.json
 .railway/
 .superpowers/
 tmp/
+
+# Local evaluation output and development reports
+/release/economic_evaluation/evidence/
+/release/live_evaluation/pilot_accelerated_*/
+/docs/operations/economic-evaluation-implementation-status.md
+/docs/operations/economic-evaluation-design-decisions.md
+/docs/operations/aggregate-predictive-repair-proposal-v1.md
+/docs/operations/forecast-reliability-cutoff-proposal-v1.md
+/release/live_evaluation/PILOT_READINESS.md
+
+# Root-level browser captures; published documentation images live under docs/assets.
+/*.png
+
+# Frozen release inputs are restored from the pinned external archive.
+/docs/operations/economic-evaluation-contract-v1.md
+/release/economic_evaluation/nested_adapter_amendment_v1.md
+/release/economic_evaluation/predictive_manifest_proposal_v2.md
+/release/economic_evaluation/predictive_manifest_proposal_v3.md
+/release/economic_evaluation/predictive_manifest_v3_supplement.md
+/release/langgraph/benchmark-baseline-0.16.1.7.json
+/release/langgraph/benchmark-evidence.json
+/release/live_evaluation/FULL_READINESS_CAMPAIGN.md
+/release/live_evaluation/acceptance-source-map-v1.json
+/release/live_evaluation/handoff/discrepancy-register.md
+/release/load/baseline-source-v1.json
+/release/load/baseline-v1.json
+/release/product_validation/evidence-index-v1.json
+/release/product_validation/evidence-source-map-v1.json

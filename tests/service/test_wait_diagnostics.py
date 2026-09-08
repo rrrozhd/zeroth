@@ -13,7 +13,12 @@ import warnings
 
 import pytest
 
-from tests.service.helpers import SLOW_WAIT_LOG_ENV, wait_for
+from tests.service.helpers import SLOW_WAIT_LOG_ENV, slow_wait_log_path, wait_for
+
+
+def test_default_slow_wait_record_stays_in_ignored_development_state(monkeypatch):
+    monkeypatch.delenv(SLOW_WAIT_LOG_ENV, raising=False)
+    assert slow_wait_log_path().as_posix() == ".zeroth/development/slow-waits.jsonl"
 
 
 def test_a_slow_but_successful_wait_is_warned_and_recorded(tmp_path, monkeypatch) -> None:

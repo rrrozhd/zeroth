@@ -3,6 +3,7 @@ site_url: https://rrrozhd.github.io/zeroth/
 site_description: Economic debugging and governed change evidence for production AI workflows
 exclude_docs: |
   superpowers/**
+  operations/economic-evaluation-contract-v1.md
 repo_url: https://github.com/rrrozhd/zeroth
 repo_name: rrrozhd/zeroth
 edit_uri: edit/main/docs/

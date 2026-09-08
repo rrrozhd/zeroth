@@ -17,9 +17,10 @@ def test_runtime_paths_default_to_the_current_checkout(monkeypatch) -> None:
     paths = resolve_runtime_paths()
 
     assert paths.worktree == ROOT.resolve()
-    assert paths.state_root == (
-        Path.home() / ".local/share/zeroth/evaluations/evaluation-studio-v1"
-    ).resolve()
+    assert (
+        paths.state_root
+        == (Path.home() / ".local/share/zeroth/evaluations/evaluation-studio-v1").resolve()
+    )
 
 
 def test_runtime_paths_accept_explicit_external_overrides(tmp_path, monkeypatch) -> None:
