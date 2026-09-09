@@ -123,22 +123,23 @@ def deliver_decision_report(
     db.add(row)
     db.flush()
     share = round(float(decision.report_json.get("recommended_candidate_share", 0)) * 100)
-    headline = {
-        "collect_evidence": "Collect evidence",
-        "keep_incumbent": "Hold model migration",
-        "ship_candidate": "Ship candidate",
-    }.get(decision.recommended_action, f"Route {share}%")
-    subject = f"Zeroth decision: {headline} for {decision.workload}"
+    headline = (
+        "Collect evidence"
+        if decision.recommended_action == "collect_evidence" else "Review diagnostics"
+    )
+    subject = f"Zeroth experimental report: {headline} for {decision.workload}"
     download_url = f"{public_base_url.rstrip('/')}/v1/reports/{report_id}"
     body = (
-        f"Recommendation: {decision.recommended_action.replace('_', ' ')}\n"
-        f"Candidate traffic: {share}%\n"
+        "Experimental scenario diagnostics. Predictive reliability is unvalidated; "
+        "these results do not authorize rollout.\n"
+        f"Recorded action: {decision.recommended_action.replace('_', ' ')}\n"
+        f"Recorded candidate share: {share}%\n"
         f"Decision ID: {decision.decision_id}\n"
         f"Report SHA-256: {report.sha256}\n"
     )
     additional_cases = int(decision.report_json.get("additional_cases_required", 0))
     if additional_cases:
-        body += f"Additional cases required: {additional_cases}\n"
+        body += f"Estimated additional cases: {additional_cases}\n"
     attachment = report.pdf_bytes if request.delivery_mode == "attachment" else None
     if request.delivery_mode == "link":
         body += f"Authenticated report: {download_url}\n"

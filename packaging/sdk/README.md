@@ -57,6 +57,16 @@ returns an abstention before provider execution or credit reservation. A pass
 means the declared requirements were met on those cases; it is not a statistical
 guarantee for future application traffic. A zero floor explicitly permits zero
 observed success, so choose a requirement that reflects your actual task.
+The hosted candidate accepts only `model`; other candidate settings produce an
+abstention before provider work because isolated replay does not apply them.
+
+New backtests include `evaluation_evidence`: evaluator version, rubric hash,
+resolved model references, score threshold and paired numeric scores/error
+categories. `case_index` refers to the original case order bound by the request
+digest. Judge or replay errors force abstention even if the reported rate meets
+the quality floor. No raw customer content or error messages enter this object.
+History and exact retries preserve it; older reports return null. Provider defaults
+and model-alias revisions remain unfrozen, and the judge remains uncalibrated.
 
 Version comparisons and schedules likewise require an explicit
 `policy.min_success_rate`; omission or `null` yields `abstain`. Explicit zero
@@ -553,7 +563,9 @@ CVaR limits, and forecast-versus-observed calibration history. Use
 `create_model_migration_decision(...)` to submit the typed
 `ProbabilisticMigrationRequest` and `list_model_migration_decisions(...)` to
 read immutable history. Cloud derives calibration readiness from the supplied
-history instead of trusting a client readiness flag. Probabilistic decisions
+history instead of trusting a client readiness flag. The public route currently
+always abstains with unapproved predictive reliability, even when readiness says
+`calibrated`; it does not authorize rollout. Probabilistic decisions
 use the client's configurable `backtest_timeout` because scenario evaluation
 may outlive an ordinary ingestion request. See the
 [model-migration guide](https://rrrozhd.github.io/zeroth/how-to/probabilistic-model-migration/)
@@ -562,7 +574,8 @@ for the complete request.
 For the managed loop, `refresh_model_migration_decision(...)` harvests current
 tenant telemetry or an explicit case-level backtest artifact;
 `create_probabilistic_decision_schedule(...)` stores a selector and rebuilds
-evidence on each run. `create_randomized_rollout(...)` creates the study,
+evidence on each run. A new experimental abstention cannot start a rollout.
+For an existing legacy recommended decision, `create_randomized_rollout(...)` creates the study,
 `assign_randomized_rollout(...)` returns a sticky subject assignment before
 execution, and `verify_randomized_rollout(...)` estimates post-assignment effects
 and appends calibration observations. Aggregate-only backtest records are not

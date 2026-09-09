@@ -173,17 +173,44 @@ provider work starts. Input/output usage is priced separately for incumbent,
 candidate and judge using retained rates. Judge expense is not workload savings.
 Missing usage abstains; rate-card estimates do not establish invoice charges.
 
+New backtests retain `evaluation_evidence` with the catalog-resolved incumbent,
+candidate and judge model references, evaluator version `correctness-replay/1`,
+the correctness rubric hash and the existing 0.7 score threshold. The incumbent
+is also the judge. `parameters="provider_defaults"` means no parameter overrides
+were submitted; provider defaults and model-alias revisions are not frozen.
+Candidate settings other than `model` abstain before provider work; ignored
+temperature, retry or prompt settings cannot produce a comparison of that change.
+
+Each evidence entry pairs incumbent and candidate scores by `case_index`, the
+zero-based position in the case list bound by the request digest. `passed` and
+`failed` carry a numeric judge score; `replay_error`, `judge_error` and `not_run`
+carry null. Divide passed cases by all cases to reproduce each reported success
+rate. Replay and judge errors count against that rate and also force abstention;
+they are not established wrong answers. An unrun candidate has unavailable rates.
+Raw case IDs, inputs, references, outputs, rationales and exception text are not
+retained in this object. Customers retain their original ordered cases for audit.
+
+Exact retries and history return the retained evaluation evidence without another
+judge call. Historical reports lacking the object return null; their stored data
+and original verdict remain unchanged. This supports arithmetic reconstruction,
+not judge calibration or reproduction of a provider's future answer.
+
 ### Claim and method contract
 
 | Output | Claim class / method | Evidence scope and limitations |
 | --- | --- | --- |
+| Debugger report | Historical accounting: `observed_economic_exposure` | Recorded events in the requested window, with measured/estimated/missing money and unresolved outcomes separate. Failed-run exposure is not step causality. A method revision is not yet included in this response. |
+| Provider-bill reconciliation | Historical accounting: `measured_cost_proportional` allocation | Named statement digest and period. Allocation follows measured telemetry; unmatched dollars and variance remain visible. The method is named but has no retained revision field. |
 | Version comparison and scheduled result | `observed_comparison` / `interval-policy/1` | Received evidence for the named versions; outcomes use the latest non-future assertion and resolve only with declared final maturity and compatible definitions. Source completeness and business truth are not established. Policy checks describe that evidence only. |
 | Hosted model backtest | `exploratory_model_experiment` / `observed-replay-policy/1` | Supplied 5–25 cases; observed correctness according to the current judge and text-usage projections at retained rates. Judge calibration and population generalization are unvalidated. Cache, tools, downstream charges and unobserved retries are excluded. |
+| Public model-migration result | Experimental scenario diagnostics / `nested-paired-monthly-v3-hoeffding99-math1-predictive1` in the retained request | Supplied paired observations, demand periods and policy assumptions. Predictive reliability is unapproved; the public result always abstains. An unqualified risk law returns no action distributions. |
+| Migration PDF and delivery | Experimental presentation / `model-migration-v3` | Renders the retained decision snapshot. Simulation percentiles and recorded legacy actions do not establish future coverage or authorize rollout. Previously generated artifacts remain unchanged. |
+| Randomized-rollout verification | Legacy causal method / `homogeneous-assignment-v1` in the verification digest | Requires a pre-existing recommended decision, retained assignments and post-assignment observations. New public abstentions cannot start a rollout. Legacy verification is not accepted paid causal authorization. |
 | Historical result without these fields | `legacy_unclassified` / `legacy_unversioned` | Original values and action remain readable. Missing metadata cannot establish the current method or completeness. |
 | Legacy counterfactual estimates | Legacy OSS method only | Heuristic confidence, calibration and proxy-dollar outputs are not paid statistical, causal or forecasting authorization. |
 
-New reports retain `claim_class`, `method_version` and `limitations`. Both current
-methods use `review_candidate` for a pass, never automatic rollout. Their
+New version comparisons and backtests retain `claim_class`, `method_version` and
+`limitations`. Both use `review_candidate` for a pass, never automatic rollout. Their
 `no_statistical_causal_or_forecast_authorization` limitation applies even when
 all observed cases pass. Repeated scheduled looks do not create population
 confidence. Retained normalized calculation inputs make comparison arithmetic

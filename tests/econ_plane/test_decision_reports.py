@@ -299,7 +299,9 @@ def test_report_api_creates_downloads_and_emails_one_immutable_artifact(
     assert len(mailer.messages) == 1
     assert mailer.messages[0].attachment == downloaded.content
     assert mailer.messages[0].recipients == ("owner@example.com",)
-    assert "Route 25%" in mailer.messages[0].subject
+    assert mailer.messages[0].subject == "Zeroth experimental report: Review diagnostics for support-triage"
+    assert "Predictive reliability is unvalidated" in mailer.messages[0].text_body
+    assert "Recorded candidate share: 25%" in mailer.messages[0].text_body
 
     monkeypatch.setattr(settings, "report_public_base_url", "")
     invalid_link = client.post(
@@ -321,13 +323,14 @@ def test_report_api_creates_downloads_and_emails_one_immutable_artifact(
         assert mailer.messages[0].attachment == rendered[0]
 
 
-def test_new_v2_report_does_not_overwrite_a_retained_v1_artifact(tmp_path: Path) -> None:
-    assert TEMPLATE_VERSION == "model-migration-v2"
+@pytest.mark.parametrize("legacy_version", ["model-migration-v1", "model-migration-v2"])
+def test_new_report_does_not_overwrite_a_retained_artifact(tmp_path: Path, legacy_version) -> None:
+    assert TEMPLATE_VERSION == "model-migration-v3"
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'reports-versions.db'}")
     Base.metadata.create_all(engine)
-    legacy_pdf = b"%PDF-1.4\nretained model-migration-v1 artifact\n%%EOF\n"
+    legacy_pdf = f"%PDF-1.4\nretained {legacy_version} artifact\n%%EOF\n".encode()
     legacy_id = (
-        "rpt_" + hashlib.sha256(b"tenant-a:pdec_report_example:model-migration-v1").hexdigest()[:24]
+        "rpt_" + hashlib.sha256(f"tenant-a:pdec_report_example:{legacy_version}".encode()).hexdigest()[:24]
     )
     with Session(engine) as raw:
         raw.add(_stored_decision())
@@ -336,7 +339,7 @@ def test_new_v2_report_does_not_overwrite_a_retained_v1_artifact(tmp_path: Path)
                 report_id=legacy_id,
                 tenant_id="tenant-a",
                 decision_id="pdec_report_example",
-                template_version="model-migration-v1",
+                template_version=legacy_version,
                 media_type="application/pdf",
                 sha256=hashlib.sha256(legacy_pdf).hexdigest(),
                 pdf_bytes=legacy_pdf,
@@ -354,10 +357,10 @@ def test_new_v2_report_does_not_overwrite_a_retained_v1_artifact(tmp_path: Path)
         rows = list(raw.scalars(select(DecisionReportRecord)))
 
     assert created is True
-    assert current.template_version == "model-migration-v2"
+    assert current.template_version == "model-migration-v3"
     assert current.report_id != legacy_id
     assert retained is not None
-    assert retained.template_version == "model-migration-v1"
+    assert retained.template_version == legacy_version
     assert retained.pdf_bytes == legacy_pdf
     assert retained.sha256 == hashlib.sha256(legacy_pdf).hexdigest()
     assert len(rows) == 2
@@ -495,5 +498,5 @@ def test_abstention_email_asks_for_evidence_instead_of_routing_zero_percent(
             public_base_url="",
         )
 
-    assert mailer.messages[0].subject == ("Zeroth decision: Collect evidence for support-triage")
-    assert "Additional cases required: 380" in mailer.messages[0].text_body
+    assert mailer.messages[0].subject == ("Zeroth experimental report: Collect evidence for support-triage")
+    assert "Estimated additional cases: 380" in mailer.messages[0].text_body

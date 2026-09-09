@@ -12,7 +12,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from zeroth.econ.plane.decisioning.models import ProbabilisticMigrationDecisionRecord
 
-TEMPLATE_VERSION = "model-migration-v2"
+TEMPLATE_VERSION = "model-migration-v3"
 
 
 def _money(value: object) -> str:
@@ -33,7 +33,7 @@ def _page(canvas, document) -> None:  # type: ignore[no-untyped-def]
     canvas.saveState()
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(colors.HexColor("#596273"))
-    canvas.drawString(0.65 * inch, 0.42 * inch, "Zeroth - Advisory decision report")
+    canvas.drawString(0.65 * inch, 0.42 * inch, "Zeroth - Experimental scenario report")
     canvas.drawRightString(7.85 * inch, 0.42 * inch, f"Page {document.page}")
     canvas.restoreState()
 
@@ -100,19 +100,23 @@ def render_decision_report_pdf(record: ProbabilisticMigrationDecisionRecord) -> 
             styles["Heading2"],
         ),
         Paragraph(
-            "Advisory recommendation only. Zeroth does not alter production routing. "
-            "Review the evidence, constraints, and operational context before rollout.",
+            "Experimental scenario diagnostics. Predictive reliability is unvalidated. "
+            "Simulated savings and risk estimates do not establish future outcomes or "
+            "authorize rollout. Recorded actions and verdicts are retained for audit.",
             styles["BodyText"],
         ),
         Spacer(1, 8),
         Table(
             [
-                ["Recommendation", recommendation.title()],
-                ["Candidate traffic", share],
-                ["Verdict", str(report.get("verdict", record.verdict)).title()],
-                ["Expected monthly savings", _money(selected.get("expected_monthly_savings_usd"))],
+                ["Recorded action", recommendation.title()],
+                ["Recorded candidate share", share],
+                ["Recorded verdict", str(report.get("verdict", record.verdict)).title()],
                 [
-                    "Likely monthly savings range",
+                    "Simulated mean monthly savings",
+                    _money(selected.get("expected_monthly_savings_usd")),
+                ],
+                [
+                    "Simulated savings p05-p95",
                     f"{_money(selected.get('monthly_savings_p05_usd'))} to "
                     f"{_money(selected.get('monthly_savings_p95_usd'))}",
                 ],
@@ -133,7 +137,7 @@ def render_decision_report_pdf(record: ProbabilisticMigrationDecisionRecord) -> 
         Paragraph("Risk assessment", styles["Section"]),
         Table(
             [
-                ["Measure", "Forecast", "Customer limit"],
+                ["Measure", "Simulation", "Customer limit"],
                 [
                     "Quality breach probability",
                     _percent(selected.get("probability_quality_breach")),

@@ -194,22 +194,21 @@ it as zero. Success definitions are immutable per workflow version. Provider-bil
 reconciliation keeps billed totals, measured costs, variance, and unmatched
 amounts separate.
 
-The experimental model-migration loop asks whether a workload should move from
-an incumbent model to a candidate:
+The public model-migration API accepts paired observations and calibration
+history, but currently always abstains: predictive reliability is unapproved.
+More cases or simulations do not authorize migration. Its experimental loop can:
 
 1. Collect paired case evidence and forecast-versus-observed calibration history.
 2. Simulate cost, quality, latency, and critical-error outcomes under candidate
    routing choices using Monte Carlo resampling.
-3. Check constraint-breach probabilities and tail-loss limits (CVaR), then return
-   an inspectable recommendation or a request for more evidence.
-4. Retain the decision, optionally generate a PDF, and verify a randomized rollout
-   before adding observations to later calibration checks.
+3. Inspect diagnostic constraint-breach probabilities and tail-loss limits (CVaR)
+   where the risk law qualifies; an unqualified law returns no action distributions.
+4. Retain the abstention and optionally generate an experimental PDF report.
 
-These are advisory experiments, not automatic traffic changes or guaranteed
-savings. More simulations do not compensate for too little real evidence.
-Calibration, drift, and evidence gates may abstain. Causal verification requires
-retained randomized assignments and uncontaminated observations; an ordinary
-before/after comparison is not a causal result.
+An experimental abstention cannot start a randomized rollout. Existing rollout
+and verification APIs remain available for legacy recommended decisions; those
+records do not establish validation of the current method. An ordinary before/after
+comparison is not a causal result.
 
 Decision schedules and explicit, configured SMTP report delivery are implemented.
 Automatic scheduled report emails and general optimization of prompts, retries,
