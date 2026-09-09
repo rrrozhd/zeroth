@@ -12,6 +12,7 @@ from zeroth.econ.decisioning import (
     compare_workflow_versions,
 )
 from zeroth.econ.measurement import MeasurementState
+from tests.econ.assertions import assert_interval_abstention
 
 
 def _version(version, *, cost="1", accepted=3, labeled=4, runs=4):
@@ -42,7 +43,21 @@ def test_verdict_and_cost_ratio_are_invariant_to_currency_scale(scale, ratio, ac
         policy=DecisionPolicy(min_runs=1, min_success_rate=0),
     )
     exact_change = Fraction(ratio) - 1
-    assert report.verdict == ("fail" if exact_change > Fraction(1, 10) else "pass")
+    reference = compare_workflow_versions(
+        _version("v1", cost="1", accepted=accepted),
+        _version("v2", cost=ratio, accepted=accepted),
+        policy=DecisionPolicy(min_runs=1, min_success_rate=0),
+    )
+    assert report.verdict == reference.verdict
+    assert report.reason_codes == reference.reason_codes
+    assert report.cost_per_outcome_change_interval.low == pytest.approx(
+        reference.cost_per_outcome_change_interval.low, abs=1e-14,
+    )
+    assert report.cost_per_outcome_change_interval.high == pytest.approx(
+        reference.cost_per_outcome_change_interval.high, abs=1e-14,
+    )
+    if accepted == 4:
+        assert report.verdict == ("fail" if exact_change > Fraction(1, 10) else "abstain")
     assert report.cost_per_outcome_change == pytest.approx(float(exact_change), abs=1e-15)
     assert report.baseline.measured_cost_usd == 4 * baseline_cost
     assert report.candidate.measured_cost_usd == 4 * candidate_cost
@@ -59,9 +74,10 @@ def test_quality_floor_uses_counts_before_rounding(floor, accepted):
         evidence.model_copy(update={"version": "v2"}),
         policy=DecisionPolicy(min_runs=1, min_success_rate=floor),
     )
-    assert report.verdict == (
-        "fail" if Fraction(accepted, 3) < Fraction(str(floor)) else "pass"
-    )
+    assert_interval_abstention(report)
+    assert report.candidate.success_rate == float(Fraction(accepted, 3))
+    assert report.candidate_success_rate_interval.low < floor
+    assert report.candidate_success_rate_interval.high > floor
 
 
 @pytest.mark.parametrize("allowed_drop", [0.3333332, 0.3333334])
@@ -74,7 +90,10 @@ def test_quality_drop_uses_counts_before_rounding(allowed_drop):
             max_success_rate_drop=allowed_drop, max_cost_per_outcome_increase=2,
         ),
     )
-    assert report.verdict == ("fail" if Fraction(1, 3) > Fraction(str(allowed_drop)) else "pass")
+    assert_interval_abstention(report)
+    assert report.success_rate_change == float(-Fraction(1, 3))
+    assert report.success_rate_change_interval.low < -allowed_drop
+    assert report.success_rate_change_interval.high > -allowed_drop
 
 
 @pytest.mark.parametrize("coverage_floor", [0.6666666, 0.6666667])
@@ -120,7 +139,7 @@ def test_different_acceptance_denominators_use_unrounded_totals(scale, ratio):
         policy=DecisionPolicy(min_runs=1, min_success_rate=0, max_success_rate_drop=1),
     )
     exact_change = Fraction(ratio) * Fraction(3, 2) - 1
-    assert report.verdict == ("fail" if exact_change > Fraction(1, 10) else "pass")
+    assert_interval_abstention(report)
     assert report.cost_per_outcome_change == pytest.approx(float(exact_change), abs=1e-15)
 
 
@@ -133,5 +152,5 @@ def test_explicitly_allowed_estimates_contribute_to_the_ratio():
         baseline, candidate,
         policy=DecisionPolicy(min_runs=1, min_success_rate=0, allow_estimated_cost=True),
     )
-    assert report.verdict == "pass"
+    assert_interval_abstention(report)
     assert report.cost_per_outcome_change == -0.5

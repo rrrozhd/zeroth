@@ -1,5 +1,7 @@
 """A source-authored repricing/refund ledger must preserve physical attempts."""
 
+from tests.econ.assertions import assert_interval_abstention
+
 from datetime import timedelta
 from decimal import Decimal
 
@@ -275,10 +277,11 @@ def test_charge_revision_changes_retained_evidence_without_rewriting_history(eng
             return retain_decision(db, request, compare_versions_from_store(db, request), evaluated_by="test")
 
     before = retain()
-    assert before.verdict == "fail"
+    assert_interval_abstention(before)
     assert client.post("/v1/charge-cost-revisions", json=revision()).status_code == 200
     corrected = retain()
-    assert corrected.verdict == "pass"
+    assert_interval_abstention(corrected)
+    assert corrected.candidate.measured_cost_usd < before.candidate.measured_cost_usd
     assert corrected.decision_id != before.decision_id
     assert corrected.source_evidence["candidate"].execution_records == 2
     assert corrected.source_evidence["candidate"].cost_revision_records == 1

@@ -155,6 +155,9 @@ class DecisionPolicy(BaseModel):
     max_cost_per_outcome_increase: float = Field(default=0.1, ge=0, allow_inf_nan=False)
     allow_estimated_cost: bool = False
     allow_inferred_outcomes: bool = False
+    #: Level of the two-sided intervals every constraint is judged on; a limit
+    #: is breached or satisfied only when the whole interval says so.
+    confidence_level: float = Field(default=0.95, gt=0, lt=1)
 
 
 class VersionComparisonRequest(BaseModel):

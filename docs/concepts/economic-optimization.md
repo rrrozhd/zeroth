@@ -139,8 +139,16 @@ The default cost-growth tolerance is 10%, so a pass is not a savings claim.
 It does not convert missing evidence into zero or market a projected saving as
 realized value.
 
-Threshold comparisons use exact ratios of counts and decimal cost totals.
-Presentation rounding does not determine the verdict. A zero baseline cost
+Summary values use exact count ratios and decimal cost totals. Economic constraints
+use two-sided intervals at `policy.confidence_level` (default 0.95): Newcombe for
+the success-rate change, Wilson for the candidate rate, and a log-ratio delta
+interval for cost per accepted outcome. A constraint fails only when its interval
+is wholly beyond the limit; every interval must clear its limit to pass. Otherwise
+the comparison abstains and reports the unresolved constraint and estimated
+`additional_runs_required`. Small samples can remain undecided even when their
+point estimates look favorable. Interval calculations assume independent,
+representative runs; source completeness, causal effects and repeated-look
+authorization remain unverified. Display rounding does not determine the verdict. A zero baseline cost
 leaves relative cost change undefined; that comparison abstains.
 
 `GET /v1/decisions` returns retained history. `POST` and `GET
@@ -169,7 +177,7 @@ Missing usage abstains; rate-card estimates do not establish invoice charges.
 
 | Output | Claim class / method | Evidence scope and limitations |
 | --- | --- | --- |
-| Version comparison and scheduled result | `observed_comparison` / `observed-policy/3` | Received evidence for the named versions; outcomes use the latest non-future assertion and resolve only with declared final maturity and compatible definitions. Source completeness and business truth are not established. Policy checks describe that evidence only. |
+| Version comparison and scheduled result | `observed_comparison` / `interval-policy/1` | Received evidence for the named versions; outcomes use the latest non-future assertion and resolve only with declared final maturity and compatible definitions. Source completeness and business truth are not established. Policy checks describe that evidence only. |
 | Hosted model backtest | `exploratory_model_experiment` / `observed-replay-policy/1` | Supplied 5–25 cases; observed correctness according to the current judge and text-usage projections at retained rates. Judge calibration and population generalization are unvalidated. Cache, tools, downstream charges and unobserved retries are excluded. |
 | Historical result without these fields | `legacy_unclassified` / `legacy_unversioned` | Original values and action remain readable. Missing metadata cannot establish the current method or completeness. |
 | Legacy counterfactual estimates | Legacy OSS method only | Heuristic confidence, calibration and proxy-dollar outputs are not paid statistical, causal or forecasting authorization. |
@@ -343,6 +351,7 @@ Only after this vertical slice should Zeroth extend the existing right-sizing
 harness to retry, step-removal, or conditional-path simulations.
 
 ## Preserved repository surfaces
+
 
 The graph runtime, service API, governance subsystems, integrations, Studio,
 console, memory, RAG, sandbox, deployment code, and SDK prototype stay in the

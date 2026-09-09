@@ -1,5 +1,7 @@
 """Source counts and money stay independent of HTTP acknowledgements and reports."""
 
+from tests.econ.assertions import assert_interval_abstention
+
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from fractions import Fraction
@@ -314,7 +316,9 @@ os._exit(17)
             damaged["source_delivery"]["candidate"]["observed_executions"]
             == len(all_events) - missing
         )
-        assert damaged["verdict"] == ("abstain" if missing else "pass")
+        assert damaged["verdict"] == "abstain"
+        if not missing:
+            assert_interval_abstention(damaged)
         if missing:
             assert damaged["source_delivery"]["candidate"]["status"] == "mismatch"
             assert damaged["candidate"]["unmeasured_runs"] > 0
@@ -323,7 +327,7 @@ os._exit(17)
         assert sum(r["status"] == "inserted" for r in results) == missing
         repaired = sdk.compare_versions(request)
         assert_source_report(repaired, ledger)
-        assert repaired["verdict"] == "pass"
+        assert_interval_abstention(repaired)
         assert (repaired["decision_id"] != damaged["decision_id"]) == bool(missing)
         assert damaged in sdk.list_decisions()  # Repair never rewrites the old record.
         with Session(engine) as raw:

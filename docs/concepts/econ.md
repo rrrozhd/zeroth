@@ -66,6 +66,36 @@ provision a real tenant ID.
   endpoint. TTL-cached and fail-closed by default on outage or malformed data;
   fail-open is an explicit compatibility setting.
 
+## Estimates and intervals
+
+The bundled plane reports every valuation and period cost with a two-sided
+interval at the requested `confidence_level`, and the interval is the evidence,
+not the requested level. What each field means:
+
+- **Period cost** (`estimate_cost_for_period`): only the *inferred* executions
+  carry estimation uncertainty. A fully measured period has a zero-width
+  interval (`estimation_method = "measured_sum"`); two or more inferred samples
+  give a Student-t half-width on their mean, scaled to their count
+  (`student_t_inferred_subset`); a single inferred sample cannot support a
+  width, so the bounds sit at the total and `estimation_method` says
+  `inferred_width_unknown`. Read that label before reading the bounds.
+- **Valuation** (`run_evaluation`): a single binary outcome type
+  (`conversion`, `fraud_flag`) maps a Wilson band on the positive rate through
+  the formula's per-class dollar values (`wilson_binomial`); other values use
+  a studentized bootstrap from thirty outcomes (`bootstrap_t`) and a Student-t
+  interval below that (`student_t`). Below thirty outcomes
+  `confidence_gate_passed` is always false, whatever the width, because the
+  small-sample intervals under-cover on skewed data.
+- **Reason codes**: `LOW_N` is fewer than thirty outcomes; `HIGH_VARIANCE` is a
+  coefficient of variation above 2.0, which names a rare-positive or
+  heavy-tailed proxy rather than sample noise; `DRIFT_WARNING` and
+  `DRIFT_CRITICAL` are a pooled two-sample t statistic between the most recent
+  fifth of the time-ordered outcomes and the rest, at 2.0 and 3.0 standard
+  errors (a stationary series exceeds 3.0 less than 1% of the time).
+- **`portfolio_confidence_score`** on the dashboard is the average of
+  `1 - width / |value|` over recent estimates, clamped at zero: a relative
+  interval width, not a probability that the estimates are right.
+
 ## See also
 
 - Usage Guide: [how-to/econ](../how-to/econ.md)

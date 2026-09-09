@@ -1,5 +1,7 @@
 """Single monetary ownership across capture layers, retries and tenant boundaries."""
 
+from tests.econ.assertions import assert_interval_abstention
+
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Barrier
@@ -373,7 +375,7 @@ def test_retained_comparison_binds_ownership_and_preserves_legacy_uncertainty(en
             )
 
         first = compare()
-        assert first.verdict == "pass"
+        assert_interval_abstention(first)
         assert first.charge_ownership["candidate"].status == "declared"
         assert first.source_evidence["candidate"].version == "stored-assertions/4"
         record_execution(

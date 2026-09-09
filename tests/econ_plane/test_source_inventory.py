@@ -1,5 +1,7 @@
 """Independent producer inventory must expose loss before economic policy runs."""
 
+from tests.econ.assertions import assert_interval_abstention
+
 from copy import deepcopy
 from datetime import timedelta
 import hashlib
@@ -138,7 +140,9 @@ def test_reconciliation_exposes_source_delivery_faults(engine, fault):
         result = report.source_delivery["candidate"]
         assert report.source_delivery["baseline"].status == "matched"
         assert result.status == ("matched" if fault == "none" else "mismatch")
-        assert report.verdict == ("pass" if fault == "none" else "abstain")
+        assert report.verdict == "abstain"
+        if fault == "none":
+            assert_interval_abstention(report)
         assert result.expected_runs == 2
         assert result.expected_executions == 2
         assert report.candidate.runs == (3 if fault == "extra_run" else 2)
@@ -172,7 +176,7 @@ def test_delivery_after_report_and_inventory_changes_create_immutable_revisions(
                 event = deliver(db, version, i)
                 assert record_execution(event, db, user()).status == "duplicate"
         complete = compare()
-        assert complete.verdict == "pass"
+        assert_interval_abstention(complete)
         assert complete.decision_id != before.decision_id
         assert compare().decision_id == complete.decision_id
         reversed_payload = deepcopy(payload)
@@ -250,7 +254,7 @@ def test_window_membership_is_immutable_and_scoped(engine):
         report = compare_versions_from_store(
             db, VersionComparisonRequest.model_validate(request_payload())
         )
-        assert report.verdict == "pass"
+        assert_interval_abstention(report)
         assert report.source_delivery["candidate"].observed_executions == 2
         legacy = request_payload()
         del legacy["source_windows"]
@@ -293,7 +297,7 @@ def test_missing_step_cannot_report_partial_run_cost_as_complete(engine):
         complete = compare_versions_from_store(db, request)
         assert complete.source_delivery["candidate"].status == "matched"
         assert complete.candidate.unmeasured_runs == 0
-        assert complete.verdict == "pass"
+        assert_interval_abstention(complete)
 
 
 def test_full_window_bound_and_overflow_abstention(engine):
@@ -416,7 +420,7 @@ def test_http_window_ingestion_comparison_and_history(engine, monkeypatch):
         response = client.post("/v1/decisions/compare", json=payload, headers=headers)
         assert response.status_code == 200, response.text
         report = response.json()
-        assert report["verdict"] == "pass"
+        assert_interval_abstention(report)
         assert report["source_delivery"]["candidate"]["status"] == "matched"
         assert report["source_evidence"]["candidate"]["version"] == "stored-assertions/4"
         history = client.get("/v1/decisions", headers=headers).json()

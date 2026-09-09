@@ -1272,6 +1272,36 @@
         "title": "ConfidenceGateStatus",
         "type": "object"
       },
+      "ConfidenceInterval": {
+        "additionalProperties": false,
+        "description": "Two-sided interval on a comparison statistic at the policy's confidence level.",
+        "properties": {
+          "confidence_level": {
+            "title": "Confidence Level",
+            "type": "number"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "low",
+          "high",
+          "confidence_level",
+          "method"
+        ],
+        "title": "ConfidenceInterval",
+        "type": "object"
+      },
       "ConnectorConfigOut": {
         "properties": {
           "config_json": {
@@ -1908,6 +1938,13 @@
             "default": false,
             "title": "Allow Inferred Outcomes",
             "type": "boolean"
+          },
+          "confidence_level": {
+            "default": 0.95,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Confidence Level",
+            "type": "number"
           },
           "max_cost_per_outcome_increase": {
             "default": 0.1,
@@ -2769,6 +2806,17 @@
         "additionalProperties": false,
         "description": "Auditable economic release decision for a candidate workflow version.",
         "properties": {
+          "additional_runs_required": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Runs Required"
+          },
           "baseline": {
             "$ref": "#/components/schemas/VersionEconomics"
           },
@@ -2788,6 +2836,16 @@
           },
           "candidate": {
             "$ref": "#/components/schemas/VersionEconomics"
+          },
+          "candidate_success_rate_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidenceInterval"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "candidate_version": {
             "title": "Candidate Version",
@@ -2825,6 +2883,16 @@
               }
             ],
             "title": "Cost Per Outcome Change"
+          },
+          "cost_per_outcome_change_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidenceInterval"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "decision_id": {
             "anyOf": [
@@ -2931,6 +2999,16 @@
               }
             ],
             "title": "Success Rate Change"
+          },
+          "success_rate_change_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidenceInterval"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "verdict": {
             "enum": [

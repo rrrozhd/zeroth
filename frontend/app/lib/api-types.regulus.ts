@@ -2116,6 +2116,20 @@ export interface components {
             /** Passed */
             passed: number;
         };
+        /**
+         * ConfidenceInterval
+         * @description Two-sided interval on a comparison statistic at the policy's confidence level.
+         */
+        ConfidenceInterval: {
+            /** Confidence Level */
+            confidence_level: number;
+            /** High */
+            high: number;
+            /** Low */
+            low: number;
+            /** Method */
+            method: string;
+        };
         /** ConnectorConfigOut */
         ConnectorConfigOut: {
             /** Config Json */
@@ -2396,6 +2410,11 @@ export interface components {
              * @default false
              */
             allow_inferred_outcomes: boolean;
+            /**
+             * Confidence Level
+             * @default 0.95
+             */
+            confidence_level: number;
             /**
              * Max Cost Per Outcome Increase
              * @default 0.1
@@ -2710,11 +2729,14 @@ export interface components {
          * @description Auditable economic release decision for a candidate workflow version.
          */
         EconomicDecision: {
+            /** Additional Runs Required */
+            additional_runs_required?: number | null;
             baseline: components["schemas"]["VersionEconomics"];
             /** Baseline Version */
             baseline_version: string;
             calculation_inputs?: components["schemas"]["CalculationInputs"] | null;
             candidate: components["schemas"]["VersionEconomics"];
+            candidate_success_rate_interval?: components["schemas"]["ConfidenceInterval"] | null;
             /** Candidate Version */
             candidate_version: string;
             /** Charge Ownership */
@@ -2729,6 +2751,7 @@ export interface components {
             claim_class: "legacy_unclassified" | "observed_comparison";
             /** Cost Per Outcome Change */
             cost_per_outcome_change?: number | null;
+            cost_per_outcome_change_interval?: components["schemas"]["ConfidenceInterval"] | null;
             /** Decision Id */
             decision_id?: string | null;
             /** Evaluated At */
@@ -2762,6 +2785,7 @@ export interface components {
             };
             /** Success Rate Change */
             success_rate_change?: number | null;
+            success_rate_change_interval?: components["schemas"]["ConfidenceInterval"] | null;
             /**
              * Verdict
              * @enum {string}

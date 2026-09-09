@@ -1,5 +1,7 @@
 """An independent truth table must agree across stored economic readers."""
 
+from tests.econ.assertions import assert_interval_abstention
+
 from datetime import timedelta
 
 import pytest
@@ -136,8 +138,10 @@ def test_comparisons_require_compatible_definitions(engine, definition_case):
                 ),
             )
         report = compare_versions_from_store(db, request)
-        assert report.verdict == ("pass" if definition_case == "both" else "abstain")
-        assert report.method_version == "observed-policy/3"
+        assert report.verdict == "abstain"
+        if definition_case == "both":
+            assert_interval_abstention(report)
+        assert report.method_version == "interval-policy/1"
         if definition_case == "different_rule":
             assert "outcome_semantics_incompatible" in report.reason_codes
         if definition_case in {"missing", "wrong_type"}:
@@ -169,7 +173,7 @@ def test_definition_arrival_creates_a_new_bound_revision_and_keeps_history(engin
         for version in ("v1", "v2"):
             define(db, version)
         second = compare()
-        assert second.verdict == "pass"
+        assert_interval_abstention(second)
         assert second.decision_id != first.decision_id
         assert second.source_evidence == first.source_evidence
         assert (

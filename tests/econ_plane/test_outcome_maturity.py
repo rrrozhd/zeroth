@@ -1,5 +1,7 @@
 """Declared business maturity is distinct from observed value and provenance."""
 
+from tests.econ.assertions import assert_interval_abstention
+
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
@@ -151,7 +153,8 @@ def test_source_ordered_corrections_preserve_each_retained_revision(engine):
         corrected = compare()
         emit(db, maturity="withdrawn", accepted=None, version="v2", when=NOW + timedelta(minutes=2))
         withdrawn = compare()
-        assert [first.verdict, corrected.verdict, withdrawn.verdict] == ["pass", "fail", "abstain"]
+        assert_interval_abstention(first)
+        assert [corrected.verdict, withdrawn.verdict] == ["fail", "abstain"]
         assert len({item.decision_id for item in (first, corrected, withdrawn)}) == 3
         assert corrected.source_evidence["candidate"].version == "stored-assertions/4"
         history = {item.decision_id: item for item in list_retained_decisions(db)}

@@ -46,10 +46,11 @@ def _seed_version(
     version: str,
     cost: str,
     accepted: int,
+    runs: int = 10,
 ) -> None:
     _seed_definition(db, tenant_id=tenant_id, version=version)
     now = datetime(2026, 8, 31, tzinfo=UTC)
-    for index in range(10):
+    for index in range(runs):
         run_id = f"{version}-{index}"
         timestamp = now + timedelta(seconds=index)
         db.add(
@@ -97,8 +98,9 @@ def test_compare_route_reads_only_the_authenticated_tenant(
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'decisions.db'}")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
-        _seed_version(db, tenant_id="tenant-a", version="v1", cost=baseline_cost, accepted=9)
-        _seed_version(db, tenant_id="tenant-a", version="v2", cost=candidate_cost, accepted=9)
+        _seed_version(db, tenant_id="tenant-a", version="v1", cost=baseline_cost, accepted=300, runs=300)
+        _seed_version(db, tenant_id="tenant-a", version="v2", cost=candidate_cost, accepted=300, runs=300)
+
         _seed_version(db, tenant_id="tenant-b", version="v2", cost="99", accepted=1)
         db.commit()
 
@@ -140,10 +142,14 @@ def test_compare_route_reads_only_the_authenticated_tenant(
     assert payload["verdict"] == "pass"
     assert payload["recommended_action"] == "review_candidate"
     assert payload["claim_class"] == "observed_comparison"
-    assert payload["method_version"] == "observed-policy/3"
-    assert payload["baseline"]["runs"] == 10
-    assert payload["candidate"]["runs"] == 10
+    assert payload["method_version"] == "interval-policy/1"
+    assert payload["baseline"]["runs"] == 300
+    assert payload["candidate"]["runs"] == 300
+
     assert payload["cost_per_outcome_change"] == -0.4
+    assert payload["success_rate_change_interval"]["low"] >= -0.02
+    assert payload["cost_per_outcome_change_interval"]["high"] <= 0
+    assert payload["additional_runs_required"] is None
     assert payload["decision_id"].startswith("dec_")
     assert payload["evaluated_at"]
 

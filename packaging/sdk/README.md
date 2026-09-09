@@ -63,8 +63,17 @@ Version comparisons and schedules likewise require an explicit
 remains a caller choice. A policy pass can tolerate the configured cost growth
 (10% by default), so a pass does not necessarily mean a saving.
 
+Comparisons use `policy.confidence_level` (default 0.95). A pass requires the
+success-rate change, candidate success rate and cost-per-outcome change intervals
+to clear their limits. A wholly adverse interval fails; an interval crossing a
+limit abstains. Results include `success_rate_change_interval`,
+`candidate_success_rate_interval`, `cost_per_outcome_change_interval` and an
+estimated `additional_runs_required` when more data could resolve an open gate.
+The estimate assumes the observed rates and dispersion persist; it is not a
+promised sample size or a correction for repeatedly checking the same population.
+
 New version results carry `claim_class="observed_comparison"` and
-`method_version="observed-policy/3"`. New backtests carry
+`method_version="interval-policy/1"`. New backtests carry
 `claim_class="exploratory_model_experiment"` and
 `method_version="observed-replay-policy/1"`. Both return `limitations` and use
 `recommended_action="review_candidate"` for a pass. These fields are retained

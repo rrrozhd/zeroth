@@ -86,7 +86,8 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
             workflow_id="invoice-agent", workflow_version=version,
             outcome_type="accepted", operator="equals", target=True,
         ))
-        for index in range(10):
+        for index in range(100):
+
             run_id = f"{version}-{index}"
             timestamp = now + timedelta(seconds=index)
             sdk.record_execution(
@@ -105,7 +106,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
                     workflow="invoice-agent",
                     workflow_version=version,
                     run_id=run_id,
-                    accepted=index < 9,
+                    accepted=True,
                     occurred_at=timestamp,
                 )
             )
@@ -123,7 +124,7 @@ def test_sdk_events_produce_a_hosted_economic_decision(tmp_path: Path, monkeypat
         assert decision["verdict"] == "abstain"
         assert decision["recommended_action"] == "collect_evidence"
         assert "candidate_contains_unmeasured_cost" in decision["reason_codes"]
-        assert decision["candidate"]["unmeasured_runs"] == 10
+        assert decision["candidate"]["unmeasured_runs"] == 100
         assert decision["candidate"]["measured_runs"] == 0
         assert decision["candidate"]["cost_per_accepted_outcome_usd"] is None
         assert decision["cost_per_outcome_change"] is None
@@ -314,3 +315,4 @@ def test_sdk_submits_and_reads_a_probabilistic_model_migration_decision(
     assert result["actions"] == []
     assert "risk_law_unqualified" in result["reason_codes"]
     assert sdk.list_model_migration_decisions() == [result]
+

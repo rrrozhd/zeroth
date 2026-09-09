@@ -31,10 +31,13 @@ from tests.econ_plane.test_economic_decision_api import _seed_definition
 
 
 def _seed(db: Session) -> None:
+    # One hundred fully accepted runs per version: the default 0.05 drop limit needs the
+    # Newcombe lower bound (-0.037 here) inside it before a pass is established.
     now = datetime(2026, 8, 31, tzinfo=UTC)
     for version, cost in (("v1", "1"), ("v2", "0.6")):
         _seed_definition(db, tenant_id="tenant-a", version=version)
-        for index in range(10):
+        for index in range(100):
+
             run_id = f"{version}-{index}"
             timestamp = now + timedelta(seconds=index)
             db.add(
@@ -65,8 +68,8 @@ def _seed(db: Session) -> None:
                     capability_id="invoice-agent",
                     implementation_id=version,
                     outcome_type="accepted",
-                    outcome_payload_json={"accepted": index < 9},
-                    outcome_value=str(index < 9).lower(),
+                    outcome_payload_json={"accepted": True},
+                    outcome_value="true",
                     occurred_at=timestamp,
                     ingested_at=timestamp,
                     outcome_timestamp=timestamp,
@@ -130,7 +133,7 @@ def test_schedule_api_and_due_runner_retain_a_recurring_decision(
     assert len(decisions) == 1
     assert decisions[0].verdict == ("abstain" if quality_floor is None else "pass")
     assert decisions[0].claim_class == "observed_comparison"
-    assert decisions[0].method_version == "observed-policy/3"
+    assert decisions[0].method_version == "interval-policy/1"
     if quality_floor is None:
         assert "policy.min_success_rate" in decisions[0].reason_codes
     else:

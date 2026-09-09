@@ -1,6 +1,8 @@
 """Frozen calculation history survives changes to live source evidence."""
 
 import json
+from tests.econ.assertions import assert_interval_abstention
+
 from datetime import timedelta
 from decimal import Decimal
 
@@ -72,7 +74,7 @@ def test_retained_calculations_reconstruct_after_late_evidence_and_source_erasur
             return retain_decision(db, request, compare_versions_from_store(db, request), evaluated_by="test")
 
     first, foreign = compare(), compare("tenant-b")
-    assert first.verdict == "pass"
+    assert_interval_abstention(first)
     assert first.baseline.measured_cost_usd == Decimal("2")
     assert first.candidate.measured_cost_usd == Decimal("1.4")
     assert first.candidate.cost_per_accepted_outcome_usd == Decimal(".7")
@@ -90,7 +92,8 @@ def test_retained_calculations_reconstruct_after_late_evidence_and_source_erasur
             token_cost_usd="2.6", cost_measurement="measured", reason="statement correction",
         ))
     corrected = compare()
-    assert corrected.verdict == "fail"
+    assert_interval_abstention(corrected)
+    assert corrected.cost_per_outcome_change > 0
     assert corrected.candidate.measured_cost_usd == Decimal("3.4")
     assert corrected.decision_id != first.decision_id
     with Session(engine) as raw:

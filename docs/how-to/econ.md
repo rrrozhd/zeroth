@@ -66,6 +66,13 @@ response = await adapter.complete(prompt="hello")
 5. **Unbounded cache** — Budget decisions are TTL-cached (default 30s);
    shorten it for tight budgets, but do not set it to 0 — you will
    hammer Regulus.
+6. **Reading a zero width as certainty** — A period cost whose
+   `estimation_method` is `inferred_width_unknown` has bounds at the total
+   because one inferred sample cannot support a width, not because the
+   total is exact; and a valuation with fewer than thirty outcomes never
+   passes the confidence gate however narrow its interval looks. The
+   dashboard's `portfolio_confidence_score` is a relative interval width,
+   not a probability (see [concepts/econ](../concepts/econ.md#estimates-and-intervals)).
 
 ## Reference cross-link
 

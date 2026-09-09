@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Version-comparison constraints now use confidence intervals and abstain when
+  a limit is unresolved, while retaining explicit quality floors and manual review.
 - Economic interval estimation, inferred-cost accounting, ordered drift detection,
   and sample requirements for counterfactual estimates.
 - Cancellation and shutdown ownership across execution units, MCP transports and

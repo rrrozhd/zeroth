@@ -215,3 +215,14 @@ def test_decision_schedule_request_bounds_frequency() -> None:
             candidate_version="v7",
             interval_minutes=30,
         )
+
+
+def test_decision_policy_carries_the_interval_confidence_level() -> None:
+    import pytest
+
+    from zeroth.protocol import DecisionPolicy
+
+    assert DecisionPolicy().confidence_level == 0.95
+    assert DecisionPolicy(confidence_level=0.9).confidence_level == 0.9
+    with pytest.raises(ValueError):
+        DecisionPolicy(confidence_level=1.0)

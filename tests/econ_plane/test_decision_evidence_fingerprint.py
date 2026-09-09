@@ -1,5 +1,7 @@
 """Retained revisions identify their actual inputs, not just matching totals."""
 
+from tests.econ.assertions import assert_interval_abstention
+
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -106,7 +108,8 @@ def test_late_input_with_identical_totals_creates_a_new_retained_revision(tmp_pa
     assert "source_completeness_unverified" in second.limitations
     assert second.baseline == first.baseline
     assert second.candidate == first.candidate
-    assert second.verdict == first.verdict == "pass"
+    assert_interval_abstention(first)
+    assert_interval_abstention(second)
     assert second.decision_id != first.decision_id
     assert compare().decision_id == second.decision_id
     with Session(engine) as raw:

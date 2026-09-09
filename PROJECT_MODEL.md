@@ -144,9 +144,12 @@ both the hosted service and self-hosted platform.
   evidence cannot revive an older success. Technical completion or cancellation is
   separate from business acceptance. Cancelled framework calls retain interruption
   evidence and propagate cancellation unchanged.
-- `econ/decisioning.py` applies observed policy using exact count ratios and Decimal
-  totals before display rounding. Comparisons require an explicit quality floor;
-  passing policy recommends review and does not certify statistical/causal savings.
+- `econ/decisioning.py` preserves exact count ratios and Decimal summary totals.
+  New `interval-policy/1` comparisons gate verdicts on Newcombe, Wilson and
+  log-ratio cost intervals before display rounding; an unresolved interval abstains.
+  Comparisons require an explicit quality floor. A pass recommends review and
+  does not certify causal savings or independent source truth. Historical reports
+  keep their recorded method and verdict.
   Hosted experiments price observed incumbent/candidate/judge usage separately;
   missing or unsupported usage remains unresolved.
 - Caller-owned source inventories originate before delivery and close a fixed
