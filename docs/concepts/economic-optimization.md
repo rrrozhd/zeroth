@@ -173,6 +173,16 @@ provider work starts. Input/output usage is priced separately for incumbent,
 candidate and judge using retained rates. Judge expense is not workload savings.
 Missing usage abstains; rate-card estimates do not establish invoice charges.
 
+The correctness judge receives each case's `input` and `expected` answer alongside
+the replay output. The separate workflow `instruction` is sent to replay only.
+Include any policy or task context needed for grading in `cases[].input` as well.
+The judge prompt describes `expected` as a human-provided correct answer; review
+the reference before using it. For a task that produces both a decision and a
+customer reply, provide a complete reference covering the reply's required facts,
+clarifications and permitted promises. Agreement on the decision field alone does
+not establish correctness of the whole response. These input requirements do not
+establish judge calibration or replace independent held-out validation.
+
 New backtests retain `evaluation_evidence` with the catalog-resolved incumbent,
 candidate and judge model references, evaluator version `correctness-replay/1`,
 the correctness rubric hash and the existing 0.7 score threshold. The incumbent
