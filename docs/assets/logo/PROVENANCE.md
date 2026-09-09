@@ -10,7 +10,8 @@ The README uses the complete mark-and-name artwork, not the standalone symbol:
 - `zeroth-lockup-v2-light.jpg`: unmodified `assets/zeroth-logo.jpg`, including its
   supplied dark background to keep the white lettering readable in light mode.
 
-No lettering, colors, or logo shapes were redrawn.
-The documentation header and console assets are unchanged. The colored mark has
-poor contrast against the current blue documentation header, so that integration
-needs a separate theme adjustment. Older SVGs remain for existing references.
+The documentation header, navigation drawer, and favicon use `zeroth-mark-v2.png`.
+The header uses neutral light and dark surfaces to keep the colored mark visible.
+
+No lettering, colors, or logo shapes were redrawn. Console assets are unchanged.
+Older SVGs remain for existing references.

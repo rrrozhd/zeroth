@@ -10,9 +10,8 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
-  # White-stroke mark for the indigo header (both schemes); SVG favicon.
-  logo: assets/logo/zeroth-mark-light.svg
-  favicon: assets/logo/zeroth-favicon.svg
+  logo: assets/logo/zeroth-mark-v2.png
+  favicon: assets/logo/zeroth-mark-v2.png
   features:
     - navigation.sections
     - navigation.tabs
@@ -24,17 +23,20 @@ theme:
     - search.highlight
   palette:
     - scheme: default
-      primary: indigo
+      primary: white
       accent: indigo
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: indigo
+      primary: black
       accent: indigo
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+
+extra_css:
+  - stylesheets/brand.css
 
 # Generates docs/assets/openapi/zeroth-platform-openapi.json, which
 # reference/http-api.md links to and .gitignore excludes. Without it a clean

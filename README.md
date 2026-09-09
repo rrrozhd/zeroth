@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo/zeroth-lockup-v2.png">
-    <img src="docs/assets/logo/zeroth-lockup-v2-light.jpg" alt="Zeroth" width="300">
+    <img src="docs/assets/logo/zeroth-lockup-v2-light.jpg" alt="Zeroth" width="640">
   </picture>
 </p>
 
@@ -10,9 +10,12 @@
   <a href="https://github.com/rrrozhd/zeroth/actions/workflows/ci.yml?query=branch%3Amain"><img alt="CI (main)" title="CI — main branch" src="https://github.com/rrrozhd/zeroth/actions/workflows/ci.yml/badge.svg?branch=main"></a>
 </p>
 
-[Documentation](https://rrrozhd.github.io/zeroth/) ·
-[SDK on PyPI](https://pypi.org/project/zeroth-sdk/0.1.0a1/) ·
-[Changelog](CHANGELOG.md) · [License](LICENSE)
+<p align="center">
+  <a href="https://rrrozhd.github.io/zeroth/"><img alt="Documentation" src="https://img.shields.io/badge/Documentation-2563eb"></a>
+  <a href="https://pypi.org/project/zeroth-sdk/0.1.0a1/"><img alt="SDK on PyPI: 0.1.0a1" src="https://img.shields.io/badge/PyPI-0.1.0a1-2563eb"></a>
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/Changelog-555"></a>
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-555"></a>
+</p>
 
 Zeroth is an open-source platform for running AI workflows, controlling what
 they can do, and evaluating changes to their cost and outcomes. Use its Python
