@@ -6,10 +6,18 @@ from pathlib import Path
 
 import pytest
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from zeroth.econ.plane.database import Base
+from zeroth.econ.analytics.service_auth import mint_econ_service_token
+from zeroth.econ.plane.cloud import authkit
+from zeroth.econ.plane.cloud.keys_api import router as keys_router
+from zeroth.econ.plane.cloud.models import CloudIdentityMembership
+from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.database import Base, get_db
+from zeroth.econ.plane.decisioning.api import router as decisioning_router
 from zeroth.econ.plane.decisioning.models import (
     ForecastCalibrationRecord,
     ProbabilisticMigrationDecisionRecord,
@@ -29,6 +37,7 @@ from zeroth.econ.plane.decisioning.service import (
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
+from tests.econ_plane.test_workos_authkit import _FakeWorkOS
 
 
 def _migration_request() -> ProbabilisticMigrationRequest:
@@ -72,6 +81,7 @@ def _migration_request() -> ProbabilisticMigrationRequest:
 def test_randomized_rollout_is_sticky_verified_and_feeds_calibration_history(
     tmp_path: Path,
     heterogeneous: bool,
+    monkeypatch,
 ) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'rollout.db'}")
     Base.metadata.create_all(engine)
@@ -143,14 +153,15 @@ def test_randomized_rollout_is_sticky_verified_and_feeds_calibration_history(
         )
         db.add(decision)
         db.commit()
+        rollout_request = RandomizedRolloutCreate(
+            decision_id=decision.decision_id,
+            candidate_probability=0.5,
+            minimum_per_arm=100,
+            cohort_candidate_probabilities={"other": 0.8} if heterogeneous else {},
+        )
         rollout = create_randomized_rollout(
             db,
-            RandomizedRolloutCreate(
-                decision_id=decision.decision_id,
-                candidate_probability=0.5,
-                minimum_per_arm=100,
-                cohort_candidate_probabilities={"other": 0.8} if heterogeneous else {},
-            ),
+            rollout_request,
             created_by="analyst@example.com",
             now=assigned_at,
         )
@@ -262,6 +273,71 @@ def test_randomized_rollout_is_sticky_verified_and_feeds_calibration_history(
             )
         )
 
+    # The retained OSS state must not authorize new paid causal operations.
+    app = FastAPI()
+    app.include_router(decisioning_router, prefix="/v1")
+    app.include_router(keys_router, prefix="/v1")
+
+    def raw_db():
+        with Session(engine) as db:
+            yield db
+
+    app.dependency_overrides[get_db] = raw_db
+    monkeypatch.setattr(settings, "service_principal_tenant_id", "tenant-a")
+    monkeypatch.setattr(settings, "service_principal_roles", "Admin")
+    monkeypatch.setattr(settings, "workos_authkit_enabled", True)
+    monkeypatch.setattr(settings, "cloud_browser_origin", "https://app.example.test")
+    monkeypatch.setattr(authkit, "get_workos_gateway", lambda: _FakeWorkOS())
+    with Session(engine) as db:
+        db.add(CloudIdentityMembership(
+            tenant_id="tenant-a", provider="workos", external_user_id="user_01",
+            external_organization_id="org_01", email="owner@example.com",
+            created_at=assigned_at, updated_at=assigned_at,
+        ))
+        db.commit()
+    token = mint_econ_service_token()
+    assert token is not None
+    jwt_headers = {"Authorization": f"Bearer {token}"}
+    client = TestClient(app, base_url="https://api.example.test")
+    created_key = client.post(
+        "/v1/cloud/api-keys", headers=jwt_headers,
+        json={"name": "test", "roles": ["Admin"]},
+    )
+    assert created_key.status_code == 200, created_key.text
+    operations = [
+        ("/v1/randomized-rollouts",
+         rollout_request.model_dump(mode="json") | {"candidate_probability": 0.25}),
+        (f"/v1/randomized-rollouts/{rollout.rollout_id}/assignments",
+         {"subject_id": "subject-0"}),
+        (f"/v1/randomized-rollouts/{rollout.rollout_id}/verify",
+         {"bootstrap_samples": 200, "seed": 17}),
+    ]
+    denied = {}
+    for mode in ("api_key", "browser"):
+        client.cookies.clear()
+        if mode == "api_key":
+            headers = {"Authorization": f"Bearer {created_key.json()['api_key']}"}
+        else:
+            client.cookies.set("zeroth_session", "sealed-session")
+            headers = {"Origin": "https://app.example.test"}
+        history = client.get("/v1/decisions/model-migrations", headers=headers)
+        assert history.status_code == 200, history.text
+        assert history.json()[0]["decision_id"] == "legacy-approved-decision"
+        denied[mode] = [
+            client.post(path, json=body, headers=headers).status_code
+            for path, body in operations
+        ]
+        stopped_response = client.post(
+            f"/v1/randomized-rollouts/{rollout.rollout_id}/stop", headers=headers,
+        )
+        assert stopped_response.status_code == 200, stopped_response.text
+    assert all(status in {401, 403} for statuses in denied.values() for status in statuses), denied
+
+    client.cookies.clear()
+    for path, body in operations:
+        legacy = client.post(path, json=body, headers=jwt_headers)
+        assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["causal_status"] == verification.causal_status
     assert assignment_count == 500
     assert verification.verification_id == repeated_verification.verification_id
     if heterogeneous:

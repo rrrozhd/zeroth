@@ -67,8 +67,10 @@ both the hosted service and self-hosted platform.
    The public wrapper retains diagnostics but returns abstain/collect_evidence,
    even when callers disable calibration requirements. Service storage retains this lineage.
 6. A schedule persists the selector and policy and rebuilds evidence on every due run.
-7. A randomized rollout persists sticky subject assignments. Post-assignment measured outcomes
-   produce conservative causal effects; contamination invalidates the causal label.
+7. Legacy randomized rollouts persist sticky subject assignments and compute post-assignment
+   effects. Creation, assignment and verification require legacy JWT roles in
+   `plane/decisioning/api.py`; paid keys/browser sessions cannot invoke these unvalidated
+   causal operations even with retained legacy state. Paid history and stop remain available.
 8. Verified rollout observations become calibration history for later scheduled forecasts.
 9. An authorized user may render a retained decision once, download the stored bytes, and deliver
    that exact SHA-256-bound artifact by authenticated link or email attachment.

@@ -575,6 +575,9 @@ For the managed loop, `refresh_model_migration_decision(...)` harvests current
 tenant telemetry or an explicit case-level backtest artifact;
 `create_probabilistic_decision_schedule(...)` stores a selector and rebuilds
 evidence on each run. A new experimental abstention cannot start a rollout.
+Creation, assignment and verification require a self-hosted legacy JWT; project
+API keys and paid browser sessions are rejected even for retained legacy state.
+Paid users can still read decision history and stop an existing rollout.
 For an existing legacy recommended decision, `create_randomized_rollout(...)` creates the study,
 `assign_randomized_rollout(...)` returns a sticky subject assignment before
 execution, and `verify_randomized_rollout(...)` estimates post-assignment effects

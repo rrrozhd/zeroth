@@ -288,6 +288,9 @@ The rollout API is retained for legacy recommended decisions and existing experi
 Creation requires a retained `recommend` verdict, so a new public experimental abstention
 (including `fresh` above) cannot start a rollout. The following shows the legacy interface;
 `legacy_decision_id` must identify an existing recommendation in the same tenant.
+The `client` below must use a self-hosted legacy JWT. Project API keys and paid
+browser sessions cannot create, assign or verify a rollout, including one retained
+from an older release. They can still read decision history and stop a rollout.
 
 ```python
 from zeroth.protocol import RandomizedRolloutRequest, RandomizedRolloutVerifyRequest

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from zeroth.econ.decisioning import EconomicDecision
 from zeroth.econ.probabilistic import ProbabilisticMigrationDecision
 from zeroth.econ.rollout_verification import RolloutVerification
+from zeroth.econ.plane.auth.deps import require_roles
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, require_cloud_roles
 from zeroth.econ.plane.cloud.entitlements import (
@@ -200,7 +201,7 @@ def deactivate_probabilistic_schedule(
 def create_rollout(
     payload: RandomizedRolloutCreate,
     db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
-    user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
+    user: UserClaims = Depends(require_roles("Admin", "Analyst")),  # noqa: B008
 ) -> RandomizedRolloutOut:
     try:
         return create_randomized_rollout(db, payload, created_by=user.sub)
@@ -231,7 +232,7 @@ def assign_rollout(
     rollout_id: str,
     payload: RandomizedRolloutAssignmentCreate,
     db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
-    _user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
+    _user: UserClaims = Depends(require_roles("Admin", "Analyst")),  # noqa: B008
 ) -> RandomizedRolloutAssignmentOut:
     try:
         return assign_randomized_rollout(
@@ -254,7 +255,7 @@ def verify_rollout(
     rollout_id: str,
     payload: RandomizedRolloutVerify,
     db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
-    user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst", "Approver")),  # noqa: B008
+    user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver")),  # noqa: B008
 ) -> RolloutVerification:
     try:
         return verify_retained_randomized_rollout(
