@@ -417,6 +417,10 @@ def _correctness_judge():
 
     def fn(request):
         prompt = request.messages[0]["content"]
+        case_input = json.loads(
+            prompt.split("Request:\n", 1)[1].split("\n\nCorrect answer", 1)[0]
+        )
+        assert set(case_input) == {"q"}  # OSS callers retain the unwrapped case-only request.
         reference = prompt.split("Correct answer (from a human reviewer):\n", 1)[1].split(
             "\n\nAI answer:\n"
         )[0]

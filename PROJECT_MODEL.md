@@ -157,6 +157,10 @@ both the hosted service and self-hosted platform.
   `econ/backtest_evidence.py` defines retained evaluator settings and paired numeric
   scores by original case index. The hosted engine projects existing `run_eval`
   results into that content-free object; replay and judge errors force abstention.
+  Hosted `correctness-replay/2` supplies the workflow instruction to the judge with
+  each original case input; replay inputs are unchanged. Older `/1` evidence keeps
+  its original context semantics, and OSS scorers without an instruction retain
+  their case-only request. The correctness rubric and threshold are unchanged.
   The backtest adapter/service retain it in existing report JSON. Historical
   absence stays null, and exact retries do not run the provider again. The rubric
   hash and evaluator version bind submitted scoring rules; provider defaults,

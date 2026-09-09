@@ -1754,9 +1754,9 @@ export interface components {
             /**
              * Version
              * @default correctness-replay/1
-             * @constant
+             * @enum {string}
              */
-            version: "correctness-replay/1";
+            version: "correctness-replay/1" | "correctness-replay/2";
         };
         /** BillingURL */
         BillingURL: {

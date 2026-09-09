@@ -383,8 +383,11 @@
             "type": "string"
           },
           "version": {
-            "const": "correctness-replay/1",
             "default": "correctness-replay/1",
+            "enum": [
+              "correctness-replay/1",
+              "correctness-replay/2"
+            ],
             "title": "Version",
             "type": "string"
           }

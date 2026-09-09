@@ -78,7 +78,7 @@ async def test_replay_cost_uses_each_models_usage_and_excludes_judging(payload, 
     assert result.provider_calls == provider.calls == 20
     evidence = result.evaluation_evidence
     assert evidence is not None
-    assert evidence.version == "correctness-replay/1"
+    assert evidence.version == "correctness-replay/2"
     assert evidence.incumbent_model == evidence.judge_model == "openai/incumbent"
     assert evidence.candidate_model == "openai/candidate"
     assert evidence.parameters == "provider_defaults"
@@ -238,6 +238,7 @@ def test_cost_evidence_survives_http_retention_and_exact_retry(payload, tmp_path
 
     from zeroth.econ.analytics.service_auth import mint_econ_service_token
     from zeroth.econ.plane.backtesting.api import get_backtest_executor, router
+    from zeroth.econ.plane.backtesting.models import EconomicBacktestRecord
     from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db
     from zeroth.econ.plane.config import settings
     from zeroth.econ.plane.database import Base
@@ -267,7 +268,7 @@ def test_cost_evidence_survives_http_retention_and_exact_retry(payload, tmp_path
     assert client.get("/v1/backtests", headers=headers).json() == [first.json()]
     assert provider.calls == 20
     result = first.json()
-    assert result["evaluation_evidence"]["version"] == "correctness-replay/1"
+    assert result["evaluation_evidence"]["version"] == "correctness-replay/2"
     assert len(result["evaluation_evidence"]["cases"]) == 5
     assert payload.instruction not in first.text
     assert '"case_id"' not in first.text
@@ -280,3 +281,27 @@ def test_cost_evidence_survives_http_retention_and_exact_retry(payload, tmp_path
         assert Decimal(result["candidate_replay_cost_usd"]) == Decimal("0.011")
         assert result["usage_by_role"]["candidate"]["observed_output_tokens"] == 5000
         assert result["pricing_snapshot"]["openai/candidate"]["output_per_mtok_usd"] == "2.0"
+
+    # Retained /1 evidence, including an older omitted version, must not acquire
+    # the new judge-context semantics through a read or an exact retry.
+    legacy_result = {**result, "evaluation_evidence": {
+        **result["evaluation_evidence"], "version": "correctness-replay/1",
+    }}
+    for stored_version in ("correctness-replay/1", None):
+        with Session(engine) as session:
+            record = session.get(EconomicBacktestRecord, result["backtest_id"])
+            stored_evidence = dict(record.report_json["evaluation_evidence"])
+            if stored_version is None:
+                stored_evidence.pop("version")
+            else:
+                stored_evidence["version"] = stored_version
+            stored_report = {**record.report_json, "evaluation_evidence": stored_evidence}
+            record.report_json = stored_report
+            session.commit()
+        retry = client.post("/v1/backtests", json=payload.model_dump(mode="json"), headers=headers)
+        assert retry.status_code == 200
+        assert retry.json() == legacy_result
+        assert client.get("/v1/backtests", headers=headers).json() == [legacy_result]
+        assert provider.calls == 20
+        with Session(engine) as session:
+            assert session.get(EconomicBacktestRecord, result["backtest_id"]).report_json == stored_report

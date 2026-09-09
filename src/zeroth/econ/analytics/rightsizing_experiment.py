@@ -167,6 +167,7 @@ class CorrectnessScorer:
     whether it is *right*, not merely on whether it matches the model you're replacing. It is
     the honest bar for high-stakes nodes: equivalence inherits the incumbent's mistakes;
     correctness catches them. Same errored-not-zero rail as the equivalence judge.
+    A supplied ``instruction`` adds workflow context without changing the case input.
     """
 
     def __init__(
@@ -176,16 +177,21 @@ class CorrectnessScorer:
         *,
         pass_threshold: float = _CORRECTNESS_PASS_THRESHOLD,
         name: str = "correctness",
+        instruction: str | None = None,
     ) -> None:
         self.name = name
         self._provider = provider
         self._model_name = model_name
         self._pass_threshold = pass_threshold
+        self._instruction = instruction
 
     async def score(self, output: object, case: EvalCase) -> Score:
         """Judge whether ``output`` is correct against ``case.expected`` (the human answer)."""
+        request_input = case.input
+        if self._instruction is not None:
+            request_input = {"workflow_instruction": self._instruction, "case_input": case.input}
         prompt = _CORRECTNESS_INSTRUCTION.format(
-            request=json.dumps(case.input, default=str),
+            request=json.dumps(request_input, default=str),
             reference=_answer_text(case.expected),
             candidate=_answer_text(output),
         )
@@ -791,7 +797,7 @@ class HostedModelBacktest:
         inc_report = await run_eval(
             dataset,
             _make_replay_target(incumbent.ref, request.instruction, incumbent_meter),
-            [CorrectnessScorer(judge_meter, incumbent.ref)],
+            [CorrectnessScorer(judge_meter, incumbent.ref, instruction=request.instruction)],
         )
         cand_report = None
         reasons: list[str] = []
@@ -801,7 +807,7 @@ class HostedModelBacktest:
             cand_report = await run_eval(
                 dataset,
                 _make_replay_target(candidate.ref, request.instruction, candidate_meter),
-                [CorrectnessScorer(judge_meter, incumbent.ref)],
+                [CorrectnessScorer(judge_meter, incumbent.ref, instruction=request.instruction)],
             )
             if cand_report.errored_count:
                 reasons.append("candidate evaluation has unresolved cases")
@@ -835,6 +841,7 @@ class HostedModelBacktest:
             } for option in (incumbent, candidate)},
             usage_by_role={role: meter.usage() for role, meter in meters.items()},
             evaluation_evidence=BacktestEvaluationEvidence(
+                version="correctness-replay/2",
                 incumbent_model=incumbent.ref,
                 candidate_model=candidate.ref,
                 judge_model=incumbent.ref,

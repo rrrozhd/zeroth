@@ -173,9 +173,10 @@ provider work starts. Input/output usage is priced separately for incumbent,
 candidate and judge using retained rates. Judge expense is not workload savings.
 Missing usage abstains; rate-card estimates do not establish invoice charges.
 
-The correctness judge receives each case's `input` and `expected` answer alongside
-the replay output. The separate workflow `instruction` is sent to replay only.
-Include any policy or task context needed for grading in `cases[].input` as well.
+The correctness judge receives the workflow `instruction` and each case's `input`
+alongside its `expected` answer and replay output. Put shared policy in `instruction`
+and case-specific facts in `cases[].input`. The judge's request groups these as
+`workflow_instruction` and `case_input`; replay still receives the original input.
 The judge prompt describes `expected` as a human-provided correct answer; review
 the reference before using it. For a task that produces both a decision and a
 customer reply, provide a complete reference covering the reply's required facts,
@@ -184,12 +185,18 @@ not establish correctness of the whole response. These input requirements do not
 establish judge calibration or replace independent held-out validation.
 
 New backtests retain `evaluation_evidence` with the catalog-resolved incumbent,
-candidate and judge model references, evaluator version `correctness-replay/1`,
+candidate and judge model references, evaluator version `correctness-replay/2`,
 the correctness rubric hash and the existing 0.7 score threshold. The incumbent
 is also the judge. `parameters="provider_defaults"` means no parameter overrides
 were submitted; provider defaults and model-alias revisions are not frozen.
 Candidate settings other than `model` abstain before provider work; ignored
 temperature, retry or prompt settings cannot produce a comparison of that change.
+
+Version `correctness-replay/2` includes the workflow instruction in both arms'
+judge requests. Version `/1` sent that instruction only to replay; its judge relied
+on context included in the case input. Historical `/1` evidence and exact retries
+retain their original version and result. The rubric template and 0.7 threshold
+are unchanged; the evaluator version identifies the changed context assembly.
 
 Each evidence entry pairs incumbent and candidate scores by `case_index`, the
 zero-based position in the case list bound by the request digest. `passed` and

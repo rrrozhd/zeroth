@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from zeroth.econ.analytics.rightsizing import ModelOption
@@ -51,7 +53,13 @@ def _option(model: str, cost: float) -> ModelOption:
 
 
 @pytest.mark.asyncio
-async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(monkeypatch) -> None:
+@pytest.mark.parametrize("instruction", [
+    "Extract invoice fields.",
+    'Extract invoice fields.\nUse "total" exactly; keep {currency} literal.',
+])
+async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(
+    monkeypatch, instruction,
+) -> None:
     options = {
         "openai/incumbent": _option("incumbent", 10),
         "openai/candidate": _option("candidate", 2),
@@ -65,7 +73,7 @@ async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(mon
             "baseline_version": "v7",
             "node_id": "extract",
             "incumbent_model": "openai/incumbent",
-            "instruction": "Extract invoice fields.",
+            "instruction": instruction,
             "candidate": {"model": "openai/candidate"},
             "cases": [
                 {"id": str(index), "input": {"text": str(index)}, "expected": {"total": str(index)}}
@@ -75,6 +83,8 @@ async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(mon
         }
     )
 
+    payload.cases[0].input["workflow_instruction"] = "quoted customer text"
+    original_payload = payload.model_dump()
     result = await executor.execute(payload)
 
     assert result.incumbent_success_rate == 1
@@ -82,6 +92,26 @@ async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(mon
     assert result.savings_pct == 80
     assert result.provider_calls == 20
     assert len(provider.requests) == 20
+    assert payload.model_dump() == original_payload
+    replays = [r for r in provider.requests if r.output_model is None]
+    assert [r.model_name for r in replays] == ["openai/incumbent"] * 5 + ["openai/candidate"] * 5
+    assert [r.messages for r in replays] == [
+        [
+            {"role": "system", "content": instruction},
+            {"role": "user", "content": json.dumps(case.input)},
+        ]
+        for case in payload.cases
+    ] * 2
+    judges = [r for r in provider.requests if r.output_model is not None]
+    assert len(judges) == 10
+    contexts = [
+        json.loads(r.messages[0]["content"].split("Request:\n", 1)[1].split("\n\nCorrect answer", 1)[0])
+        for r in judges
+    ]
+    assert contexts == [
+        {"workflow_instruction": instruction, "case_input": case.input}
+        for case in payload.cases
+    ] * 2
 
 
 @pytest.mark.asyncio
