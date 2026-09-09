@@ -138,6 +138,10 @@ def test_workflow_runs_the_gate_in_an_isolated_service_matrix() -> None:
     assert "--gate load-recovery" in script
     assert "--kind benchmark=release/evidence/load-recovery-benchmark.json" in script
     assert "--kind junit=release/evidence/load-recovery-junit.xml" in script
+    assert 'thresholds=$(status ${THRESHOLDS})' in script
+    assert 'accepted-run-integrity=$(status ${INTEGRITY})' in script
+    assert 'thresholds=$(status ${REPORT})' not in script
+    assert 'accepted-run-integrity=$(status ${REPORT})' not in script
 
 
 def test_workflow_retains_raw_measurements_with_the_gate_record() -> None:

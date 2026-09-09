@@ -48,6 +48,51 @@ asyncio.run(main())
 - **Retry policy** — set `RetryPolicy(max_attempts=..., backoff_seconds=...)` on the `AgentConfig` to survive transient provider errors.
 - **Tool attachment** — bind callables to declared tool refs through `ToolAttachmentRegistry` so the model can only call explicitly declared tools.
 
+## Extraction contracts and required domain fields
+
+An extraction contract should represent what the source text actually supports. If a
+field can be absent from the text, make absence an explicit wire state even when the
+application's final domain model requires a value:
+
+```python
+from typing import Literal
+
+from pydantic import BaseModel, model_validator
+
+
+class ExtractedField(BaseModel):
+    status: Literal["explicit", "missing"]
+    value: str | None
+    source: str | None
+
+    @model_validator(mode="after")
+    def require_evidence_for_resolved_values(self) -> "ExtractedField":
+        if self.status == "explicit" and (self.value is None or self.source is None):
+            raise ValueError("resolved fields require a value and source evidence")
+        return self
+
+
+class TravelIntentExtraction(BaseModel):
+    departure_window: ExtractedField
+
+
+class TravelIntent(BaseModel):
+    departure_window: str
+```
+
+`departure_window={"status": "missing", "value": null, "source": null}` is a
+valid extraction result: the model did not invent a value. Convert to `TravelIntent`
+only after the application has obtained the missing value; its required field then
+enforces completeness at the domain boundary.
+
+A contradictory resolved state, such as `status="explicit"` with `value=null`,
+remains invalid. `LiteLLMProviderAdapter` reports that payload as
+`AgentOutputValidationError`, preserving the model validator's details. If configured,
+`RetryPolicy.retry_on_validation_error` can make a bounded second extraction attempt.
+The SDK does not silently change the status, fill in a value, or return a partial model
+that has bypassed the declared Pydantic contract. Transport and provider failures remain
+`AgentProviderError`.
+
 ## Pitfalls
 
 1. **Calling a provider without credentials** — `LiteLLMProviderAdapter` will raise `AgentProviderError`; gate your example with an env check like `examples/01_first_graph.py` does.

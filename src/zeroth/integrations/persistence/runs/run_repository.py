@@ -47,7 +47,7 @@ from zeroth.integrations.persistence.runs.serialization import (
 from zeroth.integrations.persistence.runs.token_snapshot_store import (
     TokenSnapshotRowStore,
 )
-from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
+from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError, RunStatusConflictError
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
@@ -292,12 +292,15 @@ class GuardrailAdmissionCoordinator:
         admission: BoundStructuredTable,
         deployment_ref: str,
     ) -> None:
+        where = {"deployment_ref": deployment_ref}
+        if await admission.select_one(where=where, for_update=True) is not None:
+            return
         now = utc_now().isoformat()
         await admission.insert_if_absent(
             {"deployment_ref": deployment_ref, "created_at": now},
             conflict_columns=("tenant_id", "workspace_scope", "deployment_ref"),
         )
-        await admission.select_one(where={"deployment_ref": deployment_ref}, for_update=True)
+        await admission.select_one(where=where, for_update=True)
 
 
 @dataclass(slots=True)
@@ -414,9 +417,42 @@ class _RunThreadStore:
             raise KeyError(f"run already exists: {run.run_id}")
         if fence is not None and not written:
             worker_id, generation = fence
+            if expected_status is not None:
+                # A status CAS refusal alone does not imply lease loss. Recheck
+                # the fence under a row lock without retrying the refused write.
+                await self._require_live_fence(runs, run.run_id, fence)
+                raise RunStatusConflictError(run.run_id, expected_status.value)
+
             raise FencedRunWriteRejectedError(run.run_id, worker_id, generation)
         if expected_status is not None and not written:
-            raise ValueError(f"run {run.run_id!r} no longer has status {expected_status.value}")
+            raise RunStatusConflictError(run.run_id, expected_status.value)
+
+    async def _require_live_fence(
+        self,
+        runs: BoundStructuredTable,
+        run_id: str,
+        fence: tuple[str, int],
+    ) -> None:
+        """Hold the run's lease row through commit and reject stale ownership."""
+        worker_id, generation = fence
+        current = await runs.select_one(
+            where={
+                "run_id": run_id,
+                "lease_worker_id": worker_id,
+                "lease_generation": generation,
+            },
+            columns=("lease_expires_at",),
+            for_update=True,
+        )
+        if current is not None:
+            try:
+                expires_at = datetime.fromisoformat(current["lease_expires_at"])
+            except (TypeError, ValueError):
+                expires_at = None
+            now = await runs._database_now()  # noqa: SLF001 - sample after the row lock
+            if expires_at is not None and expires_at.tzinfo is not None and expires_at >= now:
+                return
+        raise FencedRunWriteRejectedError(run_id, worker_id, generation)
 
     async def create_run(
         self,
@@ -497,27 +533,42 @@ class _RunThreadStore:
     ) -> None:
         """Insert the run, thread, and initial checkpoint in one transaction."""
         await self._save_run_bound(runs, run, None, insert_only=True)
+        await self._write_checkpoint_bound(runs, run, checkpoint_id)
+
+    async def _write_checkpoint_bound(
+        self,
+        runs: BoundStructuredTable,
+        run: Run,
+        checkpoint_id: str,
+        *,
+        register_run: bool = True,
+    ) -> None:
+        """Merge thread references and write a snapshot under one thread lock."""
         threads = runs.bind(self.threads)
-        seed = Thread(
-            thread_id=run.thread_id,
-            graph_version_ref=run.graph_version_ref,
-            deployment_ref=run.deployment_ref,
-            tenant_id=run.tenant_id,
-            workspace_id=run.workspace_id,
-            status=ThreadStatus.ACTIVE,
-        )
-        await threads.insert_if_absent(
-            _thread_values(seed),
-            conflict_columns=("tenant_id", "workspace_scope", "thread_id"),
-        )
         row = await threads.select_one(where={"thread_id": run.thread_id}, for_update=True)
+        was_missing = row is None
+        if was_missing:
+            seed = Thread(
+                thread_id=run.thread_id,
+                graph_version_ref=run.graph_version_ref,
+                deployment_ref=run.deployment_ref,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
+                status=ThreadStatus.ACTIVE,
+            )
+            await threads.insert_if_absent(
+                _thread_values(seed),
+                conflict_columns=("tenant_id", "workspace_scope", "thread_id"),
+            )
+            row = await threads.select_one(where={"thread_id": run.thread_id}, for_update=True)
         if row is None:  # pragma: no cover - insert/read transaction contract
             raise RuntimeError("thread row unavailable after scoped insert")
         thread = row_to_thread(row)
         if thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id:
             raise ValueError("thread identity mismatch")
-        thread.run_ids = _merge(thread.run_ids, [run.run_id])
-        thread.last_run_id = run.run_id
+        if register_run or was_missing:
+            thread.run_ids = _merge(thread.run_ids, [run.run_id])
+            thread.last_run_id = run.run_id
         checkpoint_order = len(thread.checkpoint_refs)
         thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
         thread.updated_at = utc_now()
@@ -652,33 +703,14 @@ class _RunThreadStore:
         checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
         run.checkpoint_id = checkpoint_id
         self.validate_owner(run.tenant_id, run.workspace_id)
-        thread = await self.get_thread(run.thread_id)
-        if thread is None:
-            await self._record_thread_run(
-                run.thread_id,
-                run.run_id,
-                run.graph_version_ref,
-                run.deployment_ref,
-                run.tenant_id,
-                run.workspace_id,
-            )
         run.touch()
-        snapshot = run.model_dump(mode="json")
-        checkpoint_order = await self._next_checkpoint_order(run.thread_id)
-        await self.checkpoints.write_row(
-            checkpoint_id=checkpoint_id,
-            run_id=run.run_id,
-            thread_id=run.thread_id,
-            checkpoint_order=checkpoint_order,
-            state_json=to_json_value(snapshot),
-            created_at=run.updated_at.isoformat(),
-        )
-        await self._record_thread_checkpoint(
-            run.thread_id,
-            checkpoint_id,
-            tenant_id=run.tenant_id,
-            workspace_id=run.workspace_id,
-        )
+        fence = self._fences.get(run.run_id)
+        async with self.runs.transaction(write_lock=True) as runs:
+            await self._write_checkpoint_bound(runs, run, checkpoint_id, register_run=False)
+            if fence is not None:
+                # Match put's thread -> run lock order. Lease rejection rolls
+                # back the snapshot and references without rewriting run state.
+                await self._require_live_fence(runs, run.run_id, fence)
         return checkpoint_id
 
     async def get_checkpoint(self, checkpoint_id: str) -> Run | None:
@@ -783,72 +815,17 @@ class _RunThreadStore:
         touch_before_run_save: bool,
         expected_status: RunStatus | None = None,
     ) -> None:
-        """Write the thread, the checkpoint and the runs row in ONE transaction.
+        """Commit thread, checkpoint and run state together, or reject all three.
 
-        Nothing lands unless all three do. Under a fence that makes the
-        rejection total — a displaced worker used to overwrite durable
-        checkpoint state before the fence raised (ZER-26/AUD-004) — and
-        unfenced it makes any mid-path failure total too (ZER-49/A07-16).
-
-        ZER-49/F-03: the thread row is read, merged and written back here and
-        nowhere else — collapsing the path removed the compensating second
-        read-modify-write that used to follow the checkpoint write. One
-        transaction therefore has to carry isolation as well as atomicity, or
-        two puts of one thread read the same snapshot, each append their own
-        checkpoint to it, and the later write drops the earlier reference: the
-        checkpoint stays durable in ``run_checkpoints`` while every
-        thread-level reader (``_checkpoint_ids``, ``get_latest_checkpoint``,
-        ``_next_checkpoint_order``) stops seeing it, and a restore resumes from
-        a stale checkpoint. The locking below is ``create_run``'s, statement for
-        statement — a write-locked transaction, the thread row seeded before it
-        is read so ``for_update`` has a row to lock, and the read taken with
-        that lock held.
+        Thread locking serializes reference merges; the final run write applies
+        the lease and optional status predicates before the transaction commits.
         """
         self.validate_owner(run.tenant_id, run.workspace_id)
         checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
         run.checkpoint_id = checkpoint_id
         run.touch()
-        snapshot = run.model_dump(mode="json")
         async with self.runs.transaction(write_lock=True) as runs:
-            threads = runs.bind(self.threads)
-            seed = Thread(
-                thread_id=run.thread_id,
-                graph_version_ref=run.graph_version_ref,
-                deployment_ref=run.deployment_ref,
-                tenant_id=run.tenant_id,
-                workspace_id=run.workspace_id,
-                status=ThreadStatus.ACTIVE,
-            )
-            await threads.insert_if_absent(
-                _thread_values(seed),
-                conflict_columns=("tenant_id", "workspace_scope", "thread_id"),
-            )
-            row = await threads.select_one(
-                where={"thread_id": run.thread_id},
-                for_update=True,
-            )
-            if row is None:  # pragma: no cover - insert/read transaction contract
-                raise RuntimeError("thread row unavailable after scoped insert")
-            thread = row_to_thread(row)
-            if thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id:
-                raise ValueError("thread identity mismatch")
-            thread.run_ids = _merge(thread.run_ids, [run.run_id])
-            thread.last_run_id = run.run_id
-            # Same ordering rule as _next_checkpoint_order: the order is the
-            # count of checkpoints BEFORE this one joins the list.
-            checkpoint_order = len(thread.checkpoint_refs)
-            thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
-            thread.updated_at = utc_now()
-            await self._save_thread_bound(threads, thread)
-            await self.checkpoints.write_row_bound(
-                runs.bind(self.checkpoints.table),
-                checkpoint_id=checkpoint_id,
-                run_id=run.run_id,
-                thread_id=run.thread_id,
-                checkpoint_order=checkpoint_order,
-                state_json=to_json_value(snapshot),
-                created_at=run.updated_at.isoformat(),
-            )
+            await self._write_checkpoint_bound(runs, run, checkpoint_id)
             if touch_before_run_save:
                 run.touch()
             await self._save_run_bound(
@@ -857,61 +834,6 @@ class _RunThreadStore:
                 fence,
                 expected_status=expected_status,
             )
-
-    async def _ensure_thread(self, thread_id: str) -> Thread:
-        """Load a thread by ID, raising KeyError if it doesn't exist."""
-        thread = await self.get_thread(thread_id)
-        if thread is None:
-            raise KeyError(thread_id)
-        return thread
-
-    async def _record_thread_run(
-        self,
-        thread_id: str,
-        run_id: str,
-        graph_version_ref: str,
-        deployment_ref: str,
-        tenant_id: str,
-        workspace_id: str | None,
-    ) -> None:
-        """Register a run with its thread, creating the thread if needed."""
-        self.validate_owner(tenant_id, workspace_id)
-        thread = await self.get_thread(thread_id)
-        if thread is None:
-            thread = Thread(
-                thread_id=thread_id,
-                graph_version_ref=graph_version_ref,
-                deployment_ref=deployment_ref,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-                status=ThreadStatus.ACTIVE,
-                run_ids=[run_id],
-                last_run_id=run_id,
-            )
-        else:
-            if thread.tenant_id != tenant_id or thread.workspace_id != workspace_id:
-                raise ValueError("thread identity mismatch")
-            thread.run_ids = _merge(thread.run_ids, [run_id])
-            thread.last_run_id = run_id
-            thread.updated_at = utc_now()
-        await self.save_thread(thread)
-
-    async def _record_thread_checkpoint(
-        self,
-        thread_id: str,
-        checkpoint_id: str,
-        *,
-        tenant_id: str,
-        workspace_id: str | None,
-    ) -> None:
-        """Add a checkpoint reference to a thread's list of checkpoints."""
-        self.validate_owner(tenant_id, workspace_id)
-        thread = await self.get_thread(thread_id)
-        if thread is None:
-            return
-        thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
-        thread.updated_at = utc_now()
-        await self.save_thread(thread)
 
     async def _checkpoint_ids(
         self,
@@ -922,13 +844,6 @@ class _RunThreadStore:
         if thread is None:
             return []
         return list(thread.checkpoint_refs)
-
-    async def _next_checkpoint_order(
-        self,
-        thread_id: str,
-    ) -> int:
-        """Return the next checkpoint order number for a thread."""
-        return len(await self._checkpoint_ids(thread_id))
 
     async def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
         """Return the checkpoint_id for the most recent checkpoint of a run."""
@@ -1471,9 +1386,7 @@ class RunRepository:
         offset: int = 0,
     ) -> list[Run]:
         """Return runs across deployments within the bound tenant scope."""
-        return await self._store.list_runs_for_scope(
-            status=status, limit=limit, offset=offset
-        )
+        return await self._store.list_runs_for_scope(status=status, limit=limit, offset=offset)
 
     @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_child_runs(self, parent_run_id: str) -> list[Run]:

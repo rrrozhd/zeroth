@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from uuid import uuid4
 
+from zeroth.runtime.agents._mcp_docker_transport import DockerStdioWorkload as _DockerStdioWorkload
 from zeroth.runtime.agents.mcp import MCPServerConfig, RegisteredMCPServerConfig
 
 _DOCKER_CONTROL_ENVIRONMENT = {
@@ -38,9 +40,7 @@ class MCPDockerIsolationConfig:
     pids_limit: int = 64
 
     def __post_init__(self) -> None:
-        if not re.fullmatch(
-            r"(?:[^\s@]+@sha256:|sha256:)[0-9a-f]{64}", self.image
-        ):
+        if not re.fullmatch(r"(?:[^\s@]+@sha256:|sha256:)[0-9a-f]{64}", self.image):
             raise ValueError("MCP isolation image must be digest-pinned")
         if not self.docker_binary or "\x00" in self.docker_binary:
             raise ValueError("MCP docker binary must be a non-empty argv value")
@@ -102,12 +102,21 @@ class MCPProcessIsolator:
         for key in sorted(environment):
             args.extend(["--env", key])
         args.extend([self.config.image, config.command, *config.args])
-        return MCPServerConfig(
+        transport = MCPServerConfig(
             name=config.name,
             command=self.config.docker_binary,
             args=args,
             env=environment or None,
         )
+        # This metadata is private runtime state, never an author-controlled
+        # model field. Serialized server configs cannot claim cleanup ownership.
+        name = f"zeroth-mcp-workload-{uuid4().hex}"
+        transport._docker_workload = _DockerStdioWorkload(
+            docker_binary=self.config.docker_binary,
+            container_name=name,
+            create_args=("create", "--name", name, *args[2:]),
+        )
+        return transport
 
 
 def mcp_process_isolator_from_settings(settings: object) -> MCPProcessIsolator | None:

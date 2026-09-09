@@ -43,7 +43,11 @@ resolve = await client.post(
     json={"decision": "approve"},
 )
 resolve.raise_for_status()
-print(resolve.json()["run"]["status"])  # -> completed
+# The response carries the durable run view at resolution time, not a terminal
+# state: "queued" when a worker owns the continuation. Poll the run to observe it.
+print(resolve.json()["run"]["status"])  # -> queued
+settled = await client.get(f"/runs/{paused.run_id}", headers={"X-API-Key": "demo-operator-key"})
+print(settled.json()["status"])  # -> succeeded, once the worker has resumed past the gate
 ```
 
 That is the full pattern: **enqueue** (the orchestrator creates the pending record when it hits the node) and **decide** (the reviewer POSTs a decision; the orchestrator resumes).

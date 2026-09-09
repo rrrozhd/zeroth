@@ -130,6 +130,35 @@ async def test_graceful_stop_finalizes_without_claiming_unowned_queue() -> None:
     assert driver.stops == 1
 
 
+async def test_reclaimed_running_run_resumes_a_drained_worker_stop() -> None:
+    root = initialize_token_snapshot(run_id="run-reclaimed-stop", root_node_id="root", payload={})
+    stopping = root.model_copy(update={"state": TokenEngineSnapshotState.STOPPING})
+    store = _MemoryStore(stopping)
+    run = _run("run-reclaimed-stop", RunStatus.RUNNING)
+
+    class _PolicyGate:
+        async def enforce_loop_guards(self, _graph, observed_run, _started_at, **_kwargs):
+            return observed_run
+
+    class _ReplacementDriver(_Driver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.policy_gate = _PolicyGate()
+
+        async def external_stop(self, _run: Run) -> None:
+            self.stops += 1
+            return None
+
+    driver = _ReplacementDriver()
+    coordinator = TokenRuntimeCoordinator(driver, store)
+
+    result = await coordinator.drive(object(), run)
+
+    assert result is run
+    assert store.snapshot.state is TokenEngineSnapshotState.RUNNING
+    assert driver.stops == 2
+
+
 def test_graceful_stop_claims_already_owned_fork_work() -> None:
     root = initialize_token_snapshot(run_id="run-stop-fork", root_node_id="root", payload={})
     parent = claim_next_token(root)

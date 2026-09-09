@@ -174,14 +174,6 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                             bootstrap.graph,
                             current_ancestor.run_id,
                         )
-                if has_worker and current_ancestor.status in {
-                    RunStatus.PENDING,
-                    RunStatus.RUNNING,
-                }:
-                    current_ancestor = await _wait_for_worker_run(
-                        bootstrap,
-                        current_ancestor,
-                    )
             except KeyError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -191,18 +183,14 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
             run = current_ancestor
         elif was_pending and _run_is_waiting_for_approval(run):
-            # When the durable worker is active, hand off to it via schedule_continuation,
-            # then wait up to ~5 s for it to finish. That wait is BEST EFFORT: if the
-            # budget expires the run is returned as-is, so the response may still carry
-            # PENDING/RUNNING. Callers that need a terminal state must poll the run --
-            # assuming otherwise is what made the approval API tests flaky under load
-            # (ZER-21). Without a worker, fall back to the synchronous inline path.
+            # A durable worker owns execution after the atomic schedule transition.
+            # Return that queued view immediately; callers observe completion through
+            # GET /runs/{run_id}. Without a worker, use the synchronous inline path.
             has_worker = getattr(bootstrap, "worker", None) is not None
             try:
                 if has_worker:
                     run = await bootstrap.approval_service.schedule_continuation(approval_id)
                     await _wake_worker(bootstrap, run.run_id)
-                    run = await _wait_for_worker_run(bootstrap, run)
                 else:
                     run = await bootstrap.approval_service.continue_run(
                         approval_id,
@@ -301,19 +289,3 @@ async def _wake_worker(bootstrap: ApprovalApiBootstrapLike, run_id: str) -> None
     from zeroth.platform.dispatch.arq_wakeup import enqueue_wakeup
 
     await enqueue_wakeup(arq_pool, run_id)
-
-
-async def _wait_for_worker_run(bootstrap: ApprovalApiBootstrapLike, run: Any) -> Any:
-    """Wait briefly for a scheduled run, returning the latest durable view."""
-    import asyncio as _asyncio
-
-    for _ in range(100):  # up to ~5 s
-        await _asyncio.sleep(0.05)
-        current = await bootstrap.run_repository.get(run.run_id)
-        if current is not None and current.status not in {
-            RunStatus.PENDING,
-            RunStatus.RUNNING,
-        }:
-            return current
-    current = await bootstrap.run_repository.get(run.run_id)
-    return current if current is not None else run

@@ -11,11 +11,14 @@ additional dependencies.
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import inspect
 import ipaddress
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import tarfile
@@ -27,14 +30,21 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import partial
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any
+from uuid import uuid4
 
 from zeroth.integrations.execution.constraints import (
     ResourceConstraints,
     build_docker_resource_flags,
+)
+from zeroth.platform.primitives import (
+    cleanup_despite_cancellation,
+    confine_path,
+    finish_in_thread,
 )
 
 
@@ -374,6 +384,10 @@ class SandboxTimeoutError(TimeoutError):
         return f"sandbox command {' '.join(self.command)} timed out after {timeout}"
 
 
+class _SandboxExecutionCancelledError(Exception):
+    """Internal signal: the owning async task requested execution cleanup."""
+
+
 class SandboxBackendUnavailableError(RuntimeError):
     """Raised when the requested backend (e.g., Docker) is not running or accessible."""
 
@@ -438,6 +452,51 @@ class EnvironmentCacheManager:
     def snapshot(self) -> dict[str, SandboxEnvironment]:
         """Return a copy of all cached environments."""
         return dict(self._cache)
+
+
+@dataclass(frozen=True, slots=True)
+class _SidecarDispatch:
+    """One sidecar execution request plus the host-side facts needed to read its reply."""
+
+    request: Any
+    workspace_tar: bytes | None
+    host_capture_path: Path | None
+    translated_env: Mapping[str, str]
+    translated_command: list[str]
+
+
+async def _stop_sidecar_execution(
+    client: Any, execution_id: str, execution: asyncio.Future
+) -> None:
+    """Ask the sidecar to stop ``execution_id``, then let the outstanding request settle.
+
+    A 404 means ``/execute`` has not registered the id yet, so the same id is
+    retried until the sidecar knows it or the request finishes on its own. Any
+    other cancel failure still waits for the request -- the workload's own
+    deadline remains in force -- and then reports the sidecar as unavailable.
+    """
+    import httpx
+
+    while not execution.done():
+        try:
+            await asyncio.wait_for(client.cancel(execution_id), timeout=10)
+            break
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                await asyncio.sleep(0.1)
+                continue
+            with suppress(BaseException):
+                await execution
+            raise SandboxBackendUnavailableError(
+                f"sidecar cancellation failed for {execution_id}"
+            ) from exc
+        except Exception as exc:
+            with suppress(BaseException):
+                await execution
+            raise SandboxBackendUnavailableError(
+                f"sidecar cancellation failed for {execution_id}"
+            ) from exc
+    await execution
 
 
 class SandboxManager:
@@ -676,6 +735,7 @@ class SandboxManager:
         environment: SandboxEnvironment,
         resource_constraints: ResourceConstraints | None = None,
         read_only_paths: Sequence[str] = (),
+        cancellation_event: threading.Event | None = None,
     ) -> SandboxExecutionResult:
         """Run a command as a local subprocess with the prepared environment."""
         self._warn_about_unenforced_local_constraints(
@@ -684,7 +744,12 @@ class SandboxManager:
         )
         started_at = time.perf_counter()
         try:
-            started = self._command_runner(
+            runner = self._command_runner
+            if cancellation_event is not None:
+                runner = partial(
+                    self._run_cancellable_local_process, cancellation_event=cancellation_event
+                )
+            started = runner(
                 list(command),
                 input=input_text,
                 text=True,
@@ -713,6 +778,61 @@ class SandboxManager:
             backend=SandboxBackendMode.LOCAL.value,
         )
 
+    def _run_cancellable_local_process(
+        self,
+        command: list[str],
+        *,
+        input: str | None,
+        timeout: float | None,
+        cwd: str,
+        env: Mapping[str, str],
+        cancellation_event: threading.Event,
+        **_options: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        """Own and reap a local process when its async caller can cancel it."""
+        if cancellation_event.is_set():
+            raise _SandboxExecutionCancelledError()
+        deadline = None if timeout is None else time.perf_counter() + timeout
+        process = self._process_factory(
+            command,
+            stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=cwd,
+            env=env,
+            start_new_session=os.name == "posix",
+        )
+        pending_input = input
+        try:
+            while True:
+                if cancellation_event.is_set():
+                    raise _SandboxExecutionCancelledError()
+                remaining = None if deadline is None else deadline - time.perf_counter()
+                if remaining is not None and remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                try:
+                    stdout, stderr = process.communicate(
+                        input=pending_input,
+                        timeout=0.1 if remaining is None else min(0.1, remaining),
+                    )
+                    break
+                except subprocess.TimeoutExpired:
+                    pending_input = None
+        except BaseException as exc:
+            if os.name == "posix":
+                # Stop ordinary descendants along with the command, before
+                # joining pipes that those descendants may still hold open.
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+            stdout, stderr = process.communicate()
+            if isinstance(exc, subprocess.TimeoutExpired):
+                exc.stdout, exc.stderr = stdout, stderr
+            raise
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
     def _run_in_docker(
         self,
         *,
@@ -724,6 +844,7 @@ class SandboxManager:
         environment: SandboxEnvironment,
         resource_constraints: ResourceConstraints | None = None,
         read_only_paths: Sequence[str] = (),
+        cancellation_event: threading.Event | None = None,
     ) -> SandboxExecutionResult:
         """Run a command inside a Docker container.
 
@@ -732,8 +853,8 @@ class SandboxManager:
         ``read_only_paths`` names sandbox-relative subtrees remounted read-only
         on top of the read-write root bind mount; entries are validated
         lexically (mirroring the sidecar's workspace-path rule) before any
-        Docker invocation, and an empty sequence leaves the argv exactly as it
-        was before the option existed.
+        Docker invocation. Container creation completes before execution starts,
+        so timeout cleanup can address only the workload owned by this call.
         """
         docker = self._config.docker
         container_name = docker.container_name
@@ -778,10 +899,13 @@ class SandboxManager:
             )
 
         started_at = time.perf_counter()
+        workload_name = f"zeroth-sandbox-run-{uuid4().hex}"
         docker_command = [
             docker.docker_binary,
-            "run",
-            "--rm",
+            "create",
+            "--name",
+            workload_name,
+            *(["--interactive"] if input_text is not None else []),
             *_docker_hardening_flags(docker),
             "-v",
             f"{sandbox_root}:{container_root}",
@@ -793,19 +917,48 @@ class SandboxManager:
             image_ref,
             *translated_command,
         ]
-        process = self._process_factory(
-            docker_command,
-            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        created = False
         try:
+            if cancellation_event is not None and cancellation_event.is_set():
+                raise _SandboxExecutionCancelledError()
+            creation = self._command_runner(
+                docker_command,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+            if creation.returncode != 0:
+                raise SandboxBackendUnavailableError("docker sandbox creation failed")
+            created = True
+            if cancellation_event is not None and cancellation_event.is_set():
+                raise _SandboxExecutionCancelledError()
+            remaining = (
+                None
+                if timeout_seconds is None
+                else timeout_seconds - (time.perf_counter() - started_at)
+            )
+            if remaining is not None and remaining <= 0:
+                raise subprocess.TimeoutExpired(docker_command, timeout_seconds)
+            process = self._process_factory(
+                [
+                    docker.docker_binary,
+                    "start",
+                    "--attach",
+                    *(["--interactive"] if input_text is not None else []),
+                    workload_name,
+                ],
+                stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
             stdout_bytes, stderr_bytes, stdout_truncated, stderr_truncated = (
                 self._communicate_bounded_process(
                     process,
                     input_text=input_text,
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=remaining,
                     max_output_bytes=docker.max_output_bytes,
+                    cancellation_event=cancellation_event,
                 )
             )
         except subprocess.TimeoutExpired as exc:
@@ -815,6 +968,26 @@ class SandboxManager:
                 stdout=self._decode_capped_output(exc.stdout or b"", docker.max_output_bytes),
                 stderr=self._decode_capped_output(exc.stderr or b"", docker.max_output_bytes),
             ) from exc
+        finally:
+            if created:
+                # The name is generated by the host, never read from the writable
+                # workload directory or taken from the provisioned template.
+                try:
+                    cleanup = self._command_runner(
+                        [docker.docker_binary, "rm", "--force", workload_name],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=10,
+                    )
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    raise SandboxBackendUnavailableError(
+                        f"docker sandbox cleanup failed for {workload_name}"
+                    ) from exc
+                if cleanup.returncode != 0:
+                    raise SandboxBackendUnavailableError(
+                        f"docker sandbox cleanup failed for {workload_name}"
+                    )
         return SandboxExecutionResult(
             command=tuple(translated_command),
             returncode=process.returncode if process.returncode is not None else 1,
@@ -837,6 +1010,7 @@ class SandboxManager:
         input_text: str | None,
         timeout_seconds: float | None,
         max_output_bytes: int,
+        cancellation_event: threading.Event | None = None,
     ) -> tuple[bytes, bytes, bool, bool]:
         """Drain Docker output concurrently while retaining bounded byte prefixes."""
         assert process.stdout is not None
@@ -877,8 +1051,26 @@ class SandboxManager:
             )
             stdin_thread.start()
         try:
-            process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired as exc:
+            if cancellation_event is None:
+                process.wait(timeout=timeout_seconds)
+            else:
+                deadline = (
+                    None if timeout_seconds is None else time.perf_counter() + timeout_seconds
+                )
+                while True:
+                    if cancellation_event.is_set():
+                        raise _SandboxExecutionCancelledError()
+                    remaining = None if deadline is None else deadline - time.perf_counter()
+                    if remaining is not None and remaining <= 0:
+                        raise subprocess.TimeoutExpired("sandbox workload", timeout_seconds)
+                    try:
+                        process.wait(timeout=0.1 if remaining is None else min(0.1, remaining))
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+        except BaseException as exc:
+            # An interrupted wait must reap the attached CLI as well as letting
+            # the caller's finally block remove the daemon-owned workload.
             process.kill()
             if process.stdin is not None:
                 with suppress(OSError):
@@ -888,8 +1080,9 @@ class SandboxManager:
                 stdin_thread.join()
             stdout_thread.join()
             stderr_thread.join()
-            exc.stdout = stdout_result[0][0] if stdout_result else b""
-            exc.stderr = stderr_result[0][0] if stderr_result else b""
+            if isinstance(exc, subprocess.TimeoutExpired):
+                exc.stdout = stdout_result[0][0] if stdout_result else b""
+                exc.stderr = stderr_result[0][0] if stderr_result else b""
             raise
         if stdin_thread is not None:
             stdin_thread.join()
@@ -917,51 +1110,32 @@ class SandboxManager:
         raw = value.encode() if isinstance(value, str) else value
         return raw[:max_output_bytes].decode(errors="ignore")
 
-    def _run_via_sidecar(
+    def _sidecar_request(
         self,
         *,
         command: Sequence[str],
         input_text: str | None,
         timeout_seconds: float | None,
         environment: SandboxEnvironment,
-        resource_constraints: ResourceConstraints | None = None,
-        sandbox_root: Path | None = None,
-        relative_cwd: str | Path | PurePosixPath | None = None,
-        read_only_paths: Sequence[str] = (),
-        capture_output_file: str | None = None,
-    ) -> SandboxExecutionResult:
-        """Dispatch execution to the sandbox sidecar over HTTP.
+        resource_constraints: ResourceConstraints | None,
+        sandbox_root: Path | None,
+        relative_cwd: str | Path | PurePosixPath | None,
+        read_only_paths: Sequence[str],
+        capture_output_file: str | None,
+    ) -> _SidecarDispatch:
+        """Build the sidecar request, staging the sandbox tree when one is given.
 
-        Uses a single ``asyncio.run()`` to bridge from the sync ``run()``
-        method to the async sidecar client; that is legal only because the
-        sole caller reaches this method via ``asyncio.to_thread`` (see the
-        runner's ``_run_with_prepared_environment``), so it runs on a
-        loop-less worker thread.
-
-        When ``sandbox_root`` is provided the staged tree travels with the
-        request: the tree is packed into an uncompressed tar and uploaded
-        under a fresh workspace id -- the upload must succeed before
-        ``/execute`` is attempted (fail-closed ordering) -- the working
-        directory and every host-path env value and command token are
-        rewritten to their ``/workspace`` container form, and a captured
-        output file returned on the response is written back under
-        ``sandbox_root`` (confined first; never fabricated when the sidecar
-        reports the payload truncated). Without ``sandbox_root`` the request
+        With ``sandbox_root`` the staged tree travels with the request: it is
+        packed into an uncompressed tar under a fresh workspace id, the working
+        directory and every host-path env value and command token are rewritten
+        to their ``/workspace`` container form, and a capture path is confined
+        to the root before anything leaves this process. Without it the request
         keeps its exact pre-staging shape.
         """
-        import asyncio
-        import base64
-        import uuid
-
-        from zeroth.integrations.execution.io import OutputExtractionError
         from zeroth.integrations.sandbox.models import (
             WORKSPACE_MOUNT_ROOT,
             SidecarExecuteRequest,
         )
-        from zeroth.platform.primitives import confine_path
-
-        execution_id = str(uuid.uuid4())
-        image_ref = self._config.docker.container_name
 
         workspace_id: str | None = None
         working_directory = WORKSPACE_MOUNT_ROOT
@@ -970,7 +1144,7 @@ class SandboxManager:
         host_capture_path: Path | None = None
         workspace_tar: bytes | None = None
         if sandbox_root is not None:
-            workspace_id = uuid.uuid4().hex
+            workspace_id = uuid4().hex
             container_root = PurePosixPath(WORKSPACE_MOUNT_ROOT)
             relative = (
                 PurePosixPath(str(relative_cwd)) if relative_cwd is not None else PurePosixPath()
@@ -1004,8 +1178,8 @@ class SandboxManager:
             workspace_tar = _pack_workspace_tar(sandbox_root)
 
         request = SidecarExecuteRequest(
-            execution_id=execution_id,
-            image=image_ref,
+            execution_id=str(uuid4()),
+            image=self._config.docker.container_name,
             command=translated_command,
             input_text=input_text,
             timeout_seconds=timeout_seconds,
@@ -1020,20 +1194,76 @@ class SandboxManager:
             capture_output_file=capture_output_file if workspace_id is not None else None,
             read_only_paths=list(read_only_paths) if workspace_id is not None else [],
         )
+        return _SidecarDispatch(
+            request=request,
+            workspace_tar=workspace_tar,
+            host_capture_path=host_capture_path,
+            translated_env=translated_env,
+            translated_command=translated_command,
+        )
 
+    async def run_via_sidecar_async(
+        self,
+        *,
+        command: Sequence[str],
+        input_text: str | None,
+        timeout_seconds: float | None,
+        environment: SandboxEnvironment,
+        resource_constraints: ResourceConstraints | None = None,
+        sandbox_root: Path | None = None,
+        relative_cwd: str | Path | PurePosixPath | None = None,
+        read_only_paths: Sequence[str] = (),
+        capture_output_file: str | None = None,
+    ) -> SandboxExecutionResult:
+        """Dispatch execution to the sandbox sidecar over HTTP on the current loop.
+
+        The upload must complete before ``/execute`` is attempted (fail-closed
+        ordering). Cancelling the awaiting task asks the sidecar to stop the
+        workload, waits for the outstanding request to settle so the sidecar's
+        own cleanup has finished, and only then delivers the cancellation.
+        """
+        # Filesystem work must not block the serving loop or outlive the
+        # caller's workspace, including when cancellation arrives repeatedly
+        # or the loop itself is shutting down.
+        dispatch, cancellations = await finish_in_thread(
+            self._sidecar_request,
+            command=command,
+            input_text=input_text,
+            timeout_seconds=timeout_seconds,
+            environment=environment,
+            resource_constraints=resource_constraints,
+            sandbox_root=sandbox_root,
+            relative_cwd=relative_cwd,
+            read_only_paths=read_only_paths,
+            capture_output_file=capture_output_file,
+        )
+        if cancellations:
+            raise asyncio.CancelledError
         client = self._sidecar_client
+        if dispatch.workspace_tar is not None:
+            await client.upload_workspace(dispatch.request.workspace_id, dispatch.workspace_tar)
+        execution = asyncio.ensure_future(client.execute(dispatch.request))
+        try:
+            response = await asyncio.shield(execution)
+        except asyncio.CancelledError:
+            await cleanup_despite_cancellation(
+                _stop_sidecar_execution(client, dispatch.request.execution_id, execution)
+            )
+            raise
+        result, cancellations = await finish_in_thread(
+            self._sidecar_result, dispatch, response, environment=environment
+        )
+        if cancellations:
+            raise asyncio.CancelledError
+        return result
 
-        async def _dispatch() -> Any:
-            # Fail-closed ordering: the upload must complete before /execute
-            # is attempted, so an upload failure raises here and no execution
-            # request is ever sent.
-            if workspace_tar is not None:
-                await client.upload_workspace(workspace_id, workspace_tar)
-            return await client.execute(request)
+    def _sidecar_result(
+        self, dispatch: _SidecarDispatch, response: Any, *, environment: SandboxEnvironment
+    ) -> SandboxExecutionResult:
+        """Translate the sidecar reply, writing a captured output file under the root."""
+        from zeroth.integrations.execution.io import OutputExtractionError
 
-        response = asyncio.run(_dispatch())
-
-        if sandbox_root is not None and response.output_file_truncated:
+        if dispatch.request.workspace_id is not None and response.output_file_truncated:
             # Never fabricate a partial output file: surface the same bounded,
             # truthful error family ``extract_output`` uses for an oversized
             # ``zeroth-output.json``.
@@ -1041,23 +1271,55 @@ class SandboxManager:
                 "output file exceeds the sidecar capture byte cap; "
                 "the truncated payload was withheld"
             )
-        if host_capture_path is not None and response.output_file_b64 is not None:
-            host_capture_path.parent.mkdir(parents=True, exist_ok=True)
-            host_capture_path.write_bytes(base64.b64decode(response.output_file_b64))
+        if dispatch.host_capture_path is not None and response.output_file_b64 is not None:
+            dispatch.host_capture_path.parent.mkdir(parents=True, exist_ok=True)
+            dispatch.host_capture_path.write_bytes(base64.b64decode(response.output_file_b64))
 
         return SandboxExecutionResult(
-            command=tuple(translated_command),
+            command=tuple(dispatch.translated_command),
             returncode=response.returncode if response.returncode is not None else 1,
             stdout=response.stdout,
             stderr=response.stderr,
-            workdir=request.working_directory,
-            environment=dict(translated_env),
+            workdir=dispatch.request.working_directory,
+            environment=dict(dispatch.translated_env),
             timed_out=response.timed_out,
             duration_seconds=response.duration_seconds,
             cache_key=environment.cache_key,
             backend=SandboxBackendMode.SIDECAR.value,
             stdout_truncated=response.stdout_truncated,
             stderr_truncated=response.stderr_truncated,
+        )
+
+    def _run_via_sidecar(
+        self,
+        *,
+        command: Sequence[str],
+        input_text: str | None,
+        timeout_seconds: float | None,
+        environment: SandboxEnvironment,
+        resource_constraints: ResourceConstraints | None = None,
+        sandbox_root: Path | None = None,
+        relative_cwd: str | Path | PurePosixPath | None = None,
+        read_only_paths: Sequence[str] = (),
+        capture_output_file: str | None = None,
+    ) -> SandboxExecutionResult:
+        """Synchronous bridge for ``run()``: one temporary event loop per call.
+
+        Legal only off-loop. The async runner awaits ``run_via_sidecar_async``
+        on its own loop. Each HTTP request releases its transport before returning.
+        """
+        return asyncio.run(
+            self.run_via_sidecar_async(
+                command=command,
+                input_text=input_text,
+                timeout_seconds=timeout_seconds,
+                environment=environment,
+                resource_constraints=resource_constraints,
+                sandbox_root=sandbox_root,
+                relative_cwd=relative_cwd,
+                read_only_paths=read_only_paths,
+                capture_output_file=capture_output_file,
+            )
         )
 
     def _docker_image_for(self, container_name: str) -> str:

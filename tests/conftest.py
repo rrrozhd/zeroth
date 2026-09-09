@@ -79,7 +79,10 @@ def _docker_available() -> bool:
         return False
 
 
-requires_docker = pytest.mark.skipif(not _docker_available(), reason="Docker not available")
+_HAS_DOCKER = _docker_available()
+if os.environ.get("ZEROTH_REQUIRE_DOCKER") == "1" and not _HAS_DOCKER:
+    raise pytest.UsageError("Docker is required for this test run but its availability probe failed")
+requires_docker = pytest.mark.skipif(not _HAS_DOCKER, reason="Docker not available")
 
 
 _CLEANUP_TABLES = (

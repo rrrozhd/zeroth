@@ -6,6 +6,7 @@ and automatic placeholder conversion from SQLite-style ? to psycopg %s.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -15,6 +16,7 @@ from psycopg import AsyncConnection as PsycopgAsyncConnection
 from psycopg.errors import LockNotAvailable, QueryCanceled
 from psycopg_pool import AsyncConnectionPool
 
+from zeroth.platform.primitives import finish_despite_cancellation
 from zeroth.platform.storage.database import (
     DEFAULT_COORDINATION_TIMEOUT_SECONDS,
     CoordinationTimeoutError,
@@ -121,11 +123,30 @@ class AsyncPostgresDatabase:
     async def transaction(self, *, write_lock: bool = False) -> AsyncIterator[PostgresConnection]:
         """Acquire a connection from the pool, run inside a transaction."""
         try:
-            async with self._pool.connection() as conn, conn.transaction():
-                if write_lock:
-                    timeout_ms = max(1, round(self.coordination_timeout_seconds * 1000))
-                    await conn.execute(f"SET LOCAL lock_timeout = '{timeout_ms}ms'")
-                yield PostgresConnection(conn)
+            async with self._pool.connection() as conn:
+                transaction = conn.transaction()
+                await transaction.__aenter__()
+                error: BaseException | None = None
+                try:
+                    if write_lock:
+                        timeout_ms = max(1, round(self.coordination_timeout_seconds * 1000))
+                        await conn.execute(f"SET LOCAL lock_timeout = '{timeout_ms}ms'")
+                    yield PostgresConnection(conn)
+                except BaseException as exc:
+                    error = exc
+                # COMMIT/ROLLBACK must finish before the connection returns to the
+                # pool, even if this task is cancelled while it runs.
+                suppressed, cancellations = await finish_despite_cancellation(
+                    transaction.__aexit__(
+                        None if error is None else type(error),
+                        error,
+                        None if error is None else error.__traceback__,
+                    )
+                )
+                if error is not None and not suppressed:
+                    raise error
+                if error is None and cancellations:
+                    raise asyncio.CancelledError
         except (LockNotAvailable, QueryCanceled) as exc:
             if write_lock and _is_lock_timeout_error(exc):
                 raise CoordinationTimeoutError(

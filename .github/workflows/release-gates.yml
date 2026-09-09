@@ -62,6 +62,11 @@ jobs:
           name: ${{ inputs.dist_artifact }}
           path: dist
 
+      - name: Measure current compatibility snapshot
+        run: |
+          uv run --frozen --group gateway-conformance --extra langgraph --extra langgraph-gateway python -m release.langgraph.candidate_compatibility snapshot \
+            --output release/evidence/langgraph-compatibility.json
+
       - name: Measure candidate identity
         shell: bash
         run: |
@@ -72,7 +77,7 @@ jobs:
           done
           python release/gates/cli.py identity \
             "${ARGS[@]}" \
-            --compatibility release/langgraph/compatibility.json \
+            --compatibility release/evidence/langgraph-compatibility.json \
             --output release/evidence/candidate-identity.json
           cat release/evidence/candidate-identity.json
 
@@ -80,7 +85,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: candidate-identity
-          path: release/evidence/candidate-identity.json
+          path: |
+            release/evidence/candidate-identity.json
+            release/evidence/langgraph-compatibility.json
 
       - name: Upload dist
         if: inputs.dist_artifact == ''
@@ -93,9 +100,14 @@ jobs:
     name: Gate — source
     needs: [candidate]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ZEROTH_REQUIRE_DOCKER: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -118,6 +130,19 @@ jobs:
           name: candidate-identity
           path: release/evidence
 
+      - name: Wait for Docker
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            if docker info >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker info
+
       - name: Run the source checks and record the outcome
         shell: bash
         run: |
@@ -130,7 +155,8 @@ jobs:
           mkdir -p release/evidence
           uv sync --all-groups --all-extras
           uv run ruff check src tests; RUFF=$?
-          uv run pytest -q --junitxml=release/evidence/source-junit.xml; PYTEST=$?
+          uv run pytest -q --timeout=120 --timeout-method=thread \
+            --junitxml=release/evidence/source-junit.xml; PYTEST=$?
           uv run interrogate src/zeroth; INTERROGATE=$?
           (cd frontend && npm ci --no-fund --no-audit) ; NPM_CI=$?
           (cd frontend && npx vitest run --reporter=junit \
@@ -152,6 +178,8 @@ jobs:
             --kind ui=release/evidence/source-ui-junit.xml \
             --output release/evidence/source.json
           cat release/evidence/source.json
+          python release/gates/cli.py validate --gate source \
+            --identity release/evidence/candidate-identity.json
 
       - name: Upload source evidence
         if: always()
@@ -164,9 +192,12 @@ jobs:
     name: Gate — package
     needs: [candidate]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # On the runner, not in the wheel venv. tests/architecture/test_wheel_packaging.py
       # shells out to `uv build` to inspect what the distribution actually ships --
@@ -209,7 +240,9 @@ jobs:
           source /tmp/gate-venv/bin/activate
           pip install --upgrade pip >/dev/null
           test -f "${WHEEL}"; BUILD=$?
-          pip install "${WHEEL}[all,langgraph]" pytest pytest-asyncio \
+          # Tape identity/normalization property tests import Hypothesis during
+          # collection; it is test tooling, not a wheel runtime dependency.
+          pip install "${WHEEL}[all,langgraph]" pytest pytest-asyncio pytest-timeout hypothesis \
             "testcontainers[postgres]"; INSTALL=$?
           python -c "import zeroth.runtime; print(zeroth.runtime.__path__)"; SMOKE=$?
           if [ "${INSTALL}" -ne 0 ]; then SMOKE=1; fi
@@ -225,6 +258,7 @@ jobs:
           # and asserts it admits nothing the project default excludes.
           pytest tests/ -q \
             -m "not live and not langgraph_conformance and not deployed_acceptance and not dev_toolchain" \
+            --timeout=120 --timeout-method=thread \
             --junitxml=release/evidence/package-junit.xml; TESTS=$?
           deactivate
           set -e
@@ -238,6 +272,8 @@ jobs:
             --kind junit=release/evidence/package-junit.xml \
             --output release/evidence/package.json
           cat release/evidence/package.json
+          python release/gates/cli.py validate --gate package \
+            --identity release/evidence/candidate-identity.json
 
       - name: Upload package evidence
         if: always()
@@ -278,26 +314,23 @@ jobs:
           # the recorded result was decided by whichever command failed first.
           set +e
           mkdir -p release/evidence
-          uv run --frozen --group gateway-conformance pytest -o addopts= -q \
+          uv sync --frozen --group gateway-conformance --extra langgraph --extra langgraph-gateway; SYNC=$?
+          if [ "${SYNC}" -ne 0 ]; then exit "${SYNC}"; fi
+          uv run --no-sync python -m release.langgraph.candidate_compatibility verify \
+            --snapshot release/evidence/langgraph-compatibility.json \
+            --identity release/evidence/candidate-identity.json; MATRIX=$?
+          # A drifted environment must not generate apparently current test evidence.
+          if [ "${MATRIX}" -ne 0 ]; then exit "${MATRIX}"; fi
+          uv run --no-sync pytest -o addopts= -q \
             -m langgraph_conformance tests/langgraph_gateway/conformance \
             --junitxml=release/evidence/langgraph-junit.xml; CONFORMANCE=$?
-          uv run python release/langgraph/harness.py validate --phase source \
-            --manifest release/langgraph/release-manifest.json; MATRIX=$?
-          uv run python release/langgraph/harness.py benchmark \
+          uv run --no-sync python release/langgraph/harness.py benchmark \
             --output release/evidence/langgraph-benchmark.json; BENCH=$?
-          # The legacy harness validates its manifest against CURRENT_RELEASE,
-          # a hand-edited constant, so it cannot notice that its evidence
-          # describes an older release than the candidate. Cross-check the
-          # declared release against the measured one, otherwise this gate
-          # would report compatibility "passed" using stale evidence -- the
-          # exact defect this ticket exists to close.
-          COMPAT=$(python -c "import json;print(json.load(open('release/langgraph/compatibility.json'))['release'])")
-          MEASURED=$(python -c "import json;print(json.load(open('release/evidence/candidate-identity.json'))['package']['version'])")
-          echo "compatibility evidence: ${COMPAT}; candidate: ${MEASURED}"
-          [ "${COMPAT}" = "${MEASURED}" ]; CURRENT=$?
-          # Everything the record cites must travel with it, so copy the
-          # committed compatibility set into the evidence directory.
-          cp release/langgraph/compatibility.json release/evidence/langgraph-compatibility.json
+          uv run --no-sync python -m release.langgraph.candidate_compatibility results \
+            --snapshot release/evidence/langgraph-compatibility.json \
+            --identity release/evidence/candidate-identity.json \
+            --junit release/evidence/langgraph-junit.xml \
+            --benchmark release/evidence/langgraph-benchmark.json; CURRENT=$?
           set -e
           status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
           python release/gates/cli.py record --gate langgraph \
@@ -311,6 +344,8 @@ jobs:
             --kind benchmark=release/evidence/langgraph-benchmark.json \
             --output release/evidence/langgraph.json
           cat release/evidence/langgraph.json
+          python release/gates/cli.py validate --gate langgraph \
+            --identity release/evidence/candidate-identity.json
 
       - name: Upload LangGraph evidence
         if: always()
@@ -352,13 +387,23 @@ jobs:
           set +e
           mkdir -p release/evidence
           uv sync --all-groups --all-extras
+          export ZEROTH_TEST_DOCKER_IMAGE="python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+          docker pull "$ZEROTH_TEST_DOCKER_IMAGE" || exit 1
+          docker build --file tests/runtime/mcp_fixtures/Dockerfile \
+            --iidfile release/evidence/untrusted-mcp-image.txt . || exit 1
+          export ZEROTH_TEST_MCP_IMAGE="$(cat release/evidence/untrusted-mcp-image.txt)"
+          [[ "$ZEROTH_TEST_MCP_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
           run_suite() {
-            uv run pytest -q "$1" --junitxml="$2"
+            uv run pytest -q "$1" "${@:3}" --junitxml="$2"
           }
           run_suite tests/integrations/test_sandbox_surface.py \
             release/evidence/untrusted-surface.xml; SURFACE=$?
           run_suite tests/execution_units/test_sandbox_hardening.py \
-            release/evidence/untrusted-hardening.xml; HARDENING=$?
+            release/evidence/untrusted-hardening.xml \
+            tests/execution_units/test_docker_lifecycle.py \
+            tests/execution_units/test_runner_cancellation.py \
+            tests/runtime/test_mcp_docker_transport.py \
+            tests/runtime/test_mcp_owned_transport.py; HARDENING=$?
           run_suite tests/execution_units/test_sandbox_strict_network.py \
             release/evidence/untrusted-network.xml; NETWORK=$?
           run_suite tests/sandbox_sidecar \
@@ -374,6 +419,8 @@ jobs:
             --kind junit=release/evidence/untrusted-code-junit.xml \
             --output release/evidence/untrusted-code.json
           cat release/evidence/untrusted-code.json
+          python release/gates/cli.py validate --gate untrusted-code \
+            --identity release/evidence/candidate-identity.json
 
       - name: Upload untrusted-code evidence
         if: always()
@@ -520,8 +567,23 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     steps:
+      - name: Install Git for exact-source receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+          git --version
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify source receipt checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -597,13 +659,23 @@ jobs:
             --observations release/evidence/load-recovery-raw.json \
             --output release/evidence/load-recovery-benchmark.json
           REPORT=$?
+          # Each recorded result is one named criterion evaluated by the tested
+          # harness, not shell-embedded policy. A missing report fails both.
+          uv run python release/load/harness.py check \
+            --report release/evidence/load-recovery-benchmark.json \
+            --criterion thresholds
+          THRESHOLDS=$?
+          uv run python release/load/harness.py check \
+            --report release/evidence/load-recovery-benchmark.json \
+            --criterion accepted-run-integrity
+          INTEGRITY=$?
           status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
           python release/gates/cli.py record --gate load-recovery \
             --identity release/evidence/candidate-identity.json \
             --result "profiles=$(status ${PRODUCT})" \
-            --result "thresholds=$(status ${REPORT})" \
+            --result "thresholds=$(status ${THRESHOLDS})" \
             --result "recovery=$(status ${PRODUCT})" \
-            --result "accepted-run-integrity=$(status ${REPORT})" \
+            --result "accepted-run-integrity=$(status ${INTEGRITY})" \
             --result "source-receipt=$(status ${RECEIPT})" \
             --kind benchmark=release/evidence/load-recovery-benchmark.json \
             --kind junit=release/evidence/load-recovery-junit.xml \

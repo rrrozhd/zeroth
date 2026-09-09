@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -142,7 +143,7 @@ def test_candidate_receipt_cli_writes_the_bound_record_atomically(tmp_path: Path
 
     result = subprocess.run(
         [
-            str(ROOT / ".venv/bin/python"),
+            sys.executable,
             str(ROOT / "release/load/receipt.py"),
             "candidate",
             "--source",

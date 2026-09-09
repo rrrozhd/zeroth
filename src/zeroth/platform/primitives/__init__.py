@@ -9,6 +9,11 @@ from zeroth.platform.primitives.boundary import (
     resolve_outbound_url,
     validate_outbound_url,
 )
+from zeroth.platform.primitives.cancellation import (
+    cleanup_despite_cancellation,
+    finish_despite_cancellation,
+    finish_in_thread,
+)
 from zeroth.platform.primitives.clock import Clock, SystemClock, utc_now
 from zeroth.platform.primitives.error_vocabulary import (
     ErrorCategory,
@@ -32,8 +37,11 @@ __all__ = [
     "UntrustedYamlError",
     "UntrustedYamlErrorCode",
     "categorize_exception",
+    "cleanup_despite_cancellation",
     "confine_directory",
     "confine_path",
+    "finish_despite_cancellation",
+    "finish_in_thread",
     "load_untrusted_yaml",
     "new_uuid",
     "safe_error_detail",

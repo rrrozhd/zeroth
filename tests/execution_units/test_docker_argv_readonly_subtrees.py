@@ -2,7 +2,7 @@
 
 ``_run_in_docker`` bind-mounts the sandbox root read-write; a repository unit
 needs designated subtrees remounted read-only on top of it. These tests pin
-the argv the manager actually hands to ``docker run``: ro mounts appended
+the argv the manager actually hands to ``docker create``: ro mounts appended
 after the rw root with the ``:ro`` suffix, a BYTE-IDENTICAL argv when no
 read-only paths are requested, lexical rejection of hostile subtree entries
 before any docker invocation, and the LOCAL backend's unenforced-constraint
@@ -64,8 +64,9 @@ def _docker_calls(
             strictness_mode=SandboxStrictnessMode.STANDARD,
         ),
         command_runner=fake_runner,
-        process_factory=lambda command, **_kwargs: calls.append(list(command))
-        or _FakeDockerProcess(),
+        process_factory=lambda command, **_kwargs: (
+            calls.append(list(command)) or _FakeDockerProcess()
+        ),
         container_inspector=lambda _name: True,
     )
     kwargs = {} if read_only_paths is None else {"read_only_paths": read_only_paths}
@@ -81,11 +82,11 @@ def _docker_calls(
     return calls
 
 
-def _docker_run_argv(
+def _docker_create_argv(
     sandbox_root: Path, *, read_only_paths: tuple[str, ...] | None = None
 ) -> list[str]:
     calls = _docker_calls(sandbox_root, read_only_paths=read_only_paths)
-    return next(command for command in calls if command[:2] == ["docker", "run"])
+    return next(command for command in calls if command[:2] == ["docker", "create"])
 
 
 def _container_root(sandbox_root: Path) -> PurePosixPath:
@@ -95,7 +96,7 @@ def _container_root(sandbox_root: Path) -> PurePosixPath:
 def test_read_only_subtrees_mount_after_the_rw_root_with_ro_suffix(tmp_path: Path) -> None:
     container_root = _container_root(tmp_path)
 
-    argv = _docker_run_argv(tmp_path, read_only_paths=("vendor", "data/fixtures"))
+    argv = _docker_create_argv(tmp_path, read_only_paths=("vendor", "data/fixtures"))
 
     mounts = [argv[index + 1] for index, token in enumerate(argv) if token == "-v"]
     assert mounts == [
@@ -111,12 +112,11 @@ def test_read_only_subtrees_mount_after_the_rw_root_with_ro_suffix(tmp_path: Pat
 
 
 def test_empty_default_leaves_the_argv_byte_identical(tmp_path: Path) -> None:
-    """Pin: no read-only paths ==> exactly the argv the backend built before ZER-37."""
+    """Empty read-only paths preserve all flags apart from the unique workload name."""
     container_root = _container_root(tmp_path)
     expected = [
         "docker",
-        "run",
-        "--rm",
+        "create",
         "--read-only",
         "--cap-drop",
         "ALL",
@@ -135,8 +135,10 @@ def test_empty_default_leaves_the_argv_byte_identical(tmp_path: Path) -> None:
         "ok",
     ]
 
-    assert _docker_run_argv(tmp_path) == expected  # parameter omitted
-    assert _docker_run_argv(tmp_path, read_only_paths=()) == expected  # explicit empty
+    for argv in (_docker_create_argv(tmp_path), _docker_create_argv(tmp_path, read_only_paths=())):
+        assert argv[2] == "--name"
+        assert argv[3].startswith("zeroth-sandbox-run-")
+        assert argv[:2] + argv[4:] == expected
 
 
 @pytest.mark.parametrize(
@@ -170,8 +172,9 @@ def test_hostile_subtree_rejection_precedes_every_docker_invocation(tmp_path: Pa
         base_env={},
         config=SandboxConfig(backend=SandboxBackendMode.DOCKER),
         command_runner=fake_runner,
-        process_factory=lambda command, **_kwargs: calls.append(list(command))
-        or _FakeDockerProcess(),
+        process_factory=lambda command, **_kwargs: (
+            calls.append(list(command)) or _FakeDockerProcess()
+        ),
         container_inspector=lambda _name: True,
     )
 

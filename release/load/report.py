@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -353,6 +354,33 @@ def evaluate(measurements: dict, baseline: dict, rules: dict) -> dict[str, bool]
             )
         verdict[name] = bool(values) and all(values)
     return verdict
+
+
+def thresholds_hold(report: Any) -> bool:
+    """Every fixed rule held for every measured profile, per the persisted evaluation."""
+    evaluation = report.get("evaluation") if isinstance(report, dict) else None
+    return isinstance(evaluation, dict) and bool(evaluation) and all(evaluation.values())
+
+
+def accepted_runs_intact(report: Any) -> bool:
+    """No accepted run was lost or duplicated in any measured profile."""
+    measurements = report.get("measurements") if isinstance(report, dict) else None
+    if not isinstance(measurements, dict) or not measurements:
+        return False
+    return all(
+        isinstance(values, dict)
+        and values.get("lost_accepted_runs") == 0
+        and values.get("duplicate_accepted_runs") == 0
+        for values in measurements.values()
+    )
+
+
+#: The independently recorded gate results, each one criterion over the persisted
+#: report. The workflow records them by name; the policy lives (and is tested) here.
+GATE_CRITERIA: dict[str, Callable[[Any], bool]] = {
+    "thresholds": thresholds_hold,
+    "accepted-run-integrity": accepted_runs_intact,
+}
 
 
 def derive_threshold(baseline: dict, name: str, derivation: dict) -> dict:

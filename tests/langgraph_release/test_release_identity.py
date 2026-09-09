@@ -1,19 +1,10 @@
-"""The container's declared version is single-sourced, and its drift is recorded.
+"""Verify current image identity separately from retained release evidence.
 
-``Dockerfile``'s ``org.opencontainers.image.version``, ``docker-compose.yml``'s
-default image tag and ``compatibility.json``'s release all name the same thing:
-the release the LangGraph evidence set describes. The container-contract test
-asserted that value as a *literal*, so the three could not drift from each other
--- and could drift from the package version indefinitely without anything
-noticing. Across the 27 commits before ZER-41 the package version moved twice
-more while the label stayed at 0.17.0.4, and the test stayed green. That is the
-freeze, observed.
-
-Two changes. The literal is derived now, so a Dockerfile edit that moves the
-label without moving the evidence identity fails. And the gap between the
-evidence identity and the package version is *declared* below, with the reason
-and the condition that clears it, so a freeze is a recorded fact instead of an
-invisible one (ZER-41 / A14-10).
+The OCI version label describes the software in the newly built image, so it
+must match the package version. The Compose default and compatibility evidence
+still identify the previously measured release. Their gap from the current
+package stays explicitly recorded until fresh evidence replaces that release;
+correcting an image label cannot clear the gap or authorize promotion.
 """
 
 from __future__ import annotations
@@ -72,16 +63,10 @@ def _compose_default_tag() -> str:
     return match.group(1)
 
 
-def test_the_container_version_is_declared_once_and_agrees_everywhere() -> None:
-    """Three declarations, one value -- checked, not repeated as three literals.
-
-    A Dockerfile edit that moved the label without moving the evidence identity
-    used to pass, because the test asserted the same literal the Dockerfile did.
-    """
-    evidence = _evidence_release()
-
-    assert _dockerfile_label() == evidence
-    assert _compose_default_tag() == evidence
+def test_current_image_and_historical_evidence_match_their_respective_versions() -> None:
+    """A current image is truthful without relabeling historical measurements."""
+    assert _dockerfile_label() == _package_version()
+    assert _compose_default_tag() == _evidence_release()
 
 
 def stale_releases(evidence: str, package: str) -> set[str]:
@@ -170,7 +155,7 @@ def test_the_drift_detector_sees_a_moved_label() -> None:
 
     assert match is not None
     assert match.group(1) == "9.9.9"
-    assert match.group(1) != _evidence_release()
+    assert match.group(1) != _package_version()
 
 
 def test_a_manifest_that_disagrees_with_the_requirement_set_fails() -> None:

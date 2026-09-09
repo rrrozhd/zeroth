@@ -47,7 +47,7 @@ def test_container_and_compatibility_contract() -> None:
 
     assert "--uid 10001" in dockerfile and "USER zeroth" in dockerfile
     assert "HEALTHCHECK" in dockerfile and "/health/ready" in dockerfile
-    assert "io.zeroth.langgraph.adapter.version=1.0" in dockerfile
+    assert f"io.zeroth.langgraph.adapter.version={compatibility['adapter_version']}" in dockerfile
     assert "io.zeroth.langgraph.compatibility.langgraph=1.2.9" in dockerfile
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
     assert "ARG ZEROTH_EXTRAS" not in dockerfile
@@ -60,7 +60,6 @@ def test_container_and_compatibility_contract() -> None:
         encoding="utf-8"
     )
 
-    assert f"org.opencontainers.image.version={evidence_version}" in dockerfile
     assert compose_config["services"]["zeroth"]["image"] == (
         f"zeroth-platform:${{ZEROTH_IMAGE_TAG:-{evidence_version}}}"
     )
@@ -125,13 +124,29 @@ def test_container_and_compatibility_contract() -> None:
     )
 
 
+def test_active_image_version_matches_packaged_project() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    # Retained compatibility evidence describes its original release. The
+    # image built today must identify the package actually being shipped.
+    assert f"org.opencontainers.image.version={project['project']['version']}" in dockerfile
+
+
+@pytest.mark.parametrize("mismatch", [None, "id", "digest"])
 def test_installed_image_packages_are_compared_with_compatibility(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mismatch: str | None
 ) -> None:
     from release.langgraph.runtime_smoke import installed_package_evidence
 
-    compatibility_path = ROOT / "release/langgraph/compatibility.json"
-    compatibility = json.loads(compatibility_path.read_text(encoding="utf-8"))
+    compatibility = json.loads(
+        (ROOT / "release/langgraph/compatibility.json").read_text(encoding="utf-8")
+    )
+    # Exercise a new image version without rewriting retained historical evidence.
+    compatibility["release"] = "9.8.7"
+    compatibility["resolved"]["zeroth_platform"] = "9.8.7"
+    compatibility_path = tmp_path / "compatibility.json"
+    compatibility_path.write_text(json.dumps(compatibility), encoding="utf-8")
     resolved = compatibility["resolved"]
     packages = {
         "zeroth-platform": resolved["zeroth_platform"],
@@ -149,12 +164,28 @@ def test_installed_image_packages_are_compared_with_compatibility(
         "io.zeroth.langgraph.compatibility.agent-server": resolved["agent_server"],
     }
 
+    image_id = "sha256:" + "a" * 64
+    digest = "sha256:" + "d" * 64
+    inspected = False
+
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        output = (
-            json.dumps(packages)
-            if command[1] == "run"
-            else json.dumps([{"Config": {"Labels": labels}}])
-        )
+        nonlocal inspected
+        if command[1] == "run":
+            # A mutable tag may move after inspect; only the captured ID is safe.
+            assert inspected
+            assert command[5] == image_id
+            output = json.dumps(packages)
+        else:
+            inspected = True
+            output = json.dumps(
+                [
+                    {
+                        "Id": image_id,
+                        "RepoDigests": [f"example/image@{digest}"],
+                        "Config": {"Labels": labels},
+                    }
+                ]
+            )
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
     monkeypatch.setattr("release.langgraph.runtime_smoke.subprocess.run", fake_run)
@@ -165,17 +196,27 @@ def test_installed_image_packages_are_compared_with_compatibility(
                 "images": [
                     {
                         "reference": f"zeroth-platform:v{resolved['zeroth_platform']}",
-                        "digest": "sha256:" + "d" * 64,
+                        "id": "sha256:" + "b" * 64 if mismatch == "id" else image_id,
+                        "digest": "sha256:" + "b" * 64 if mismatch == "digest" else digest,
+
                     }
                 ]
             }
         ),
         encoding="utf-8",
     )
+    if mismatch:
+        with pytest.raises(RuntimeError, match="image identity"):
+            installed_package_evidence(
+                f"zeroth-platform:v{resolved['zeroth_platform']}", compatibility_path, image_path
+            )
+        return
+
     evidence = installed_package_evidence(
         f"zeroth-platform:v{resolved['zeroth_platform']}", compatibility_path, image_path
     )
     assert evidence["packages"] == packages
+    assert evidence["release"] == packages["zeroth-platform"]
 
     packages["langgraph"] = "0.0.0"
     with pytest.raises(RuntimeError, match="installed image packages"):
@@ -317,3 +358,40 @@ def test_release_image_consumes_and_compares_the_candidate_wheel() -> None:
     assert "docker cp" in comparison["run"]
     assert "/opt/zeroth/wheel" in comparison["run"]
     assert "cmp " in comparison["run"]
+
+
+@pytest.mark.parametrize("label", ["9.8.7", None, ""])
+def test_resolved_image_release_comes_from_application_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, label: str | None
+) -> None:
+    from release.langgraph import runtime_smoke
+
+    digest = "sha256:" + "a" * 64
+    labels = {} if label is None else {"org.opencontainers.image.version": label}
+    monkeypatch.setattr(
+        runtime_smoke,
+        "_inspect_image",
+        lambda reference: {
+            "Id": digest,
+            "Config": {"Labels": labels if reference == "app" else {}},
+        },
+    )
+    sbom = tmp_path / "image.spdx.json"
+    sbom.write_text(
+        json.dumps(
+            {
+                "packages": [
+                    {"name": "app", "primaryPackagePurpose": "CONTAINER", "versionInfo": digest}
+                ]
+            }
+        )
+    )
+    artifact = tmp_path / "image.tar"
+    artifact.write_bytes(b"test artifact")
+    if not label:
+        with pytest.raises(RuntimeError, match="version label"):
+            runtime_smoke.resolved_image_evidence(["app", "base"], sbom=sbom, artifact=artifact)
+        return
+    report = runtime_smoke.resolved_image_evidence(["app", "base"], sbom=sbom, artifact=artifact)
+    assert report["release"] == label
+    assert report["images"][0]["digest"] == digest

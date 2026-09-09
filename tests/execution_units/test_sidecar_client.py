@@ -61,6 +61,7 @@ async def test_operational_requests_send_shared_secret(
     real_async_client = httpx.AsyncClient
 
     def build_client(**kwargs):
+        assert kwargs.pop("transport", None) is None
         return real_async_client(transport=_make_transport(handler), **kwargs)
 
     monkeypatch.setenv("ZEROTH_SANDBOX_SIDECAR_SECRET", "client-secret")

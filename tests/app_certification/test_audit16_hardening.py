@@ -168,7 +168,7 @@ def test_candidate_build_and_dependency_logs_have_hard_resource_boundaries() -> 
 def test_enabled_regulus_dependencies_are_in_the_certified_runtime_lock() -> None:
     locked = (ROOT / "requirements-image.txt").read_text(encoding="utf-8")
 
-    for package in ("dramatiq", "email-validator", "python-jose"):
+    for package in ("dramatiq", "email-validator", "pyjwt"):
         assert f"{package}==" in locked
 
 

@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from release.langgraph.generated_evidence import LABEL_KEYS, PACKAGE_KEYS
-from release.langgraph.langgraph_benchmark import CURRENT_RELEASE
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -127,8 +126,12 @@ def _file_digest(path: Path) -> str:
 def resolved_image_evidence(references: list[str], *, sbom: Path, artifact: Path) -> dict[str, Any]:
     """Record immutable image and exported-artifact digests."""
     images = []
+    release = None
     for index, reference in enumerate(references):
         inspected = _inspect_image(reference)
+        if index == 0:
+            labels = inspected.get("Config", {}).get("Labels") or {}
+            release = labels.get("org.opencontainers.image.version")
         images.append(
             {
                 "reference": reference,
@@ -139,9 +142,11 @@ def resolved_image_evidence(references: list[str], *, sbom: Path, artifact: Path
                 "repo_digests": inspected.get("RepoDigests") or [],
             }
         )
+    if not isinstance(release, str) or not release.strip():
+        raise RuntimeError("application image must have a nonempty version label")
     return {
         "schema_version": 2,
-        "release": CURRENT_RELEASE,
+        "release": release,
         "artifact": {"path": artifact.name, "digest": _file_digest(artifact)},
         "images": images,
     }
@@ -167,6 +172,11 @@ def installed_package_evidence(
     compatibility = json.loads(compatibility_path.read_text(encoding="utf-8"))
     image_evidence = json.loads(image_evidence_path.read_text(encoding="utf-8"))
     identity = next(item for item in image_evidence["images"] if item["reference"] == image)
+    inspected = _inspect_image(image)
+    image_id = inspected["Id"]
+    digest = _resolved_digest(inspected)
+    if identity.get("id") != image_id or identity.get("digest") != digest:
+        raise RuntimeError("image identity does not match the inspected image")
     names = tuple(PACKAGE_KEYS)
     script = (
         "import json,importlib.metadata as m;"
@@ -174,13 +184,13 @@ def installed_package_evidence(
         "print(json.dumps({name:m.version(name) for name in names},sort_keys=True))"
     )
     result = subprocess.run(
-        ["docker", "run", "--rm", "--entrypoint", "python", image, "-c", script],
+        ["docker", "run", "--rm", "--entrypoint", "python", image_id, "-c", script],
         check=True,
         capture_output=True,
         text=True,
     )
     packages = json.loads(result.stdout)
-    labels = _inspect_image(image).get("Config", {}).get("Labels") or {}
+    labels = inspected.get("Config", {}).get("Labels") or {}
     selected_labels = {name: labels.get(name) for name in LABEL_KEYS}
     if packages != _expected_packages(compatibility):
         raise RuntimeError("installed image packages do not match compatibility evidence")
@@ -188,8 +198,8 @@ def installed_package_evidence(
         raise RuntimeError("image labels do not match compatibility evidence")
     return {
         "schema_version": 1,
-        "release": CURRENT_RELEASE,
-        "image": {"reference": image, "digest": identity["digest"]},
+        "release": packages["zeroth-platform"],
+        "image": {"reference": image, "digest": digest},
         "packages": packages,
         "labels": selected_labels,
     }

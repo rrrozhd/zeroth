@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Literal
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from zeroth.runtime.agents import (
     AgentConfig,
@@ -12,6 +14,7 @@ from zeroth.runtime.agents import (
     AgentTimeoutError,
     DeterministicProviderAdapter,
     InMemoryThreadStateStore,
+    LiteLLMProviderAdapter,
     OutputValidator,
     PromptAssembler,
     PromptConfig,
@@ -113,6 +116,53 @@ async def test_agent_runner_retries_on_validation_error_then_succeeds() -> None:
     assert result.attempts == 2
     with pytest.raises(AgentOutputValidationError):
         OutputValidator().validate(DemoOutput, ProviderResponse(content='{"answer":"bad"}'))
+
+
+@pytest.mark.asyncio
+async def test_litellm_structured_output_validation_is_not_a_provider_error() -> None:
+    class ExtractionField(BaseModel):
+        status: Literal["explicit", "missing"]
+        source: str | None = None
+        value: str | None = None
+
+        @model_validator(mode="after")
+        def resolved_fields_have_evidence(self) -> ExtractionField:
+            if self.status == "explicit" and (self.value is None or self.source is None):
+                raise ValueError("resolved fields require a value and source evidence")
+            return self
+
+    class ZerothExtractionWire(BaseModel):
+        departure_window: ExtractionField
+
+    mock_message = MagicMock()
+    mock_message.content = '{"departure_window":{"status":"explicit","source":null,"value":null}}'
+    mock_message.usage_metadata = None
+    mock_message.response_metadata = {}
+    mock_message.tool_calls = []
+    mock_bound = MagicMock()
+    mock_bound.ainvoke = AsyncMock(return_value=mock_message)
+    mock_client = MagicMock()
+    mock_client.bind.return_value = mock_bound
+    provider = LiteLLMProviderAdapter()
+    runner = AgentRunner(
+        AgentConfig(
+            name="extract-intent",
+            instruction="Extract only supported values.",
+            model_name="openai/test",
+            input_model=DemoInput,
+            output_model=ZerothExtractionWire,
+        ),
+        provider,
+    )
+
+    with (
+        patch.object(provider, "_get_client_async", AsyncMock(return_value=mock_client)),
+        pytest.raises(
+            AgentOutputValidationError,
+            match="resolved fields require a value and source evidence",
+        ),
+    ):
+        await runner.run({"query": "Find me a train", "secret": "x"})
 
 
 @pytest.mark.asyncio

@@ -137,11 +137,21 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 TokenEngineSnapshotState.CANCELLED,
             }:
                 stopped = await self.driver.external_stop(run)
-                if stopped is None:
-                    raise OrchestratorError(
-                        f"token snapshot is {snapshot.state.value} without a persisted run stop"
-                    )
-                return stopped
+                if stopped is not None:
+                    return stopped
+                if (
+                    snapshot.state is TokenEngineSnapshotState.STOPPED
+                    and run.status is RunStatus.RUNNING
+                ):
+                    # A replacement worker can claim a voluntarily handed-back
+                    # run while its STOPPING snapshot is still draining. Once
+                    # that drain commits STOPPED, the new RUNNING owner must
+                    # reopen the replayable snapshot instead of failing the run.
+                    await TokenLifecycleAdapter(self.store).resume(run.run_id)
+                    continue
+                raise OrchestratorError(
+                    f"token snapshot is {snapshot.state.value} without a persisted run stop"
+                )
             if snapshot.state is TokenEngineSnapshotState.STOPPING:
                 drained = await self._drain_stopping_owner(graph, run, snapshot)
                 if drained is not snapshot:

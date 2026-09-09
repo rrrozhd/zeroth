@@ -11,14 +11,11 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from zeroth.platform.storage.json import load_typed_value, to_json_value
+from zeroth.platform.storage.json import from_json_value, to_json_value
 from zeroth.runtime.runs import (
     Run,
-    RunConditionResult,
-    RunHistoryEntry,
     RunStatus,
     Thread,
-    ThreadMemoryBinding,
     ThreadStatus,
 )
 
@@ -37,6 +34,12 @@ def dump_list(items: Sequence[object]) -> str:
     return to_json_value([item.model_dump(mode="json") for item in items])  # type: ignore[attr-defined]
 
 
+def _collection_value(raw: str | bytes | None, default: Any) -> Any:
+    """Decode a collection, defaulting only null before domain validation."""
+    value = from_json_value(raw)
+    return default if value is None else value
+
+
 def row_to_run(row: dict[str, Any]) -> Run:
     """Convert a raw database row into a Run model."""
     return Run(
@@ -47,32 +50,30 @@ def row_to_run(row: dict[str, Any]) -> Run:
         workflow_name=row["workflow_name"],
         status=RunStatus(row["status"]),
         current_step=row["current_step"],
-        completed_steps=load_typed_value(row["completed_steps"], list[str]) or [],
-        artifacts=load_typed_value(row["artifacts"], dict[str, Any]) or {},
-        channels=load_typed_value(row["channels"], dict[str, Any]) or {},
-        pending_approval=load_typed_value(row["pending_approval"], Any),
+        completed_steps=_collection_value(row["completed_steps"], []),
+        artifacts=_collection_value(row["artifacts"], {}),
+        channels=_collection_value(row["channels"], {}),
+        pending_approval=from_json_value(row["pending_approval"]),
         pending_interrupt_id=row["pending_interrupt_id"],
         started_at=datetime.fromisoformat(row["started_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
         error=row["error"],
-        metadata=load_typed_value(row["metadata"], dict[str, Any]) or {},
+        metadata=_collection_value(row["metadata"], {}),
         graph_version_ref=row["graph_version_ref"],
         deployment_ref=row["deployment_ref"],
         parent_run_id=row["parent_run_id"],
         tenant_id=row["tenant_id"] or "default",
         workspace_id=row["workspace_id"],
-        submitted_by=load_typed_value(row["submitted_by"], dict[str, Any]),
+        submitted_by=from_json_value(row["submitted_by"]),
         thread_id=row["thread_id"],
-        current_node_ids=load_typed_value(row["current_node_ids"], list[str]) or [],
-        pending_node_ids=load_typed_value(row["pending_node_ids"], list[str]) or [],
-        execution_history=(load_typed_value(row["execution_history"], list[RunHistoryEntry]) or []),
-        node_visit_counts=load_typed_value(row["node_visit_counts"], dict[str, int]) or {},
-        condition_results=(
-            load_typed_value(row["condition_results"], list[RunConditionResult]) or []
-        ),
-        audit_refs=load_typed_value(row["audit_refs"], list[str]) or [],
-        final_output=load_typed_value(row["final_output"], Any),
-        failure_state=load_typed_value(row["failure_state"], dict[str, Any]),
+        current_node_ids=_collection_value(row["current_node_ids"], []),
+        pending_node_ids=_collection_value(row["pending_node_ids"], []),
+        execution_history=_collection_value(row["execution_history"], []),
+        node_visit_counts=_collection_value(row["node_visit_counts"], {}),
+        condition_results=_collection_value(row["condition_results"], []),
+        audit_refs=_collection_value(row["audit_refs"], []),
+        final_output=from_json_value(row["final_output"]),
+        failure_state=from_json_value(row["failure_state"]),
     )
 
 
@@ -85,13 +86,11 @@ def row_to_thread(row: dict[str, Any]) -> Thread:
         tenant_id=row["tenant_id"] or "default",
         workspace_id=row["workspace_id"],
         status=ThreadStatus(row["status"]),
-        participating_agent_refs=(
-            load_typed_value(row["participating_agent_refs"], list[str]) or []
-        ),
-        state_snapshot_refs=load_typed_value(row["state_snapshot_refs"], list[str]) or [],
-        checkpoint_refs=load_typed_value(row["checkpoint_refs"], list[str]) or [],
-        memory_bindings=(load_typed_value(row["memory_bindings"], list[ThreadMemoryBinding]) or []),
-        run_ids=load_typed_value(row["run_ids"], list[str]) or [],
+        participating_agent_refs=_collection_value(row["participating_agent_refs"], []),
+        state_snapshot_refs=_collection_value(row["state_snapshot_refs"], []),
+        checkpoint_refs=_collection_value(row["checkpoint_refs"], []),
+        memory_bindings=_collection_value(row["memory_bindings"], []),
+        run_ids=_collection_value(row["run_ids"], []),
         active_run_id=row["active_run_id"],
         last_run_id=row["last_run_id"],
         created_at=datetime.fromisoformat(row["created_at"]),

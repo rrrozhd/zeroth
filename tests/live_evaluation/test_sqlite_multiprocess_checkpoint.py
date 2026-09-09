@@ -254,3 +254,78 @@ def test_nonpassing_matrix_cannot_become_a_supported_sqlite_pass(
     by_id = {item["criterion_id"]: item for item in acceptance["criteria"]}
     assert by_id["SQLITE-NATIVE-SINGLE-HOST-MULTIPROCESS"]["status"] == "fail"
     assert "bounded_lock_contention" in by_id["SQLITE-NATIVE-SINGLE-HOST-MULTIPROCESS"]["note"]
+
+
+def test_failed_sink_worker_cannot_produce_a_passing_matrix(tmp_path, monkeypatch) -> None:
+    module = _module()
+    original = module._queue_get
+
+    def one_failed_worker(results, *, label):
+        observation = original(results, label=label)
+        if label == "sink-0":
+            return {"worker_id": observation["worker_id"], "status": "fail",
+                    "error_type": "OperationalError"}
+        return observation
+
+    monkeypatch.setattr(module, "_queue_get", one_failed_worker)
+    result = module.run_matrix(tmp_path / "matrix")
+    assert result["scenarios"]["idempotent_sink_restart"]["matching_results"] == 3
+    assert result["scenarios"]["idempotent_sink_restart"]["status"] == "fail"
+    assert result["all_passed"] is False
+
+
+def _delayed_lock_holder(path, entered, release):
+    import time
+    time.sleep(5.1)
+    _module()._lock_holder_process(path, entered, release)
+
+
+def test_spawn_startup_does_not_consume_the_lock_contention_deadline(tmp_path, monkeypatch):
+    module = _module()
+    monkeypatch.setattr(module, "_lock_holder_process", _delayed_lock_holder)
+    result = module.run_matrix(tmp_path / "delayed-matrix")
+    assert result["all_passed"] is True
+    assert result["scenarios"]["bounded_lock_contention"]["timed_out_fail_closed"] is True
+
+
+def test_missing_subprocess_result_retains_exit_code_and_bounded_stderr(tmp_path, monkeypatch):
+    import subprocess
+    import pytest
+
+    module = _module()
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs:
+                        subprocess.CompletedProcess(args[0], 17, "", "x" * 5000 + "\nchild-failure-marker"))
+    with pytest.raises(RuntimeError) as captured:
+        module._run_matrix_subprocess(tmp_path / "work", tmp_path / "missing.json")
+    message = str(captured.value)
+    assert "exit 17" in message
+    assert "child-failure-marker" in message
+    assert len(message) < 4200
+
+
+def test_contender_failure_reaps_the_owned_lock_processes(tmp_path, monkeypatch):
+    import multiprocessing
+    import pytest
+
+    module = _module()
+    original_join = module._join
+    original_error = RuntimeError("controlled contender failure")
+    before = {child.pid for child in multiprocessing.active_children()}
+
+    def fail_contender(process, *, label):
+        if label == "sqlite-lock-contender":
+            raise original_error
+        return original_join(process, label=label)
+
+    monkeypatch.setattr(module, "_join", fail_contender)
+    try:
+        with pytest.raises(RuntimeError) as captured:
+            module.run_matrix(tmp_path / "failed-contender")
+        assert captured.value is original_error
+        remaining = [child for child in multiprocessing.active_children() if child.pid not in before]
+        assert remaining == []
+    finally:
+        for child in multiprocessing.active_children():
+            if child.pid not in before:
+                child.terminate()
+                child.join(5)

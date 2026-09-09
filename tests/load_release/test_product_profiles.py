@@ -42,10 +42,12 @@ async def test_real_product_fairness_fault_and_overload_evidence(
     rows = await collect_product_observations(
         profiles, postgres_dsn=postgres_dsn, redis_url=redis_url
     )
-    assert evidence_errors(rows, profiles) == []
     path = ROOT / output
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # Retain invalid evidence as well as valid evidence: the gate still fails on
+    # the assertion, while the artifact explains which invariant was violated.
+    assert evidence_errors(rows, profiles) == []
 
 
 def test_fairness_uses_completed_product_work_not_submitted_intent() -> None:

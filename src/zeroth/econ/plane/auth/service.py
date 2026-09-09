@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from jose import jwt
+import jwt
 from sqlalchemy import select
 
 from zeroth.econ.plane.auth.models import User
@@ -42,5 +42,13 @@ def issue_token(payload: ScopedLoginRequest, db: ScopedSession) -> str:
 
 
 def decode_token(token: str) -> ScopedUserClaims:
-    payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except TypeError as exc:
+        # PyJWT raises a bare TypeError for a claim of the wrong JSON type
+        # (for example ``"iat": null``); surface it as an invalid token.
+        raise jwt.InvalidTokenError("malformed claim") from exc
+    # This internal issuer never emits audience or access-token binding claims.
+    if "aud" in payload or "at_hash" in payload:
+        raise jwt.InvalidTokenError("unsupported token binding claim")
     return ScopedUserClaims(**payload)

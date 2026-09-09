@@ -12,8 +12,8 @@
 
 FROM python:3.12.13-slim-bookworm
 
-LABEL org.opencontainers.image.version=0.23.0 \
-      io.zeroth.langgraph.adapter.version=1.0 \
+LABEL org.opencontainers.image.version=0.25.8.2 \
+      io.zeroth.langgraph.adapter.version=2.0 \
       io.zeroth.langgraph.compatibility.langgraph=1.2.9 \
       io.zeroth.langgraph.compatibility.agent-server=0.11.1
 
@@ -23,6 +23,9 @@ COPY dist/zeroth_platform-*.whl /opt/zeroth/wheel/
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         -r /tmp/requirements-image.txt \
     && pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_platform-*.whl \
+    && python -m pip uninstall --yes pip \
+    && rm -rf /usr/local/lib/python3.12/ensurepip \
+
     && rm /tmp/requirements-image.txt
 
 # Redis is disabled by default so the single-container image is

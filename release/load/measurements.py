@@ -326,7 +326,9 @@ def _lifecycle_errors(request_id: Any, events: Any) -> list[str]:
     return errors
 
 
-def _matrix_errors(rows: list[dict], matrix: dict, prefix: str) -> list[str]:
+def _matrix_errors(
+    rows: list[dict], matrix: dict, prefix: str, *, require_workers: bool = True
+) -> list[str]:
     errors = []
     tenants = {row["tenant_id"] for row in rows}
     if len(tenants) < matrix["tenants"]:
@@ -339,7 +341,7 @@ def _matrix_errors(rows: list[dict], matrix: dict, prefix: str) -> list[str]:
         scoped = [row for row in rows if row["deployment_ref"] == deployment]
         if len({row["replica"] for row in scoped}) < matrix["replicas"]:
             errors.append(f"{prefix} deployment {deployment} replica matrix is incomplete")
-        if len({row["worker"] for row in scoped}) < matrix["workers"]:
+        if require_workers and len({row["worker"] for row in scoped}) < matrix["workers"]:
             errors.append(f"{prefix} deployment {deployment} worker matrix is incomplete")
     return errors
 
@@ -372,7 +374,14 @@ def _profile_errors(rows: list[dict], profiles: dict) -> list[str]:
                 errors.append(f"profile {name} schedule window is incomplete")
             if _peak_in_flight(workload) > settings["max_in_flight"]:
                 errors.append(f"profile {name} exceeded its maximum in-flight requests")
-        errors.extend(_matrix_errors(workload, profiles["matrix"], f"profile {name}"))
+        errors.extend(
+            _matrix_errors(
+                workload,
+                profiles["matrix"],
+                f"profile {name}",
+                require_workers=False,
+            )
+        )
         observed = {row["surface"] for row in workload}
         if not set(profiles["surfaces"]).issubset(observed):
             errors.append(f"profile {name} product surface matrix is incomplete")
@@ -456,6 +465,8 @@ def evidence_errors(rows: Any, profiles: dict) -> list[str]:
     if {row["profile"] for row in valid} != set(profiles["profiles"]):
         errors.append("raw requests do not cover every profile")
     errors.extend(_profile_errors(valid, profiles))
+    workload = [row for row in valid if row["fault"] is None]
+    errors.extend(_matrix_errors(workload, profiles["matrix"], "workload"))
     errors.extend(_fault_errors(valid, profiles))
     lost, duplicates, _ = _lifecycle_accounting(valid)
     if lost:

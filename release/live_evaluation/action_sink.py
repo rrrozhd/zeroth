@@ -24,15 +24,20 @@ def _set_wal_mode(
     sleep: Callable[[float], object] = time.sleep,
 ) -> None:
     """Set WAL, retrying only the proven transient SQLITE_BUSY boundary."""
+    deadline = time.monotonic() + 30
     for attempt in range(1, _WAL_BUSY_ATTEMPTS + 1):
+        remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+        connection.execute(f"PRAGMA busy_timeout={remaining_ms}")
         try:
             connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA busy_timeout=30000")
             return
         except sqlite3.OperationalError as exc:
-            is_busy = getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_BUSY
-            if not is_busy or attempt == _WAL_BUSY_ATTEMPTS:
+            is_busy = getattr(exc, "sqlite_errorcode", 0) & 255 == sqlite3.SQLITE_BUSY
+            remaining = deadline - time.monotonic()
+            if not is_busy or attempt == _WAL_BUSY_ATTEMPTS or remaining <= 0:
                 raise
-            sleep(_WAL_BUSY_RETRY_SECONDS * attempt)
+            sleep(min(_WAL_BUSY_RETRY_SECONDS * attempt, remaining))
 
 
 class ActionSinkUnavailableError(ConnectionError):
@@ -64,8 +69,13 @@ class EvaluationActionSink:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=30)
         connection.row_factory = sqlite3.Row
-        _set_wal_mode(connection)
-        connection.execute("PRAGMA synchronous=FULL")
+        try:
+            _set_wal_mode(connection)
+            connection.execute("PRAGMA synchronous=FULL")
+        except BaseException:
+            connection.close()
+            raise
+
         return connection
 
     def _initialize(self) -> None:

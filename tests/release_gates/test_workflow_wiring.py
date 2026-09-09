@@ -25,10 +25,16 @@ GATES_WORKFLOW = WORKFLOWS / "release-gates.yml"
 CI_WORKFLOW = WORKFLOWS / "ci.yml"
 EVIDENCE_WORKFLOWS = (RELEASE_WORKFLOW, GATES_WORKFLOW, PROMOTION_WORKFLOW)
 
-#: Workflows that ran on pull requests before this change. Fast PR checks are
-#: preserved by keeping this set exactly as it was.
+#: Reviewed workflows with fast pull-request checks. SDK publishing jobs are
+#: manual-only; their guards are checked separately below.
 BASE_PULL_REQUEST_WORKFLOWS = frozenset(
-    {"ci.yml", "docs.yml", "examples.yml", "langgraph-compatibility.yml", "verify-extras.yml"}
+    {
+        "ci.yml",
+        "docs.yml",
+        "examples.yml",
+        "langgraph-compatibility.yml",
+        "verify-extras.yml",
+    }
 )
 
 #: Work that belongs to a release candidate and must never reach a PR.
@@ -509,13 +515,19 @@ def _pull_request_workflows() -> list[Path]:
 def test_pull_request_checks_stay_fast():
     """The complete matrix belongs to release candidates, not to every push."""
     for path in _pull_request_workflows():
-        script = "\n".join(_scripts(path).values())
-        uses = " ".join(
-            str(step.get("uses", "")) for job in _jobs(path).values() for step in _steps(job)
-        )
-        haystack = f"{script}\n{uses}"
-        for expensive in RELEASE_ONLY_WORK:
-            assert expensive not in haystack, f"{path.name} runs {expensive} on pull requests"
+        for job in _jobs(path).values():
+            # Recognize only this strict manual-dispatch guard. Unknown or
+            # broader conditions remain subject to the PR-cost restriction.
+            if re.fullmatch(
+                r"github\.event_name == 'workflow_dispatch' && inputs\.target == '(testpypi|pypi)'",
+                str(job.get("if", "")),
+            ):
+                continue
+            haystack = "\n".join(
+                str(step.get("run", "")) + "\n" + str(step.get("uses", "")) for step in _steps(job)
+            )
+            for expensive in RELEASE_ONLY_WORK:
+                assert expensive not in haystack, f"{path.name} runs {expensive} on pull requests"
 
 
 def test_the_gate_matrix_never_runs_on_pull_requests():
@@ -616,3 +628,149 @@ def test_every_workflow_parses_and_declares_jobs(path: Path):
 
     assert document["on"], f"{path.name} declares no trigger"
     assert document["jobs"], f"{path.name} declares no job"
+
+
+def test_load_receipt_has_git_before_checkout() -> None:
+    """A slim runner must produce a Git checkout for exact-source load receipts."""
+    steps = _steps(_jobs(GATES_WORKFLOW)["load-recovery"])
+    checkout = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    preparation = "\n".join(str(step.get("run", "")) for step in steps[:checkout])
+    assert re.search(r"apt-get\s+install[^\n]*\bgit\b", preparation), (
+        "install Git before checkout; the REST fallback cannot supply receipt Git metadata"
+    )
+    assert "git --version" in preparation, "fail before checkout if Git provisioning failed"
+
+
+@pytest.mark.parametrize("job", ["source", "package"])
+def test_full_suite_gate_fetches_baseline_source_history(job):
+    checkout = next(step for step in _steps(_jobs(GATES_WORKFLOW)[job])
+                    if str(step.get("uses", "")).startswith("actions/checkout@"))
+    assert checkout.get("with", {}).get("fetch-depth") == 0
+
+
+@pytest.mark.parametrize("gate", ["source", "package", "langgraph", "untrusted-code"])
+def test_gate_job_validates_its_record_after_writing_it(gate):
+    _, script = _record_script(gate)
+    validation = f"python release/gates/cli.py validate --gate {gate}"
+    assert validation in script
+    assert script.index(validation) > script.index(f"cat release/evidence/{gate}.json")
+
+
+def test_load_receipt_verifies_checkout_in_the_regular_step_environment() -> None:
+    steps = _steps(_jobs(GATES_WORKFLOW)["load-recovery"])
+    checkout = next(i for i, step in enumerate(steps)
+                    if str(step.get("uses", "")).startswith("actions/checkout@"))
+    verify = next((i for i, step in enumerate(steps)
+                   if step.get("name") == "Verify source receipt checkout"), None)
+    assert verify is not None, "verify Git outside checkout's temporary HOME"
+    assert verify == checkout + 1
+    command = steps[verify]["run"]
+    assert 'git config --global --add safe.directory "$GITHUB_WORKSPACE"' in command
+    assert 'git -C "$GITHUB_WORKSPACE" rev-parse HEAD' in command
+    assert '"$GITHUB_SHA"' in command
+    assert "set -euo pipefail" in command
+    assert "*" not in command, "do not trust unrelated repositories"
+
+
+@pytest.mark.parametrize("guard", ["", "always()", "github.event_name == 'pull_request'"])
+def test_pr_cost_check_rejects_sdk_publish_guard_regression(monkeypatch, guard) -> None:
+    """Removing or broadening a publisher guard must make the PR-cost audit fail."""
+    original = _jobs
+
+    def mutated(path: Path) -> dict:
+        jobs = original(path)
+        if path.name == "release-zeroth-sdk.yml":
+            jobs["publish-pypi"]["if"] = guard
+        return jobs
+
+    monkeypatch.setitem(globals(), "_jobs", mutated)
+    # The publisher is manual-only today. If a PR trigger is added, a broadened
+    # job guard must still be caught by the cost check.
+    monkeypatch.setitem(
+        globals(), "_pull_request_workflows",
+        lambda: [WORKFLOWS / "release-zeroth-sdk.yml"],
+    )
+    with pytest.raises(AssertionError, match="release-zeroth-sdk.yml runs"):
+        test_pull_request_checks_stay_fast()
+
+
+def test_untrusted_gate_executes_mcp_and_records_failure(tmp_path):
+    """Exercise the shell so an omitted/skipped MCP case cannot look green."""
+    import os
+
+    script = "\n".join(
+        step.get("run", "") for step in _steps(_jobs(GATES_WORKFLOW)["untrusted-code"])
+    )
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    log = tmp_path / "calls"
+    stubs = {
+        "docker": '#!/bin/bash\nif [[ "$1" == build ]]; then echo "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" > "$MCP_IID_PATH"; fi\n',
+        "uv": '#!/bin/bash\necho "uv $* image=${ZEROTH_TEST_MCP_IMAGE:-missing}" >> "$CALL_LOG"\nif [[ "$*" == *test_mcp_docker_transport.py* ]]; then [[ "${ZEROTH_TEST_MCP_IMAGE:-}" == sha256:* ]] || exit 99; exit 42; fi\n',
+        "python": '#!/bin/bash\necho "python $*" >> "$CALL_LOG"\n',
+    }
+    for name, body in stubs.items():
+        executable = commands / name
+        executable.write_text(body)
+        executable.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{commands}:{os.environ['PATH']}",
+            "CALL_LOG": str(log),
+            "MCP_IID_PATH": str(tmp_path / "release/evidence/untrusted-mcp-image.txt"),
+        },
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    calls = log.read_text()
+    assert "test_mcp_docker_transport.py" in calls, (result, calls)
+    assert "image=sha256:" in calls
+    assert "sandbox-hardening=failed" in calls
+
+
+def test_current_compatibility_snapshot_is_shared_and_verified():
+    jobs = _jobs(GATES_WORKFLOW)
+    candidate_script = "\n".join(step.get("run", "") for step in _steps(jobs["candidate"]))
+    langgraph_script = "\n".join(step.get("run", "") for step in _steps(jobs["langgraph"]))
+    snapshot = "release/evidence/langgraph-compatibility.json"
+    assert "candidate_compatibility snapshot" in candidate_script
+    assert (
+        "--group gateway-conformance --extra langgraph --extra langgraph-gateway"
+        in candidate_script
+    )
+    assert (
+        "uv sync --frozen --group gateway-conformance --extra langgraph --extra langgraph-gateway"
+        in langgraph_script
+    )
+    assert f"--compatibility {snapshot}" in candidate_script
+    upload = next(
+        step
+        for step in _steps(jobs["candidate"])
+        if step.get("name") == "Upload candidate identity"
+    )
+    assert snapshot in upload["with"]["path"]
+    assert any(
+        step.get("with", {}).get("name") == "candidate-identity"
+        and "download-artifact" in step.get("uses", "")
+        for step in _steps(jobs["langgraph"])
+    )
+    assert "candidate_compatibility verify" in langgraph_script
+    assert "candidate_compatibility results" in langgraph_script
+    assert f"--snapshot {snapshot}" in langgraph_script
+    assert "--identity release/evidence/candidate-identity.json" in langgraph_script
+    assert "cp release/langgraph/compatibility.json" not in langgraph_script
+    assert "--manifest release/langgraph/release-manifest.json" not in langgraph_script
+    assert langgraph_script.index("candidate_compatibility verify") < langgraph_script.index(
+        "-m langgraph_conformance"
+    )
+    assert langgraph_script.index("candidate_compatibility results") > langgraph_script.index(
+        "harness.py benchmark"
+    )

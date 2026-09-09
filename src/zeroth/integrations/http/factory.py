@@ -32,6 +32,7 @@ a process-wide cache, which :func:`reset_process_cache` clears.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import math
 from typing import TYPE_CHECKING, Any
@@ -233,6 +234,18 @@ def client_cache(app: Any | None = None) -> GovernedClientCache:
     return cache
 
 
+@functools.lru_cache(maxsize=1)
+def _default_ssl_context() -> Any:
+    """Build the default TLS context once.
+
+    ``httpx.AsyncClient()`` otherwise creates a fresh context per client, which
+    means parsing the CA bundle every time: about 4 ms of loop-blocking work
+    each, 400 ms for a hundred short-lived clients constructed at once. One
+    shared context is what httpx recommends and costs nothing to share.
+    """
+    return httpx.create_ssl_context()
+
+
 async def governed_async_client(
     *,
     purpose: str,
@@ -271,6 +284,8 @@ async def governed_async_client(
         # that distinguishes clients by a value the client does not carry hands
         # back something configured for a different upstream.
         extra: dict[str, Any] = {"base_url": base_url} if base_url else {}
+        if transport is None:
+            extra["verify"] = _default_ssl_context()
         client = httpx.AsyncClient(
             timeout=httpx.Timeout(seconds),
             limits=DEFAULT_LIMITS,

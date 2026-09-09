@@ -17,11 +17,12 @@ from urllib.parse import urlparse
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_litellm import ChatLiteLLM
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from zeroth.governance.audit.models import TokenUsage
 from zeroth.platform.measurement import MeasurementState
 from zeroth.platform.secrets import SecretResolutionError, resolve_secret_async
+from zeroth.runtime.agents.errors import AgentOutputValidationError
 from zeroth.runtime.agents.models import ModelParams, PromptMessage
 from zeroth.runtime.agents.response_format import build_response_format
 from zeroth.runtime.agents.tooling.tool_calls import NormalizedToolCall, extract_tool_calls
@@ -391,7 +392,14 @@ class LiteLLMProviderAdapter:
                     token_usage=token_usage,
                     metadata=self._response_metadata(ai_message, request.model_name),
                 )
-            parsed: BaseModel = request.output_model.model_validate_json(ai_message.content)
+            try:
+                parsed: BaseModel = request.output_model.model_validate_json(ai_message.content)
+            except ValidationError as exc:
+                # The provider completed the call; its structured payload failed
+                # the caller's output contract. Keep this on the validation path
+                # so retry_on_validation_error applies and callers do not mistake
+                # malformed model output for a transport/provider outage.
+                raise AgentOutputValidationError(str(exc)) from exc
             return ProviderResponse(
                 content=parsed,
                 raw=ai_message,

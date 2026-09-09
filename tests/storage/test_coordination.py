@@ -497,6 +497,40 @@ async def test_postgres_ordinary_transaction_preserves_query_cancellation() -> N
 
 
 @pytest.mark.asyncio
+async def test_postgres_transaction_cleanup_survives_repeated_task_cancellation() -> None:
+    exit_started = asyncio.Event()
+    allow_exit = asyncio.Event()
+    exit_completed = asyncio.Event()
+
+    class _BlockingExit(_AsyncContext):
+        async def __aexit__(self, *_args: object) -> None:
+            exit_started.set()
+            await allow_exit.wait()
+            exit_completed.set()
+
+    class _CleanupConnection(_PostgresConnection):
+        def transaction(self) -> _BlockingExit:
+            return _BlockingExit(self)
+
+    database = AsyncPostgresDatabase(_PostgresPool(_CleanupConnection()))  # type: ignore[arg-type]
+
+    async def hold() -> None:
+        async with database.transaction():
+            await asyncio.Future()
+
+    task = asyncio.create_task(hold())
+    await asyncio.sleep(0)
+    task.cancel()
+    await exit_started.wait()
+    task.cancel()
+    allow_exit.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert exit_completed.is_set()
+
+
+@pytest.mark.asyncio
 async def test_postgres_create_validates_timeout_before_opening_pool() -> None:
     with patch("zeroth.platform.storage.async_postgres.AsyncConnectionPool") as pool_type:
         with pytest.raises(ValueError, match="finite positive"):

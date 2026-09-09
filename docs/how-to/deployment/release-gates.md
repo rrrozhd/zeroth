@@ -266,7 +266,9 @@ docker run --rm --platform linux/arm64 --network "$NETWORK" --cpus 2 --memory 8g
   -e ZEROTH_LOAD_POSTGRES_STARTED_AT="$POSTGRES_STARTED_AT" \
   -e ZEROTH_LOAD_REDIS_INSTANCE_ID="$REDIS_INSTANCE_ID" \
   -e ZEROTH_LOAD_REDIS_STARTED_AT="$REDIS_STARTED_AT" \
-  "$RUNTIME" sh -c 'python -m pip install uv==0.11.6 && \
+  "$RUNTIME" sh -c 'apt-get update && \
+  apt-get install -y --no-install-recommends git ca-certificates && \
+  git --version && python -m pip install uv==0.11.6 && \
   uv sync --frozen --all-groups --all-extras && uv run pytest -q \
   tests/load_release/test_product_profiles.py::test_real_product_fairness_fault_and_overload_evidence && \
   uv run python release/load/receipt.py candidate \

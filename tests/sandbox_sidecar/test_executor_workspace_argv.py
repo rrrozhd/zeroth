@@ -98,10 +98,15 @@ def _workspace_executor(
     captured: dict[str, list[str]] = {}
 
     async def fake_exec(*cmd, **_kwargs):
-        captured["cmd"] = list(cmd)
+        captured["start"] = list(cmd)
         return _FakeProc()
 
-    monkeypatch.setattr(executor, "_run_cmd", AsyncMock(return_value=(b"", b"")))
+    async def control(*cmd):
+        if cmd[1] == "create":
+            captured["cmd"] = list(cmd)
+        return b"", b""
+
+    monkeypatch.setattr(executor, "_run_cmd", control)
     monkeypatch.setattr(executor, "_run_staging_cmd", run_staging_cmd)
     monkeypatch.setattr(
         "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec", fake_exec
@@ -341,9 +346,7 @@ async def test_finalize_removes_volumes_on_workload_error(
     assert status is not None and status.status == "failed"
 
 
-async def test_volume_removal_retries_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_volume_removal_retries_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     executor, _, _ = _workspace_executor(tmp_path, monkeypatch)
     attempts: list[tuple[str, ...]] = []
 

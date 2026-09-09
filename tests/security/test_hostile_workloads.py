@@ -516,14 +516,22 @@ async def test_completed_status_is_immutable_during_cleanup_and_id_cannot_replay
     )
     await rm_entered.wait()
     before = await executor.get_status("immutable")
-    await executor.cancel("immutable")
-    after = await executor.get_status("immutable")
-    assert before is not None and before.status == "completed"
-    assert after == before
+    cancellation = asyncio.create_task(executor.cancel("immutable"))
+    try:
+        # A terminal process does not mean its resources have been removed.
+        # Let cancel enter its wait while finalization is deliberately paused.
+        await asyncio.sleep(0)
+        assert not cancellation.done()
+        after = await executor.get_status("immutable")
+        assert before is not None and before.status == "completed"
+        assert after == before
 
-    with pytest.raises(SandboxPolicyViolationError):
-        await executor.execute(
-            SidecarExecuteRequest(execution_id="immutable", image="python", command=["replay"])
-        )
-    release_rm.set()
-    await task
+        with pytest.raises(SandboxPolicyViolationError):
+            await executor.execute(
+                SidecarExecuteRequest(execution_id="immutable", image="python", command=["replay"])
+            )
+    finally:
+        release_rm.set()
+        await task
+        assert await cancellation is True
+    assert await executor.get_status("immutable") == before

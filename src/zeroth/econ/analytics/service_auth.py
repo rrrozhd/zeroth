@@ -45,7 +45,7 @@ def mint_econ_service_token(tenant_id: str | None = None) -> str | None:
     degradation path (budget checks deny by default).
     """
     try:
-        from jose import jwt
+        import jwt
 
         from zeroth.econ.plane.config import settings as ecp_settings
     except Exception:  # noqa: BLE001 - missing extra or import-time failure

@@ -238,3 +238,69 @@ async def test_unsigned_child_notification_rolls_parent_schedule_back(sqlite_db)
     assert persisted_parent is not None
     assert persisted_parent.status is RunStatus.WAITING_APPROVAL
     assert "child_approval_continuation" not in persisted_parent.metadata
+
+
+async def test_reconciliation_skips_history_without_waiting_runs(sqlite_db, monkeypatch) -> None:
+    """Idle sweeps must not deserialize all historical approvals and run ancestry."""
+    from unittest.mock import AsyncMock
+
+    runs = RunRepository.for_default_compatibility(sqlite_db)
+    approvals = ApprovalRepository(sqlite_db)
+    service = ApprovalService(repository=approvals, run_repository=runs)
+    # A waiter in another deployment must not trigger this deployment's scan.
+    await _paused_family(runs, parent_deployment="other", parent_graph="other:v1")
+    history = AsyncMock(wraps=approvals.list)
+    monkeypatch.setattr(approvals, "list", history)
+
+    assert (
+        await service.reconcile_ancestor_continuations(
+            deployment_ref="idle-deployment", graph_version_ref="idle:v1"
+        )
+        == []
+    )
+    history.assert_not_awaited()
+
+
+async def test_reconciliation_rechecks_waiter_arriving_after_empty_read(
+    sqlite_db, monkeypatch
+) -> None:
+    """A race with the empty hint defers work to the next sweep, without losing it."""
+    signer = EnvHmacSigner(key_id="sweep-race", keys={"sweep-race": b"test-key"})
+    runs = RunRepository.for_default_compatibility(sqlite_db)
+    audit = AuditRepository.for_default_compatibility(sqlite_db, signer=signer)
+    service = ApprovalService(
+        repository=ApprovalRepository(sqlite_db), run_repository=runs, audit_repository=audit
+    )
+    original = runs.list_runs
+    arrived = False
+
+    async def list_then_arrive(*args, **kwargs):
+        nonlocal arrived
+        result = await original(*args, **kwargs)
+        if not arrived:
+            arrived = True
+            _parent, child = await _paused_family(runs)
+            pending = await service.create_pending(
+                run=child, node=_approval_node("nested-approval"), input_payload={}
+            )
+            await service.resolve(
+                pending.approval_id,
+                decision=ApprovalDecision.APPROVE,
+                actor=ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY),
+            )
+        return result
+
+    monkeypatch.setattr(runs, "list_runs", list_then_arrive)
+    scope = {"deployment_ref": "parent-deployment", "graph_version_ref": "parent-graph:v1"}
+    assert await service.reconcile_ancestor_continuations(**scope) == []
+    assert arrived, "reconciliation must make a fresh, scoped waiting-run query"
+    resumed = await service.reconcile_ancestor_continuations(**scope)
+    assert [run.run_id for run in resumed] == ["parent-run"]
+    assert resumed[0].status is RunStatus.PENDING
+    assert await service.reconcile_ancestor_continuations(**scope) == []
+    records = [
+        r
+        for r in await audit.list_by_run("parent-run")
+        if r.status == "child_approval_continuation_scheduled"
+    ]
+    assert len(records) == 1 and records[0].record_signature is not None
