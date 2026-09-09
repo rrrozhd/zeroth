@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 from fractions import Fraction
+import math
 
 import pytest
 
@@ -119,6 +120,32 @@ def test_zero_baseline_remains_undefined():
     assert report.verdict == "abstain"
     assert report.cost_per_outcome_change is None
     assert "cost_per_outcome_comparison_unavailable" in report.reason_codes
+
+
+@pytest.mark.parametrize("candidate_cost", ["0.00000001", "0.0000001", "0.000001"])
+def test_positive_cost_ratios_near_total_savings_retain_a_finite_interval(candidate_cost):
+    baseline = _version("v1", cost="1000000000", accepted=2, labeled=2, runs=2)
+    candidate = _version("v2", cost=candidate_cost, accepted=2, labeled=2, runs=2)
+    # Two variable costs in each arm: the sample variance of log(mean cost)
+    # is 1/9 per arm. Keep the independent df=2 Student-t reference fixed.
+    baseline.runs[1].cost_usd /= 2
+    candidate.runs[1].cost_usd *= 2
+    report = compare_workflow_versions(
+        baseline, candidate,
+        policy=DecisionPolicy(min_runs=1, min_success_rate=0, max_success_rate_drop=1),
+    )
+    ratio = Decimal(candidate_cost) * 2 / Decimal("1000000000")
+    half_width = 4.302652729749464 * math.sqrt(2 / 9)
+    center = float(ratio.ln())
+    interval = report.cost_per_outcome_change_interval
+    assert interval is not None
+    assert interval.method == "delta_method_log_ratio_t"
+    assert interval.low == pytest.approx(math.expm1(center - half_width), abs=1e-16)
+    assert interval.high == pytest.approx(math.expm1(center + half_width), abs=1e-16)
+    assert math.isfinite(interval.low) and math.isfinite(interval.high)
+    assert report.verdict == "pass"
+    assert report.recommended_action == "review_candidate"
+    assert "no_statistical_causal_or_forecast_authorization" in report.limitations
 
 
 def test_undefined_cost_comparison_precedes_quality_failure():

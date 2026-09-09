@@ -408,7 +408,9 @@ def _cost_change_interval(
     if half_width == 0:
         low = high = change
     else:
-        center = math.log1p(change)
+        # Add one while the change is still exact: converting a near-total
+        # saving first can round a positive cost ratio to zero.
+        center = math.log(float(1 + exact_cost_change))
         low = math.expm1(center - half_width)
         high = math.expm1(center + half_width)
     per_observation = base_variance * len(base_costs) + cand_variance * len(cand_costs)
