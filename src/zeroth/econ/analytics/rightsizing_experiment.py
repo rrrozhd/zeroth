@@ -146,27 +146,27 @@ class EquivalenceScorer:
 
 
 _CORRECTNESS_INSTRUCTION = (
-    "An AI system answered a request. A human reviewer provided the CORRECT answer. Decide "
+    "An AI system answered a request. A CORRECT reference answer was supplied. Decide "
     "whether the AI's answer is correct — the same substantive answer, decision, or "
-    "information as the reviewer's. Wording, formatting, ordering, and paraphrase differences "
-    "are fine. A materially different answer, a wrong or missing key fact, or a refusal is NOT "
-    "correct.\n\n"
+    "information as the reference answer. Wording, formatting, ordering, and paraphrase "
+    "differences are fine. A materially different answer, a wrong or missing key fact, "
+    "or a refusal is NOT correct.\n\n"
     'Respond ONLY with JSON of the form {{"score": <float 0..1>, "rationale": "<short '
     'reason>"}} where 1.0 means fully correct and 0.0 means wrong.\n\n'
-    "Request:\n{request}\n\nCorrect answer (from a human reviewer):\n{reference}\n\n"
+    "Request:\n{request}\n\nSupplied reference answer:\n{reference}\n\n"
     "AI answer:\n{candidate}"
 )
 _CORRECTNESS_PASS_THRESHOLD = 0.7
 
 
 class CorrectnessScorer:
-    """LLM judge for absolute correctness against a human-provided answer (ECON-RIGHTSIZE-04).
+    """LLM judge for correctness against a supplied reference answer (ECON-RIGHTSIZE-04).
 
     Unlike :class:`EquivalenceScorer` (candidate vs the incumbent's own output), this grades
-    the candidate against the reviewer's CORRECT answer — so a cheaper model is judged on
+    the candidate against the supplied reference answer — so a cheaper model is judged on
     whether it is *right*, not merely on whether it matches the model you're replacing. It is
-    the honest bar for high-stakes nodes: equivalence inherits the incumbent's mistakes;
-    correctness catches them. Same errored-not-zero rail as the equivalence judge.
+    a reference-based comparison; reference provenance and judge validity require separate
+    assessment. Same errored-not-zero rail as the equivalence judge.
     A supplied ``instruction`` adds workflow context without changing the case input.
     """
 
@@ -186,7 +186,7 @@ class CorrectnessScorer:
         self._instruction = instruction
 
     async def score(self, output: object, case: EvalCase) -> Score:
-        """Judge whether ``output`` is correct against ``case.expected`` (the human answer)."""
+        """Judge correctness against the supplied reference in ``case.expected``."""
         request_input = case.input
         if self._instruction is not None:
             request_input = {"workflow_instruction": self._instruction, "case_input": case.input}
@@ -841,7 +841,7 @@ class HostedModelBacktest:
             } for option in (incumbent, candidate)},
             usage_by_role={role: meter.usage() for role, meter in meters.items()},
             evaluation_evidence=BacktestEvaluationEvidence(
-                version="correctness-replay/2",
+                version="correctness-replay/3",
                 incumbent_model=incumbent.ref,
                 candidate_model=candidate.ref,
                 judge_model=incumbent.ref,

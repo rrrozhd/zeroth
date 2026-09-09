@@ -78,12 +78,12 @@ async def test_replay_cost_uses_each_models_usage_and_excludes_judging(payload, 
     assert result.provider_calls == provider.calls == 20
     evidence = result.evaluation_evidence
     assert evidence is not None
-    assert evidence.version == "correctness-replay/2"
+    assert evidence.version == "correctness-replay/3"
     assert evidence.incumbent_model == evidence.judge_model == "openai/incumbent"
     assert evidence.candidate_model == "openai/candidate"
     assert evidence.parameters == "provider_defaults"
     assert evidence.pass_threshold == 0.7
-    assert evidence.rubric_sha256 == "111bcc8c3902da65ae747039b1c02a3e5a40b9034758d5caa9e053bdd64c0b94"
+    assert evidence.rubric_sha256 == "d1cb8f991e0e118b98c473f35adcdd712e9325b0ca6c839271e7d4578d679b0f"
     assert [case.case_index for case in evidence.cases] == list(range(5))
     assert all(case.incumbent.score == case.candidate.score == 1 for case in evidence.cases)
     assert all(case.incumbent.status == case.candidate.status == "passed" for case in evidence.cases)
@@ -268,7 +268,7 @@ def test_cost_evidence_survives_http_retention_and_exact_retry(payload, tmp_path
     assert client.get("/v1/backtests", headers=headers).json() == [first.json()]
     assert provider.calls == 20
     result = first.json()
-    assert result["evaluation_evidence"]["version"] == "correctness-replay/2"
+    assert result["evaluation_evidence"]["version"] == "correctness-replay/3"
     assert len(result["evaluation_evidence"]["cases"]) == 5
     assert payload.instruction not in first.text
     assert '"case_id"' not in first.text
@@ -282,15 +282,19 @@ def test_cost_evidence_survives_http_retention_and_exact_retry(payload, tmp_path
         assert result["usage_by_role"]["candidate"]["observed_output_tokens"] == 5000
         assert result["pricing_snapshot"]["openai/candidate"]["output_per_mtok_usd"] == "2.0"
 
-    # Retained /1 evidence, including an older omitted version, must not acquire
-    # the new judge-context semantics through a read or an exact retry.
-    legacy_result = {**result, "evaluation_evidence": {
-        **result["evaluation_evidence"], "version": "correctness-replay/1",
-    }}
-    for stored_version in ("correctness-replay/1", None):
+    # Older evidence must not acquire the new rubric or version through a read
+    # or an exact retry, including when the historical version was omitted.
+    old_rubric = "111bcc8c3902da65ae747039b1c02a3e5a40b9034758d5caa9e053bdd64c0b94"
+    for stored_version in ("correctness-replay/1", "correctness-replay/2", None):
+        legacy_result = {**result, "evaluation_evidence": {
+            **result["evaluation_evidence"],
+            "version": stored_version or "correctness-replay/1",
+            "rubric_sha256": old_rubric,
+        }}
         with Session(engine) as session:
             record = session.get(EconomicBacktestRecord, result["backtest_id"])
             stored_evidence = dict(record.report_json["evaluation_evidence"])
+            stored_evidence["rubric_sha256"] = old_rubric
             if stored_version is None:
                 stored_evidence.pop("version")
             else:

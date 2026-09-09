@@ -29,7 +29,9 @@ class BacktestEvaluationEvidence(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal["correctness-replay/1", "correctness-replay/2"] = "correctness-replay/1"
+    version: Literal[
+        "correctness-replay/1", "correctness-replay/2", "correctness-replay/3"
+    ] = "correctness-replay/1"
     incumbent_model: str
     candidate_model: str
     judge_model: str

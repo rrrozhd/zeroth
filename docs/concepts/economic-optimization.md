@@ -177,26 +177,27 @@ The correctness judge receives the workflow `instruction` and each case's `input
 alongside its `expected` answer and replay output. Put shared policy in `instruction`
 and case-specific facts in `cases[].input`. The judge's request groups these as
 `workflow_instruction` and `case_input`; replay still receives the original input.
-The judge prompt describes `expected` as a human-provided correct answer; review
-the reference before using it. For a task that produces both a decision and a
-customer reply, provide a complete reference covering the reply's required facts,
+The judge prompt treats `expected` as a supplied correct reference; assess its
+validity and record its provenance before using it. For a task that produces both
+a decision and a customer reply, provide a complete reference covering the required facts,
 clarifications and permitted promises. Agreement on the decision field alone does
 not establish correctness of the whole response. These input requirements do not
 establish judge calibration or replace independent held-out validation.
 
 New backtests retain `evaluation_evidence` with the catalog-resolved incumbent,
-candidate and judge model references, evaluator version `correctness-replay/2`,
+candidate and judge model references, evaluator version `correctness-replay/3`,
 the correctness rubric hash and the existing 0.7 score threshold. The incumbent
 is also the judge. `parameters="provider_defaults"` means no parameter overrides
 were submitted; provider defaults and model-alias revisions are not frozen.
 Candidate settings other than `model` abstain before provider work; ignored
 temperature, retry or prompt settings cannot produce a comparison of that change.
 
-Version `correctness-replay/2` includes the workflow instruction in both arms'
-judge requests. Version `/1` sent that instruction only to replay; its judge relied
-on context included in the case input. Historical `/1` evidence and exact retries
-retain their original version and result. The rubric template and 0.7 threshold
-are unchanged; the evaluator version identifies the changed context assembly.
+Version `correctness-replay/3` describes the reference without asserting human
+authorship. Version `/2` introduced the workflow instruction in both arms' judge
+requests; `/1` sent it only to replay and relied on context in the case input for
+judging. Historical `/1` and `/2` evidence and exact retries retain their original
+version, rubric hash and result. The 0.7 threshold and correctness criteria are
+unchanged; the new rubric hash identifies the provenance wording change.
 
 Each evidence entry pairs incumbent and candidate scores by `case_index`, the
 zero-based position in the case list bound by the request digest. `passed` and

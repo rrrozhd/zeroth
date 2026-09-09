@@ -105,7 +105,7 @@ async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(
     judges = [r for r in provider.requests if r.output_model is not None]
     assert len(judges) == 10
     contexts = [
-        json.loads(r.messages[0]["content"].split("Request:\n", 1)[1].split("\n\nCorrect answer", 1)[0])
+        json.loads(r.messages[0]["content"].split("Request:\n", 1)[1].split("\n\nSupplied reference answer", 1)[0])
         for r in judges
     ]
     assert contexts == [
