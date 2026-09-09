@@ -1,76 +1,96 @@
+"""Statistics helpers used by the costing and counterfactual services.
+
+The estimators live in :mod:`zeroth.econ.plane.statistics.intervals`; this module keeps
+the names the rest of the plane imports and the confidence-gate policy.
+"""
+
 from __future__ import annotations
 
-from math import sqrt
-from numbers import Integral, Real
-from statistics import NormalDist, mean, pstdev
+from collections.abc import Sequence
 
-import numpy as np
+from zeroth.econ.plane.statistics.intervals import (
+    BOOTSTRAP_ITERATIONS,
+    HIGH_VARIANCE_CV,
+    MIN_BOOTSTRAP_SAMPLE,
+    bootstrap_t_mean_interval,
+    relative_interval_width,
+    student_t_mean_interval,
+    wilson_interval,
+)
 
-
-def _normal_quantile(confidence: float) -> float:
-    if not isinstance(confidence, Real) or not 0 < confidence < 1:
-        raise ValueError("confidence must be strictly between zero and one")
-    # The lower tail avoids rounding (1 + confidence) / 2 to 1 near full confidence.
-    return -NormalDist().inv_cdf((1 - confidence) / 2)
-
-
-def hierarchical_interval(values: list[float], prior_mean: float = 0.0, prior_weight: float = 5.0, confidence: float = 0.95) -> tuple[float, float, float]:
-    z = _normal_quantile(confidence)
-    if not values:
-        return prior_mean, prior_mean - 1.0, prior_mean + 1.0
-
-    n = len(values)
-    sample_mean = mean(values)
-    post_mean = ((prior_mean * prior_weight) + (sample_mean * n)) / (prior_weight + n)
-    sigma = pstdev(values) if n > 1 else max(abs(sample_mean) * 0.25, 1.0)
-    se = sigma / sqrt(max(n, 1))
-    return post_mean, post_mean - z * se, post_mean + z * se
+__all__ = [
+    "bootstrap_interval",
+    "build_confidence_breakdown",
+    "confidence_gate",
+    "hierarchical_interval",
+    "mean_interval",
+    "relative_interval_width",
+    "wilson_interval",
+]
 
 
-def wilson_interval(successes: int, n: int, confidence: float = 0.95) -> tuple[float, float, float]:
-    z = _normal_quantile(confidence)
-    if (
-        not isinstance(successes, Integral) or isinstance(successes, bool)
-        or not isinstance(n, Integral) or isinstance(n, bool)
-        or not 0 <= successes <= n
-    ):
-        raise ValueError("counts must be integers satisfying 0 <= successes <= n")
-    if n == 0:
-        return 0.0, 0.0, 1.0
-    phat = successes / n
-    denom = 1 + (z * z / n)
-    center = (phat + (z * z) / (2 * n)) / denom
-    radius = (z * sqrt((phat * (1 - phat) / n) + (z * z / (4 * n * n)))) / denom
-    # Score-test roots are exactly 0/1 at zero/all successes; preserve those
-    # boundaries when center +/- radius loses an ulp to floating-point rounding.
-    low = 0.0 if successes == 0 else max(0.0, center - radius)
-    high = 1.0 if successes == n else min(1.0, center + radius)
-    return center, low, high
+def mean_interval(values: Sequence[float], confidence: float = 0.95) -> tuple[float, float, float]:
+    """Student-t interval for the mean as ``(mean, low, high)``.
+
+    A single observation returns its value three times; callers that need to know the
+    width is undefined should use ``student_t_mean_interval`` and read ``defined``.
+    """
+    estimate = student_t_mean_interval(values, confidence)
+    return estimate.mean, estimate.low, estimate.high
 
 
-def bootstrap_interval(values: list[float], confidence: float = 0.95, iters: int = 800) -> tuple[float, float, float]:
-    if not values:
-        return 0.0, 0.0, 0.0
-    arr = np.array(values, dtype=float)
-    if len(arr) == 1:
-        v = float(arr[0])
-        return v, v, v
-    rng = np.random.default_rng(7)
-    sample_means = []
-    for _ in range(iters):
-        idx = rng.integers(0, len(arr), size=len(arr))
-        sample_means.append(float(arr[idx].mean()))
-    lower_q = (1.0 - confidence) / 2.0
-    upper_q = 1.0 - lower_q
-    return float(arr.mean()), float(np.quantile(sample_means, lower_q)), float(np.quantile(sample_means, upper_q))
+def hierarchical_interval(
+    values: Sequence[float],
+    prior_mean: float = 0.0,
+    prior_weight: float = 5.0,
+    confidence: float = 0.95,
+) -> tuple[float, float, float]:
+    """Compatibility name for :func:`mean_interval`.
+
+    The estimator this name used to denote shrank the sample mean toward ``prior_mean``
+    by ``n / (n + prior_weight)`` and covered the true mean 1% to 65% of the time at a
+    nominal 95%. The prior arguments are accepted and ignored so existing imports keep
+    working; the returned interval is the Student-t interval on the sample.
+    """
+    del prior_mean, prior_weight
+    return mean_interval(values, confidence)
 
 
-def relative_interval_width(mean_value: float, low: float, high: float) -> float:
-    denom = max(abs(mean_value), 1e-6)
-    return max(0.0, (high - low) / denom)
+def bootstrap_interval(
+    values: Sequence[float], confidence: float = 0.95, iters: int = BOOTSTRAP_ITERATIONS
+) -> tuple[float, float, float]:
+    """Bootstrap-t interval for the mean as ``(mean, low, high)``.
+
+    Below ``MIN_BOOTSTRAP_SAMPLE`` observations the Student-t interval is returned
+    instead; the resampling distribution of a handful of points does not represent the
+    population it was drawn from.
+    """
+    if len(values) < MIN_BOOTSTRAP_SAMPLE:
+        return mean_interval(values, confidence)
+    estimate = bootstrap_t_mean_interval(values, confidence, iterations=iters)
+    return estimate.mean, estimate.low, estimate.high
 
 
-def confidence_gate(confidence_level: float, rel_width: float, min_conf: float = 0.95, max_rel: float = 0.30) -> bool:
+def confidence_gate(
+    confidence_level: float,
+    rel_width: float,
+    min_conf: float = 0.95,
+    max_rel: float = 0.30,
+    *,
+    sample_size: int | None = None,
+    min_sample_size: int = MIN_BOOTSTRAP_SAMPLE,
+) -> bool:
+    """Whether an interval is tight enough, at a high enough level, on enough data.
+
+    ``confidence_level`` is the nominal level the interval was computed at. Requiring
+    it to reach ``min_conf`` is a precondition for the width test, not evidence: a
+    narrower interval at a lower level says nothing about precision at the level the
+    gate is configured for. The evidence is ``rel_width`` and ``sample_size``; below
+    ``min_sample_size`` no reported width is trusted because the small-sample
+    estimators under-cover (see ``MIN_BOOTSTRAP_SAMPLE``).
+    """
+    if sample_size is not None and sample_size < min_sample_size:
+        return False
     return confidence_level >= min_conf and rel_width <= max_rel
 
 
@@ -83,8 +103,15 @@ def build_confidence_breakdown(
     drift_state: str,
     cost_data_quality: str,
 ) -> dict:
-    sample_size_ok = sample_size >= 30
-    variance_ok = variance <= 1.0
+    """Reason codes explaining why an estimate is or is not trustworthy.
+
+    ``variance`` is the coefficient of variation of the per-outcome values; the
+    ``HIGH_VARIANCE`` code marks a rare-positive or heavy-tailed proxy
+    (``HIGH_VARIANCE_CV``), not sample noise, which ``LOW_N`` and the relative width
+    already cover.
+    """
+    sample_size_ok = sample_size >= MIN_BOOTSTRAP_SAMPLE
+    variance_ok = variance <= HIGH_VARIANCE_CV
     drift_ok = drift_state != "critical"
 
     reason_codes: list[str] = []

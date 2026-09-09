@@ -1,32 +1,43 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from statistics import mean, pstdev
+from types import SimpleNamespace
 from typing import Optional
 
 from sqlalchemy import select
 
+from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.plane.capabilities.models import Capability, Implementation
-from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.costing.service import PricingCatalogReader, estimate_cost_for_period
-from zeroth.econ.plane.counterfactual.models import ValueEstimate, ValuationRun
+from zeroth.econ.plane.counterfactual.models import ValuationRun, ValueEstimate
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest
 from zeroth.econ.plane.instrumentation.charge_costs import CostAmounts, resolve_costs
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
-from zeroth.econ.measurement import MeasurementState
+from zeroth.econ.plane.statistics.intervals import (
+    DRIFT_CRITICAL_SCORE,
+    DRIFT_WARNING_SCORE,
+    MIN_BOOTSTRAP_SAMPLE,
+    binary_dollar_interval,
+    coefficient_of_variation,
+    mean_shift_score,
+    student_t_mean_interval,
+)
 from zeroth.econ.plane.statistics.service import (
     bootstrap_interval,
     build_confidence_breakdown,
     confidence_gate,
-    hierarchical_interval,
     relative_interval_width,
-    wilson_interval,
 )
 
-_DRIFT_WARNING = 0.15
-_DRIFT_CRITICAL = 0.3
+#: Drift thresholds in standard-error units of the recent-window mean shift; see
+#: ``mean_shift_score``. The earlier ``|last - mean| / |mean|`` score fired ``critical``
+#: on every binary proxy by construction (a $120/$0 conversion series scores 1.0 or
+#: infinity on each observation) and read the last row of an unordered query.
+_DRIFT_WARNING = DRIFT_WARNING_SCORE
+_DRIFT_CRITICAL = DRIFT_CRITICAL_SCORE
 
 
 def _require_exact_scoped_session(db: object) -> ScopedSession:
@@ -103,6 +114,25 @@ def _proxy_value_for_outcome(outcome: OutcomeEvent, formula_id: str, params: dic
     return 10.0
 
 
+def _binary_class_values(outcome_type: str, formula_id: str, params: dict) -> tuple[float, float]:
+    """Per-class proxy dollars for a binary outcome type, taken from the formula.
+
+    Evaluating the formula on a synthetic positive and negative outcome yields the
+    exact per-class values (constants, or ``proxy_parameters``) without depending on
+    which classes the sample happened to contain.
+    """
+    positive = SimpleNamespace(
+        outcome_type=outcome_type, outcome_value="1", outcome_payload_json={}
+    )
+    negative = SimpleNamespace(
+        outcome_type=outcome_type, outcome_value="0", outcome_payload_json={}
+    )
+    return (
+        _proxy_value_for_outcome(positive, formula_id, params),
+        _proxy_value_for_outcome(negative, formula_id, params),
+    )
+
+
 def _join_rate(executions: list[ExecutionEvent], outcomes: list[OutcomeEvent]) -> float:
     if not executions:
         return 0.0
@@ -111,40 +141,48 @@ def _join_rate(executions: list[ExecutionEvent], outcomes: list[OutcomeEvent]) -
     return len(keys.intersection(out_keys)) / max(len(keys), 1)
 
 
-def _pick_interval(values: list[float], outcomes: list[OutcomeEvent], confidence: float, mode: str) -> tuple[str, float, float, float]:
+def _pick_interval(
+    values: list[float],
+    outcomes: list[OutcomeEvent],
+    confidence: float,
+    mode: str,
+    formula_id: str = "default_proxy",
+    proxy_params: dict | None = None,
+) -> tuple[str, float, float, float]:
+    """Interval for the period's proxy dollars: ``(method, estimate, low, high)``.
+
+    ``mode`` is accepted for call compatibility; the estimator is chosen by outcome
+    shape and sample size, not by evaluation mode. A single binary outcome type maps the
+    Wilson band on the positive rate through the formula's per-class dollar values, so
+    the interval keeps its width when one class has not been observed yet (the earlier
+    observed-class-mean mapping collapsed to ``[0, 0]`` whenever no positive had been
+    seen). Everything else uses the bootstrap-t from ``MIN_BOOTSTRAP_SAMPLE``
+    observations and the Student-t interval below it.
+    """
+    del mode
     binary_types = {"conversion", "fraud_flag"}
-    if outcomes and all(o.outcome_type in binary_types for o in outcomes):
-        pos_values: list[float] = []
-        neg_values: list[float] = []
-        for value, o in zip(values, outcomes, strict=False):
+    outcome_types = {o.outcome_type for o in outcomes}
+    if outcomes and len(outcome_types) == 1 and outcome_types <= binary_types:
+        positives = 0
+        for o in outcomes:
             v = _parse_outcome_value(o)
             truthy = bool(v) if isinstance(v, bool) else str(v).lower() in {"true", "1"}
-            (pos_values if truthy else neg_values).append(value)
-        positives = len(pos_values)
-        _p_mean, low_p, high_p = wilson_interval(positives, len(outcomes), confidence=confidence)
-        # Re-denominate the proportion CI into DOLLARS (audit B6). This branch used
-        # to return a success COUNT (p * total) as the headline value — a ~120x
-        # understatement for conversion ($120/positive) and a sign flip for fraud
-        # (positive count vs a net-negative dollar proxy). Each outcome is worth its
-        # own proxy dollars, so the point estimate is the proxy dollar sum, and the
-        # Wilson band on the positive rate is mapped through the per-group mean
-        # dollar values (sorted, since a mixed-sign proxy inverts the mapping).
-        total = len(outcomes)
-        v_pos = (sum(pos_values) / len(pos_values)) if pos_values else 0.0
-        v_neg = (sum(neg_values) / len(neg_values)) if neg_values else 0.0
+            positives += truthy
+        v_pos, v_neg = _binary_class_values(
+            next(iter(outcome_types)), formula_id, proxy_params or {}
+        )
+        estimate, ci_low, ci_high = binary_dollar_interval(
+            positives, len(outcomes), v_pos, v_neg, confidence
+        )
+        return "wilson_binomial", estimate, ci_low, ci_high
 
-        def _dollars(p: float) -> float:
-            return total * (p * v_pos + (1.0 - p) * v_neg)
-
-        ci_low, ci_high = sorted((_dollars(low_p), _dollars(high_p)))
-        return "wilson_binomial", sum(values), ci_low, ci_high
-
-    if mode == "PROXY" or len(values) >= 30:
+    if len(values) >= MIN_BOOTSTRAP_SAMPLE:
         mu, low, high = bootstrap_interval(values, confidence=confidence)
-        return "bootstrap_percentile", mu * len(values), low * len(values), high * len(values)
+        return "bootstrap_t", mu * len(values), low * len(values), high * len(values)
 
-    mu, low, high = hierarchical_interval(values, prior_mean=0.0, confidence=confidence)
-    return "hierarchical_bayes", mu * len(values), low * len(values), high * len(values)
+    interval = student_t_mean_interval(values, confidence)
+    n = len(values)
+    return interval.method, interval.mean * n, interval.low * n, interval.high * n
 
 
 def _arms_summary(executions: list[ExecutionEvent], outcome_values: dict[str, float], costs: dict[int, CostAmounts]) -> dict:
@@ -212,6 +250,9 @@ def run_evaluation(
         outcome_stmt = outcome_stmt.where(
             OutcomeEvent.implementation_id == payload.implementation_id
         )
+    # Time order is what makes the drift window a window; an unordered scan made
+    # "the last outcome" whichever row the engine returned last.
+    outcome_stmt = outcome_stmt.order_by(OutcomeEvent.occurred_at, OutcomeEvent.id)
     outcomes = list(db.execute(outcome_stmt).scalars())
 
     join_lookup = {e.join_key or e.execution_id: e for e in executions}
@@ -255,19 +296,24 @@ def run_evaluation(
         key = outcome.join_key or outcome.execution_id
         outcome_by_key[key] = outcome_by_key.get(key, 0.0) + value
 
-    interval_method, estimated_value, ci_low, ci_high = _pick_interval(proxy_values, filtered_outcomes, payload.confidence_level, method)
+    interval_method, estimated_value, ci_low, ci_high = _pick_interval(
+        proxy_values,
+        filtered_outcomes,
+        payload.confidence_level,
+        method,
+        formula_id=formula_id,
+        proxy_params=proxy_params,
+    )
 
     rel_width = relative_interval_width(estimated_value, ci_low, ci_high)
     gate_cfg = valuation_config.get("confidence_gate") or {}
     min_conf = float(gate_cfg.get("min_confidence_level", settings.confidence_gate_level))
     max_rel = float(gate_cfg.get("max_relative_width", settings.confidence_gate_rel_width))
 
-    drift_score = 0.0
-    if proxy_values:
-        drift_score = abs((proxy_values[-1] - mean(proxy_values)) / (abs(mean(proxy_values)) + 1e-6))
+    drift_score = mean_shift_score(proxy_values)
     drift_state = _drift_state(drift_score)
 
-    variance = pstdev(proxy_values) if len(proxy_values) > 1 else 0.0
+    variance = coefficient_of_variation(proxy_values)
     provenance_ok = sum(1 for o in filtered_outcomes if o.provenance == "MEASURED") >= max(1, int(len(filtered_outcomes) * 0.5))
     calibration_ok = True
     baseline_ok = len(executions) >= 20
@@ -284,7 +330,13 @@ def run_evaluation(
     if join_rate < 0.7:
         breakdown["reason_codes"].append("OUTCOME_JOIN_RATE_LOW")
 
-    gate_passed = confidence_gate(payload.confidence_level, rel_width, min_conf=min_conf, max_rel=max_rel)
+    gate_passed = confidence_gate(
+        payload.confidence_level,
+        rel_width,
+        min_conf=min_conf,
+        max_rel=max_rel,
+        sample_size=len(proxy_values),
+    )
 
     run = ValuationRun(
         tenant_id=tenant_id,
@@ -307,6 +359,9 @@ def run_evaluation(
         "interval_method": interval_method,
         "ab_arms": arms,
         "join_rate": join_rate,
+        "drift_score_units": "standard_errors",
+        "variance_metric": "coefficient_of_variation",
+        "minimum_gate_sample_size": MIN_BOOTSTRAP_SAMPLE,
     }
 
     estimate = ValueEstimate(

@@ -19,10 +19,10 @@ def test_wilson_endpoints_invert_the_score_test(confidence, z, n) -> None:
     # NIST e-Handbook 7.2.4.1: invert the score test, rather than reproduce
     # the production center/radius formula. Fixed normal quantiles are references.
     for successes in {0, n // 2, n}:
-        center, low, high = wilson_interval(successes, n, confidence)
+        estimate, low, high = wilson_interval(successes, n, confidence)
         assert 0 <= low < high <= 1
         assert low <= successes / n <= high
-        assert center == pytest.approx((low + high) / 2)
+        assert estimate == pytest.approx(successes / n)
         for endpoint in (low, high):
             assert n * (endpoint - successes / n) ** 2 == pytest.approx(
                 z**2 * endpoint * (1 - endpoint), rel=1e-9, abs=1e-12
@@ -55,10 +55,10 @@ def test_no_binomial_observations_remain_uninformative() -> None:
     assert wilson_interval(0, 0) == (0, 0, 1)
 
 
-def test_legacy_mean_heuristic_also_respects_requested_normal_quantiles() -> None:
-    # This checks quantile plumbing, not the heuristic's Bayesian validity.
+def test_mean_interval_respects_requested_student_t_quantiles() -> None:
+    # Four observations have three degrees of freedom.
     _, low95, high95 = hierarchical_interval([1, 2, 3, 4], confidence=0.95)
     _, low99, high99 = hierarchical_interval([1, 2, 3, 4], confidence=0.99)
     assert (high99 - low99) / (high95 - low95) == pytest.approx(
-        2.5758293035489004 / 1.959963984540054
+        5.840909309733352 / 3.182446305284263
     )

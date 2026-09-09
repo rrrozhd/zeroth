@@ -16,10 +16,33 @@ from zeroth.econ.plane.costing.schemas import CostProfileCreate, PricingCatalogC
 from zeroth.econ.plane.instrumentation.charge_costs import resolve_costs
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
-from zeroth.econ.plane.statistics.service import hierarchical_interval
+from zeroth.econ.plane.statistics.intervals import student_t_mean_interval
 
 #: Upper bound on the calibration history a summary read materialises.
 CALIBRATION_SUMMARY_ROWS = 200
+
+#: Flat operational overhead applied to every cost component of a period estimate.
+OVERHEAD_RATE = 0.05
+
+#: ``CostEstimate.estimation_method`` labels. ``INFERRED_WIDTH_UNKNOWN`` marks a
+#: period whose single inferred sample cannot support a width; its bounds equal the
+#: total and must not be read as certainty.
+ESTIMATION_MEASURED_SUM = "measured_sum"
+ESTIMATION_STUDENT_T_INFERRED = "student_t_inferred_subset"
+ESTIMATION_INFERRED_WIDTH_UNKNOWN = "inferred_width_unknown"
+
+
+def _inferred_subset_interval(
+    total: float, inferred_samples: list[float], confidence: float = 0.95
+) -> tuple[float, float, str]:
+    """Interval bounds for a period total whose only uncertainty is its inferred subset."""
+    if not inferred_samples:
+        return total, total, ESTIMATION_MEASURED_SUM
+    estimate = student_t_mean_interval(inferred_samples, confidence)
+    if not estimate.defined:
+        return total, total, ESTIMATION_INFERRED_WIDTH_UNKNOWN
+    half = estimate.half_width * len(inferred_samples) * (1.0 + OVERHEAD_RATE)
+    return max(0.0, total - half), total + half, ESTIMATION_STUDENT_T_INFERRED
 
 
 def _require_exact_scoped_session(db: object) -> ScopedSession:
@@ -138,15 +161,12 @@ def estimate_cost_for_period(
                 ) * float(price.output_per_million_usd)
                 inferred_samples.append(token_cost)
 
-    inferred_llm_mean, inferred_low, inferred_high = hierarchical_interval(
-        inferred_samples, prior_mean=0.0
-    )
     inferred_llm_total = sum(inferred_samples)
 
     llm_total = measured_llm + inferred_llm_total
     tool_total = measured_tool
     infra_total = measured_compute
-    overhead_total = (llm_total + tool_total + infra_total) * 0.05
+    overhead_total = (llm_total + tool_total + infra_total) * OVERHEAD_RATE
     total = llm_total + tool_total + infra_total + overhead_total
 
     data_quality = "unmeasured"
@@ -157,8 +177,14 @@ def estimate_cost_for_period(
     elif executions and all(costs[e.id].cost_measurement == "measured" for e in executions):
         data_quality = "measured"
 
-    low = max(0.0, total - abs(inferred_high - inferred_llm_mean) * max(len(executions), 1))
-    high = total + abs(inferred_high - inferred_llm_mean) * max(len(executions), 1)
+    # Only the inferred subset carries estimation uncertainty. Measured dollars are
+    # sums of recorded values, so a period with nothing inferred has a zero-width
+    # interval, and a period with one inferred sample has no estimable width at all:
+    # the bounds equal the total and ``estimation_method`` says the width is unknown
+    # rather than inventing one. With two or more inferred samples the half-width is
+    # the Student-t half-width of their mean scaled to their count (and to the overhead
+    # rate the total already carries); it no longer grows with the measured count.
+    low, high, estimation_method = _inferred_subset_interval(total, inferred_samples)
 
     row = CostEstimate(
         execution_id=None,
@@ -173,7 +199,7 @@ def estimate_cost_for_period(
         total_cost_estimate_usd=total,
         cost_interval_low_usd=low,
         cost_interval_high_usd=high,
-        estimation_method="hierarchical_bayesian",
+        estimation_method=estimation_method,
         data_quality=data_quality,
         method_version=method_version,
     )
