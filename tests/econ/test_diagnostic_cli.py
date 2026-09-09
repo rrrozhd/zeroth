@@ -150,6 +150,7 @@ def test_markdown_report_leads_with_the_decision_and_preserves_claim_limits() ->
 
     assert rendered.startswith("# Zeroth economic diagnostic: invoice-processing\n")
     assert "**Decision state:** economic risk observed" in rendered
+    assert "**Method version:** `legacy_unversioned`" in rendered
     assert "| Measured failed-run exposure | $0.40000000 |" in rendered
     assert "extract" in rendered
     assert "free" in rendered
@@ -303,6 +304,7 @@ def test_bill_markdown_leads_with_closure_and_keeps_variance_visible() -> None:
 
     assert rendered.startswith("# Zeroth provider bill: openai / openai-2026-08\n")
     assert "**Reconciliation state:** allocated with variance" in rendered
+    assert "**Method version:** `legacy_unversioned`" in rendered
     assert "| Provider billed total | $0.60000000 |" in rendered
     assert "| Telemetry variance | $0.10000000 |" in rendered
     assert "invoice-processing" in rendered

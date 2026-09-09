@@ -36,6 +36,7 @@ class OutcomeDefinitionOut(OutcomeDefinitionCreate):
 class TimelinePoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    method_version: str = "legacy_unversioned"
     period_start: datetime
     workflow_id: str
     workflow_version: str
@@ -54,6 +55,7 @@ class TimelinePoint(BaseModel):
 class CohortPoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    method_version: str = "legacy_unversioned"
     cohort: str
     runs: int
     successful_runs: int
@@ -68,6 +70,7 @@ class CohortPoint(BaseModel):
 class BreakagePoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    method_version: str = "legacy_unversioned"
     workflow_id: str
     workflow_version: str
     step_id: str
@@ -97,6 +100,7 @@ class DiagnosticAction(BaseModel):
 class EconomicDiagnosticReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    method_version: str = "legacy_unversioned"
     workflow_id: str
     window_start: datetime | None
     window_end: datetime | None

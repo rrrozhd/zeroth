@@ -29,6 +29,7 @@ from zeroth.econ.plane.instrumentation.identity import RunKey, outcomes_for_even
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 MAX_DEBUGGER_EVENTS = 50_000
+_METHOD_VERSION = "observed-accounting/1"
 _UNKNOWN = "(unknown)"
 _LIMITATIONS = [
     "Failed-run exposure identifies where money accumulated, not which step caused the failure.",
@@ -282,6 +283,7 @@ def timeline(
             incomplete += int(_incomplete(row, missing))
         points.append(
             TimelinePoint(
+                method_version=_METHOD_VERSION,
                 period_start=period,
                 workflow_id=workflow_id,
                 workflow_version=version,
@@ -334,6 +336,7 @@ def cohorts(
             incomplete += int(missing or cohort == _UNKNOWN)
         points.append(
             CohortPoint(
+                method_version=_METHOD_VERSION,
                 cohort=cohort,
                 runs=len(run_ids),
                 successful_runs=len(successful),
@@ -375,6 +378,7 @@ def breakage(
                 repeated_estimated += row_estimated
         points.append(
             BreakagePoint(
+                method_version=_METHOD_VERSION,
                 workflow_id=workflow_id,
                 workflow_version=version,
                 step_id=step_id,
@@ -555,6 +559,7 @@ def diagnostic_report(
         decision_state = "stable_observation"
 
     return EconomicDiagnosticReport(
+        method_version=_METHOD_VERSION,
         workflow_id=workflow_id,
         window_start=start,
         window_end=end,

@@ -441,6 +441,11 @@
             "title": "Measured Repeated Attempt Cost Usd",
             "type": "number"
           },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
+          },
           "step_id": {
             "title": "Step Id",
             "type": "string"
@@ -1306,6 +1311,11 @@
           "measured_cost_usd": {
             "title": "Measured Cost Usd",
             "type": "number"
+          },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
           },
           "runs": {
             "title": "Runs",
@@ -3280,6 +3290,11 @@
           "measured_failure_exposure_usd": {
             "title": "Measured Failure Exposure Usd",
             "type": "number"
+          },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
           },
           "outcome_coverage": {
             "title": "Outcome Coverage",
@@ -6975,6 +6990,11 @@
             "title": "Matched Buckets",
             "type": "integer"
           },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
+          },
           "outcome_unresolved_usd": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Outcome Unresolved Usd",
@@ -8049,6 +8069,11 @@
           "measured_failure_exposure_usd": {
             "title": "Measured Failure Exposure Usd",
             "type": "number"
+          },
+          "method_version": {
+            "default": "legacy_unversioned",
+            "title": "Method Version",
+            "type": "string"
           },
           "period_start": {
             "format": "date-time",

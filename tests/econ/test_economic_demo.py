@@ -34,6 +34,7 @@ def test_demo_writes_a_synthetic_closed_evidence_pack(tmp_path, capsys) -> None:
         (output / "economic-diagnostic.json").read_text(encoding="utf-8")
     )
     assert diagnostic["decision_state"] == "economic_risk_observed"
+    assert "**Method version:** `observed-accounting/1`" in (output / "economic-diagnostic.md").read_text()
     assert diagnostic["measured_failure_exposure_usd"] == 0.4
     assert diagnostic["top_failure_exposure"]["measured_repeated_attempt_cost_usd"] == 0.1
 
@@ -41,6 +42,9 @@ def test_demo_writes_a_synthetic_closed_evidence_pack(tmp_path, capsys) -> None:
         (output / "provider-reconciliation.json").read_text(encoding="utf-8")
     )
     assert reconciliation["reconciliation_state"] == "reconciled"
+    assert "**Method version:** `measured-cost-proportional/1`" in (
+        output / "provider-reconciliation.md"
+    ).read_text()
     assert reconciliation["billed_total_usd"] == "0.50000000"
     assert reconciliation["allocated_billed_usd"] == "0.50000000"
     assert reconciliation["unreconciled_billed_usd"] == "0E-8"

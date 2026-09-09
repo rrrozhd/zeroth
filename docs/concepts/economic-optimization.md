@@ -199,8 +199,8 @@ not judge calibration or reproduction of a provider's future answer.
 
 | Output | Claim class / method | Evidence scope and limitations |
 | --- | --- | --- |
-| Debugger report | Historical accounting: `observed_economic_exposure` | Recorded events in the requested window, with measured/estimated/missing money and unresolved outcomes separate. Failed-run exposure is not step causality. A method revision is not yet included in this response. |
-| Provider-bill reconciliation | Historical accounting: `measured_cost_proportional` allocation | Named statement digest and period. Allocation follows measured telemetry; unmatched dollars and variance remain visible. The method is named but has no retained revision field. |
+| Debugger report and aggregate rows | Historical accounting: `observed_economic_exposure` / `observed-accounting/1` | Recorded events in the requested window, with measured/estimated/missing money and unresolved outcomes separate. Failed-run exposure is not step causality. |
+| Provider-bill reconciliation | Historical accounting: `measured_cost_proportional` allocation / `measured-cost-proportional/1` | Named statement digest and period. Allocation follows measured telemetry; unmatched dollars and variance remain visible. |
 | Version comparison and scheduled result | `observed_comparison` / `interval-policy/1` | Received evidence for the named versions; outcomes use the latest non-future assertion and resolve only with declared final maturity and compatible definitions. Source completeness and business truth are not established. Policy checks describe that evidence only. |
 | Hosted model backtest | `exploratory_model_experiment` / `observed-replay-policy/1` | Supplied 5–25 cases; observed correctness according to the current judge and text-usage projections at retained rates. Judge calibration and population generalization are unvalidated. Cache, tools, downstream charges and unobserved retries are excluded. |
 | Public model-migration result | Experimental scenario diagnostics / `nested-paired-monthly-v3-hoeffding99-math1-predictive1` in the retained request | Supplied paired observations, demand periods and policy assumptions. Predictive reliability is unapproved; the public result always abstains. An unqualified risk law returns no action distributions. |
@@ -208,6 +208,12 @@ not judge calibration or reproduction of a provider's future answer.
 | Randomized-rollout verification | Legacy causal method / `homogeneous-assignment-v1` in the verification digest | Requires a pre-existing recommended decision, retained assignments and post-assignment observations. New public abstentions cannot start a rollout. Legacy verification is not accepted paid causal authorization. |
 | Historical result without these fields | `legacy_unclassified` / `legacy_unversioned` | Original values and action remain readable. Missing metadata cannot establish the current method or completeness. |
 | Legacy counterfactual estimates | Legacy OSS method only | Heuristic confidence, calibration and proxy-dollar outputs are not paid statistical, causal or forecasting authorization. |
+
+Fresh accounting reports and debugger rows include `method_version`; Markdown
+exports preserve it. Old payloads without that field load as `legacy_unversioned`.
+The identifier names the calculation rules, not a frozen source snapshot. Retain
+the response and request filters to audit a live query; a later query can select
+new evidence even under the same method version.
 
 New version comparisons and backtests retain `claim_class`, `method_version` and
 `limitations`. Both use `review_candidate` for a pass, never automatic rollout. Their

@@ -209,6 +209,12 @@ instead of double-counting spend.
 
 ## Query the debugger
 
+Fresh report, timeline, cohort and breakage results carry
+`method_version="observed-accounting/1"`, identifying the recorded-population,
+outcome-resolution and cost-provenance rules described here. Keep the response
+and request filters together; the version does not freeze the selected evidence.
+Older payloads without the field remain `legacy_unversioned`, including exports.
+
 ```bash
 curl -sS -G http://127.0.0.1:8001/v1/debugger/timeline \
   -H "Authorization: Bearer $TOKEN" \

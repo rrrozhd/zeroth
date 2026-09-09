@@ -306,6 +306,7 @@ def provider_bill_report(
     else:
         state = "reconciled"
     return ProviderBillReport(
+        method_version="measured-cost-proportional/1",
         statement_id=bill.statement_id,
         provider=bill.provider,
         statement_digest=bill.statement_digest,

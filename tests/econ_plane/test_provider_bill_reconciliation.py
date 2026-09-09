@@ -25,6 +25,7 @@ from zeroth.econ.plane.debugger.service import create_outcome_definition
 from zeroth.econ.plane.instrumentation.schemas import ExecutionEventCreate, OutcomeEventCreate
 from zeroth.econ.plane.instrumentation.service import ingest_execution, ingest_outcome
 from zeroth.econ.plane.reconciliation.api import router as reconciliation_router
+from zeroth.econ.plane.reconciliation.schemas import ProviderBillReport
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
 
@@ -207,6 +208,10 @@ def test_provider_bill_allocates_billed_money_and_preserves_unreconciled_varianc
         ("invoice-processing", "v1", "success", Decimal("0.36"), Decimal("0.30")),
     ]
     assert report["allocation_method"] == "measured_cost_proportional"
+    assert report["method_version"] == "measured-cost-proportional/1"
+    legacy = report.copy()
+    legacy.pop("method_version")
+    assert ProviderBillReport.model_validate(legacy).method_version == "legacy_unversioned"
 
 
 def test_provider_bill_exact_replay_is_idempotent_and_changed_content_is_rejected(

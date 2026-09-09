@@ -1780,6 +1780,11 @@ export interface components {
             measured_failure_exposure_usd: number;
             /** Measured Repeated Attempt Cost Usd */
             measured_repeated_attempt_cost_usd: number;
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
             /** Step Id */
             step_id: string;
             /** Workflow Id */
@@ -2132,6 +2137,11 @@ export interface components {
             measured_cost_per_successful_outcome_usd: number | null;
             /** Measured Cost Usd */
             measured_cost_usd: number;
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
             /** Runs */
             runs: number;
             /** Successful Runs */
@@ -2893,6 +2903,11 @@ export interface components {
             measured_events: number;
             /** Measured Failure Exposure Usd */
             measured_failure_exposure_usd: number;
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
             /** Outcome Coverage */
             outcome_coverage: number;
             recommended_action: components["schemas"]["DiagnosticAction"];
@@ -4351,6 +4366,11 @@ export interface components {
             limitations: string[];
             /** Matched Buckets */
             matched_buckets: number;
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
             /** Outcome Unresolved Usd */
             outcome_unresolved_usd: string;
             /**
@@ -4801,6 +4821,11 @@ export interface components {
             measured_cost_usd: number;
             /** Measured Failure Exposure Usd */
             measured_failure_exposure_usd: number;
+            /**
+             * Method Version
+             * @default legacy_unversioned
+             */
+            method_version: string;
             /**
              * Period Start
              * Format: date-time

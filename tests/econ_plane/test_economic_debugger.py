@@ -25,7 +25,11 @@ from zeroth.econ.plane.auth.scoped import ScopedUserClaims
 from zeroth.econ.plane.cloud.auth import get_cloud_scoped_db, get_cloud_user
 from zeroth.econ.plane import database as database_module
 from zeroth.econ.plane.database import Base
-from zeroth.econ.plane.debugger.schemas import OutcomeDefinitionCreate
+from zeroth.econ.plane.debugger.schemas import (
+    EconomicDiagnosticReport,
+    OutcomeDefinitionCreate,
+    TimelinePoint,
+)
 from zeroth.econ.plane.debugger.service import create_outcome_definition
 from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 from zeroth.econ.plane.instrumentation.schemas import ExecutionEventCreate, OutcomeEventCreate
@@ -316,6 +320,7 @@ def test_timeline_reconciles_cost_outcomes_and_measurement_channels(econ_engine)
     assert response.status_code == 200
     assert response.json() == [
         {
+            "method_version": "observed-accounting/1",
             "period_start": "2026-08-30T00:00:00",
             "workflow_id": "invoice-processing",
             "workflow_version": "v1",
@@ -331,6 +336,9 @@ def test_timeline_reconciles_cost_outcomes_and_measurement_channels(econ_engine)
             "incomplete_events": 0,
         }
     ]
+    legacy = response.json()[0]
+    legacy.pop("method_version")
+    assert TimelinePoint.model_validate(legacy).method_version == "legacy_unversioned"
 
 
 def test_cohorts_compare_subjects_and_typed_dimensions(econ_engine) -> None:
@@ -356,6 +364,10 @@ def test_cohorts_compare_subjects_and_typed_dimensions(econ_engine) -> None:
         ("customer-b", 0),
     ]
     assert plans.status_code == 200
+    assert all(
+        row["method_version"] == "observed-accounting/1"
+        for row in subjects.json() + plans.json()
+    )
     assert [(row["cohort"], row["failed_runs"]) for row in plans.json()] == [
         ("enterprise", 0),
         ("free", 1),
@@ -374,6 +386,7 @@ def test_breakage_reports_failed_run_exposure_without_claiming_step_causality(
     assert response.status_code == 200
     assert response.json() == [
         {
+            "method_version": "observed-accounting/1",
             "workflow_id": "invoice-processing",
             "workflow_version": "v1",
             "step_id": "extract",
@@ -397,6 +410,7 @@ def test_diagnostic_report_turns_evidence_into_one_honest_next_action(econ_engin
 
     assert response.status_code == 200
     assert response.json() == {
+        "method_version": "observed-accounting/1",
         "workflow_id": "invoice-processing",
         "window_start": None,
         "window_end": None,
@@ -423,6 +437,7 @@ def test_diagnostic_report_turns_evidence_into_one_honest_next_action(econ_engin
         "measured_cost_per_successful_outcome_usd": 0.5,
         "estimated_cost_per_successful_outcome_usd": 0.2,
         "top_failure_exposure": {
+            "method_version": "observed-accounting/1",
             "workflow_id": "invoice-processing",
             "workflow_version": "v1",
             "step_id": "extract",
@@ -434,6 +449,7 @@ def test_diagnostic_report_turns_evidence_into_one_honest_next_action(econ_engin
             "attribution": "failed_run_exposure_not_step_causality",
         },
         "highest_failure_rate_cohort": {
+            "method_version": "observed-accounting/1",
             "cohort": "free",
             "runs": 1,
             "successful_runs": 0,
@@ -456,6 +472,13 @@ def test_diagnostic_report_turns_evidence_into_one_honest_next_action(econ_engin
             "This report observes production history; it does not prove savings from an untested change.",
         ],
     }
+    legacy = response.json()
+    for row in (legacy, legacy["top_failure_exposure"], legacy["highest_failure_rate_cohort"]):
+        row.pop("method_version")
+    restored = EconomicDiagnosticReport.model_validate(legacy)
+    assert restored.method_version == "legacy_unversioned"
+    assert restored.top_failure_exposure.method_version == "legacy_unversioned"
+    assert restored.highest_failure_rate_cohort.method_version == "legacy_unversioned"
 
 
 def test_seeded_evidence_renders_as_a_claim_bounded_markdown_artifact(econ_engine) -> None:
@@ -469,6 +492,7 @@ def test_seeded_evidence_renders_as_a_claim_bounded_markdown_artifact(econ_engin
 
     assert response.status_code == 200
     assert "**Decision state:** economic risk observed" in artifact
+    assert "**Method version:** `observed-accounting/1`" in artifact
     assert "| Measured failed-run exposure | $0.40000000 |" in artifact
     assert "`free` has a 100.0% failure rate" in artifact
     assert "whether changing retries preserves outcomes is unproven" in artifact

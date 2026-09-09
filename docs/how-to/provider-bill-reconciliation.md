@@ -57,6 +57,11 @@ Within a matched bucket, billed dollars are allocated in proportion to measured
 execution cost. The statement total remains provider truth. Telemetry cost is a
 separate comparison channel.
 
+Fresh reports identify these rules as `method_version="measured-cost-proportional/1"`;
+Markdown exports preserve the field. Old payloads without it remain
+`legacy_unversioned`. Keep the returned report for audit: later queries can use
+new telemetry even though the provider statement and calculation method are unchanged.
+
 ## Prerequisites
 
 - Apply econ migration `20260830_13`.

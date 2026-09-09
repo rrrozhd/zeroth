@@ -65,6 +65,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"**Decision state:** {str(report['decision_state']).replace('_', ' ')}",
         f"**Evidence quality:** {str(report['data_quality']).replace('_', ' ')}",
         f"**Claim scope:** {str(report['claim_scope']).replace('_', ' ')}",
+        f"**Method version:** `{report.get('method_version', 'legacy_unversioned')}`",
     ]
     if undefined_versions:
         lines.append(
@@ -153,6 +154,7 @@ def render_bill_markdown(report: dict[str, Any]) -> str:
         (f"**Reconciliation state:** {str(report['reconciliation_state']).replace('_', ' ')}"),
         f"**Statement digest:** `{report['statement_digest']}`",
         f"**Allocation method:** {str(report['allocation_method']).replace('_', ' ')}",
+        f"**Method version:** `{report.get('method_version', 'legacy_unversioned')}`",
         "",
         "## Closure",
         "",

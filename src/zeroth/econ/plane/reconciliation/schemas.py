@@ -140,6 +140,7 @@ class ProviderBillAllocation(BaseModel):
 
 
 class ProviderBillReport(BaseModel):
+    method_version: str = "legacy_unversioned"
     statement_id: str
     provider: str
     statement_digest: str

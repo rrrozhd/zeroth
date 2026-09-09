@@ -160,6 +160,9 @@ both the hosted service and self-hosted platform.
   hash and evaluator version bind submitted scoring rules; provider defaults,
   alias revisions and judge validity remain unverified. Debug score discrepancies
   from `evaluation_evidence.cases` and the caller's digest-bound ordered inputs.
+  Live debugger and reconciliation services explicitly label their calculation
+  revisions; schema defaults keep missing historical methods `legacy_unversioned`.
+  JSON and Markdown preserve this label, but live-query source selection is not frozen.
 - Caller-owned source inventories originate before delivery and close a fixed
   execution window. Missing/unexpected events, changed digests or overflow cause
   abstention; incomplete run costs make comparison CPO unavailable. The SDK is
