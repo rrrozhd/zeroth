@@ -19,21 +19,17 @@ tutorials, or exercising the examples shipped with the repository.
 
 ## Install
 
-The documentation site tracks `main`, so a repository checkout is the
-recommended way to run the current service and console:
+Use a source checkout matching these docs. From its root, install the runtime
+and bundled economic backend:
 
 ```bash
-git clone https://github.com/rrrozhd/zeroth.git
-cd zeroth
-uv sync
+uv sync --extra regulus
 ```
 
-For library use, the latest published package is available from
-[PyPI](https://pypi.org/project/zeroth-platform/), but it can lag the current docs:
-
-```bash
-pip install zeroth-platform
-```
+The current `zeroth-platform` release is not yet on PyPI. The published
+[`zeroth-sdk==0.1.0a1`](https://pypi.org/project/zeroth-sdk/0.1.0a1/) prerelease
+is a remote client; it does not install this service. Build the optional console
+from [its source](https://github.com/rrrozhd/zeroth/tree/main/frontend) when needed.
 
 ## Run
 

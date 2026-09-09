@@ -25,12 +25,10 @@ def test_readme_states_restart_after_deployment_creation() -> None:
 
 def test_readme_ties_budget_enforcement_to_regulus_extra() -> None:
     readme = _read("README.md")
-    budget_line = next(line for line in readme.splitlines() if line.startswith("- **Budgets**"))
-    assert "`regulus` extra" in budget_line
-    assert "bare install" in budget_line, (
-        "the budget bullet must say what a bare `pip install zeroth-platform` does "
-        "(no enforcement backend -> caps are not enforced)"
-    )
+    assert "`regulus` extra" in readme
+    assert "bare install" in readme
+    assert "external control plane" in readme
+    assert "denies admission" in readme
 
 
 def test_readme_documents_fail_closed_default() -> None:

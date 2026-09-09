@@ -80,11 +80,16 @@ jobs:
           fi
           python - <<'PY'
           from pathlib import Path
+          import tomllib
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          expected = {
+              f"{package}-{version}{suffix}"
+              for package in ("zeroth_platform", "zeroth_core")
+              for suffix in ("-py3-none-any.whl", ".tar.gz")
+          }
           names = {path.name for path in Path("dist").iterdir() if path.is_file()}
-          assert len(names) == 2, names
-          assert all(name.startswith("zeroth_platform-") for name in names), names
-          assert any(name.endswith(".whl") for name in names), names
-          assert any(name.endswith(".tar.gz") for name in names), names
+          assert names == expected, {"expected": sorted(expected), "actual": sorted(names)}
           PY
 
       - name: Record explicit human promotion and validate every gate

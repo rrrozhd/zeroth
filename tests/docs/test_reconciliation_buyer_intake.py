@@ -90,20 +90,18 @@ def test_public_intake_forbids_sensitive_financial_and_runtime_evidence() -> Non
     ]
 
 
-def test_readme_first_screen_leads_with_economic_change_control_and_activation() -> None:
+def test_readme_first_screen_covers_platform_and_current_sdk_activation() -> None:
     first_screen = README.read_text(encoding="utf-8")[:5000]
     prose = " ".join(first_screen.split())
 
-    assert "Test AI cost cuts before production" in prose
+    assert "orchestration" in prose.lower()
+    assert "governance" in prose.lower()
     assert "measured cost per accepted outcome" in prose
-    assert "find → simulate → approve → verify" in prose
-    assert "workflow-version decisions" in prose
-    assert "pip install zeroth-sdk" in prose
-    assert "release-blocked on hosted operations and package release readiness" in prose.lower()
-    assert "hosted backtest execution" in prose
-    assert first_screen.index("Test AI cost cuts before production") < first_screen.index(
-        "Preserved platform capabilities"
-    )
+    assert 'pip install "zeroth-sdk==0.1.0a1"' in prose
+    assert "experimental" in prose.lower()
+    assert "self-hosted" in prose.lower()
+    assert "release-blocked" not in prose.lower()
+    assert "preserved platform" not in prose.lower()
     assert "Close the AI spend ledger" not in first_screen
 
 

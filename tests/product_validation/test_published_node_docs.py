@@ -11,11 +11,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _documented_node_labels() -> set[str]:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    section = readme.split("### Node Types", 1)[1].split("### Contracts", 1)[0]
+    assert "docs/concepts/graph.md#node-types" in readme
+    graph = (ROOT / "docs/concepts/graph.md").read_text(encoding="utf-8")
+    section = graph.split("## Node types", 1)[1].split("## See also", 1)[0]
     return set(re.findall(r"^- \*\*(.+?)\*\*", section, flags=re.MULTILINE))
 
 
-def test_readme_node_types_match_the_executable_studio_registry() -> None:
+def test_linked_node_types_match_the_executable_studio_registry() -> None:
     assert _documented_node_labels() == {node.label for node in _NODE_TYPES}
 
 

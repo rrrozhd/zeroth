@@ -37,7 +37,7 @@ def test_sdk_release_builds_once_and_honors_the_release_marker() -> None:
     assert "tool.zeroth.release.publish" in workflow
     assert "SDK production publishing remains blocked" in workflow
     assert "needs: [build]" in workflow
-    assert metadata["project"]["version"] == "0.1.0"
+    assert metadata["project"]["version"] == "0.1.0a1"
     assert metadata["tool"]["zeroth"]["release"]["publish"] is True
 
 
@@ -47,7 +47,8 @@ def test_sdk_readme_documents_truthful_pypi_and_testpypi_install_paths() -> None
     version = metadata["project"]["version"]
 
     assert readme.startswith("# zeroth-sdk\n")
-    assert "pip install zeroth-sdk" in readme
+    assert f'pip install "zeroth-sdk=={version}"' in readme
+    assert "experimental prerelease" in readme.lower()
     assert "https://test.pypi.org/simple/" in readme
     assert "https://pypi.org/simple/" in readme
     assert f"zeroth-sdk=={version}" in readme
@@ -58,9 +59,9 @@ def test_sdk_readme_documents_truthful_pypi_and_testpypi_install_paths() -> None
     assert "base_url" in readme
 
 
-def test_root_readme_shows_live_pypi_and_testpypi_package_checks() -> None:
+def test_root_readme_links_published_sdk_and_release_workflow() -> None:
     readme = ROOT_README.read_text(encoding="utf-8")
 
-    assert "label=PyPI%20check" in readme
-    assert "label=TestPyPI%20check" in readme
-    assert readme.count("release-zeroth-sdk.yml") >= 4
+    assert "https://pypi.org/project/zeroth-sdk/0.1.0a1/" in readme
+    assert "release-zeroth-sdk.yml" in readme
+    assert "label=PyPI%20check" not in readme

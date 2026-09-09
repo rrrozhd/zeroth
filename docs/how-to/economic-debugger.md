@@ -1,8 +1,9 @@
 # Run the economic debugger API
 
-The current product slice is a headless, self-hostable API. It does not require
-the console package and does not depend on the release-blocked `zeroth-sdk`
-prototype.
+The economic debugger is a headless, self-hostable API. It does not require
+the console package. The experimental `zeroth-sdk==0.1.0a1` client is available
+on [PyPI](https://pypi.org/project/zeroth-sdk/0.1.0a1/) for compatible deployments;
+direct HTTP calls also work. The SDK does not install or host this backend.
 
 ## Install and migrate
 

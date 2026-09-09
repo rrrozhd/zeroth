@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-sdk"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "Python client for Zeroth evidence, decisions, and rollout verification"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -40,4 +40,4 @@ include = ["src/zeroth", "README.md"]
 
 [tool.zeroth.release]
 publish = true
-reason = "First public self-hosted client release"
+reason = "Experimental prerelease for self-hosted client evaluation"

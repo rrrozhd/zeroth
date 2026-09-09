@@ -7,24 +7,25 @@ without installing `zeroth-platform` or `zeroth-console`.
 
 ## Installation
 
-Install the public package from PyPI:
+This is an experimental prerelease for evaluation. APIs may change; it is not
+a stable production release. To install this exact prerelease from PyPI:
 
 ```bash
-python -m pip install zeroth-sdk
+python -m pip install "zeroth-sdk==0.1.0a1"
 ```
 
 For release-candidate verification against TestPyPI:
 
 ```bash
-python -m pip install \
+python -m pip install --index-url https://pypi.org/simple/ "httpx>=0.27" "pydantic>=2.10"
+python -m pip install --no-deps \
   --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ \
-  zeroth-sdk==0.1.0
+  "zeroth-sdk==0.1.0a1"
 ```
 
 The explicit version prevents this validation command from silently selecting
-a different SDK release. PyPI remains the fallback index for the SDK's public
-runtime dependencies.
+a different SDK release. Dependencies are installed separately from PyPI so the
+validation command retrieves only the SDK from TestPyPI.
 
 ## Publishing status
 
@@ -34,7 +35,7 @@ sdist/wheel pair, checks its metadata, smoke-installs the wheel, and promotes
 that same artifact through the registry-specific `testpypi` or `pypi` GitHub
 environment. No long-lived registry token is stored in the repository.
 
-The `0.1.0` release supports self-hosted Zeroth deployments. Pass the deployment's
+The `0.1.0a1` prerelease supports self-hosted Zeroth deployments. Pass the deployment's
 URL explicitly with `base_url`; there is no implicit public Zeroth Cloud endpoint.
 The `pypi` environment requires an approval from `rrrozhd`, and the release
 workflow fails closed unless `tool.zeroth.release.publish = true`.

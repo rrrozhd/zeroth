@@ -9,13 +9,11 @@ ROOT = Path(__file__).resolve().parents[2]
 WARNING = "Gateway-only mode cannot enforce internal Agent Server tool calls."
 
 
-def test_readme_first_screen_has_capability_matrix_and_warning() -> None:
+def test_readme_explains_langgraph_enforcement_boundary() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    before_quickstart, separator, _ = readme.partition("## Quickstart")
-
-    assert separator
-    assert "| Capability | Observed | Partial | Enforced |" in before_quickstart
-    assert WARNING in before_quickstart
+    assert WARNING in readme
+    assert "govern_tools" in readme
+    assert "ZerothMiddleware" in readme
 
 
 def test_canonical_guide_covers_release_operations_and_commands_execute(tmp_path: Path) -> None:

@@ -162,15 +162,16 @@ def test_docs_extra_declared_in_pyproject() -> None:
     )
 
 
-def test_landing_page_has_tabbed_split_and_hello_snippet() -> None:
-    """DOCS-01: landing page must have Choose-Your-Path tabs and the hello snippet embed."""
+def test_landing_page_links_runtime_paths_and_executable_install_example() -> None:
+    """The concise landing page must retain access to both runtime paths and the example."""
     index_path = DOCS_DIR / "index.md"
     assert index_path.exists(), f"{index_path} missing"
     body = index_path.read_text(encoding="utf-8")
-    assert '=== "Embed as library"' in body, "Embed as library tab missing"
-    assert '=== "Run as service"' in body, "Run as service tab missing"
-    assert "--8<--" in body, "pymdownx.snippets scissors token missing"
-    assert "00_hello.py" in body, "00_hello.py snippet reference missing"
+    for page in ("01-install.md", "02-first-graph.md", "03-service-and-approval.md"):
+        assert f"tutorials/getting-started/{page}" in body
+    install = (DOCS_DIR / "tutorials/getting-started/01-install.md").read_text(encoding="utf-8")
+    assert '--8<-- "00_hello.py"' in install
+    assert (REPO_ROOT / "examples/00_hello.py").is_file()
 
 
 def test_reference_quadrant_pages_exist() -> None:
@@ -266,9 +267,7 @@ def test_governance_walkthrough_page_shape() -> None:
 def test_governance_walkthrough_embeds_example() -> None:
     """Governance Walkthrough page must reference the umbrella walkthrough file."""
     body = GOVERNANCE_PAGE.read_text(encoding="utf-8")
-    assert "26_governance_walkthrough.py" in body, (
-        "26_governance_walkthrough.py reference missing"
-    )
+    assert "26_governance_walkthrough.py" in body, "26_governance_walkthrough.py reference missing"
 
 
 def test_governance_walkthrough_example_covers_three_scenarios() -> None:

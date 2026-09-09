@@ -1,33 +1,26 @@
 # 1. Install
 
-**Time budget: under 5 minutes.** This is the gate for the whole
-Getting Started tutorial — if you finish this section you have a
-working `zeroth-platform` install and have made a real LLM call through
-it.
+This tutorial uses the full `zeroth-platform` source tree. It installs the
+runtime and runs one model call; the lightweight remote SDK is a different
+package.
 
-## Install the package
-
-```bash
-pip install zeroth-platform
-```
-
-Or with [uv](https://docs.astral.sh/uv/):
+## Install from source
 
 ```bash
-uv add zeroth-platform
+uv sync --extra regulus
 ```
+
+Run this from a checkout matching the documentation you are reading, with
+Python 3.12+ and [uv](https://docs.astral.sh/uv/) installed. The current platform
+release is not yet on PyPI. Only the experimental remote client,
+[`zeroth-sdk==0.1.0a1`](https://pypi.org/project/zeroth-sdk/0.1.0a1/), is available
+there; installing it does not install the graph runtime used by this tutorial.
 
 Optional backends (Postgres, pgvector, Chroma, Elasticsearch, Redis,
 Regulus economics), the web console, and the LangGraph integrations are
-available through extras; see `pyproject.toml` for the full list. The Getting
-Started tutorial runs entirely on the default in-memory SQLite backend,
-so you do not need any extras to complete the tutorial.
-
-!!! note "Published package versus current docs"
-    This documentation is built from `main`, which can be ahead of the latest
-    package on [PyPI](https://pypi.org/project/zeroth-platform/). For the exact
-    source documented here, use the repository checkout below and run commands
-    with `uv run`.
+available through extras; see `pyproject.toml` for the full list. The `regulus`
+extra includes the bundled economic backend for the later service tutorial.
+You do not need the console to run the examples.
 
 ## Set an API key
 
@@ -47,16 +40,8 @@ hello script to switch (e.g. `anthropic/claude-sonnet-5` with
 
 The canonical smoke test lives at `examples/00_hello.py` **in the
 repository** — the `examples/` directory is not shipped inside the wheel,
-so clone the repo to run it:
-
-```bash
-git clone https://github.com/rrrozhd/zeroth.git && cd zeroth
-uv sync
-```
-
-(No clone handy? `zeroth seed-demo && zeroth serve` gives you a
-running demo service from the bare pip install — see
-[Local development](../../how-to/deployment/local-dev.md).)
+so run it from the source checkout used above. To seed a runnable demo service
+instead, see [Local development](../../how-to/deployment/local-dev.md).
 
 It builds a one-node graph, wires a real `AgentRunner` through
 `LiteLLMProviderAdapter`, and runs it through the orchestrator. If
