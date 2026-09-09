@@ -196,6 +196,49 @@ class RetentionErasureService:
             lease_seconds=self._cleanup_lease_seconds,
         )
 
+    async def erase_qualification_lineage(
+        self,
+        tenant_id: str,
+        *,
+        workload: str | None = None,
+        reason: str = "rte",
+        idempotency_key: str,
+    ) -> int:
+        """Erase tenant-owned qualification lineage through the retention boundary."""
+        if tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        holds = await self._holds.active_holds_for_tenant()
+        if holds.tenant_wide:
+            raise LegalHoldError(
+                f"tenant {tenant_id!r} is under an active legal hold and cannot be erased"
+            )
+        if self._econ_eraser is None:
+            await self._log.record(
+                action="qualification_lineage_erase_failed",
+                reason=reason,
+                detail={
+                    "workload": workload,
+                    "idempotency_key": idempotency_key,
+                    "error": "qualification_erasure_unavailable",
+                },
+            )
+            raise RuntimeError("qualification erasure unavailable")
+        deleted = await self._econ_eraser.delete_qualification_lineage(
+            tenant_id,
+            workload,
+            idempotency_key=idempotency_key,
+        )
+        await self._log.record(
+            action="qualification_lineage_erased",
+            reason=reason,
+            detail={
+                "workload": workload,
+                "idempotency_key": idempotency_key,
+                "deleted_count": deleted,
+            },
+        )
+        return deleted
+
     async def erase_run(
         self,
         run_id: str,

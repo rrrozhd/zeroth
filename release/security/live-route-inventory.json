@@ -1152,6 +1152,13 @@
     {
       "kind": "http",
       "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decision-schedules/{schedule_id}/deactivate"
+    },
+    {
+      "kind": "http",
+      "methods": [
         "GET"
       ],
       "path": "/regulus/v1/decisions"
@@ -1336,6 +1343,13 @@
       "methods": [
         "POST"
       ],
+      "path": "/regulus/v1/probabilistic-decision-schedules/{schedule_id}/deactivate"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
       "path": "/regulus/v1/randomized-rollouts"
     },
     {
@@ -1344,6 +1358,13 @@
         "POST"
       ],
       "path": "/regulus/v1/randomized-rollouts/{rollout_id}/assignments"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/randomized-rollouts/{rollout_id}/stop"
     },
     {
       "kind": "http",
@@ -13089,6 +13110,13 @@
     {
       "kind": "http",
       "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/decision-schedules/{schedule_id}/deactivate"
+    },
+    {
+      "kind": "http",
+      "methods": [
         "GET"
       ],
       "path": "/regulus/v1/decisions"
@@ -13273,6 +13301,13 @@
       "methods": [
         "POST"
       ],
+      "path": "/regulus/v1/probabilistic-decision-schedules/{schedule_id}/deactivate"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
       "path": "/regulus/v1/randomized-rollouts"
     },
     {
@@ -13281,6 +13316,13 @@
         "POST"
       ],
       "path": "/regulus/v1/randomized-rollouts/{rollout_id}/assignments"
+    },
+    {
+      "kind": "http",
+      "methods": [
+        "POST"
+      ],
+      "path": "/regulus/v1/randomized-rollouts/{rollout_id}/stop"
     },
     {
       "kind": "http",

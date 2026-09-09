@@ -29,7 +29,10 @@ from zeroth.econ.plane.decisioning.schemas import (
 )
 from zeroth.econ.plane.decisioning.service import compare_versions_from_store
 from zeroth.econ.plane.decisioning.service import (
+    RandomizedRolloutInactiveError,
     create_decision_schedule,
+    deactivate_decision_schedule,
+    deactivate_probabilistic_decision_schedule,
     evaluate_and_retain_probabilistic_migration,
     list_decision_schedules,
     list_probabilistic_migration_decisions,
@@ -40,6 +43,7 @@ from zeroth.econ.plane.decisioning.service import (
     create_randomized_rollout,
     evaluate_probabilistic_migration_from_store,
     list_probabilistic_decision_schedules,
+    stop_randomized_rollout,
     verify_retained_randomized_rollout,
 )
 from zeroth.econ.plane.scoped_session import ScopedSession
@@ -177,6 +181,21 @@ def probabilistic_schedules(
     return list_probabilistic_decision_schedules(db)
 
 
+@router.post(
+    "/probabilistic-decision-schedules/{schedule_id}/deactivate",
+    response_model=ProbabilisticDecisionScheduleOut,
+)
+def deactivate_probabilistic_schedule(
+    schedule_id: str,
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
+) -> ProbabilisticDecisionScheduleOut:
+    try:
+        return deactivate_probabilistic_decision_schedule(db, schedule_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/randomized-rollouts", response_model=RandomizedRolloutOut)
 def create_rollout(
     payload: RandomizedRolloutCreate,
@@ -187,6 +206,21 @@ def create_rollout(
         return create_randomized_rollout(db, payload, created_by=user.sub)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/randomized-rollouts/{rollout_id}/stop",
+    response_model=RandomizedRolloutOut,
+)
+def stop_rollout(
+    rollout_id: str,
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
+) -> RandomizedRolloutOut:
+    try:
+        return stop_randomized_rollout(db, rollout_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post(
@@ -206,6 +240,8 @@ def assign_rollout(
             subject_id=payload.subject_id,
             cohort=payload.cohort,
         )
+    except RandomizedRolloutInactiveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -254,3 +290,18 @@ def schedules(
     ),
 ) -> list[DecisionScheduleOut]:
     return list_decision_schedules(db)
+
+
+@router.post(
+    "/decision-schedules/{schedule_id}/deactivate",
+    response_model=DecisionScheduleOut,
+)
+def deactivate_schedule(
+    schedule_id: str,
+    db: ScopedSession = Depends(get_cloud_scoped_db),  # noqa: B008
+    _user: UserClaims = Depends(require_cloud_roles("Admin", "Analyst")),  # noqa: B008
+) -> DecisionScheduleOut:
+    try:
+        return deactivate_decision_schedule(db, schedule_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -7,11 +7,12 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from zeroth.econ.plane.decisioning.models import ProbabilisticMigrationDecisionRecord
 
-TEMPLATE_VERSION = "model-migration-v1"
+TEMPLATE_VERSION = "model-migration-v2"
 
 
 def _money(value: object) -> str:
@@ -35,6 +36,11 @@ def _page(canvas, document) -> None:  # type: ignore[no-untyped-def]
     canvas.drawString(0.65 * inch, 0.42 * inch, "Zeroth - Advisory decision report")
     canvas.drawRightString(7.85 * inch, 0.42 * inch, f"Page {document.page}")
     canvas.restoreState()
+
+
+def _invariant_canvas(*args, **kwargs) -> Canvas:  # type: ignore[no-untyped-def]
+    kwargs["invariant"] = 1
+    return Canvas(*args, **kwargs)
 
 
 def render_decision_report_pdf(record: ProbabilisticMigrationDecisionRecord) -> bytes:
@@ -196,5 +202,10 @@ def render_decision_report_pdf(record: ProbabilisticMigrationDecisionRecord) -> 
             ),
         ),
     ]
-    document.build(story, onFirstPage=_page, onLaterPages=_page)
+    document.build(
+        story,
+        onFirstPage=_page,
+        onLaterPages=_page,
+        canvasmaker=_invariant_canvas,
+    )
     return buffer.getvalue()

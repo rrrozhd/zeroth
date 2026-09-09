@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -18,8 +20,10 @@ from zeroth.econ.plane.decisioning.schemas import (
     RandomizedRolloutCreate,
 )
 from zeroth.econ.plane.decisioning.service import (
+    RandomizedRolloutInactiveError,
     assign_randomized_rollout,
     create_randomized_rollout,
+    stop_randomized_rollout,
     verify_retained_randomized_rollout,
 )
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
@@ -64,8 +68,10 @@ def _migration_request() -> ProbabilisticMigrationRequest:
     )
 
 
+@pytest.mark.parametrize("heterogeneous", [False, True])
 def test_randomized_rollout_is_sticky_verified_and_feeds_calibration_history(
     tmp_path: Path,
+    heterogeneous: bool,
 ) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'rollout.db'}")
     Base.metadata.create_all(engine)
@@ -143,6 +149,7 @@ def test_randomized_rollout_is_sticky_verified_and_feeds_calibration_history(
                 decision_id=decision.decision_id,
                 candidate_probability=0.5,
                 minimum_per_arm=100,
+                cohort_candidate_probabilities={"other": 0.8} if heterogeneous else {},
             ),
             created_by="analyst@example.com",
             now=assigned_at,
@@ -207,6 +214,29 @@ def test_randomized_rollout_is_sticky_verified_and_feeds_calibration_history(
             )
         raw.commit()
 
+        stopped = stop_randomized_rollout(db, rollout.rollout_id)
+        repeated_stop = stop_randomized_rollout(db, rollout.rollout_id)
+        assert stopped.active is False
+        assert repeated_stop == stopped
+        assert (
+            assign_randomized_rollout(
+                db,
+                rollout.rollout_id,
+                subject_id="subject-0",
+                cohort="default",
+                now=assigned_at + timedelta(minutes=3),
+            )
+            == assignments[0]
+        )
+        with pytest.raises(RandomizedRolloutInactiveError):
+            assign_randomized_rollout(
+                db,
+                rollout.rollout_id,
+                subject_id="post-stop-subject",
+                cohort="default",
+                now=assigned_at + timedelta(minutes=3),
+            )
+
         verification = verify_retained_randomized_rollout(
             db,
             rollout.rollout_id,
@@ -234,6 +264,12 @@ def test_randomized_rollout_is_sticky_verified_and_feeds_calibration_history(
 
     assert assignment_count == 500
     assert verification.verification_id == repeated_verification.verification_id
+    if heterogeneous:
+        assert verification.causal_status == "inconclusive"
+        assert verification.reason_codes == ["heterogeneous_assignment_probability"]
+        assert verification.effects == {}
+        assert calibration == []
+        return
     assert verification.causal_status == "verified"
     assert verification.effects["cost_usd"].estimated_difference == -0.5
     assert {row.metric for row in calibration} == {

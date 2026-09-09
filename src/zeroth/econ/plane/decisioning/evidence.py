@@ -89,25 +89,65 @@ def harvest_migration_evidence(
             )
         )
     )
-    outcome_by_join = {row.join_key or row.execution_id: row for row in outcomes}
-    grouped: dict[tuple[str, str], list[ExecutionEvent]] = defaultdict(list)
+    outcome_by_join = {
+        (row.implementation_id, row.join_key or row.execution_id): row
+        for row in sorted(outcomes, key=lambda row: (row.occurred_at, row.id))
+    }
+    grouped: dict[tuple[str, str, str], list[ExecutionEvent]] = defaultdict(list)
+    pair_by_run: dict[tuple[str, str, str], tuple[str, str]] = {}
+    run_by_pair: dict[tuple[str, tuple[str, str]], tuple[str, str, str]] = {}
+    pair_by_case: dict[tuple[str, str], tuple[str, str]] = {}
+    ambiguous_pairing = False
     for event in events:
-        case_id = event.subject_id or event.join_key or event.execution_id
-        grouped[(event.model_version, case_id)].append(event)
+        # Steps aggregate within one implementation/run, never across a subject's
+        # separate runs. Legacy subject matching is safe only when unique per arm.
+        run = (event.model_version, event.implementation_id,
+               event.run_id or event.join_key or event.execution_id)
+        pair = (
+            ("run", event.run_id) if event.run_id else
+            ("subject", event.subject_id) if event.subject_id else
+            ("join", event.join_key or event.execution_id)
+        )
+        if run in pair_by_run and pair_by_run[run] != pair:
+            ambiguous_pairing = True
+        pair_identity = (event.model_version, pair)
+        if pair_identity in run_by_pair and run_by_pair[pair_identity] != run:
+            ambiguous_pairing = True
+        case_identity = (event.model_version, pair[1])
+        if case_identity in pair_by_case and pair_by_case[case_identity] != pair:
+            ambiguous_pairing = True
+        pair_by_run[run] = pair
+        run_by_pair[pair_identity] = run
+        pair_by_case[case_identity] = pair
+        grouped[run].append(event)
 
-    observations: dict[str, dict[str, MigrationObservation]] = {
+    if ambiguous_pairing:
+        return EvidenceHarvestResult(
+            gaps=["ambiguous_run_pairing"],
+            lineage=EvidenceLineage(
+                collected_at=collected_at, lookback_start=lookback_start,
+                paired_cases=0, incumbent_complete_cases=0, candidate_complete_cases=0,
+                excluded_incomplete_cases=len(grouped),
+                sources=sorted({event.evidence_kind for event in events}),
+            ),
+        )
+
+    observations: dict[str, dict[tuple[str, str], MigrationObservation]] = {
         source.incumbent_model: {},
         source.candidate_model: {},
     }
-    case_dates: dict[str, date] = {}
+    case_dates: dict[tuple[str, str], date] = {}
     excluded = 0
     sources: set[str] = set()
-    for (model, case_id), run_events in grouped.items():
+    for run, run_events in grouped.items():
+        model = run[0]
+        pair = pair_by_run[run]
         if any(event.cost_measurement.lower() == "unmeasured" for event in run_events):
             excluded += 1
             continue
         matching_outcomes = [
-            outcome_by_join.get(event.join_key or event.execution_id) for event in run_events
+            outcome_by_join.get((event.implementation_id, event.join_key or event.execution_id))
+            for event in run_events
         ]
         complete_outcomes = [row for row in matching_outcomes if row is not None]
         outcome = max(complete_outcomes, key=lambda row: row.occurred_at) if complete_outcomes else None
@@ -131,8 +171,8 @@ def harvest_migration_evidence(
             Decimal("0"),
         )
         critical = _critical(outcome)
-        observations[model][case_id] = MigrationObservation(
-            case_id=case_id,
+        observations[model][pair] = MigrationObservation(
+            case_id=pair[1],
             cohort=cohort,
             cost_usd=cost,
             latency_ms=sum(event.latency_ms for event in run_events),
@@ -141,7 +181,7 @@ def harvest_migration_evidence(
             **({"critical_error": critical} if critical is not None else {}),
         )
         if model == source.incumbent_model:
-            case_dates[case_id] = max(event.timestamp for event in run_events).date()
+            case_dates[pair] = max(event.timestamp for event in run_events).date()
 
     incumbent = observations[source.incumbent_model]
     candidate = observations[source.candidate_model]
@@ -173,13 +213,31 @@ def harvest_migration_evidence(
             and isinstance(period_artifact, list)
             and period_artifact
         ):
+            artifact_incumbent = [MigrationObservation.model_validate(row) for row in incumbent_artifact]
+            artifact_candidate = [MigrationObservation.model_validate(row) for row in candidate_artifact]
+            incumbent_cohorts = {row.case_id: row.cohort for row in artifact_incumbent}
+            if any(
+                row.case_id in incumbent_cohorts and row.cohort != incumbent_cohorts[row.case_id]
+                for row in artifact_candidate
+            ):
+                return EvidenceHarvestResult(
+                    gaps=["paired_cohort_mismatch"],
+                    lineage=EvidenceLineage(
+                        collected_at=collected_at, lookback_start=lookback_start,
+                        paired_cases=len(set(incumbent_cohorts) & {row.case_id for row in artifact_candidate}),
+                        incumbent_complete_cases=len(artifact_incumbent),
+                        candidate_complete_cases=len(artifact_candidate),
+                        excluded_incomplete_cases=excluded,
+                        sources=sorted({row.source for row in artifact_incumbent + artifact_candidate}),
+                    ),
+                )
             artifact_evidence = MigrationEvidence.model_validate(
                 {
                     "workload": source.workload,
                     "incumbent_model": source.incumbent_model,
                     "candidate_model": source.candidate_model,
-                    "incumbent": incumbent_artifact,
-                    "candidate": candidate_artifact,
+                    "incumbent": artifact_incumbent,
+                    "candidate": artifact_candidate,
                     "period_request_counts": period_artifact,
                     "demand_horizon": report.get("demand_horizon", "unknown"),
                 }
@@ -220,6 +278,8 @@ def harvest_migration_evidence(
         )
     if incumbent.keys() != candidate.keys():
         return EvidenceHarvestResult(gaps=["paired_outcomes_missing"], lineage=lineage)
+    if any(incumbent[case_id].cohort != candidate[case_id].cohort for case_id in paired_ids):
+        return EvidenceHarvestResult(gaps=["paired_cohort_mismatch"], lineage=lineage)
     counts: dict[date, int] = defaultdict(int)
     for case_id in incumbent:
         if case_id in case_dates:

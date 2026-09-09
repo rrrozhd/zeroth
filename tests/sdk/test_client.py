@@ -209,11 +209,13 @@ def test_client_manages_recurring_decision_scans() -> None:
         )
     )
     client.list_decision_schedules()
+    client.deactivate_decision_schedule("dsch_123")
     client.list_decisions(workflow="invoice-processing")
 
     assert [request.url.path for request in received] == [
         "/v1/decision-schedules",
         "/v1/decision-schedules",
+        "/v1/decision-schedules/dsch_123/deactivate",
         "/v1/decisions",
     ]
     assert received[-1].url.params["workflow"] == "invoice-processing"
@@ -246,7 +248,9 @@ def test_client_operates_the_fresh_probabilistic_decision_and_rollout_loop() -> 
             evidence_source=source, policy=policy, interval_minutes=1440
         )
     )
+    client.deactivate_probabilistic_decision_schedule("psch_123")
     client.create_randomized_rollout(RandomizedRolloutRequest(decision_id="pdec_123"))
+    client.stop_randomized_rollout("roll_123")
     client.assign_randomized_rollout("roll_123", subject_id="customer-7", cohort="enterprise")
     client.verify_randomized_rollout(
         "roll_123", RandomizedRolloutVerifyRequest(bootstrap_samples=200)
@@ -255,7 +259,9 @@ def test_client_operates_the_fresh_probabilistic_decision_and_rollout_loop() -> 
     assert [request.url.path for request in received] == [
         "/v1/decisions/model-migration/refresh",
         "/v1/probabilistic-decision-schedules",
+        "/v1/probabilistic-decision-schedules/psch_123/deactivate",
         "/v1/randomized-rollouts",
+        "/v1/randomized-rollouts/roll_123/stop",
         "/v1/randomized-rollouts/roll_123/assignments",
         "/v1/randomized-rollouts/roll_123/verify",
     ]

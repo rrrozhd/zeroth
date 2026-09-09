@@ -99,7 +99,7 @@ class OutcomeEvent(BaseModel):
     run_id: str = Field(min_length=1)
     accepted: bool | None = None
     maturity: OutcomeMaturity = "unknown"
-    outcome_type: str = Field(default="accepted", min_length=1)
+    outcome_type: str = Field(default="accepted", min_length=1, max_length=64)
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     provenance: Literal["measured", "inferred", "mixed"] = "measured"
     value_usd: Decimal | None = Field(default=None, ge=0)
@@ -353,6 +353,12 @@ class ProbabilisticMigrationRequest(BaseModel):
     )
     simulations: int = Field(default=10_000, ge=100, le=10_000)
     seed: int = Field(default=7, ge=0, le=2_147_483_647)
+    qualification_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=192,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$",
+    )
 
 
 class MigrationEvidenceSource(BaseModel):

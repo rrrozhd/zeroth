@@ -6,6 +6,8 @@ import hashlib
 import random
 from datetime import UTC, datetime
 from decimal import Decimal
+from fractions import Fraction
+from math import comb
 from statistics import fmean
 from typing import Literal
 
@@ -13,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RandomizedRolloutPlan(BaseModel):
+    """Assignment configuration for a salted incumbent-versus-candidate rollout."""
+
     model_config = ConfigDict(extra="forbid")
 
     rollout_id: str = Field(min_length=1, max_length=128)
@@ -25,6 +29,8 @@ class RandomizedRolloutPlan(BaseModel):
 
 
 class RolloutAssignment(BaseModel):
+    """A subject's immutable randomized arm and model assignment."""
+
     model_config = ConfigDict(extra="forbid")
 
     subject_id: str
@@ -34,6 +40,8 @@ class RolloutAssignment(BaseModel):
 
 
 class RolloutObservation(BaseModel):
+    """A measured post-assignment outcome eligible for rollout verification."""
+
     model_config = ConfigDict(extra="forbid")
 
     subject_id: str
@@ -46,6 +54,8 @@ class RolloutObservation(BaseModel):
 
 
 class CausalMetricEffect(BaseModel):
+    """Arm means and bootstrap interval for one intention-compatible metric effect."""
+
     model_config = ConfigDict(extra="forbid")
 
     metric: str
@@ -57,6 +67,8 @@ class CausalMetricEffect(BaseModel):
 
 
 class RolloutVerification(BaseModel):
+    """Fail-closed causal verification result and its retained metric effects."""
+
     model_config = ConfigDict(extra="forbid")
 
     rollout_id: str
@@ -101,6 +113,7 @@ def _effect(
     bootstrap_samples: int,
     rng: random.Random,
 ) -> CausalMetricEffect:
+    """Estimate an arm-mean difference and percentile bootstrap interval."""
     incumbent_mean = fmean(incumbent)
     candidate_mean = fmean(candidate)
     differences: list[float] = []
@@ -121,6 +134,39 @@ def _effect(
     )
 
 
+def _exact_two_sided_binomial_probability(
+    candidate_count: int, total: int, candidate_probability: float
+) -> Fraction:
+    """Exact probability-ordering two-sided binomial p-value, including ties."""
+    if type(candidate_count) is not int or type(total) is not int:
+        raise TypeError("candidate_count and total must be integers")
+    if total < 1 or not 0 <= candidate_count <= total:
+        raise ValueError("candidate_count must be between zero and a positive total")
+    if not 0 < candidate_probability < 1:
+        raise ValueError("candidate_probability must be between zero and one")
+    probability = Fraction.from_float(candidate_probability)
+    numerator = probability.numerator
+    denominator = probability.denominator
+    complement = denominator - numerator
+
+    def mass_numerator(count: int) -> int:
+        return comb(total, count) * numerator**count * complement ** (total - count)
+
+    masses = [mass_numerator(count) for count in range(total + 1)]
+    observed_mass = masses[candidate_count]
+    included_mass = sum(mass for mass in masses if mass <= observed_mass)
+    return Fraction(included_mass, denominator**total)
+
+
+def _exact_two_sided_binomial_pvalue(
+    candidate_count: int, total: int, candidate_probability: float
+) -> float:
+    """Expose the exact probability-ordering binomial result as a float."""
+    return float(
+        _exact_two_sided_binomial_probability(candidate_count, total, candidate_probability)
+    )
+
+
 def verify_randomized_rollout(
     plan: RandomizedRolloutPlan,
     assignments: list[RolloutAssignment],
@@ -136,6 +182,19 @@ def verify_randomized_rollout(
         raise ValueError("minimum_per_arm must be positive")
     if bootstrap_samples < 100:
         raise ValueError("bootstrap_samples must be at least 100")
+    subject_ids = [row.subject_id for row in assignments]
+    if len(subject_ids) != len(set(subject_ids)):
+        return RolloutVerification(
+            rollout_id=plan.rollout_id,
+            causal_status="invalid",
+            reason_codes=["duplicate_assignment_detected"],
+            incumbent_samples=0,
+            candidate_samples=0,
+            excluded_noncompliant=0,
+            excluded_pre_assignment=0,
+            effects={},
+            verified_at=verified_at or datetime.now(UTC),
+        )
     assignment_by_subject = {row.subject_id: row for row in assignments}
     selected: dict[str, RolloutObservation] = {}
     excluded_noncompliant = 0
@@ -157,6 +216,73 @@ def verify_randomized_rollout(
         by_arm[assignment_by_subject[subject_id].arm].append(observation)
     incumbent = by_arm["incumbent"]
     candidate = by_arm["candidate"]
+    attrition = len(selected) != len(assignments)
+    probabilities = {plan.candidate_probability, *plan.cohort_candidate_probabilities.values()}
+    if len(probabilities) > 1:
+        # No retained propensity/cohort strata exist for a valid adjusted
+        # estimator. Include the default fallback even if it was not observed.
+        reasons = ["heterogeneous_assignment_probability"]
+        if excluded_noncompliant:
+            reasons.append("assignment_noncompliance_detected")
+        if attrition:
+            reasons.append("outcome_attrition_detected")
+        return RolloutVerification(
+            rollout_id=plan.rollout_id,
+            causal_status="invalid" if excluded_noncompliant else "inconclusive",
+            reason_codes=reasons,
+            incumbent_samples=len(incumbent),
+            candidate_samples=len(candidate),
+            excluded_noncompliant=excluded_noncompliant,
+            excluded_pre_assignment=excluded_pre_assignment,
+            effects={},
+            verified_at=verified_at or datetime.now(UTC),
+        )
+    if excluded_noncompliant or attrition:
+        reasons = []
+        if excluded_noncompliant:
+            reasons.append("assignment_noncompliance_detected")
+        if attrition:
+            reasons.append("outcome_attrition_detected")
+        return RolloutVerification(
+            rollout_id=plan.rollout_id,
+            causal_status="invalid" if excluded_noncompliant else "inconclusive",
+            reason_codes=reasons,
+            incumbent_samples=len(incumbent),
+            candidate_samples=len(candidate),
+            excluded_noncompliant=excluded_noncompliant,
+            excluded_pre_assignment=excluded_pre_assignment,
+            effects={},
+            verified_at=verified_at or datetime.now(UTC),
+        )
+    if not assignments:
+        return RolloutVerification(
+            rollout_id=plan.rollout_id,
+            causal_status="inconclusive",
+            reason_codes=["minimum_arm_sample_not_met"],
+            incumbent_samples=0,
+            candidate_samples=0,
+            excluded_noncompliant=excluded_noncompliant,
+            excluded_pre_assignment=excluded_pre_assignment,
+            effects={},
+            verified_at=verified_at or datetime.now(UTC),
+        )
+    assignment_candidate_count = sum(row.arm == "candidate" for row in assignments)
+    if _exact_two_sided_binomial_probability(
+        assignment_candidate_count,
+        len(assignments),
+        plan.candidate_probability,
+    ) <= Fraction(1, 1_000):
+        return RolloutVerification(
+            rollout_id=plan.rollout_id,
+            causal_status="invalid",
+            reason_codes=["assignment_ratio_mismatch"],
+            incumbent_samples=len(incumbent),
+            candidate_samples=len(candidate),
+            excluded_noncompliant=excluded_noncompliant,
+            excluded_pre_assignment=excluded_pre_assignment,
+            effects={},
+            verified_at=verified_at or datetime.now(UTC),
+        )
     if len(incumbent) < minimum_per_arm or len(candidate) < minimum_per_arm:
         return RolloutVerification(
             rollout_id=plan.rollout_id,
@@ -198,11 +324,10 @@ def verify_randomized_rollout(
         )
         for metric, (control, treatment) in vectors.items()
     }
-    invalid = excluded_noncompliant > 0
     return RolloutVerification(
         rollout_id=plan.rollout_id,
-        causal_status="invalid" if invalid else "verified",
-        reason_codes=["assignment_noncompliance_detected"] if invalid else [],
+        causal_status="verified",
+        reason_codes=[],
         incumbent_samples=len(incumbent),
         candidate_samples=len(candidate),
         excluded_noncompliant=excluded_noncompliant,

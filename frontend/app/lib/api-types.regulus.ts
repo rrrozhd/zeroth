@@ -28,8 +28,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
-        get: operations["health_health_ready_get"];
+        /** Readiness */
+        get: operations["readiness_health_ready_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -863,6 +863,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/decision-schedules/{schedule_id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate Schedule */
+        post: operations["deactivate_schedule_v1_decision_schedules__schedule_id__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/decisions": {
         parameters: {
             query?: never;
@@ -1273,6 +1290,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/probabilistic-decision-schedules/{schedule_id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate Probabilistic Schedule */
+        post: operations["deactivate_probabilistic_schedule_v1_probabilistic_decision_schedules__schedule_id__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/randomized-rollouts": {
         parameters: {
             query?: never;
@@ -1301,6 +1335,23 @@ export interface paths {
         put?: never;
         /** Assign Rollout */
         post: operations["assign_rollout_v1_randomized_rollouts__rollout_id__assignments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/randomized-rollouts/{rollout_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop Rollout */
+        post: operations["stop_rollout_v1_randomized_rollouts__rollout_id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1923,7 +1974,10 @@ export interface components {
             /** Net Margin Usd */
             net_margin_usd: number;
         };
-        /** CausalMetricEffect */
+        /**
+         * CausalMetricEffect
+         * @description Arm means and bootstrap interval for one intention-compatible metric effect.
+         */
         CausalMetricEffect: {
             /** Candidate Mean */
             candidate_mean: number;
@@ -2030,7 +2084,10 @@ export interface components {
             /** Successful Runs */
             successful_runs: number;
         };
-        /** CohortRoutingAction */
+        /**
+         * CohortRoutingAction
+         * @description Candidate traffic shares for a named, cohort-specific routing alternative.
+         */
         CohortRoutingAction: {
             /** Action Id */
             action_id: string;
@@ -3059,7 +3116,10 @@ export interface components {
             /** Tenant Id */
             tenant_id: string;
         };
-        /** ForecastCalibrationObservation */
+        /**
+         * ForecastCalibrationObservation
+         * @description A historical forecast interval joined to its subsequently observed value.
+         */
         ForecastCalibrationObservation: {
             /** Forecast Id */
             forecast_id: string;
@@ -3079,7 +3139,10 @@ export interface components {
             /** Predicted Mean */
             predicted_mean: number;
         };
-        /** ForecastReadiness */
+        /**
+         * ForecastReadiness
+         * @description Aggregate readiness state across every metric required by migration policy.
+         */
         "ForecastReadiness-Input": {
             /** Alpha Critical */
             alpha_critical?: number | null;
@@ -3120,7 +3183,10 @@ export interface components {
             /** Relative Residual Shift */
             relative_residual_shift?: number | null;
         };
-        /** ForecastReadiness */
+        /**
+         * ForecastReadiness
+         * @description Aggregate readiness state across every metric required by migration policy.
+         */
         "ForecastReadiness-Output": {
             /** Assessed At */
             assessed_at?: string | null;
@@ -3319,7 +3385,10 @@ export interface components {
          * @enum {string}
          */
         MeasurementState: "measured" | "estimated" | "unmeasured";
-        /** MetricForecastReadiness */
+        /**
+         * MetricForecastReadiness
+         * @description Calibration and drift assessment for one forecasted decision metric.
+         */
         "MetricForecastReadiness-Input": {
             /** Assessed At */
             assessed_at?: string | null;
@@ -3354,7 +3423,10 @@ export interface components {
             /** Relative Residual Shift */
             relative_residual_shift?: number | null;
         };
-        /** MetricForecastReadiness */
+        /**
+         * MetricForecastReadiness
+         * @description Calibration and drift assessment for one forecasted decision metric.
+         */
         "MetricForecastReadiness-Output": {
             /** Assessed At */
             assessed_at?: string | null;
@@ -3379,7 +3451,10 @@ export interface components {
             /** Relative Residual Shift */
             relative_residual_shift?: number | null;
         };
-        /** MigrationActionForecast */
+        /**
+         * MigrationActionForecast
+         * @description Cost, quality, latency, and tail-risk forecast for one routing action.
+         */
         MigrationActionForecast: {
             /**
              * Action Id
@@ -3455,7 +3530,10 @@ export interface components {
             /** Violated Constraints */
             violated_constraints: string[];
         };
-        /** MigrationEvidence */
+        /**
+         * MigrationEvidence
+         * @description Paired execution outcomes, demand history, and readiness used for forecasting.
+         */
         MigrationEvidence: {
             /** Candidate */
             candidate: components["schemas"]["MigrationObservation-Input"][];
@@ -3519,7 +3597,10 @@ export interface components {
             /** Workload */
             workload: string;
         };
-        /** MigrationObservation */
+        /**
+         * MigrationObservation
+         * @description Measured outcome for one incumbent or candidate execution in a paired case.
+         */
         "MigrationObservation-Input": {
             /** Accepted */
             accepted: boolean;
@@ -3542,7 +3623,10 @@ export interface components {
             /** Source */
             source: string;
         };
-        /** MigrationObservation */
+        /**
+         * MigrationObservation
+         * @description Measured outcome for one incumbent or candidate execution in a paired case.
+         */
         "MigrationObservation-Output": {
             /** Accepted */
             accepted: boolean;
@@ -3565,7 +3649,10 @@ export interface components {
             /** Source */
             source: string;
         };
-        /** MigrationRiskPolicy */
+        /**
+         * MigrationRiskPolicy
+         * @description Risk limits and candidate routing alternatives for a migration evaluation.
+         */
         "MigrationRiskPolicy-Input": {
             /**
              * Allow Drift Warning
@@ -3627,7 +3714,10 @@ export interface components {
             /** Routing Actions */
             routing_actions?: components["schemas"]["CohortRoutingAction"][];
         };
-        /** MigrationRiskPolicy */
+        /**
+         * MigrationRiskPolicy
+         * @description Risk limits and candidate routing alternatives for a migration evaluation.
+         */
         "MigrationRiskPolicy-Output": {
             /**
              * Allow Drift Warning
@@ -3989,7 +4079,10 @@ export interface components {
             /** Simulations */
             simulations: number;
         };
-        /** ProbabilisticMigrationDecision */
+        /**
+         * ProbabilisticMigrationDecision
+         * @description Fail-closed migration result with forecasts, lineage, and abstention reasons.
+         */
         ProbabilisticMigrationDecision: {
             /** Actions */
             actions: components["schemas"]["MigrationActionForecast"][];
@@ -4047,6 +4140,8 @@ export interface components {
             calibration_observations?: components["schemas"]["ForecastCalibrationObservation"][];
             evidence: components["schemas"]["MigrationEvidence"];
             policy: components["schemas"]["MigrationRiskPolicy-Input"];
+            /** Qualification Id */
+            qualification_id?: string | null;
             /**
              * Seed
              * @default 7
@@ -4339,7 +4434,10 @@ export interface components {
              */
             status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "DEAD_LETTER";
         };
-        /** RolloutVerification */
+        /**
+         * RolloutVerification
+         * @description Fail-closed causal verification result and its retained metric effects.
+         */
         RolloutVerification: {
             /** Candidate Samples */
             candidate_samples: number;
@@ -4848,7 +4946,7 @@ export interface operations {
             };
         };
     };
-    health_health_ready_get: {
+    readiness_health_ready_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6369,6 +6467,37 @@ export interface operations {
             };
         };
     };
+    deactivate_schedule_v1_decision_schedules__schedule_id__deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     decision_history_v1_decisions_get: {
         parameters: {
             query?: {
@@ -7173,6 +7302,37 @@ export interface operations {
             };
         };
     };
+    deactivate_probabilistic_schedule_v1_probabilistic_decision_schedules__schedule_id__deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProbabilisticDecisionScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_rollout_v1_randomized_rollouts_post: {
         parameters: {
             query?: never;
@@ -7228,6 +7388,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RandomizedRolloutAssignmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_rollout_v1_randomized_rollouts__rollout_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rollout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RandomizedRolloutOut"];
                 };
             };
             /** @description Validation Error */

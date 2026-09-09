@@ -92,8 +92,6 @@ class EconConfigError(RuntimeError):
 def validate_startup_settings() -> None:
     if not settings.jwt_secret.strip() or settings.jwt_secret == "change-me":
         raise EconConfigError("ECP_JWT_SECRET must be configured before standalone startup")
-    if settings.cloud_scheduler_enabled and not settings.cloud_entitlements_enabled:
-        raise EconConfigError("cloud scheduler requires cloud entitlements")
     if settings.cloud_scheduler_interval_seconds <= 0:
         raise EconConfigError("ECP_CLOUD_SCHEDULER_INTERVAL_SECONDS must be positive")
     if settings.report_email_enabled:
@@ -112,6 +110,8 @@ def validate_startup_settings() -> None:
             )
         if settings.report_smtp_port <= 0 or settings.report_smtp_timeout_seconds <= 0:
             raise EconConfigError("decision report SMTP port and timeout must be positive")
+        if settings.report_smtp_username and not settings.report_smtp_starttls:
+            raise EconConfigError("authenticated report SMTP requires TLS")
     if settings.workos_authkit_enabled:
         missing = [
             env_name

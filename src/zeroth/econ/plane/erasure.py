@@ -13,6 +13,8 @@ both tenant and explicit join keys, never by nested payload keys.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 
@@ -47,6 +49,31 @@ class SqlAlchemyEconEventEraser:
         if not keys:
             return 0
         return await asyncio.to_thread(self._delete_sync, tenant_id, keys, idempotency_key)
+
+    async def delete_qualification_lineage(
+        self,
+        tenant_id: str,
+        workload: str | None = None,
+        *,
+        idempotency_key: str,
+    ) -> int:
+        """Idempotently delete all registry lineage in the requested tenant scope."""
+        receipt_scope = json.dumps(
+            {
+                "idempotency_key": idempotency_key,
+                "tenant_id": tenant_id,
+                "workload": workload,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        receipt_key = "qualification:" + hashlib.sha256(receipt_scope).hexdigest()
+        return await asyncio.to_thread(
+            self._delete_qualification_lineage_sync,
+            tenant_id,
+            workload,
+            receipt_key,
+        )
 
     @staticmethod
     def _replay(session: object, receipt_model: type, tenant_id: str, key: str) -> int | None:
@@ -141,3 +168,52 @@ class SqlAlchemyEconEventEraser:
         finally:
             session.close()
         return deleted
+
+    def _delete_qualification_lineage_sync(
+        self,
+        tenant_id: str,
+        workload: str | None,
+        idempotency_key: str,
+    ) -> int:
+        from sqlalchemy import delete
+        from sqlalchemy.exc import IntegrityError
+
+        session_factory = self._session_factory
+        if session_factory is None:
+            from zeroth.econ.plane.database import SessionLocal
+
+            session_factory = SessionLocal
+        from zeroth.econ.plane.decisioning.models import QualificationRegistryRecord
+        from zeroth.econ.plane.instrumentation.models import EconErasureReceipt
+
+        session = session_factory()
+        try:
+            replay = self._replay(session, EconErasureReceipt, tenant_id, idempotency_key)
+            if replay is not None:
+                return replay
+            receipt = EconErasureReceipt(
+                operation_id=idempotency_key,
+                tenant_id=tenant_id,
+                deleted_count=0,
+                created_at=datetime.now(UTC),
+            )
+            session.add(receipt)
+            try:
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+                replay = self._replay(session, EconErasureReceipt, tenant_id, idempotency_key)
+                if replay is None:
+                    raise
+                return replay
+            statement = delete(QualificationRegistryRecord).where(
+                QualificationRegistryRecord.tenant_id == tenant_id
+            )
+            if workload is not None:
+                statement = statement.where(QualificationRegistryRecord.workload == workload)
+            result = session.execute(statement)
+            receipt.deleted_count = int(result.rowcount or 0)
+            session.commit()
+            return receipt.deleted_count
+        finally:
+            session.close()

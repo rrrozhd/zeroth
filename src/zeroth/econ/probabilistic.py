@@ -61,6 +61,8 @@ _EXPERIMENTAL_METRICS = (
 
 @dataclass(frozen=True)
 class _ExperimentalRiskQualification:
+    """Scope and provenance required to run the private risk-law diagnostic."""
+
     qualification_id: str
     workload: str
     incumbent_model: str
@@ -81,6 +83,8 @@ class _ExperimentalRiskQualification:
 
 @dataclass(frozen=True)
 class _ExperimentalForecastCell:
+    """One metric's predicted interval and realized value for a forecast period."""
+
     metric: str
     predicted_mean: float
     predicted_low: float
@@ -90,6 +94,8 @@ class _ExperimentalForecastCell:
 
 @dataclass(frozen=True)
 class _ExperimentalCalibrationBundle:
+    """A finalized period joining demand and metric forecasts to their outcomes."""
+
     period_id: str
     forecast_origin_at: datetime
     period_start: datetime
@@ -108,6 +114,8 @@ class _ExperimentalCalibrationBundle:
 
 @dataclass(frozen=True)
 class _ExperimentalDemandFit:
+    """Bounded linear demand coefficient retained by the experimental forecaster."""
+
     metric: str
     coefficient_unclipped: float
     coefficient: float
@@ -116,6 +124,8 @@ class _ExperimentalDemandFit:
 
 @dataclass(frozen=True)
 class _ExperimentalMonitoringBatch:
+    """One sequential drift-test result for a forecast metric."""
+
     metric: str
     batch_index: int
     effect: float
@@ -126,6 +136,8 @@ class _ExperimentalMonitoringBatch:
 
 @dataclass(frozen=True)
 class _ExperimentalReadiness:
+    """Private readiness result with demand fits and sequential monitoring evidence."""
+
     state: Literal["unknown", "calibrated", "critical"]
     reason: str | None
     fit_periods: int
@@ -136,6 +148,8 @@ class _ExperimentalReadiness:
 
 @dataclass(frozen=True)
 class _ExperimentalSimulationSample:
+    """Auditable output from one action draw in the nested simulation."""
+
     draw_index: int
     action_id: str
     demand: int
@@ -151,6 +165,8 @@ class _ExperimentalSimulationSample:
 
 
 class MigrationObservation(BaseModel):
+    """Measured outcome for one incumbent or candidate execution in a paired case."""
+
     model_config = ConfigDict(extra="forbid")
 
     case_id: str = Field(min_length=1, max_length=128)
@@ -163,6 +179,7 @@ class MigrationObservation(BaseModel):
 
     @model_serializer(mode="wrap")
     def _preserve_unmeasured_critical_error(self, handler):
+        """Omit the legacy default when critical-error measurement was not supplied."""
         values = handler(self)
         if "critical_error" not in self.model_fields_set:
             values.pop("critical_error", None)
@@ -170,6 +187,8 @@ class MigrationObservation(BaseModel):
 
 
 class ForecastCalibrationObservation(BaseModel):
+    """A historical forecast interval joined to its subsequently observed value."""
+
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     forecast_id: str = Field(min_length=1, max_length=128)
@@ -182,12 +201,15 @@ class ForecastCalibrationObservation(BaseModel):
 
     @model_validator(mode="after")
     def _interval_is_ordered(self) -> ForecastCalibrationObservation:
+        """Reject forecast intervals whose lower endpoint exceeds the upper endpoint."""
         if self.predicted_low > self.predicted_high:
             raise ValueError("forecast interval endpoints must be ordered")
         return self
 
 
 class MetricForecastReadiness(BaseModel):
+    """Calibration and drift assessment for one forecasted decision metric."""
+
     model_config = ConfigDict(extra="forbid")
 
     metric: str
@@ -213,6 +235,8 @@ class MetricForecastReadiness(BaseModel):
 
 
 class ForecastReadiness(BaseModel):
+    """Aggregate readiness state across every metric required by migration policy."""
+
     model_config = ConfigDict(extra="forbid")
 
     calibration_state: Literal["unknown", "calibrated", "warning", "critical"] = "unknown"
@@ -232,6 +256,8 @@ class ForecastReadiness(BaseModel):
 
 
 class MigrationEvidence(BaseModel):
+    """Paired execution outcomes, demand history, and readiness used for forecasting."""
+
     model_config = ConfigDict(extra="forbid")
 
     workload: str = Field(min_length=1)
@@ -245,6 +271,7 @@ class MigrationEvidence(BaseModel):
 
     @model_validator(mode="after")
     def _evidence_has_unique_positive_periods(self) -> MigrationEvidence:
+        """Validate positive demand periods and unambiguous cohort-preserving pairs."""
         if any(value <= 0 for value in self.period_request_counts):
             raise ValueError("period_request_counts must be positive")
         for label, observations in (
@@ -265,6 +292,8 @@ class MigrationEvidence(BaseModel):
 
 
 class CohortRoutingAction(BaseModel):
+    """Candidate traffic shares for a named, cohort-specific routing alternative."""
+
     model_config = ConfigDict(extra="forbid")
 
     action_id: str = Field(min_length=1, max_length=128)
@@ -272,6 +301,7 @@ class CohortRoutingAction(BaseModel):
 
     @model_validator(mode="after")
     def _shares_are_bounded(self) -> CohortRoutingAction:
+        """Require finite cohort shares and at least one nonzero candidate route."""
         if any(
             not cohort or not isfinite(share) or share < 0 or share > 1
             for cohort, share in self.cohort_candidate_shares.items()
@@ -283,6 +313,8 @@ class CohortRoutingAction(BaseModel):
 
 
 class MigrationRiskPolicy(BaseModel):
+    """Risk limits and candidate routing alternatives for a migration evaluation."""
+
     model_config = ConfigDict(extra="forbid")
 
     min_paired_cases: int = Field(default=30, ge=1)
@@ -303,6 +335,7 @@ class MigrationRiskPolicy(BaseModel):
 
     @model_validator(mode="after")
     def _shares_are_ordered_and_bounded(self) -> MigrationRiskPolicy:
+        """Keep global shares ordered and all action identifiers unique."""
         if not self.candidate_shares:
             raise ValueError("candidate_shares must not be empty")
         if any(not isfinite(share) or share <= 0 or share > 1 for share in self.candidate_shares):
@@ -318,6 +351,8 @@ class MigrationRiskPolicy(BaseModel):
 
 
 class MigrationActionForecast(BaseModel):
+    """Cost, quality, latency, and tail-risk forecast for one routing action."""
+
     model_config = ConfigDict(extra="forbid")
 
     action_id: str = "global"
@@ -361,6 +396,8 @@ class MigrationActionForecast(BaseModel):
 
 
 class ProbabilisticMigrationDecision(BaseModel):
+    """Fail-closed migration result with forecasts, lineage, and abstention reasons."""
+
     model_config = ConfigDict(extra="forbid")
 
     workload: str
@@ -836,6 +873,7 @@ def _exact_experimental_permutation_pvalue(
 
 
 def _experimental_unknown(reason: str) -> _ExperimentalReadiness:
+    """Return a private unknown-readiness result with the supplied reason."""
     return _ExperimentalReadiness(
         state="unknown", reason=reason, fit_periods=12, calibration_periods=24
     )
@@ -1201,10 +1239,7 @@ def _wilson_score_interval(
     center = (probability + z_squared / (2 * trials)) / denominator
     half_width = (
         z
-        * sqrt(
-            probability * (1 - probability) / trials
-            + z_squared / (4 * trials * trials)
-        )
+        * sqrt(probability * (1 - probability) / trials + z_squared / (4 * trials * trials))
         / denominator
     )
     return max(0.0, center - half_width), min(1.0, center + half_width)
@@ -1257,9 +1292,7 @@ def _predictive_envelope(
     source_low = 0.0
     source_high = 0.0
     for weight, successes, trials in components:
-        low, high = _wilson_score_interval(
-            successes, trials=trials, confidence=1 - alpha
-        )
+        low, high = _wilson_score_interval(successes, trials=trials, confidence=1 - alpha)
         source_low += weight * low
         source_high += weight * high
     future_low, _ = _wilson_score_interval(
@@ -1466,9 +1499,7 @@ def _cvar_monte_carlo_interval(
         source_observations * tail_numerator + tail_denominator - 1
     ) // tail_denominator
     required_source_observations = (
-        _MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES * tail_denominator
-        + tail_numerator
-        - 1
+        _MINIMUM_EFFECTIVE_SOURCE_TAIL_SAMPLES * tail_denominator + tail_numerator - 1
     ) // tail_numerator
     common = {
         "batch_count": _CVAR_BATCH_COUNT,
@@ -2053,16 +2084,12 @@ def _diagnose_model_migration(
             )
         }
         success_low, success_high = predictive_rate_intervals[action.action_id]["success"]
-        critical_low, critical_high = predictive_rate_intervals[action.action_id][
-            "critical_error"
-        ]
+        critical_low, critical_high = predictive_rate_intervals[action.action_id]["critical_error"]
         action_qualification["quality"].update(
             {
                 "predictive_success_rate_lower": success_low,
                 "predictive_success_rate_upper": success_high,
-                "predictive_quality_drop_upper": max(
-                    0.0, baseline_success_high - success_low
-                ),
+                "predictive_quality_drop_upper": max(0.0, baseline_success_high - success_low),
             }
         )
         quality_envelope_qualified = (

@@ -309,6 +309,7 @@ def test_sdk_submits_and_reads_a_probabilistic_model_migration_decision(
 
     assert result["recommended_action"] == "collect_evidence"
     assert "experimental_predictive_reliability_unapproved" in result["reason_codes"]
+    assert "risk_law_unqualified" in result["reason_codes"]
     assert result["evidence_lineage"]["predictive_reliability"] == "unapproved"
     assert result["actions"] == []
     assert "risk_law_unqualified" in result["reason_codes"]

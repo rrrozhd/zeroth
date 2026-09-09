@@ -254,9 +254,7 @@ def test_all_success_bootstrap_cannot_authorize_zero_quality_drop_limit() -> Non
 
     report = _qualified_diagnose(evidence, policy=policy, simulations=2_000, seed=23)
 
-    quality = report.evidence_lineage["numerical_qualification"]["actions"]["global-1"][
-        "quality"
-    ]
+    quality = report.evidence_lineage["numerical_qualification"]["actions"]["global-1"]["quality"]
     assert quality["predictive_quality_drop_upper"] > 0
     assert quality["status"] == "indeterminate"
     assert report.recommended_action == "collect_evidence"
@@ -322,15 +320,14 @@ def test_action_selection_abstains_when_only_cvar_evidence_is_insufficient() -> 
 
     assert report.actions[0].feasible is True
     assert all(
-        report.evidence_lineage["numerical_qualification"]["actions"]["global-1"][metric][
-            "status"
-        ]
+        report.evidence_lineage["numerical_qualification"]["actions"]["global-1"][metric]["status"]
         == "qualified"
         for metric in ("quality", "latency", "critical_error")
     )
-    assert report.evidence_lineage["numerical_qualification"]["actions"]["global-1"][
-        "cvar"
-    ]["status"] == "insufficient"
+    assert (
+        report.evidence_lineage["numerical_qualification"]["actions"]["global-1"]["cvar"]["status"]
+        == "insufficient"
+    )
     assert report.recommended_action == "collect_evidence"
     assert report.reason_codes == ["mc_cvar_indeterminate", "demand_history_insufficient"]
 
@@ -525,9 +522,7 @@ def test_optimizer_can_route_only_the_cohort_where_the_candidate_is_safe() -> No
         )
     ]
     incumbent = [
-        row.model_copy(
-            update={"cohort": "enterprise" if index < count // 2 else "self-serve"}
-        )
+        row.model_copy(update={"cohort": "enterprise" if index < count // 2 else "self-serve"})
         for index, row in enumerate(incumbent)
     ]
     evidence = _evidence().model_copy(update={"incumbent": incumbent, "candidate": candidate})

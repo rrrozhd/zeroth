@@ -57,6 +57,13 @@ def _utcnow() -> datetime:
 
 def init_otel_metrics() -> None:
     global _OTEL_ENABLED
+    from zeroth.econ.plane.decisioning.scheduler import set_scheduler_observer
+
+    if settings.otel_metrics_enabled and _OTEL_ENABLED:
+        return
+    _OTEL_ENABLED = False
+    _OTEL_COUNTERS.clear()
+    set_scheduler_observer(None)
     if not settings.otel_metrics_enabled:
         return
     try:
@@ -77,10 +84,16 @@ def init_otel_metrics() -> None:
         _OTEL_COUNTERS["outcome"] = meter.create_counter("ecp_outcomes_total")
         _OTEL_COUNTERS["evaluation"] = meter.create_counter("ecp_evaluations_completed_total")
         _OTEL_COUNTERS["policy"] = meter.create_counter("ecp_policy_actions_total")
+        from zeroth.econ.plane.decisioning.scheduler import OtelSchedulerObserver
+
+        scheduler_meter = metrics.get_meter("econ_plane.scheduler")
+        set_scheduler_observer(OtelSchedulerObserver(scheduler_meter))
         _OTEL_ENABLED = True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("otel metrics init failed: %s", exc)
+        logger.warning("otel metrics init failed exception_type=%s", type(exc).__name__)
         _OTEL_ENABLED = False
+        _OTEL_COUNTERS.clear()
+        set_scheduler_observer(None)
 
 
 def _otel_add(counter_key: str, amount: int = 1, attrs: dict[str, str] | None = None) -> None:

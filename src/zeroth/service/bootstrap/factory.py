@@ -130,6 +130,16 @@ class _UnavailableEconEventEraser:
         del tenant_id, join_keys, idempotency_key
         raise RuntimeError("economics erasure unavailable")
 
+    async def delete_qualification_lineage(
+        self,
+        tenant_id: str,
+        workload: str | None = None,
+        *,
+        idempotency_key: str,
+    ) -> int:
+        del tenant_id, workload, idempotency_key
+        raise RuntimeError("economics erasure unavailable")
+
 
 def _build_retention_econ_eraser(settings: object) -> object | None:
     """Bind retention cleanup to the configured bundled economics database.
@@ -329,6 +339,7 @@ async def bootstrap_scoped_service(
         deployment_scope,
         metrics_collector=metrics_collector,
     )
+
     async def _resolve_mcp_server(server_ref: str) -> RegisteredMCPServerConfig | None:
         """Turn a graph's server_ref into the operator's registration.
 
@@ -1112,9 +1123,7 @@ async def bootstrap_scoped_service(
             # headers_provider, external base_url) it could never authenticate, so
             # the gateway's budget check silently failed open.
             budget_enforcer = BudgetEnforcer(
-                regulus_base_url=(
-                    settings.regulus.base_url if econ_plane_app is None else None
-                ),
+                regulus_base_url=(settings.regulus.base_url if econ_plane_app is None else None),
                 cache_ttl=settings.regulus.budget_cache_ttl,
                 timeout=settings.regulus.request_timeout,
                 headers_provider=regulus_self_auth,
@@ -1451,9 +1460,7 @@ async def build_runners_for_deployment(
             llm_key_map=llm_key_map,
             llm_base_url_map=llm_base_url_map,
             thread_state_store=thread_state_store,
-            allow_development_inline_mcp=(
-                get_settings().sandbox.allow_unisolated_mcp_development
-            ),
+            allow_development_inline_mcp=(get_settings().sandbox.allow_unisolated_mcp_development),
         )
         for authored_id, runner in local_runners.items():
             key = (

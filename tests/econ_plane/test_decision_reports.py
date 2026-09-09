@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,12 +24,13 @@ from zeroth.econ.plane.decisioning.models import ProbabilisticMigrationDecisionR
 from zeroth.econ.plane.reports.api import get_report_mailer, router as reports_router
 from zeroth.econ.plane.reports.mailer import ReportEmail
 from zeroth.econ.plane.reports.models import DecisionReportDeliveryRecord, DecisionReportRecord
-from zeroth.econ.plane.reports.pdf import render_decision_report_pdf
+from zeroth.econ.plane.reports.pdf import TEMPLATE_VERSION, render_decision_report_pdf
 from zeroth.econ.plane.reports.schemas import DecisionReportDeliveryCreate
 from zeroth.econ.plane.reports.service import (
     ReportConfigurationError,
     create_decision_report,
     deliver_decision_report,
+    get_decision_report,
 )
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
@@ -121,6 +128,93 @@ def test_pdf_renderer_produces_a_versioned_decision_artifact() -> None:
     assert b"/Count 1" in pdf
 
 
+def _wait_for_next_wall_clock_second() -> None:
+    current = int(time.time())
+    while int(time.time()) == current:
+        time.sleep(0.01)
+
+
+def _render_in_fresh_process() -> bytes:
+    test_path = str(Path(__file__).resolve())
+    probe = (
+        "import runpy,sys;"
+        f"namespace=runpy.run_path({test_path!r});"
+        "sys.stdout.buffer.write(namespace['render_decision_report_pdf'](namespace['_stored_decision']()))"
+    )
+    env = dict(os.environ)
+    source_root = str(Path(__file__).resolve().parents[2] / "src")
+    env["PYTHONPATH"] = os.pathsep.join(
+        value for value in (source_root, env.get("PYTHONPATH")) if value
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=Path(__file__).resolve().parents[2],
+        env=env,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr.decode(errors="replace")
+    return completed.stdout
+
+
+def test_pdf_renderer_is_byte_identical_across_wall_clock_seconds() -> None:
+    first = render_decision_report_pdf(_stored_decision())
+    _wait_for_next_wall_clock_second()
+    second = render_decision_report_pdf(_stored_decision())
+
+    assert second == first
+
+
+def test_pdf_renderer_is_byte_identical_across_fresh_processes() -> None:
+    first = _render_in_fresh_process()
+    _wait_for_next_wall_clock_second()
+    second = _render_in_fresh_process()
+
+    assert second == first
+
+
+def test_pdf_renderer_digest_changes_for_a_meaningful_record_change() -> None:
+    original = _stored_decision()
+    changed = _stored_decision()
+    changed.request_digest = "b" * 64
+
+    assert (
+        hashlib.sha256(render_decision_report_pdf(changed)).digest()
+        != hashlib.sha256(render_decision_report_pdf(original)).digest()
+    )
+
+
+def test_pdf_renderer_does_not_mutate_reportlab_global_configuration() -> None:
+    from reportlab import rl_config
+
+    invariant_before = rl_config.invariant
+    render_decision_report_pdf(_stored_decision())
+
+    assert rl_config.invariant == invariant_before
+
+
+def test_pdf_renderer_output_is_parseable_and_renderable_by_poppler(tmp_path: Path) -> None:
+    pdfinfo = shutil.which("pdfinfo")
+    pdftoppm = shutil.which("pdftoppm")
+    assert pdfinfo is not None
+    assert pdftoppm is not None
+    pdf_path = tmp_path / "decision-report.pdf"
+    image_prefix = tmp_path / "decision-report"
+    pdf_path.write_bytes(render_decision_report_pdf(_stored_decision()))
+
+    info = subprocess.run([pdfinfo, str(pdf_path)], capture_output=True, check=False)
+    rendered = subprocess.run(
+        [pdftoppm, "-f", "1", "-l", "1", "-singlefile", "-png", str(pdf_path), str(image_prefix)],
+        capture_output=True,
+        check=False,
+    )
+
+    assert info.returncode == 0, info.stderr.decode(errors="replace")
+    assert b"Pages:           1" in info.stdout
+    assert rendered.returncode == 0, rendered.stderr.decode(errors="replace")
+    assert (tmp_path / "decision-report.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
 class _RecordingMailer:
     def __init__(self) -> None:
         self.messages: list[ReportEmail] = []
@@ -139,8 +233,20 @@ def test_report_api_creates_downloads_and_emails_one_immutable_artifact(
 ) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'reports.db'}")
     Base.metadata.create_all(engine)
+    decision = _stored_decision()
+    rendered: list[bytes] = []
+
+    def capture_renderer_bytes(record: ProbabilisticMigrationDecisionRecord) -> bytes:
+        pdf = render_decision_report_pdf(record)
+        rendered.append(pdf)
+        return pdf
+
+    monkeypatch.setattr(
+        "zeroth.econ.plane.reports.service.render_decision_report_pdf",
+        capture_renderer_bytes,
+    )
     with Session(engine) as db:
-        db.add(_stored_decision())
+        db.add(decision)
         db.commit()
 
     app = FastAPI()
@@ -208,9 +314,53 @@ def test_report_api_creates_downloads_and_emails_one_immutable_artifact(
         stored_report = db.scalar(select(DecisionReportRecord))
         stored_delivery = db.scalar(select(DecisionReportDeliveryRecord))
         assert stored_report is not None
+        assert rendered == [stored_report.pdf_bytes]
         assert stored_report.pdf_bytes == downloaded.content
         assert stored_delivery is not None
         assert stored_delivery.report_sha256 == stored_report.sha256
+        assert mailer.messages[0].attachment == rendered[0]
+
+
+def test_new_v2_report_does_not_overwrite_a_retained_v1_artifact(tmp_path: Path) -> None:
+    assert TEMPLATE_VERSION == "model-migration-v2"
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'reports-versions.db'}")
+    Base.metadata.create_all(engine)
+    legacy_pdf = b"%PDF-1.4\nretained model-migration-v1 artifact\n%%EOF\n"
+    legacy_id = (
+        "rpt_" + hashlib.sha256(b"tenant-a:pdec_report_example:model-migration-v1").hexdigest()[:24]
+    )
+    with Session(engine) as raw:
+        raw.add(_stored_decision())
+        raw.add(
+            DecisionReportRecord(
+                report_id=legacy_id,
+                tenant_id="tenant-a",
+                decision_id="pdec_report_example",
+                template_version="model-migration-v1",
+                media_type="application/pdf",
+                sha256=hashlib.sha256(legacy_pdf).hexdigest(),
+                pdf_bytes=legacy_pdf,
+                created_at=datetime(2026, 9, 2, 15, 0, tzinfo=UTC),
+                created_by="analyst@example.com",
+            )
+        )
+        raw.commit()
+
+        db = ScopedSession(raw, TenantWideScopeContext(tenant_id="tenant-a"))
+        current, created = create_decision_report(
+            db, "pdec_report_example", created_by="analyst@example.com"
+        )
+        retained = get_decision_report(db, legacy_id)
+        rows = list(raw.scalars(select(DecisionReportRecord)))
+
+    assert created is True
+    assert current.template_version == "model-migration-v2"
+    assert current.report_id != legacy_id
+    assert retained is not None
+    assert retained.template_version == "model-migration-v1"
+    assert retained.pdf_bytes == legacy_pdf
+    assert retained.sha256 == hashlib.sha256(legacy_pdf).hexdigest()
+    assert len(rows) == 2
 
 
 def test_report_api_does_not_reveal_another_tenants_decision(tmp_path: Path, monkeypatch) -> None:

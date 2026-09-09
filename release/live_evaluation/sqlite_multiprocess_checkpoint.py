@@ -174,13 +174,29 @@ def _sink_worker_process(
     results: multiprocessing.queues.Queue,
 ) -> None:
     start.wait()
+    phase = "initialize"
     try:
-        receipt = EvaluationActionSink(Path(root)).execute(
+        sink = EvaluationActionSink(Path(root))
+        phase = "execute"
+        receipt = sink.execute(
             "shared-operation",
             {"fixture": "multiprocess", "sequence": 1},
         )
     except BaseException as exc:  # pragma: no cover - reported to the parent
-        results.put({"worker_id": worker_id, "status": "fail", "error_type": type(exc).__name__})
+        sqlite_errorcode = getattr(exc, "sqlite_errorcode", None)
+        sqlite_errorname = getattr(exc, "sqlite_errorname", None)
+        results.put(
+            {
+                "worker_id": worker_id,
+                "status": "fail",
+                "error_type": type(exc).__name__,
+                "phase": phase,
+                "sqlite_errorcode": sqlite_errorcode if isinstance(sqlite_errorcode, int) else None,
+                "sqlite_errorname": sqlite_errorname
+                if isinstance(sqlite_errorname, str) and sqlite_errorname.isidentifier()
+                else None,
+            }
+        )
         return
     results.put(
         {
@@ -225,6 +241,83 @@ def _database_integrity(path: Path) -> tuple[str, str]:
         integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
         journal = str(connection.execute("PRAGMA journal_mode").fetchone()[0]).lower()
     return integrity, journal
+
+
+def _evaluate_sink_scenario(
+    *,
+    worker_count: int,
+    exit_codes: list[int],
+    observations: list[Mapping[str, Any]],
+    effect_markers: int,
+    payload_conflict_rejected: bool,
+    restart_lookup_matched: bool,
+) -> dict[str, Any]:
+    """Summarize sink evidence and fail closed when any worker reports failure."""
+    passing_observations = [item for item in observations if item.get("status") == "pass"]
+    result_pairs = {
+        (str(item.get("payload_hash")), str(item.get("receipt"))) for item in passing_observations
+    }
+    worker_errors = sorted(
+        (
+            {
+                "worker_id": item.get("worker_id")
+                if isinstance(item.get("worker_id"), int)
+                else None,
+                "error_type": (
+                    item.get("error_type")
+                    if isinstance(item.get("error_type"), str)
+                    and item.get("error_type", "").isidentifier()
+                    else "UnknownError"
+                ),
+                "phase": (
+                    item.get("phase")
+                    if item.get("phase") in {"initialize", "execute"}
+                    else "unknown"
+                ),
+                "sqlite_errorcode": (
+                    item.get("sqlite_errorcode")
+                    if isinstance(item.get("sqlite_errorcode"), int)
+                    else None
+                ),
+                "sqlite_errorname": (
+                    item.get("sqlite_errorname")
+                    if isinstance(item.get("sqlite_errorname"), str)
+                    and item.get("sqlite_errorname", "").isidentifier()
+                    else None
+                ),
+            }
+            for item in observations
+            if item.get("status") != "pass"
+        ),
+        key=lambda item: (item["worker_id"] is None, item["worker_id"]),
+    )
+    workers_passed = (
+        len(observations) == worker_count
+        and len(passing_observations) == worker_count
+        and not worker_errors
+    )
+    passed = (
+        exit_codes == [0] * worker_count
+        and workers_passed
+        and len(result_pairs) == 1
+        and effect_markers == 1
+        and payload_conflict_rejected
+        and restart_lookup_matched
+    )
+    return {
+        "status": "pass" if passed else "fail",
+        "worker_count": worker_count,
+        "effect_markers": effect_markers,
+        "matching_results": len(passing_observations),
+        "payload_conflict_rejected": payload_conflict_rejected,
+        "restart_lookup_matched": restart_lookup_matched,
+        "worker_errors": worker_errors,
+    }
+
+
+def _all_scenarios_pass(scenarios: Mapping[str, Mapping[str, Any]]) -> bool:
+    """Return whether every scenario explicitly reports a passing status."""
+    return all(item.get("status") == "pass" for item in scenarios.values())
 
 
 def run_matrix(root: Path) -> Matrix:
@@ -360,14 +453,18 @@ def run_matrix(root: Path) -> Matrix:
         for item in sink_observations
         if item.get("status") == "pass"
     }
-    sink_pass = (
-        sink_exit_codes == [0] * _WORKER_COUNT
-        and len(sink_observations) == _WORKER_COUNT
-        and len(result_pairs) == 1
-        and restarted_sink.marker_count() == 1
-        and conflict_rejected
-        and restored is not None
-        and (restored.payload_hash, restored.receipt) == next(iter(result_pairs), (None, None))
+    effect_markers = restarted_sink.marker_count()
+    restart_lookup_matched = restored is not None and (
+        restored.payload_hash,
+        restored.receipt,
+    ) == next(iter(result_pairs), (None, None))
+    sink_scenario = _evaluate_sink_scenario(
+        worker_count=_WORKER_COUNT,
+        exit_codes=sink_exit_codes,
+        observations=sink_observations,
+        effect_markers=effect_markers,
+        payload_conflict_rejected=conflict_rejected,
+        restart_lookup_matched=restart_lookup_matched,
     )
 
     coordination_integrity, coordination_journal = _database_integrity(coordination_path)
@@ -400,15 +497,7 @@ def run_matrix(root: Path) -> Matrix:
             "uncommitted_rows_after_restart": uncommitted_rows,
             "recovery_rows": recovery_rows,
         },
-        "idempotent_sink_restart": {
-            "status": "pass" if sink_pass else "fail",
-            "worker_count": _WORKER_COUNT,
-            "effect_markers": restarted_sink.marker_count(),
-            "matching_results": sum(item.get("status") == "pass" for item in sink_observations),
-            "payload_conflict_rejected": conflict_rejected,
-            "restart_lookup_matched": restored is not None
-            and (restored.payload_hash, restored.receipt) == next(iter(result_pairs), (None, None)),
-        },
+        "idempotent_sink_restart": sink_scenario,
         "integrity": {
             "status": "pass" if integrity_pass else "fail",
             "coordination_integrity": coordination_integrity,
@@ -418,7 +507,7 @@ def run_matrix(root: Path) -> Matrix:
         },
     }
     return {
-        "all_passed": all(item["status"] == "pass" for item in scenarios.values()),
+        "all_passed": _all_scenarios_pass(scenarios),
         "process_start_method": context.get_start_method(),
         "provider_calls": 0,
         "external_network_calls": 0,

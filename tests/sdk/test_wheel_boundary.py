@@ -30,6 +30,7 @@ def test_sdk_wheel_contains_only_client_owned_namespaces(tmp_path: Path) -> None
 
     for required in (
         "zeroth/sdk/__init__.py",
+        "zeroth/sdk/errors.py",
         "zeroth/protocol/__init__.py",
         "zeroth/instrumentation/__init__.py",
     ):
@@ -48,7 +49,9 @@ def test_sdk_wheel_contains_only_client_owned_namespaces(tmp_path: Path) -> None
 def test_sdk_wheel_has_only_lean_runtime_dependencies(tmp_path: Path) -> None:
     sdk_wheel = _build_sdk_wheel(tmp_path)
     with zipfile.ZipFile(sdk_wheel) as archive:
-        metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+        metadata_name = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
         metadata = archive.read(metadata_name).decode()
 
     requirements = {

@@ -466,7 +466,7 @@ from zeroth.sdk import ZerothClient
 client = ZerothClient(
     api_key="zth_...",
     base_url="https://zeroth.example.com",
-    backtest_timeout=120.0,
+backtest_timeout=120.0,
 )
 client.record_execution(
     ExecutionEvent(
@@ -519,6 +519,14 @@ backtest = client.create_backtest(
     )
 )
 ```
+
+All request failures use public exceptions from `zeroth.sdk`. Transport failures raise
+`ZerothTransportError`, which remains catchable as `httpx.RequestError`. Non-success responses
+raise `ZerothAPIError` or a status-specific subclass such as `ZerothAuthenticationError`,
+`ZerothEntitlementError`, or `ZerothRateLimitError`; these remain catchable as
+`httpx.HTTPStatusError`. API errors preserve the HTTPX request and response and expose
+`status_code`, bounded `detail`, `request_id`, and `correlation_id` fields without rendering the
+client credential or an unbounded response body.
 
 Production backtests require 5–25 labeled, tool-free cases. The five-case
 example is the shortest real first-value request; replace its synthetic labels

@@ -107,13 +107,13 @@ def test_solo_only_paddle_startup_does_not_require_a_team_price(monkeypatch) -> 
     config.validate_startup_settings()
 
 
-def test_cloud_scheduler_requires_entitlement_enforcement(monkeypatch) -> None:
+def test_explicit_self_hosted_scheduler_does_not_require_entitlements(monkeypatch) -> None:
+    assert config.Settings.model_fields["cloud_scheduler_enabled"].default is False
     monkeypatch.setattr(config.settings, "jwt_secret", "configured-secret")
     monkeypatch.setattr(config.settings, "cloud_scheduler_enabled", True)
     monkeypatch.setattr(config.settings, "cloud_entitlements_enabled", False)
 
-    with pytest.raises(config.EconConfigError, match="scheduler requires cloud entitlements"):
-        config.validate_startup_settings()
+    config.validate_startup_settings()
 
 
 def test_report_email_requires_a_sender_and_smtp_host(monkeypatch) -> None:

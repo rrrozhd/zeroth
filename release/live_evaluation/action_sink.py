@@ -5,13 +5,34 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 ActionSinkFault = Literal["unavailable", "timeout_after_commit"]
+
+_WAL_BUSY_ATTEMPTS = 3
+_WAL_BUSY_RETRY_SECONDS = 0.01
+
+
+def _set_wal_mode(
+    connection: sqlite3.Connection,
+    *,
+    sleep: Callable[[float], object] = time.sleep,
+) -> None:
+    """Set WAL, retrying only the proven transient SQLITE_BUSY boundary."""
+    for attempt in range(1, _WAL_BUSY_ATTEMPTS + 1):
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            is_busy = getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_BUSY
+            if not is_busy or attempt == _WAL_BUSY_ATTEMPTS:
+                raise
+            sleep(_WAL_BUSY_RETRY_SECONDS * attempt)
 
 
 class ActionSinkUnavailableError(ConnectionError):
@@ -43,7 +64,7 @@ class EvaluationActionSink:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=30)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
+        _set_wal_mode(connection)
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 

@@ -7,14 +7,18 @@ import asyncio
 import json
 import os
 import re
+import stat
 import sys
+import tempfile
+import unicodedata
 from collections import defaultdict
+from contextlib import suppress
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -22,6 +26,25 @@ from zeroth.integrations.http.factory import aclose_all, governed_async_client
 
 _STATEMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
 _MAX_USD_AMOUNT = Decimal("10000000000")
+_MAX_MIGRATION_JSON_BYTES = 1024 * 1024
+_MAX_MIGRATION_OUTPUT_BYTES = 1024 * 1024
+_MAX_REPORT_BYTES = 20 * 1024 * 1024
+_MIGRATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_TOKEN_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_VISIBLE_ASCII = re.compile(r"^[\x21-\x7e]+$")
+_MAX_BASE_URL_BYTES = 2048
+_MAX_TOKEN_BYTES = 8192
+
+
+class _MigrationLocalError(ValueError):
+    pass
+
+
+class _MigrationRemoteError(RuntimeError):
+    def __init__(self, status: int | None, request_id: str | None = None) -> None:
+        self.status = status
+        self.request_id = request_id
 
 
 def _money(value: object) -> str:
@@ -455,6 +478,427 @@ async def _demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _unavailable(value: object, *, suffix: str = "") -> str:
+    return "unavailable" if value is None else f"{value}{suffix}"
+
+
+def render_migration_markdown(value: object) -> str:
+    """Render retained migration decisions with abstention and advisory state first."""
+    if isinstance(value, list):
+        if not value:
+            return "# Migration decision history\n\nNo retained decisions.\n"
+        return "\n---\n\n".join(render_migration_markdown(item) for item in value)
+    if not isinstance(value, dict):
+        return "# Migration operation\n\nResult unavailable.\n"
+    if "verdict" not in value:
+        return (
+            "# Migration operation\n\n**Advisory-only:** no production routing was changed.\n\n"
+            "```json\n" + json.dumps(value, indent=2, sort_keys=True) + "\n```\n"
+        )
+    verdict = str(value.get("verdict") or "unavailable").upper()
+    action = str(value.get("recommended_action") or "unavailable").replace("_", " ")
+    reasons = value.get("reason_codes") if isinstance(value.get("reason_codes"), list) else []
+    readiness = value.get("forecast_readiness")
+    readiness = readiness if isinstance(readiness, dict) else {}
+    lineage = value.get("evidence_lineage")
+    lineage = lineage if isinstance(lineage, dict) else {}
+    routing = value.get("recommended_routing")
+    routing = routing if isinstance(routing, dict) else {}
+    selected = None
+    for candidate in value.get("actions") or []:
+        if isinstance(candidate, dict) and candidate.get("candidate_share") == value.get(
+            "recommended_candidate_share"
+        ):
+            selected = candidate
+            break
+    selected = selected or {}
+    feasible = selected.get("feasible")
+    qualification = (
+        "feasible" if feasible is True else "infeasible" if feasible is False else "unavailable"
+    )
+    lines = [
+        f"# Migration decision: {verdict}",
+        "",
+        f"**Advisory action:** {action}",
+        "**Advisory-only:** this result does not change production routing.",
+        "**Additional evidence required:** "
+        + _unavailable(value.get("additional_cases_required"), suffix=" cases"),
+        f"**Reason codes:** {', '.join(map(str, reasons)) if reasons else 'unavailable'}",
+        "",
+        "## Proposed route",
+        "",
+        f"**Candidate traffic share:** {_unavailable(value.get('recommended_candidate_share'))}",
+        "**Complete cohort route:** "
+        + (json.dumps(routing, sort_keys=True) if routing else "unavailable"),
+        "",
+        "## Forecast readiness",
+        "",
+        f"**Calibration state:** {_unavailable(readiness.get('calibration_state'))}",
+        f"**Drift state:** {_unavailable(readiness.get('drift_state'))}",
+        "",
+        "## Risk and economics",
+        "",
+        f"- Monthly cost: {_unavailable(selected.get('expected_monthly_cost_usd'))}",
+        "- Savings interval: "
+        + _unavailable(selected.get("monthly_savings_p05_usd"))
+        + " to "
+        + _unavailable(selected.get("monthly_savings_p95_usd")),
+        f"- Quality breach probability: {_unavailable(selected.get('probability_quality_breach'))}",
+        f"- Latency breach probability: {_unavailable(selected.get('probability_latency_breach'))}",
+        "- Critical-error breach probability: "
+        + _unavailable(selected.get("probability_critical_error_breach")),
+        f"- CVaR loss: {_unavailable(selected.get('cvar_loss_usd'))}",
+        f"- Quality-drop tolerance: {_unavailable(selected.get('minimum_quality_drop_tolerance'))}",
+        f"- P95 latency limit: {_unavailable(selected.get('minimum_p95_latency_limit_ms'))}",
+        "- Critical-error-rate limit: "
+        + _unavailable(selected.get("minimum_critical_error_rate_limit")),
+        f"- CVaR loss limit: {_unavailable(selected.get('minimum_cvar_loss_limit_usd'))}",
+        f"- Uncertainty qualification: {qualification}",
+        f"- Simulations: {_unavailable(value.get('simulations'))}",
+        "",
+        "## Identifiers",
+        "",
+        f"- Decision: {_unavailable(value.get('decision_id'))}",
+        f"- Algorithm: {_unavailable(lineage.get('algorithm_version'))}",
+        f"- Evidence: {_unavailable(lineage.get('evidence_id'))}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _migration_identifier(value: str, *, field: str) -> str:
+    if _MIGRATION_ID.fullmatch(value) is None:
+        raise _MigrationLocalError(f"{field} must be a safe 1-192 character identifier")
+    return quote(value, safe="")
+
+
+def _remote_migration_identifier(value: object, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise _MigrationRemoteError(None)
+    try:
+        return _migration_identifier(value, field=field)
+    except _MigrationLocalError as exc:
+        raise _MigrationRemoteError(None) from exc
+
+
+def _migration_input(path_value: str) -> dict[str, Any]:
+    path = Path(path_value)
+    descriptor: int | None = None
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            raise _MigrationLocalError("input must be a regular file")
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or (before.st_dev, before.st_ino) != (
+            opened.st_dev,
+            opened.st_ino,
+        ):
+            raise _MigrationLocalError("input must be a direct regular file")
+        if opened.st_size > _MAX_MIGRATION_JSON_BYTES:
+            raise _MigrationLocalError("input is too large")
+        chunks: list[bytes] = []
+        remaining = _MAX_MIGRATION_JSON_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > _MAX_MIGRATION_JSON_BYTES:
+            raise _MigrationLocalError("input is too large")
+    except UnicodeDecodeError as exc:
+        raise _MigrationLocalError("input must be UTF-8 JSON") from exc
+    except OSError as exc:
+        raise _MigrationLocalError("input could not be read") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise _MigrationLocalError("input must be UTF-8 JSON") from exc
+    except json.JSONDecodeError as exc:
+        raise _MigrationLocalError("input must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise _MigrationLocalError("input JSON must be an object")
+    return payload
+
+
+def _migration_config(args: argparse.Namespace) -> tuple[str, str]:
+    if _TOKEN_ENV_NAME.fullmatch(args.token_env) is None:
+        raise _MigrationLocalError("token environment name is invalid")
+    token = os.getenv(args.token_env)
+    if not token:
+        raise _MigrationLocalError(f"set {args.token_env} to an econ-plane JWT")
+    if len(token.encode("utf-8")) > _MAX_TOKEN_BYTES or _VISIBLE_ASCII.fullmatch(token) is None:
+        raise _MigrationLocalError("configured token is invalid")
+    if not 0 < args.timeout <= 300:
+        raise _MigrationLocalError("timeout must be between 0 and 300 seconds")
+    if (
+        len(args.base_url.encode("utf-8")) > _MAX_BASE_URL_BYTES
+        or _VISIBLE_ASCII.fullmatch(args.base_url) is None
+    ):
+        raise _MigrationLocalError("base URL is invalid")
+    try:
+        parsed = urlsplit(args.base_url)
+        _ = parsed.port
+        _ = httpx.URL(args.base_url)
+    except (ValueError, httpx.InvalidURL) as exc:
+        raise _MigrationLocalError("base URL is invalid") from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise _MigrationLocalError("base URL must be an HTTP(S) origin/path without credentials")
+    return token, f"{args.base_url.rstrip('/')}/"
+
+
+def _operator_text(value: str, *, field: str, max_bytes: int) -> str:
+    if (
+        not value
+        or len(value.encode("utf-8")) > max_bytes
+        or any(unicodedata.category(character).startswith("C") for character in value)
+    ):
+        raise _MigrationLocalError(f"{field} is invalid")
+    return value
+
+
+async def _bounded_remote_content(
+    client: Any,
+    method: str,
+    path: str,
+    *,
+    cap: int,
+    **kwargs: object,
+) -> bytes:
+    async with client.stream(method, path, **kwargs) as response:
+        status = int(response.status_code)
+        if not 200 <= status < 300:
+            request_id = response.headers.get("x-request-id")
+            if not isinstance(request_id, str) or _REQUEST_ID.fullmatch(request_id) is None:
+                request_id = None
+            raise _MigrationRemoteError(status, request_id)
+        content_encoding = response.headers.get("content-encoding")
+        if content_encoding is not None and content_encoding.strip().lower() != "identity":
+            raise _MigrationRemoteError(None)
+        declared = response.headers.get("content-length")
+        if declared is not None and (
+            len(declared) > 20 or re.fullmatch(r"[0-9]+", declared) is None or int(declared) > cap
+        ):
+            raise _MigrationRemoteError(None)
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in response.aiter_raw():
+            size += len(chunk)
+            if size > cap:
+                raise _MigrationRemoteError(None)
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+
+async def _migration_json_request(client: Any, method: str, path: str, **kwargs: object) -> object:
+    content = await _bounded_remote_content(
+        client, method, path, cap=_MAX_MIGRATION_JSON_BYTES, **kwargs
+    )
+    try:
+        payload = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _MigrationRemoteError(None) from exc
+    if not isinstance(payload, (dict, list)):
+        raise _MigrationRemoteError(None)
+    return payload
+
+
+def _write_migration_output(value: object, args: argparse.Namespace) -> None:
+    rendered = (
+        json.dumps(value, indent=2, sort_keys=True) + "\n"
+        if args.format == "json"
+        else render_migration_markdown(value)
+    )
+    if len(rendered.encode("utf-8")) > _MAX_MIGRATION_OUTPUT_BYTES:
+        raise _MigrationRemoteError(None)
+    if args.output == "-":
+        print(rendered, end="")
+        return
+    _publish_exclusive(Path(args.output), rendered.encode("utf-8"))
+
+
+def _publish_exclusive(output: Path, payload: bytes) -> None:
+    """Atomically publish bounded bytes without replacing an existing path."""
+    descriptor: int | None = None
+    temporary: Path | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
+        )
+        temporary = Path(temporary_name)
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = None
+            written = handle.write(payload)
+            if written != len(payload):
+                raise OSError("short write")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temporary, output)
+    except FileExistsError as exc:
+        raise _MigrationLocalError("output path already exists") from exc
+    except OSError as exc:
+        raise _MigrationLocalError("output could not be written without overwrite") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary is not None:
+            with suppress(FileNotFoundError):
+                temporary.unlink()
+
+
+async def _migration(args: argparse.Namespace) -> int:
+    """Execute one bounded authenticated migration operation through the public API."""
+    client = None
+    try:
+        token, base_url = _migration_config(args)
+        command = args.migration_command
+        headers = {"Authorization": f"Bearer {token}", "Accept-Encoding": "identity"}
+        body = _migration_input(args.input) if hasattr(args, "input") else None
+        paths = {
+            "evaluate": ("POST", "decisions/model-migration"),
+            "refresh": ("POST", "decisions/model-migration/refresh"),
+            "schedule-create": ("POST", "probabilistic-decision-schedules"),
+            "rollout-create": ("POST", "randomized-rollouts"),
+        }
+        if command == "schedule-deactivate":
+            schedule_id = _migration_identifier(args.schedule_id, field="schedule ID")
+            paths[command] = (
+                "POST",
+                f"probabilistic-decision-schedules/{schedule_id}/deactivate",
+            )
+        if command in {"rollout-assign", "rollout-verify", "rollout-stop"}:
+            suffix = {
+                "rollout-assign": "assignments",
+                "rollout-verify": "verify",
+                "rollout-stop": "stop",
+            }[command]
+            rollout_id = _migration_identifier(args.rollout_id, field="rollout ID")
+            paths[command] = (
+                "POST",
+                f"randomized-rollouts/{rollout_id}/{suffix}",
+            )
+        if command == "report":
+            pdf_output = Path(args.output)
+            if pdf_output.exists():
+                raise _MigrationLocalError("output path already exists")
+            if not pdf_output.parent.is_dir():
+                raise _MigrationLocalError("output parent directory does not exist")
+            if len(args.recipient or []) > 20:
+                raise _MigrationLocalError("at most 20 recipients are allowed")
+            recipients = [
+                _operator_text(value, field="recipient", max_bytes=320)
+                for value in (args.recipient or [])
+            ]
+        if command == "history" and args.workload is not None:
+            workload = _operator_text(args.workload, field="workload", max_bytes=192)
+        client = await governed_async_client(
+            purpose="economic-migration-cli", timeout=args.timeout, base_url=base_url
+        )
+        if command == "history":
+            params = {"limit": args.limit}
+            if args.workload:
+                params["workload"] = workload
+            result = await _migration_json_request(
+                client, "GET", "decisions/model-migrations", headers=headers, params=params
+            )
+            _write_migration_output(result, args)
+            return 0
+        if command == "report":
+            decision_id = _migration_identifier(args.decision_id, field="decision ID")
+            report = await _migration_json_request(
+                client, "POST", f"decisions/{decision_id}/reports", headers=headers, json={}
+            )
+            if not isinstance(report, dict):
+                raise _MigrationRemoteError(200)
+            report_id = _remote_migration_identifier(report.get("report_id"), field="report ID")
+            pdf = await _bounded_remote_content(
+                client,
+                "GET",
+                f"reports/{report_id}",
+                cap=_MAX_REPORT_BYTES,
+                headers=headers,
+            )
+            _publish_exclusive(Path(args.output), pdf)
+            delivery = None
+            if recipients:
+                delivery = await _migration_json_request(
+                    client,
+                    "POST",
+                    f"reports/{report_id}/deliveries",
+                    headers=headers,
+                    json={"recipients": recipients, "delivery_mode": args.delivery_mode},
+                )
+            summary = {"report": report, "delivery": delivery}
+            rendered = (
+                json.dumps(summary, indent=2, sort_keys=True) + "\n"
+                if args.format == "json"
+                else render_migration_markdown(summary)
+            )
+            if len(rendered.encode("utf-8")) > _MAX_MIGRATION_OUTPUT_BYTES:
+                raise _MigrationRemoteError(None)
+            print(rendered, end="")
+            return 0
+        method, path = paths[command]
+        kwargs: dict[str, object] = {"headers": headers}
+        if body is not None:
+            kwargs["json"] = body
+        result = await _migration_json_request(client, method, path, **kwargs)
+        _write_migration_output(result, args)
+        return 0
+    except _MigrationLocalError as exc:
+        print(f"migration failed: {exc}", file=sys.stderr)
+        return 2
+    except _MigrationRemoteError as exc:
+        if exc.status is None:
+            print("migration failed: invalid remote response", file=sys.stderr)
+            return 1
+        guidance = {
+            401: "authentication rejected",
+            402: "entitlement required",
+            403: "role denied",
+            404: "resource unavailable",
+            409: "operation conflicted",
+            422: "request rejected",
+            429: "rate limited",
+        }.get(exc.status, "remote service failed")
+        request = f" request_id={exc.request_id}" if exc.request_id else ""
+        print(f"migration failed: HTTP {exc.status} {guidance}{request}", file=sys.stderr)
+        return 1
+    except httpx.HTTPError:
+        print("migration failed: transport unavailable", file=sys.stderr)
+        return 1
+    finally:
+        if client is not None:
+            await aclose_all()
+
+
+def _add_migration_common(parser: argparse.ArgumentParser, *, output: bool = True) -> None:
+    parser.add_argument("--base-url", default="http://127.0.0.1:8001/v1")
+    parser.add_argument("--token-env", default="ZEROTH_ECON_TOKEN")
+    parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    if output:
+        parser.add_argument("--output", default="-")
+
+
+def _add_migration_input(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--input", required=True, help="bounded JSON request object")
+    _add_migration_common(parser)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the headless economic-debugger command-line interface."""
     parser = argparse.ArgumentParser(
@@ -462,6 +906,39 @@ def build_parser() -> argparse.ArgumentParser:
         description="Debug workflow economics and reconcile provider bills without the UI.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+    migration = subparsers.add_parser(
+        "migration", help="operate the advisory model-migration decision loop"
+    )
+    migration_commands = migration.add_subparsers(dest="migration_command", required=True)
+    for name in ("evaluate", "refresh", "schedule-create", "rollout-create"):
+        command = migration_commands.add_parser(name)
+        _add_migration_input(command)
+        command.set_defaults(func=_migration)
+    history = migration_commands.add_parser("history")
+    history.add_argument("--workload", default=None)
+    history.add_argument("--limit", type=int, choices=range(1, 201), default=50)
+    _add_migration_common(history)
+    history.set_defaults(func=_migration)
+    report = migration_commands.add_parser("report")
+    report.add_argument("--decision-id", required=True)
+    report.add_argument("--output", required=True, help="new PDF output path")
+    report.add_argument("--recipient", action="append", default=[])
+    report.add_argument("--delivery-mode", choices=("attachment", "link"), default="link")
+    _add_migration_common(report, output=False)
+    report.set_defaults(func=_migration)
+    schedule_deactivate = migration_commands.add_parser("schedule-deactivate")
+    schedule_deactivate.add_argument("--schedule-id", required=True)
+    _add_migration_common(schedule_deactivate)
+    schedule_deactivate.set_defaults(func=_migration)
+    for name in ("rollout-assign", "rollout-verify"):
+        command = migration_commands.add_parser(name)
+        command.add_argument("--rollout-id", required=True)
+        _add_migration_input(command)
+        command.set_defaults(func=_migration)
+    rollout_stop = migration_commands.add_parser("rollout-stop")
+    rollout_stop.add_argument("--rollout-id", required=True)
+    _add_migration_common(rollout_stop)
+    rollout_stop.set_defaults(func=_migration)
     demo = subparsers.add_parser(
         "demo", help="write a synthetic local diagnostic and provider-bill closure pack"
     )

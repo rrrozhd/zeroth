@@ -23,6 +23,7 @@ from zeroth.protocol import (
     RandomizedRolloutVerifyRequest,
     VersionComparisonRequest,
 )
+from zeroth.sdk.errors import ZerothTransportError, _api_error_from_response
 
 
 class ZerothClient:
@@ -89,6 +90,10 @@ class ZerothClient:
         """List recurring economic comparisons for the current project."""
         return self._get("/v1/decision-schedules")
 
+    def deactivate_decision_schedule(self, schedule_id: str) -> dict[str, Any]:
+        """Idempotently deactivate one recurring economic comparison."""
+        return self._post(f"/v1/decision-schedules/{schedule_id}/deactivate", None)
+
     def list_decisions(self, *, workflow: str | None = None) -> list[dict[str, Any]]:
         """List retained economic decisions, optionally for one workflow."""
         params = {"workflow": workflow} if workflow is not None else None
@@ -127,9 +132,20 @@ class ZerothClient:
         """Schedule fresh evidence harvesting and probabilistic reevaluation."""
         return self._post("/v1/probabilistic-decision-schedules", request)
 
+    def deactivate_probabilistic_decision_schedule(self, schedule_id: str) -> dict[str, Any]:
+        """Idempotently deactivate one probabilistic reevaluation schedule."""
+        return self._post(
+            f"/v1/probabilistic-decision-schedules/{schedule_id}/deactivate",
+            None,
+        )
+
     def create_randomized_rollout(self, request: RandomizedRolloutRequest) -> dict[str, Any]:
         """Create a randomized verification rollout for a retained decision."""
         return self._post("/v1/randomized-rollouts", request)
+
+    def stop_randomized_rollout(self, rollout_id: str) -> dict[str, Any]:
+        """Idempotently stop one randomized rollout."""
+        return self._post(f"/v1/randomized-rollouts/{rollout_id}/stop", None)
 
     def assign_randomized_rollout(
         self, rollout_id: str, *, subject_id: str, cohort: str = "default"
@@ -156,11 +172,7 @@ class ZerothClient:
 
     def download_decision_report(self, report_id: str) -> bytes:
         """Download one authenticated PDF decision artifact."""
-        response = self._http_client.get(
-            f"{self._base_url}/v1/reports/{report_id}",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-        )
-        response.raise_for_status()
+        response = self._request("GET", f"/v1/reports/{report_id}")
         return response.content
 
     def deliver_decision_report(
@@ -176,20 +188,16 @@ class ZerothClient:
     def _post(
         self,
         path: str,
-        payload: BaseModel,
+        payload: BaseModel | None,
         *,
         timeout: httpx.Timeout | None = None,
     ) -> dict[str, Any]:
         request_options: dict[str, Any] = {}
         if timeout is not None:
             request_options["timeout"] = timeout
-        response = self._http_client.post(
-            f"{self._base_url}{path}",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json=payload.model_dump(mode="json"),
-            **request_options,
-        )
-        response.raise_for_status()
+        if payload is not None:
+            request_options["json"] = payload.model_dump(mode="json")
+        response = self._request("POST", path, **request_options)
         return response.json()
 
     def _get(
@@ -198,10 +206,21 @@ class ZerothClient:
         *,
         params: dict[str, str] | None = None,
     ) -> Any:
-        response = self._http_client.get(
-            f"{self._base_url}{path}",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            params=params,
-        )
-        response.raise_for_status()
+        response = self._request("GET", path, params=params)
         return response.json()
+
+    def _request(self, method: str, path: str, **request_options: Any) -> httpx.Response:
+        try:
+            response = self._http_client.request(
+                method,
+                f"{self._base_url}{path}",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                **request_options,
+            )
+        except httpx.RequestError as error:
+            raise ZerothTransportError(original_error=error) from error
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            raise _api_error_from_response(response, secrets=(self._api_key,)) from None
+        return response

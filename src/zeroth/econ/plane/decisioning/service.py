@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from math import ceil
 from statistics import fmean
 
+from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -38,6 +41,11 @@ from zeroth.econ.plane.decisioning.models import (
     RandomizedRolloutAssignmentRecord,
     RandomizedRolloutRecord,
     RandomizedRolloutVerificationRecord,
+)
+from zeroth.econ.plane.decisioning.qualification import (
+    QualificationApplicabilityV1,
+    QualificationResolution,
+    resolve_qualification,
 )
 from zeroth.econ.plane.decisioning.schemas import (
     DecisionScheduleCreate,
@@ -96,6 +104,13 @@ _MODEL_MIGRATION_CALIBRATION_METRICS = {
     "p95_latency_ms",
     "critical_error_rate",
 }
+_ROLLOUT_VERIFICATION_ALGORITHM_VERSION = "homogeneous-assignment-v1"
+
+
+class RandomizedRolloutInactiveError(ValueError):
+    """A stopped rollout cannot accept a new subject assignment."""
+_SCHEDULE_FAILURE_CODE = "schedule_execution_failed"
+logger = logging.getLogger(__name__)
 
 
 def _measurement(value: str) -> MeasurementState:
@@ -329,7 +344,6 @@ def compare_versions_from_store(
     request: VersionComparisonRequest,
 ) -> EconomicDecision:
     """Read two tenant-scoped versions and apply the shared decision policy."""
-
     if type(db) is not ScopedSession:
         raise TypeError("economic decisions require a ScopedSession")
     baseline = _version_from_store(
@@ -369,7 +383,6 @@ def retain_decision(
     evaluated_by: str,
 ) -> EconomicDecision:
     """Persist one immutable decision, deduplicated by request and evidence."""
-
     if type(db) is not ScopedSession or db.scope is None:
         raise TypeError("retained economic decisions require a tenant-scoped session")
     report_json = decision.model_dump(
@@ -452,9 +465,11 @@ def evaluate_and_retain_probabilistic_migration(
     *,
     evaluated_by: str,
     evidence_lineage: dict[str, object] | None = None,
+    qualification_applicability: QualificationApplicabilityV1 | None = None,
+    qualification_checked_at: datetime | None = None,
+    qualification_resolution_enabled: bool = True,
 ) -> ProbabilisticMigrationDecision:
     """Evaluate one immutable paired-evidence snapshot and retain its decision."""
-
     if type(db) is not ScopedSession or db.scope is None:
         raise TypeError("probabilistic migration decisions require a tenant-scoped session")
     readiness = assess_forecast_readiness(
@@ -462,6 +477,66 @@ def evaluate_and_retain_probabilistic_migration(
         required_metrics=_MODEL_MIGRATION_CALIBRATION_METRICS,
     )
     derived_evidence = request.evidence.model_copy(update={"readiness": readiness})
+    qualification_resolution: QualificationResolution | None = None
+    if request.qualification_id is not None or qualification_applicability is not None:
+        if qualification_applicability is None:
+            qualification_resolution = QualificationResolution(
+                status="abstain",
+                reason_code="qualification_incomplete",
+            )
+        else:
+            policy_digest = hashlib.sha256(
+                json.dumps(
+                    request.policy.model_dump(mode="json"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            request_scope_mismatch = next(
+                (
+                    reason
+                    for failed, reason in (
+                        (
+                            qualification_applicability.workload != request.evidence.workload,
+                            "qualification_workload_scope_mismatch",
+                        ),
+                        (
+                            (
+                                qualification_applicability.incumbent_model,
+                                qualification_applicability.candidate_model,
+                            )
+                            != (
+                                request.evidence.incumbent_model,
+                                request.evidence.candidate_model,
+                            ),
+                            "qualification_model_pair_scope_mismatch",
+                        ),
+                        (
+                            qualification_applicability.policy_digest != policy_digest,
+                            "qualification_policy_scope_mismatch",
+                        ),
+                        (
+                            qualification_applicability.algorithm_version
+                            != FORECAST_ALGORITHM_VERSION,
+                            "qualification_algorithm_scope_mismatch",
+                        ),
+                    )
+                    if failed
+                ),
+                None,
+            )
+            if request_scope_mismatch is not None:
+                qualification_resolution = QualificationResolution(
+                    status="abstain", reason_code=request_scope_mismatch
+                )
+            else:
+                qualification_resolution = resolve_qualification(
+                    db,
+                    qualification_applicability,
+                    qualification_id=request.qualification_id,
+                    checked_at=qualification_checked_at or datetime.now(UTC),
+                    resolution_enabled=qualification_resolution_enabled,
+                )
     request_json = {
         "evidence": derived_evidence.model_dump(mode="json"),
         "forecast_algorithm_version": FORECAST_ALGORITHM_VERSION,
@@ -473,6 +548,12 @@ def evaluate_and_retain_probabilistic_migration(
         "simulations": request.simulations,
         "seed": request.seed,
     }
+    if request.qualification_id is not None:
+        request_json["qualification_id"] = request.qualification_id
+    if qualification_resolution is not None:
+        request_json["qualification_resolution"] = qualification_resolution.model_dump(
+            mode="json"
+        )
     if evidence_lineage is not None:
         request_json["evidence_lineage"] = evidence_lineage
     request_digest = hashlib.sha256(
@@ -493,8 +574,14 @@ def evaluate_and_retain_probabilistic_migration(
         seed=request.seed,
     )
     now = datetime.now(UTC)
-    combined_lineage = {**(evidence_lineage or {"kind": "client_snapshot"}),
-                        **decision.evidence_lineage}
+    combined_lineage = {
+        **(evidence_lineage or {"kind": "client_snapshot"}),
+        **decision.evidence_lineage,
+    }
+    if qualification_resolution is not None:
+        combined_lineage["qualification_resolution"] = qualification_resolution.model_dump(
+            mode="json"
+        )
     decision = decision.model_copy(update={"evidence_lineage": combined_lineage})
     report_json = decision.model_dump(mode="json", exclude={"decision_id", "evaluated_at"})
     record = ProbabilisticMigrationDecisionRecord(
@@ -525,9 +612,20 @@ def evaluate_and_retain_probabilistic_migration(
     return decision.model_copy(update={"decision_id": decision_id, "evaluated_at": now})
 
 
-def _calibration_observations_for_source(
+@dataclass
+class _RetainedCalibrationEvidence:
+    observations: list[ForecastCalibrationObservation]
+    selected_rows: int
+    quarantined: list[dict[str, object]]
+
+    @property
+    def gaps(self) -> list[str]:
+        return sorted({str(row["reason"]) for row in self.quarantined})
+
+
+def _retained_calibration_evidence_for_source(
     db: ScopedSession, source: MigrationEvidenceSource
-) -> list[ForecastCalibrationObservation]:
+) -> _RetainedCalibrationEvidence:
     rows = list(
         db.scalars(
             select(ForecastCalibrationRecord)
@@ -536,26 +634,80 @@ def _calibration_observations_for_source(
                 ForecastCalibrationRecord.incumbent_model == source.incumbent_model,
                 ForecastCalibrationRecord.candidate_model == source.candidate_model,
             )
-            .order_by(ForecastCalibrationRecord.observed_at)
+            .order_by(ForecastCalibrationRecord.observed_at.desc(), ForecastCalibrationRecord.id.desc())
             .limit(200)
         )
     )
-    return [
-        ForecastCalibrationObservation(
-            forecast_id=row.forecast_id,
-            metric=row.metric,
-            predicted_mean=row.predicted_mean,
-            predicted_low=row.predicted_low,
-            predicted_high=row.predicted_high,
-            observed=row.observed,
-            observed_at=(
-                row.observed_at.replace(tzinfo=UTC)
-                if row.observed_at.tzinfo is None
-                else row.observed_at
-            ),
+    observations = []
+    seen: dict[tuple[str, str], tuple[int, ForecastCalibrationObservation]] = {}
+    quarantined: dict[int, str] = {}
+    verifications = {
+        row.verification_id: row
+        for row in db.scalars(
+            select(RandomizedRolloutVerificationRecord).where(
+                RandomizedRolloutVerificationRecord.verification_id.in_(
+                    {row.verification_id for row in rows}
+                )
+            )
         )
-        for row in rows
-    ]
+    }
+    heterogeneous_rollouts = {
+        row.rollout_id
+        for row in db.scalars(
+            select(RandomizedRolloutRecord).where(
+                RandomizedRolloutRecord.rollout_id.in_(
+                    {row.rollout_id for row in verifications.values()}
+                )
+            )
+        )
+        if len({row.candidate_probability, *row.cohort_probabilities_json.values()}) > 1
+    }
+    # Select first, then validate. Never backfill rejected recent rows with older
+    # favorable observations. Quarantine is recorded, not a destructive DB edit.
+    for row in reversed(rows):
+        verification = verifications.get(row.verification_id)
+        if verification is not None and verification.rollout_id in heterogeneous_rollouts:
+            quarantined[row.id] = "heterogeneous_assignment_probability"
+            continue
+        try:
+            observation = ForecastCalibrationObservation(
+                forecast_id=row.forecast_id,
+                metric=row.metric,
+                predicted_mean=row.predicted_mean,
+                predicted_low=row.predicted_low,
+                predicted_high=row.predicted_high,
+                observed=row.observed,
+                observed_at=(
+                    row.observed_at.replace(tzinfo=UTC)
+                    if row.observed_at.tzinfo is None
+                    else row.observed_at
+                ),
+            )
+        except ValidationError:
+            quarantined[row.id] = "invalid_retained_calibration"
+            continue
+        key = (observation.metric, observation.forecast_id)
+        prior = seen.get(key)
+        if prior is not None and prior[1] != observation:
+            quarantined[prior[0]] = "conflicting_retained_calibration"
+            quarantined[row.id] = "conflicting_retained_calibration"
+        else:
+            seen[key] = (row.id, observation)
+        observations.append(observation)
+    return _RetainedCalibrationEvidence(
+        observations=[] if quarantined else observations,
+        selected_rows=len(rows),
+        quarantined=[
+            {"row_id": row_id, "reason": reason}
+            for row_id, reason in sorted(quarantined.items())
+        ],
+    )
+
+
+def _calibration_observations_for_source(
+    db: ScopedSession, source: MigrationEvidenceSource
+) -> list[ForecastCalibrationObservation]:
+    return _retained_calibration_evidence_for_source(db, source).observations
 
 
 def evaluate_probabilistic_migration_from_store(
@@ -566,16 +718,21 @@ def evaluate_probabilistic_migration_from_store(
     now: datetime | None = None,
 ) -> ProbabilisticMigrationDecision:
     harvested = harvest_migration_evidence(db, payload.evidence_source, now=now)
+    calibration = _retained_calibration_evidence_for_source(db, payload.evidence_source)
     lineage = harvested.lineage.model_dump(mode="json")
-    if harvested.evidence is not None:
+    lineage["calibration_evidence"] = {
+        "selection": "latest_observed_at_then_id",
+        "selected_rows": calibration.selected_rows,
+        "quarantined": calibration.quarantined,
+    }
+    gaps = harvested.gaps + calibration.gaps
+    if harvested.evidence is not None and not calibration.gaps:
         return evaluate_and_retain_probabilistic_migration(
             db,
             ProbabilisticMigrationRequest(
                 evidence=harvested.evidence,
                 policy=payload.policy,
-                calibration_observations=_calibration_observations_for_source(
-                    db, payload.evidence_source
-                ),
+                calibration_observations=calibration.observations,
                 simulations=payload.simulations,
                 seed=payload.seed,
             ),
@@ -589,12 +746,12 @@ def evaluate_probabilistic_migration_from_store(
         verdict="abstain",
         recommended_action="collect_evidence",
         recommended_candidate_share=0,
-        reason_codes=harvested.gaps,
+        reason_codes=gaps,
         simulations=payload.simulations,
         seed=payload.seed,
         actions=[],
         forecast_readiness=assess_forecast_readiness(
-            _calibration_observations_for_source(db, payload.evidence_source),
+            calibration.observations,
             required_metrics=_MODEL_MIGRATION_CALIBRATION_METRICS,
         ),
         evidence_lineage=lineage,
@@ -603,7 +760,7 @@ def evaluate_probabilistic_migration_from_store(
         "source": payload.evidence_source.model_dump(mode="json"),
         "policy": payload.policy.model_dump(mode="json"),
         "lineage": lineage,
-        "gaps": harvested.gaps,
+        "gaps": gaps,
         "simulations": payload.simulations,
         "seed": payload.seed,
     }
@@ -625,7 +782,7 @@ def evaluate_probabilistic_migration_from_store(
             candidate_model=payload.evidence_source.candidate_model,
             verdict=decision.verdict,
             recommended_action=decision.recommended_action,
-            evidence_json={"gaps": harvested.gaps},
+            evidence_json={"gaps": gaps},
             evidence_lineage_json=lineage,
             policy_json=payload.policy.model_dump(mode="json"),
             report_json=decision.model_dump(mode="json", exclude={"decision_id", "evaluated_at"}),
@@ -722,6 +879,22 @@ def create_randomized_rollout(
     return _rollout_out(record)
 
 
+def stop_randomized_rollout(
+    db: ScopedSession,
+    rollout_id: str,
+) -> RandomizedRolloutOut:
+    """Idempotently stop one rollout in the bound tenant."""
+    if type(db) is not ScopedSession or db.scope is None:
+        raise TypeError("randomized rollouts require a tenant-scoped session")
+    rollout = db.get(RandomizedRolloutRecord, rollout_id)
+    if rollout is None:
+        raise ValueError("randomized rollout not found")
+    if rollout.active:
+        rollout.active = False
+        db.commit()
+    return _rollout_out(rollout)
+
+
 def _rollout_plan(record: RandomizedRolloutRecord) -> RandomizedRolloutPlan:
     return RandomizedRolloutPlan(
         rollout_id=record.rollout_id,
@@ -759,15 +932,17 @@ def assign_randomized_rollout(
 ) -> RandomizedRolloutAssignmentOut:
     if type(db) is not ScopedSession or db.scope is None:
         raise TypeError("rollout assignment requires a tenant-scoped session")
-    rollout = db.get(RandomizedRolloutRecord, rollout_id)
-    if rollout is None or not rollout.active:
-        raise ValueError("active randomized rollout not found")
     assignment_id = "rasn_" + hashlib.sha256(
         f"{db.scope.tenant_id}:{rollout_id}:{subject_id}".encode()
     ).hexdigest()[:24]
+    rollout = db.get(RandomizedRolloutRecord, rollout_id)
+    if rollout is None:
+        raise ValueError("randomized rollout not found")
     existing = db.get(RandomizedRolloutAssignmentRecord, assignment_id)
     if existing is not None:
         return _assignment_out(existing)
+    if not rollout.active:
+        raise RandomizedRolloutInactiveError("randomized rollout is stopped")
     assignment = assign_rollout_arm(
         _rollout_plan(rollout), subject_id, cohort=cohort, assigned_at=now
     )
@@ -974,6 +1149,11 @@ def verify_retained_randomized_rollout(
     verified_at = now or datetime.now(UTC)
     digest_payload = {
         "rollout_id": rollout_id,
+        "verification_algorithm_version": _ROLLOUT_VERIFICATION_ALGORITHM_VERSION,
+        "assignment_probabilities": {
+            "default": rollout.candidate_probability,
+            "cohorts": rollout.cohort_probabilities_json,
+        },
         "outcome_type": outcome_type,
         "bootstrap_samples": bootstrap_samples,
         "seed": seed,
@@ -1049,7 +1229,8 @@ def _probabilistic_schedule_out(
             "next_run_at": utc(schedule.next_run_at),
             "last_run_at": utc(schedule.last_run_at),
             "last_decision_id": schedule.last_decision_id,
-            "last_error": schedule.last_error,
+            # Preserve historical storage, but never expose legacy exception text.
+            "last_error": _SCHEDULE_FAILURE_CODE if schedule.last_error is not None else None,
             "created_at": utc(schedule.created_at),
         }
     )
@@ -1102,6 +1283,25 @@ def list_probabilistic_decision_schedules(
         )
     )
     return [_probabilistic_schedule_out(row) for row in rows]
+
+
+def deactivate_probabilistic_decision_schedule(
+    db: ScopedSession,
+    schedule_id: str,
+    *,
+    now: datetime | None = None,
+) -> ProbabilisticDecisionScheduleOut:
+    """Idempotently deactivate one probabilistic schedule in the bound tenant."""
+    if type(db) is not ScopedSession or db.scope is None:
+        raise TypeError("probabilistic schedules require a tenant-scoped session")
+    schedule = db.get(ProbabilisticDecisionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("probabilistic decision schedule not found")
+    if schedule.active:
+        schedule.active = False
+        schedule.updated_at = now or datetime.now(UTC)
+        db.commit()
+    return _probabilistic_schedule_out(schedule)
 
 
 def run_due_probabilistic_decision_schedules(
@@ -1167,13 +1367,14 @@ def run_due_probabilistic_decision_schedules(
             db.commit()
             completed.append(decision)
         except Exception as exc:  # noqa: BLE001
+            logger.error("probabilistic schedule failed exception_type=%s", type(exc).__name__)
             db.rollback()
             if reserved:
                 release_usage(db, "decision_scans")
             schedule = db.get(ProbabilisticDecisionSchedule, claimed)
             if schedule is not None:
                 schedule.last_run_at = current
-                schedule.last_error = str(exc)[:512]
+                schedule.last_error = _SCHEDULE_FAILURE_CODE
                 schedule.updated_at = current
                 db.commit()
     return completed
@@ -1198,7 +1399,8 @@ def _schedule_out(schedule: DecisionSchedule) -> DecisionScheduleOut:
             "next_run_at": utc(schedule.next_run_at),
             "last_run_at": utc(schedule.last_run_at),
             "last_decision_id": schedule.last_decision_id,
-            "last_error": schedule.last_error,
+            # Preserve historical storage, but never expose legacy exception text.
+            "last_error": _SCHEDULE_FAILURE_CODE if schedule.last_error is not None else None,
             "created_at": utc(schedule.created_at),
         }
     )
@@ -1247,6 +1449,25 @@ def list_decision_schedules(db: ScopedSession) -> list[DecisionScheduleOut]:
     return [_schedule_out(row) for row in rows]
 
 
+def deactivate_decision_schedule(
+    db: ScopedSession,
+    schedule_id: str,
+    *,
+    now: datetime | None = None,
+) -> DecisionScheduleOut:
+    """Idempotently deactivate one deterministic schedule in the bound tenant."""
+    if type(db) is not ScopedSession or db.scope is None:
+        raise TypeError("decision schedules require a tenant-scoped session")
+    schedule = db.get(DecisionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("decision schedule not found")
+    if schedule.active:
+        schedule.active = False
+        schedule.updated_at = now or datetime.now(UTC)
+        db.commit()
+    return _schedule_out(schedule)
+
+
 def run_due_decision_schedules(
     db: ScopedSession,
     *,
@@ -1254,7 +1475,6 @@ def run_due_decision_schedules(
     limit: int = 100,
 ) -> list[EconomicDecision]:
     """Claim and evaluate due schedules for the bound tenant."""
-
     if type(db) is not ScopedSession:
         raise TypeError("scheduled decisions require a ScopedSession")
     current = now or datetime.now(UTC)
@@ -1312,13 +1532,14 @@ def run_due_decision_schedules(
             db.commit()
             completed.append(decision)
         except Exception as exc:  # noqa: BLE001
+            logger.error("deterministic schedule failed exception_type=%s", type(exc).__name__)
             db.rollback()
             if reserved:
                 release_usage(db, "decision_scans")
             schedule = db.get(DecisionSchedule, due_schedule.schedule_id)
             if schedule is not None:
                 schedule.last_run_at = current
-                schedule.last_error = str(exc)[:512]
+                schedule.last_error = _SCHEDULE_FAILURE_CODE
                 schedule.updated_at = current
                 db.commit()
     return completed

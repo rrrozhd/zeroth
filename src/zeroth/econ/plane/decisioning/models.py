@@ -5,8 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import ClassVar
 
-from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String
-from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zeroth.econ.plane.database import Base
@@ -84,6 +83,75 @@ class ProbabilisticMigrationDecisionRecord(Base):
     report_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     evaluated_by: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class QualificationRegistryRecord(Base):
+    """Tenant-scoped persistent qualification row and lifecycle state."""
+
+    __tablename__ = "model_migration_qualifications"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.model_migration_qualification",
+        table_name=__tablename__,
+        operations=_ALL_OPERATIONS,
+    )
+    __table_args__ = (
+        Index(
+            "ix_model_migration_qualifications_tenant_scope",
+            "tenant_id",
+            "scope_digest",
+        ),
+        Index(
+            "uq_model_migration_qualifications_active_scope",
+            "tenant_id",
+            "active_scope_key",
+            unique=True,
+        ),
+        Index(
+            "ix_model_migration_qualifications_tenant_workload",
+            "tenant_id",
+            "workload",
+        ),
+    )
+
+    qualification_id: Mapped[str] = mapped_column(String(192), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    record_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    active_scope_key: Mapped[str | None] = mapped_column(String(64))
+    workload: Mapped[str] = mapped_column(String(128), nullable=False)
+    incumbent_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    candidate_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    policy_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    cluster_family_set: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    mean_probability_contract: Mapped[str] = mapped_column(String(128), nullable=False)
+    icc_upper_bound_exact: Mapped[str] = mapped_column(String(128), nullable=False)
+    cluster_size_vector: Mapped[list[int]] = mapped_column(JSON, nullable=False)
+    cluster_size_vector_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    authorization_count_threshold: Mapped[int] = mapped_column(Integer, nullable=False)
+    boundary_error_alpha_exact: Mapped[str] = mapped_column(String(128), nullable=False)
+    certificate_artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    family_confidence_set_method: Mapped[str] = mapped_column(String(128), nullable=False)
+    family_qualification_artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    icc_upper_confidence_method: Mapped[str] = mapped_column(String(128), nullable=False)
+    icc_qualification_artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    independent_unit_definition: Mapped[str] = mapped_column(String(512), nullable=False)
+    grouping_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    source_window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_evidence_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer: Mapped[str] = mapped_column(String(128), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    supersedes_qualification_id: Mapped[str | None] = mapped_column(String(192))
+    record_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_by: Mapped[str | None] = mapped_column(String(128))
+    revocation_digest: Mapped[str | None] = mapped_column(String(64))
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    superseded_by: Mapped[str | None] = mapped_column(String(128))
+    superseded_by_qualification_id: Mapped[str | None] = mapped_column(String(192))
 
 
 class DecisionSchedule(Base):

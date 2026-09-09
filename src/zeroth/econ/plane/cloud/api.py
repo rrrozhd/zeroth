@@ -214,22 +214,22 @@ def record_outcome(
         outcome_payload["subject_id"] = payload.subject_id
     if payload.dimensions:
         outcome_payload["dimensions"] = payload.dimensions
-    event = _CloudOutcomeCreate(
-        tenant_id=user.tenant_id,
-        join_key=payload.run_id,
-        capability_id=capability_id,
-        implementation_id=implementation_id,
-        workflow_id=payload.workflow,
-        workflow_version=payload.workflow_version,
-        outcome_type=payload.outcome_type,
-        outcome_value=payload.accepted,
-        outcome_payload_json=outcome_payload,
-        occurred_at=payload.occurred_at,
-        outcome_timestamp=payload.occurred_at,
-        provenance=payload.provenance.upper(),
-        maturity=payload.maturity,
-    )
     try:
+        event = _CloudOutcomeCreate(
+            tenant_id=user.tenant_id,
+            join_key=payload.run_id,
+            capability_id=capability_id,
+            implementation_id=implementation_id,
+            workflow_id=payload.workflow,
+            workflow_version=payload.workflow_version,
+            outcome_type=payload.outcome_type,
+            outcome_value=payload.accepted,
+            outcome_payload_json=outcome_payload,
+            occurred_at=payload.occurred_at,
+            outcome_timestamp=payload.occurred_at,
+            provenance=payload.provenance.upper(),
+            maturity=payload.maturity,
+        )
         status, row = ingest_outcome_with_status(db, event)
     except ValueError as exc:
         db.rollback()

@@ -24,6 +24,9 @@ FROM_IMPORT_RE = re.compile(
 )
 IMPORT_RE = re.compile(r"(?<![\w.])import\s+(zeroth(?:\.[A-Za-z_]\w*)*)")
 ENV_RE = re.compile(r"\bZEROTH_[A-Z0-9_*{}]+")
+# These are caller-owned names read by the documented client example, not
+# environment settings automatically consumed by the SDK or server.
+CLIENT_EXAMPLE_ENVIRONMENT_VARIABLES = {"ZEROTH_API_KEY", "ZEROTH_BASE_URL"}
 SOURCE_PATH_RE = re.compile(r"(?<![/\w])(src/[A-Za-z0-9_./-]+(?::\d+(?:-\d+)?)?)")
 INLINE_CODE_RE = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
 INLINE_CONTEXT_BOUNDARY_RE = re.compile(r"(?:[;.!?]\s+|,\s+(?:and|but|while)\s+)", re.I)
@@ -341,10 +344,21 @@ def _install_violations(
             continue
         supplied_name = requirement["name"].lower().replace("_", "-")
         supplied_extras = set(filter(None, (requirement["extras"] or "").split(",")))
-        versions = re.findall(r"\d+(?:\.\d+)+", requirement["specifier"])
+        # Compare complete declared version strings, including prerelease,
+        # development, post-release and local suffixes; do not truncate to digits.
+        specifiers = (
+            [
+                re.fullmatch(r"(?:===|==|~=|!=|<=|>=|<|>)\s*(\S+)", part.strip())
+                for part in requirement["specifier"].split(",")
+            ]
+            if requirement["specifier"]
+            else []
+        )
+        versions = [specifier[1] for specifier in specifiers if specifier is not None]
         matches_project = any(
             supplied_name == str(project["name"]).lower().replace("_", "-")
             and supplied_extras <= set(project.get("optional-dependencies", {}))
+            and all(specifier is not None for specifier in specifiers)
             and all(supplied == str(project["version"]) for supplied in versions)
             for project in projects
         )
@@ -414,7 +428,7 @@ def _historical_inline_context(line: str, start: int, end: int) -> bool:
 def scan_markdown(text: str, path: str, repo_root: Path = REPO_ROOT) -> list[Violation]:
     """Return broken references from code blocks and inline code only."""
     projects = install_projects(repo_root)
-    valid_env = valid_environment_variables(repo_root)
+    valid_env = valid_environment_variables(repo_root) | CLIENT_EXAMPLE_ENVIRONMENT_VARIABLES
     violations: set[Violation] = set()
     in_fence = False
     fence_actionable = True

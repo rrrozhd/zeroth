@@ -33,7 +33,7 @@ _EXPORTS = {
 
 @runtime_checkable
 class EconEventEraser(Protocol):
-    """Deletes one tenant's econ execution/outcome events for given join keys."""
+    """Deletes tenant-scoped econ events and qualification lineage."""
 
     async def delete_events_for_run(
         self,
@@ -46,6 +46,16 @@ class EconEventEraser(Protocol):
 
         Returns the total number of rows deleted across event tables.
         """
+        ...
+
+    async def delete_qualification_lineage(
+        self,
+        tenant_id: str,
+        workload: str | None = None,
+        *,
+        idempotency_key: str,
+    ) -> int:
+        """Delete qualification lineage for a tenant or one tenant workload."""
         ...
 
 

@@ -897,6 +897,7 @@
       },
       "CausalMetricEffect": {
         "additionalProperties": false,
+        "description": "Arm means and bootstrap interval for one intention-compatible metric effect.",
         "properties": {
           "candidate_mean": {
             "title": "Candidate Mean",
@@ -1212,6 +1213,7 @@
       },
       "CohortRoutingAction": {
         "additionalProperties": false,
+        "description": "Candidate traffic shares for a named, cohort-specific routing alternative.",
         "properties": {
           "action_id": {
             "maxLength": 128,
@@ -3900,6 +3902,7 @@
       },
       "ForecastCalibrationObservation": {
         "additionalProperties": false,
+        "description": "A historical forecast interval joined to its subsequently observed value.",
         "properties": {
           "forecast_id": {
             "maxLength": 128,
@@ -3949,6 +3952,7 @@
       },
       "ForecastReadiness-Input": {
         "additionalProperties": false,
+        "description": "Aggregate readiness state across every metric required by migration policy.",
         "properties": {
           "alpha_critical": {
             "anyOf": [
@@ -4078,6 +4082,7 @@
       },
       "ForecastReadiness-Output": {
         "additionalProperties": false,
+        "description": "Aggregate readiness state across every metric required by migration policy.",
         "properties": {
           "assessed_at": {
             "anyOf": [
@@ -4531,6 +4536,7 @@
       },
       "MetricForecastReadiness-Input": {
         "additionalProperties": false,
+        "description": "Calibration and drift assessment for one forecasted decision metric.",
         "properties": {
           "assessed_at": {
             "anyOf": [
@@ -4682,6 +4688,7 @@
       },
       "MetricForecastReadiness-Output": {
         "additionalProperties": false,
+        "description": "Calibration and drift assessment for one forecasted decision metric.",
         "properties": {
           "assessed_at": {
             "anyOf": [
@@ -4772,6 +4779,7 @@
       },
       "MigrationActionForecast": {
         "additionalProperties": false,
+        "description": "Cost, quality, latency, and tail-risk forecast for one routing action.",
         "properties": {
           "action_id": {
             "default": "global",
@@ -5066,6 +5074,7 @@
       },
       "MigrationEvidence": {
         "additionalProperties": false,
+        "description": "Paired execution outcomes, demand history, and readiness used for forecasting.",
         "properties": {
           "candidate": {
             "items": {
@@ -5218,6 +5227,7 @@
       },
       "MigrationObservation-Input": {
         "additionalProperties": false,
+        "description": "Measured outcome for one incumbent or candidate execution in a paired case.",
         "properties": {
           "accepted": {
             "title": "Accepted",
@@ -5278,6 +5288,7 @@
       },
       "MigrationObservation-Output": {
         "additionalProperties": false,
+        "description": "Measured outcome for one incumbent or candidate execution in a paired case.",
         "properties": {
           "accepted": {
             "title": "Accepted",
@@ -5330,6 +5341,7 @@
       },
       "MigrationRiskPolicy-Input": {
         "additionalProperties": false,
+        "description": "Risk limits and candidate routing alternatives for a migration evaluation.",
         "properties": {
           "allow_drift_warning": {
             "default": false,
@@ -5436,6 +5448,7 @@
       },
       "MigrationRiskPolicy-Output": {
         "additionalProperties": false,
+        "description": "Risk limits and candidate routing alternatives for a migration evaluation.",
         "properties": {
           "allow_drift_warning": {
             "default": false,
@@ -6314,6 +6327,7 @@
       },
       "ProbabilisticMigrationDecision": {
         "additionalProperties": false,
+        "description": "Fail-closed migration result with forecasts, lineage, and abstention reasons.",
         "properties": {
           "actions": {
             "items": {
@@ -6455,6 +6469,20 @@
           },
           "policy": {
             "$ref": "#/components/schemas/MigrationRiskPolicy-Input"
+          },
+          "qualification_id": {
+            "anyOf": [
+              {
+                "maxLength": 192,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualification Id"
           },
           "seed": {
             "default": 7,
@@ -7108,6 +7136,7 @@
       },
       "RolloutVerification": {
         "additionalProperties": false,
+        "description": "Fail-closed causal verification result and its retained metric effects.",
         "properties": {
           "candidate_samples": {
             "title": "Candidate Samples",
@@ -7540,6 +7569,7 @@
           },
           "outcome_type": {
             "default": "accepted",
+            "maxLength": 64,
             "minLength": 1,
             "title": "Outcome Type",
             "type": "string"
@@ -8317,14 +8347,14 @@
     },
     "/health/ready": {
       "get": {
-        "operationId": "health_health_ready_get",
+        "operationId": "readiness_health_ready_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Health Health Ready Get",
+                  "title": "Response Readiness Health Ready Get",
                   "type": "object"
                 }
               }
@@ -8332,7 +8362,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Health"
+        "summary": "Readiness"
       }
     },
     "/metrics": {
@@ -10775,6 +10805,53 @@
         ]
       }
     },
+    "/v1/decision-schedules/{schedule_id}/deactivate": {
+      "post": {
+        "operationId": "deactivate_schedule_v1_decision_schedules__schedule_id__deactivate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "schedule_id",
+            "required": true,
+            "schema": {
+              "title": "Schedule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionScheduleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deactivate Schedule",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
     "/v1/decisions": {
       "get": {
         "operationId": "decision_history_v1_decisions_get",
@@ -12092,6 +12169,53 @@
         ]
       }
     },
+    "/v1/probabilistic-decision-schedules/{schedule_id}/deactivate": {
+      "post": {
+        "operationId": "deactivate_probabilistic_schedule_v1_probabilistic_decision_schedules__schedule_id__deactivate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "schedule_id",
+            "required": true,
+            "schema": {
+              "title": "Schedule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbabilisticDecisionScheduleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deactivate Probabilistic Schedule",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
     "/v1/randomized-rollouts": {
       "post": {
         "operationId": "create_rollout_v1_randomized_rollouts_post",
@@ -12190,6 +12314,53 @@
           }
         ],
         "summary": "Assign Rollout",
+        "tags": [
+          "economic-change-control"
+        ]
+      }
+    },
+    "/v1/randomized-rollouts/{rollout_id}/stop": {
+      "post": {
+        "operationId": "stop_rollout_v1_randomized_rollouts__rollout_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rollout_id",
+            "required": true,
+            "schema": {
+              "title": "Rollout Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RandomizedRolloutOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stop Rollout",
         "tags": [
           "economic-change-control"
         ]

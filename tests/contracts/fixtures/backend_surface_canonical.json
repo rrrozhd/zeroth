@@ -3566,7 +3566,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.cloud.schemas",
       "name": "SdkOutcomeEvent",
-      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], workflow_version: Annotated[str, MinLen(min_length=1)] = 'unversioned', run_id: Annotated[str, MinLen(min_length=1)], accepted: bool | None = None, maturity: Literal['unknown', 'provisional', 'final', 'withdrawn'] = 'unknown', outcome_type: Annotated[str, MinLen(min_length=1)] = 'accepted', occurred_at: datetime.datetime = <factory>, provenance: Literal['measured', 'inferred', 'mixed'] = 'measured', value_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, score: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, subject_id: str | None = None, dimensions: dict[str, str | int | float | bool] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
+      "signature": "(*, workflow: Annotated[str, MinLen(min_length=1)], workflow_version: Annotated[str, MinLen(min_length=1)] = 'unversioned', run_id: Annotated[str, MinLen(min_length=1)], accepted: bool | None = None, maturity: Literal['unknown', 'provisional', 'final', 'withdrawn'] = 'unknown', outcome_type: Annotated[str, MinLen(min_length=1), MaxLen(max_length=64)] = 'accepted', occurred_at: datetime.datetime = <factory>, provenance: Literal['measured', 'inferred', 'mixed'] = 'measured', value_usd: Annotated[decimal.Decimal | None, Ge(ge=0)] = None, score: Annotated[float | None, Ge(ge=0), Le(le=1)] = None, subject_id: str | None = None, dimensions: dict[str, str | int | float | bool] = <factory>, metadata: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
@@ -4002,7 +4002,7 @@
       "legacy_ids": [],
       "module": "zeroth.econ.plane.decisioning.schemas",
       "name": "ProbabilisticMigrationRequest",
-      "signature": "(*, evidence: zeroth.econ.probabilistic.MigrationEvidence, policy: zeroth.econ.probabilistic.MigrationRiskPolicy, calibration_observations: Annotated[list[zeroth.econ.probabilistic.ForecastCalibrationObservation], MaxLen(max_length=200)] = <factory>, simulations: Annotated[int, Ge(ge=100), Le(le=10000)] = 10000, seed: Annotated[int, Ge(ge=0), Le(le=2147483647)] = 7) -> None"
+      "signature": "(*, evidence: zeroth.econ.probabilistic.MigrationEvidence, policy: zeroth.econ.probabilistic.MigrationRiskPolicy, calibration_observations: Annotated[list[zeroth.econ.probabilistic.ForecastCalibrationObservation], MaxLen(max_length=200)] = <factory>, simulations: Annotated[int, Ge(ge=100), Le(le=10000)] = 10000, seed: Annotated[int, Ge(ge=0), Le(le=2147483647)] = 7, qualification_id: Annotated[str | None, MinLen(min_length=1), MaxLen(max_length=192), _PydanticGeneralMetadata(pattern='^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$')] = None) -> None"
     },
     {
       "evidence": [

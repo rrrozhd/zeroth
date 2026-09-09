@@ -37,7 +37,7 @@ from zeroth.protocol import (
     OutcomeEvent,
     VersionComparisonRequest,
 )
-from zeroth.sdk import ZerothClient
+from zeroth.sdk import ZerothClient, ZerothTransportError
 
 engine = database_engine
 SOURCE = Path(__file__).with_name("fixtures") / "source_ledger.json"
@@ -255,7 +255,7 @@ def test_source_ledger_delivery_faults_and_recovery(origin, engine, ledger, faul
                     """
 import json, os, sys
 from zeroth.protocol import ExecutionEvent
-from zeroth.sdk import ZerothClient
+from zeroth.sdk import ZerothClient, ZerothTransportError
 source = json.load(sys.stdin)
 client = ZerothClient(api_key=source['token'], base_url=source['origin'])
 for payload in source['events'][:source['stop_after']]:
@@ -287,8 +287,12 @@ os._exit(17)
                     stopped.bind(("127.0.0.1", 0))  # Reserved but not listening.
                     failed = client(f"http://127.0.0.1:{stopped.getsockname()[1]}", timeout=0.2)
                     try:
-                        with pytest.raises((httpx.ConnectError, httpx.ConnectTimeout)):
+                        with pytest.raises(ZerothTransportError) as transport_error:
                             failed.record_execution(target)
+                        assert isinstance(
+                            transport_error.value.original_error,
+                            (httpx.ConnectError, httpx.ConnectTimeout),
+                        )
                     finally:
                         failed.close()
             elif fault == "rejected":
@@ -300,8 +304,9 @@ os._exit(17)
             else:
                 with httpx.Client(transport=LostReply()) as transport:
                     failed = client(origin, http_client=transport)
-                    with pytest.raises(httpx.ReadTimeout):
+                    with pytest.raises(ZerothTransportError) as transport_error:
                         failed.record_execution(target)
+                    assert isinstance(transport_error.value.original_error, httpx.ReadTimeout)
             missing = 0 if fault == "lost_reply" else 1
         damaged = sdk.compare_versions(request)
         assert damaged["source_delivery"]["candidate"]["expected_executions"] == len(all_events)

@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from types import SimpleNamespace
 
 import pytest
 
 from tests.retention.conftest import make_audit_record
-from zeroth.governance.retention import RetentionErasureService, SqlAlchemyEconEventEraser
+from zeroth.governance.retention import (
+    LegalHoldError,
+    RetentionErasureService,
+    SqlAlchemyEconEventEraser,
+)
 from zeroth.governance.retention.econ_eraser import EconEventEraser
 from zeroth.runtime.runs import Run
-from zeroth.service.bootstrap.factory import _build_retention_econ_eraser
+from zeroth.service.bootstrap.factory import (
+    _UnavailableEconEventEraser,
+    _build_retention_econ_eraser,
+)
 
 
 class _RecordingEconEraser:
@@ -21,6 +29,10 @@ class _RecordingEconEraser:
 
     async def delete_events_for_run(self, tenant_id, join_keys, *, idempotency_key):
         self.called_with.append((tenant_id, list(join_keys), idempotency_key))
+        return self.deleted
+
+    async def delete_qualification_lineage(self, tenant_id, workload=None, *, idempotency_key):
+        self.qualification_called_with = (tenant_id, workload, idempotency_key)
         return self.deleted
 
 
@@ -65,14 +77,90 @@ async def test_erase_run_calls_econ_hook_with_run_and_metadata_join_keys(env) ->
     assert "econ_erase" in actions
 
 
+async def test_retention_service_erases_and_audits_qualification_lineage(env) -> None:
+    eraser = _RecordingEconEraser(deleted=3)
+    service = RetentionErasureService(
+        audit_repository=env.audit_repo,
+        run_repository=env.run_repo,
+        policy_repository=env.policy_repo,
+        legal_hold_repository=env.hold_repo,
+        log_repository=env.log_repo,
+        econ_eraser=eraser,
+    )
+
+    deleted = await service.erase_qualification_lineage(
+        "default",
+        workload="invoice-agent",
+        reason="rte",
+        idempotency_key="erase-qualification-lineage-1",
+    )
+
+    assert deleted == 3
+    assert eraser.qualification_called_with == (
+        "default",
+        "invoice-agent",
+        "erase-qualification-lineage-1",
+    )
+    logs = await env.log_repo.list_for_tenant()
+    assert logs[-1]["action"] == "qualification_lineage_erased"
+    assert json.loads(logs[-1]["detail"])["deleted_count"] == 3
+
+
+async def test_explicit_qualification_erasure_fails_when_backend_is_unavailable(env) -> None:
+    service = RetentionErasureService(
+        audit_repository=env.audit_repo,
+        run_repository=env.run_repo,
+        policy_repository=env.policy_repo,
+        legal_hold_repository=env.hold_repo,
+        log_repository=env.log_repo,
+        econ_eraser=None,
+    )
+
+    with pytest.raises(RuntimeError, match="qualification erasure unavailable"):
+        await service.erase_qualification_lineage(
+            "default",
+            idempotency_key="erase-all-qualification-lineage-1",
+        )
+
+
+async def test_tenant_hold_blocks_qualification_lineage_erasure(env) -> None:
+    eraser = _RecordingEconEraser()
+    service = RetentionErasureService(
+        audit_repository=env.audit_repo,
+        run_repository=env.run_repo,
+        policy_repository=env.policy_repo,
+        legal_hold_repository=env.hold_repo,
+        log_repository=env.log_repo,
+        econ_eraser=eraser,
+    )
+    await env.hold_repo.place(reason="litigation", placed_by="counsel")
+
+    with pytest.raises(LegalHoldError, match="legal hold"):
+        await service.erase_qualification_lineage(
+            "default",
+            workload="invoice-agent",
+            idempotency_key="qualification-rte-held",
+        )
+    assert not hasattr(eraser, "qualification_called_with")
+
+
+async def test_configured_unavailable_adapter_fails_qualification_erasure() -> None:
+    eraser = _UnavailableEconEventEraser()
+
+    with pytest.raises(RuntimeError, match="economics erasure unavailable"):
+        await eraser.delete_qualification_lineage(
+            "tenant-a",
+            "invoice-agent",
+            idempotency_key="qualification-rte-unavailable",
+        )
+
+
 async def test_enabled_but_unavailable_econ_cleanup_is_failed_not_skipped(
     env,
     monkeypatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "zeroth.econ.plane.database", None)
-    eraser = _build_retention_econ_eraser(
-        SimpleNamespace(regulus=SimpleNamespace(enabled=True))
-    )
+    eraser = _build_retention_econ_eraser(SimpleNamespace(regulus=SimpleNamespace(enabled=True)))
     service = RetentionErasureService(
         audit_repository=env.audit_repo,
         run_repository=env.run_repo,
@@ -90,9 +178,7 @@ async def test_enabled_but_unavailable_econ_cleanup_is_failed_not_skipped(
 
     assert result.external_cleanup_status == "failed"
     assert result.econ_events_deleted == 0
-    actions = [
-        event["action"] for event in await env.log_repo.list_for_run("run-econ-unavailable")
-    ]
+    actions = [event["action"] for event in await env.log_repo.list_for_run("run-econ-unavailable")]
     assert "econ_erase_failed" in actions
     assert "econ_erase_skipped" not in actions
 

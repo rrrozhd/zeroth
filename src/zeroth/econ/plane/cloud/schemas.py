@@ -60,7 +60,7 @@ class SdkOutcomeEvent(BaseModel):
     run_id: str = Field(min_length=1)
     accepted: bool | None = None
     maturity: OutcomeMaturity = "unknown"
-    outcome_type: str = Field(default="accepted", min_length=1)
+    outcome_type: str = Field(default="accepted", min_length=1, max_length=64)
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     provenance: Literal["measured", "inferred", "mixed"] = "measured"
     value_usd: Decimal | None = Field(default=None, ge=0)

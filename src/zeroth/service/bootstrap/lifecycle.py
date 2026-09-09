@@ -86,16 +86,27 @@ async def _service_runtime_lifespan(app: FastAPI):
     secret provider.
     """
     original_regulus_scope: tuple[str, str | None] | None = None
+    app.state.regulus_scheduler_handle = None
     # When the bundled Regulus control plane is mounted in-process, initialize
     # its own schema + seed data here: Starlette does not run a mounted
     # sub-app's startup events, so econ_plane.main's on_startup never fires.
     if getattr(app.state.bootstrap, "regulus_client", None) is not None:
         hosted_economics_required = False
+        scheduler_required = False
         try:
             from zeroth.econ.plane import config as ecp_config
 
             ecp_settings = ecp_config.settings
             hosted_economics_required = _hosted_economics_required(ecp_settings)
+            mounted_regulus_app = getattr(app.state, "regulus_app", None)
+            scheduler_required = bool(
+                mounted_regulus_app is not None and ecp_settings.cloud_scheduler_enabled
+            )
+
+            if scheduler_required:
+                from zeroth.econ.plane.decisioning.lifecycle import assert_scheduler_available
+
+                assert_scheduler_available(mounted_regulus_app)
 
             from zeroth.econ.plane.common.bootstrap import bootstrap as econ_plane_bootstrap
             from zeroth.econ.plane.connectors.service import init_otel_metrics
@@ -139,7 +150,7 @@ async def _service_runtime_lifespan(app: FastAPI):
             # Paid hosting therefore validates here, before touching its schema;
             # otherwise invalid WorkOS/Paddle configuration could serve a live
             # application whose identity or entitlements never became usable.
-            if hosted_economics_required:
+            if hosted_economics_required or scheduler_required:
                 ecp_config.validate_startup_settings()
 
             # The in-process client is a provisioned service principal. Its
@@ -173,10 +184,19 @@ async def _service_runtime_lifespan(app: FastAPI):
                 )
             app.state.regulus_registration_ready = True
             init_otel_metrics()  # no-op unless ECP_OTEL_METRICS_ENABLED
+            if scheduler_required:
+                from zeroth.econ.plane.decisioning.lifecycle import start_scheduler
+
+                app.state.regulus_scheduler_handle = start_scheduler(
+                    mounted_regulus_app,
+                    owner=app,
+                    enabled=True,
+                    interval_seconds=ecp_settings.cloud_scheduler_interval_seconds,
+                )
             logger.info("Initialized bundled Regulus control plane")
         except Exception as exc:  # noqa: BLE001 - self-host economics is optional
             app.state.regulus_registration_ready = False
-            if hosted_economics_required:
+            if hosted_economics_required or scheduler_required:
                 logger.error(
                     "Hosted economic plane initialization failed exception_type=%s",
                     type(exc).__name__,
@@ -436,12 +456,33 @@ async def _close_gateway_transport(app: FastAPI, *, timeout: float) -> None:
         raise exc
 
 
+async def _stop_regulus_scheduler(app: FastAPI) -> BaseException | None:
+    """Stop only this parent's scheduler, returning failure for deferred handling."""
+    handle = getattr(app.state, "regulus_scheduler_handle", None)
+    mounted_regulus_app = getattr(app.state, "regulus_app", None)
+    if handle is None or mounted_regulus_app is None:
+        return None
+    try:
+        from zeroth.econ.plane.decisioning.lifecycle import stop_scheduler
+
+        await stop_scheduler(mounted_regulus_app, handle)
+    except BaseException as exc:  # includes cancellation deferred by stop_scheduler
+        return exc
+    finally:
+        if getattr(mounted_regulus_app.state, "cloud_scheduler_handle", None) is None:
+            app.state.regulus_scheduler_handle = None
+    return None
+
+
 @asynccontextmanager
 async def service_lifespan(app: FastAPI):
     """Own the gateway transport and the audit drain around the service lifecycle.
 
-    Both run *inside* the runtime lifespan, in an unconditional ``finally``, so
-    they are the first thing that happens when serving stops and the whole of
+    The owned economic scheduler, gateway stop, and audit drain all run *inside*
+    the runtime lifespan, in an unconditional ``finally``. The scheduler drains
+    first, so no new economic pass overlaps runtime-resource teardown. The gateway
+    then stops before the audit drain, preserving their established ordering. The
+    three therefore complete while the whole of
     the runtime teardown is still ahead of them. Sitting outside it was a bound
     on paper only: the drain then queued behind every post-yield await that
     teardown performs -- a run worker's graceful shutdown, the ARQ consumer and
@@ -462,6 +503,7 @@ async def service_lifespan(app: FastAPI):
     already built, exactly once.
     """
     transport_error: BaseException | None = None
+    scheduler_error: BaseException | None = None
     stopped = False
     try:
         async with _service_runtime_lifespan(app):
@@ -469,24 +511,37 @@ async def service_lifespan(app: FastAPI):
                 yield
             finally:
                 stopped = True
-                transport_error = await _stop_gateway_and_drain_audit(app)
-                await _close_governed_clients(app)
+                scheduler_error = await _stop_regulus_scheduler(app)
+                try:
+                    transport_error = await _stop_gateway_and_drain_audit(app)
+                finally:
+                    await _close_governed_clients(app)
     finally:
         if not stopped:
-            await _close_governed_clients(app)
-            failure = await _stop_gateway_and_drain_audit(app)
+            failure = await _stop_regulus_scheduler(app)
             if failure is not None:
-                # Never raised: the startup failure already propagating here is
-                # the one an operator needs, and it is the more informative of
-                # the two.
                 logger.error(
-                    "gateway transport close failed during a failed startup "
-                    "code=%s exception_type=%s",
-                    _STARTUP_CLOSE_FAILED,
+                    "scheduler stop failed during failed startup exception_type=%s",
                     type(failure).__name__,
                 )
+            try:
+                await _close_governed_clients(app)
+            finally:
+                failure = await _stop_gateway_and_drain_audit(app)
+                if failure is not None:
+                    # Never raised: the startup failure already propagating here is
+                    # the one an operator needs, and it is the more informative of
+                    # the two.
+                    logger.error(
+                        "gateway transport close failed during a failed startup "
+                        "code=%s exception_type=%s",
+                        _STARTUP_CLOSE_FAILED,
+                        type(failure).__name__,
+                    )
     if transport_error is not None:
         raise transport_error
+    if scheduler_error is not None:
+        raise scheduler_error
 
 
 async def _close_governed_clients(app: FastAPI) -> None:

@@ -155,6 +155,7 @@ def create_app(
             from zeroth.econ.plane.main import app as econ_plane_app
 
             app.mount("/regulus", econ_plane_app)
+            app.state.regulus_app = econ_plane_app
             app.state.regulus_base_url = "http://regulus.internal/v1"
             app.state.regulus_transport = httpx.ASGITransport(app=econ_plane_app)
             logger.info("Mounted bundled Regulus control plane at /regulus")
@@ -279,9 +280,7 @@ def create_app(
         if origin is not None and origin not in {request_origin, *console_cors_origins()}:
             return JSONResponse(status_code=403, content={"detail": "origin denied"})
         try:
-            token = await asyncio.to_thread(
-                app.state.browser_session_signer.issue, request.headers
-            )
+            token = await asyncio.to_thread(app.state.browser_session_signer.issue, request.headers)
         except AuthenticationError as exc:
             return JSONResponse(status_code=401, content={"detail": str(exc)})
         response = Response(status_code=204)

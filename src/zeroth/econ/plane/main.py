@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import random
 import time
@@ -26,6 +25,7 @@ from zeroth.econ.plane.costing.api import router as costing_router
 from zeroth.econ.plane.dashboard.api import router as dashboard_router
 from zeroth.econ.plane.decisioning.api import router as decisioning_router
 from zeroth.econ.plane.decisioning.scheduler import run_scheduler_loop
+from zeroth.econ.plane.decisioning.lifecycle import start_scheduler, stop_scheduler
 from zeroth.econ.plane.enforcement.api import router as enforcement_router
 from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 from zeroth.econ.plane.performance.api import router as performance_router
@@ -84,31 +84,28 @@ def startup() -> None:
 
 @app.on_event("startup")
 async def start_cloud_scheduler() -> None:
-    if not settings.cloud_scheduler_enabled:
-        return
-    stop = asyncio.Event()
-    app.state.cloud_scheduler_stop = stop
-    app.state.cloud_scheduler_task = asyncio.create_task(
-        run_scheduler_loop(
-            stop,
-            interval_seconds=settings.cloud_scheduler_interval_seconds,
-        ),
-        name="zeroth-cloud-decision-scheduler",
+    app.state.cloud_scheduler_standalone_handle = start_scheduler(
+        app,
+        owner=app,
+        enabled=settings.cloud_scheduler_enabled,
+        interval_seconds=settings.cloud_scheduler_interval_seconds,
+        run_loop=run_scheduler_loop,
     )
 
 
 @app.on_event("shutdown")
 async def stop_cloud_scheduler() -> None:
-    stop = getattr(app.state, "cloud_scheduler_stop", None)
-    task = getattr(app.state, "cloud_scheduler_task", None)
-    if stop is None or task is None:
-        return
-    stop.set()
-    await task
+    handle = getattr(app.state, "cloud_scheduler_standalone_handle", None)
+    try:
+        await stop_scheduler(app, handle)
+    finally:
+        # Deferred cancellation is raised only after the worker drains and its
+        # active ownership clears; retire this app's matching stale token too.
+        if handle is None or getattr(app.state, "cloud_scheduler_handle", None) is not handle:
+            app.state.cloud_scheduler_standalone_handle = None
 
 
 @app.get("/health")
-@app.get("/health/ready")
 def health(response: Response) -> dict[str, object]:
     revision = common_bootstrap.schema_revision()
     scheduler_task = getattr(app.state, "cloud_scheduler_task", None)
@@ -126,6 +123,14 @@ def health(response: Response) -> dict[str, object]:
         "schema_revision": revision,
         "scheduler": {"status": scheduler_state},
     }
+
+
+@app.get("/health/ready")
+def readiness(response: Response) -> dict[str, object]:
+    state = health(response)
+    if state["status"] != "ok":
+        response.status_code = 503
+    return state
 
 
 @app.get("/metrics", response_class=PlainTextResponse)

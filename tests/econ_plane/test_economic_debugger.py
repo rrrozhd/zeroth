@@ -772,7 +772,7 @@ def test_debugger_spine_migration_backfills_existing_execution_identity(
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == ("20260907_25")
+            ).scalar_one() == ("20260908_26")
             identity = connection.execute(
                 text(
                     "SELECT workflow_id, workflow_version, run_id, attempt, dimensions "

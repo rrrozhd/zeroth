@@ -95,15 +95,75 @@ def test_forecast_algorithm_version_changes_digest_without_rewriting_history(tmp
     request = ProbabilisticMigrationRequest.model_validate(_request())
     with Session(engine) as session:
         db = ScopedSession(session, TenantWideScopeContext(tenant_id="tenant-version"))
-        first = service.evaluate_and_retain_probabilistic_migration(db, request, evaluated_by="test")
+        first = service.evaluate_and_retain_probabilistic_migration(
+            db, request, evaluated_by="test"
+        )
         original = db.get(ProbabilisticMigrationDecisionRecord, first.decision_id)
         original_json = dict(original.report_json)
-        monkeypatch.setattr(service, "FORECAST_ALGORITHM_VERSION", "future-test-version", raising=False)
-        second = service.evaluate_and_retain_probabilistic_migration(db, request, evaluated_by="test")
-        self_repeat = service.evaluate_and_retain_probabilistic_migration(db, request, evaluated_by="test")
+        monkeypatch.setattr(
+            service, "FORECAST_ALGORITHM_VERSION", "future-test-version", raising=False
+        )
+        second = service.evaluate_and_retain_probabilistic_migration(
+            db, request, evaluated_by="test"
+        )
+        self_repeat = service.evaluate_and_retain_probabilistic_migration(
+            db, request, evaluated_by="test"
+        )
         assert first.decision_id != second.decision_id
         assert second.decision_id == self_repeat.decision_id
-        assert db.get(ProbabilisticMigrationDecisionRecord, first.decision_id).report_json == original_json
+        assert (
+            db.get(ProbabilisticMigrationDecisionRecord, first.decision_id).report_json
+            == original_json
+        )
+
+
+def test_math_revision_retains_new_identity_and_reads_unchanged_legacy_record(
+    tmp_path, monkeypatch
+):
+    from copy import deepcopy
+
+    from zeroth.econ import probabilistic
+    from zeroth.econ.plane.decisioning import service
+
+    old_version = "nested-paired-monthly-v2-hoeffding99"
+    expected_version = "nested-paired-monthly-v3-hoeffding99-math1-predictive1"
+    assert expected_version == probabilistic.FORECAST_ALGORITHM_VERSION
+    assert service.FORECAST_ALGORITHM_VERSION == probabilistic.FORECAST_ALGORITHM_VERSION
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'math-version.db'}")
+    Base.metadata.create_all(engine)
+    request = ProbabilisticMigrationRequest.model_validate(_request())
+    with Session(engine) as session:
+        db = ScopedSession(session, TenantWideScopeContext(tenant_id="tenant-math-version"))
+        # Simulate an existing record's version identity, not legacy numerical output.
+        with monkeypatch.context() as legacy_version:
+            legacy_version.setattr(service, "FORECAST_ALGORITHM_VERSION", old_version)
+            legacy_version.setattr(probabilistic, "FORECAST_ALGORITHM_VERSION", old_version)
+            legacy = service.evaluate_and_retain_probabilistic_migration(
+                db, request, evaluated_by="test"
+            )
+        old_record = db.get(ProbabilisticMigrationDecisionRecord, legacy.decision_id)
+        old_json = deepcopy(old_record.report_json)
+        old_digest = old_record.request_digest
+        repaired = service.evaluate_and_retain_probabilistic_migration(
+            db, request, evaluated_by="test"
+        )
+        repeated = service.evaluate_and_retain_probabilistic_migration(
+            db, request, evaluated_by="test"
+        )
+        assert repaired.decision_id != legacy.decision_id
+        assert repaired.decision_id == repeated.decision_id
+        assert repaired.evidence_lineage["forecast_algorithm_version"] == expected_version
+        history = {
+            row.decision_id: row for row in service.list_probabilistic_migration_decisions(db)
+        }
+        assert set(history) == {legacy.decision_id, repaired.decision_id}
+        assert (
+            history[legacy.decision_id].evidence_lineage["forecast_algorithm_version"]
+            == old_version
+        )
+        preserved = db.get(ProbabilisticMigrationDecisionRecord, legacy.decision_id)
+        assert preserved.report_json == old_json
+        assert preserved.request_digest == old_digest
 
 
 def test_model_migration_route_retains_an_immutable_tenant_decision(
@@ -164,6 +224,7 @@ def test_model_migration_route_retains_an_immutable_tenant_decision(
     assert payload["recommended_action"] == "collect_evidence"
     assert payload["recommended_candidate_share"] == 0
     assert "experimental_predictive_reliability_unapproved" in payload["reason_codes"]
+    assert "risk_law_unqualified" in payload["reason_codes"]
     assert payload["evidence_lineage"]["predictive_reliability"] == "unapproved"
     assert payload["actions"] == []
     assert "risk_law_unqualified" in payload["reason_codes"]
@@ -275,10 +336,8 @@ def test_public_cutoff_and_missingness_survive_api_storage_roundtrip(
     assert result["verdict"] == "abstain"
     assert result["recommended_action"] == "collect_evidence"
     assert result["recommended_candidate_share"] == 0
-    if variant != "override":
-        assert result["actions"] == []
-    else:
-        assert result["actions"] == []
+    assert result["actions"] == []
+    if variant == "override":
         assert "risk_law_unqualified" in result["reason_codes"]
         assert result["evidence_lineage"]["predictive_reliability"] == "unapproved"
     with Session(engine) as db:

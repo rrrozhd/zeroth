@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import smtplib
+import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import Protocol
@@ -31,6 +32,8 @@ class ConfiguredSmtpReportMailer:
     def send(self, message: ReportEmail) -> None:
         if not settings.report_email_enabled:
             raise ReportMailerUnavailable("decision report email delivery is disabled")
+        if settings.report_smtp_username and not settings.report_smtp_starttls:
+            raise ReportMailerUnavailable("authenticated report SMTP requires TLS")
         email = EmailMessage()
         email["From"] = settings.report_email_from
         email["To"] = ", ".join(message.recipients)
@@ -49,7 +52,7 @@ class ConfiguredSmtpReportMailer:
             timeout=settings.report_smtp_timeout_seconds,
         ) as smtp:
             if settings.report_smtp_starttls:
-                smtp.starttls()
+                smtp.starttls(context=ssl.create_default_context())
             if settings.report_smtp_username:
                 smtp.login(
                     settings.report_smtp_username,
