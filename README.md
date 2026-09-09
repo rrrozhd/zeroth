@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo/zeroth-lockup-v2.png">
-    <img src="docs/assets/logo/zeroth-lockup-v2-light.jpg" alt="Zeroth" width="640">
+    <img src="docs/assets/logo/zeroth-lockup-v2-light.jpg" alt="Zeroth" width="440">
   </picture>
 </p>
 
