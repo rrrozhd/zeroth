@@ -28,6 +28,7 @@ Honesty rails, carried from ``waste.py``'s confirmed/flagged discipline:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -37,8 +38,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.econ.analytics.rightsizing import ModelOption
+from zeroth.econ.backtest_evidence import (
+    BacktestCaseEvidence,
+    BacktestCaseScore,
+    BacktestEvaluationEvidence,
+)
 from zeroth.econ.measurement import MeasurementState
-from zeroth.eval.models import EvalCase, EvalDataset, Score
+from zeroth.eval.models import CaseResult, EvalCase, EvalDataset, Score
 from zeroth.eval.runner import run_eval
 from zeroth.eval.scorers import JudgeVerdict, LLMJudgeScorer
 from zeroth.governance.audit.models import NodeAuditRecord
@@ -150,6 +156,7 @@ _CORRECTNESS_INSTRUCTION = (
     "Request:\n{request}\n\nCorrect answer (from a human reviewer):\n{reference}\n\n"
     "AI answer:\n{candidate}"
 )
+_CORRECTNESS_PASS_THRESHOLD = 0.7
 
 
 class CorrectnessScorer:
@@ -167,7 +174,7 @@ class CorrectnessScorer:
         provider: ProviderAdapter,
         model_name: str,
         *,
-        pass_threshold: float = 0.7,
+        pass_threshold: float = _CORRECTNESS_PASS_THRESHOLD,
         name: str = "correctness",
     ) -> None:
         self.name = name
@@ -681,6 +688,19 @@ class HostedBacktestResult:
     judge_cost_usd: Decimal | None = None
     pricing_snapshot: dict[str, dict[str, str]] = field(default_factory=dict)
     usage_by_role: dict[str, dict[str, int]] = field(default_factory=dict)
+    evaluation_evidence: BacktestEvaluationEvidence | None = None
+
+
+def _retained_case_score(result: CaseResult | None) -> BacktestCaseScore:
+    """Strip raw outputs, rationale and exception text from a hosted case result."""
+    if result is None:
+        return BacktestCaseScore(status="not_run")
+    if result.error is not None:
+        return BacktestCaseScore(status="replay_error")
+    score = result.scores[0]  # Hosted replay always runs one correctness scorer.
+    if score.errored:
+        return BacktestCaseScore(status="judge_error")
+    return BacktestCaseScore(status="passed" if score.passed else "failed", score=score.value)
 
 
 class _HostedUsageMeter:
@@ -768,24 +788,23 @@ class HostedModelBacktest:
         incumbent_meter = _HostedUsageMeter(provider, incumbent)
         candidate_meter = _HostedUsageMeter(provider, candidate)
         judge_meter = _HostedUsageMeter(provider, incumbent)
-        inc_quality, _inc_errors, inc_n, inc_failed = await _measure_equivalence(
-            incumbent.ref,
-            dataset=dataset,
-            instruction=request.instruction,
-            replay_provider=incumbent_meter,
-            judge_provider=judge_meter,
-            judge_model=incumbent.ref,
-            mode="correctness",
+        inc_report = await run_eval(
+            dataset,
+            _make_replay_target(incumbent.ref, request.instruction, incumbent_meter),
+            [CorrectnessScorer(judge_meter, incumbent.ref)],
         )
-        cand_quality = cand_errors = None
+        cand_report = None
         reasons: list[str] = []
-        if inc_n and inc_failed < inc_n:
-            cand_quality, cand_errors, _cand_n, _cand_failed = await _measure_equivalence(
-                candidate.ref,
-                dataset=dataset, instruction=request.instruction,
-                replay_provider=candidate_meter, judge_provider=judge_meter,
-                judge_model=incumbent.ref, mode="correctness",
+        if inc_report.errored_count:
+            reasons.append("incumbent evaluation has unresolved cases")
+        if inc_report.total and inc_report.errored_count < inc_report.total:
+            cand_report = await run_eval(
+                dataset,
+                _make_replay_target(candidate.ref, request.instruction, candidate_meter),
+                [CorrectnessScorer(judge_meter, incumbent.ref)],
             )
+            if cand_report.errored_count:
+                reasons.append("candidate evaluation has unresolved cases")
         else:
             reasons.append("incumbent replay did not produce evaluable cases")
 
@@ -800,9 +819,9 @@ class HostedModelBacktest:
             else:
                 reasons.append("incumbent replay cost is zero; relative savings are undefined")
         return HostedBacktestResult(
-            incumbent_success_rate=inc_quality,
-            candidate_success_rate=cand_quality,
-            candidate_error_rate=cand_errors,
+            incumbent_success_rate=inc_report.pass_rate,
+            candidate_success_rate=cand_report.pass_rate if cand_report is not None else None,
+            candidate_error_rate=cand_report.error_rate if cand_report is not None else None,
             savings_pct=savings,
             provider_calls=sum(meter.calls for meter in meters.values()),
             reasons=reasons,
@@ -815,4 +834,21 @@ class HostedModelBacktest:
                 "output_per_mtok_usd": str(option.output_per_mtok_usd),
             } for option in (incumbent, candidate)},
             usage_by_role={role: meter.usage() for role, meter in meters.items()},
+            evaluation_evidence=BacktestEvaluationEvidence(
+                incumbent_model=incumbent.ref,
+                candidate_model=candidate.ref,
+                judge_model=incumbent.ref,
+                rubric_sha256=hashlib.sha256(_CORRECTNESS_INSTRUCTION.encode()).hexdigest(),
+                pass_threshold=_CORRECTNESS_PASS_THRESHOLD,
+                cases=[
+                    BacktestCaseEvidence(
+                        case_index=index,
+                        incumbent=_retained_case_score(result),
+                        candidate=_retained_case_score(
+                            cand_report.results[index] if cand_report is not None else None
+                        ),
+                    )
+                    for index, result in enumerate(inc_report.results)
+                ],
+            ),
         )

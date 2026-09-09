@@ -76,6 +76,17 @@ async def test_replay_cost_uses_each_models_usage_and_excludes_judging(payload, 
     assert result.judge_cost_usd == judge
     assert result.cost_basis == "rate_card_from_observed_usage"
     assert result.provider_calls == provider.calls == 20
+    evidence = result.evaluation_evidence
+    assert evidence is not None
+    assert evidence.version == "correctness-replay/1"
+    assert evidence.incumbent_model == evidence.judge_model == "openai/incumbent"
+    assert evidence.candidate_model == "openai/candidate"
+    assert evidence.parameters == "provider_defaults"
+    assert evidence.pass_threshold == 0.7
+    assert evidence.rubric_sha256 == "111bcc8c3902da65ae747039b1c02a3e5a40b9034758d5caa9e053bdd64c0b94"
+    assert [case.case_index for case in evidence.cases] == list(range(5))
+    assert all(case.incumbent.score == case.candidate.score == 1 for case in evidence.cases)
+    assert all(case.incumbent.status == case.candidate.status == "passed" for case in evidence.cases)
 
 
 @pytest.mark.asyncio
@@ -98,6 +109,78 @@ async def test_failed_replays_count_attempted_calls_without_inventing_judge_call
     assert result.candidate_replay_cost_usd is None
     assert result.savings_pct is None
     assert result.reasons
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["incumbent", "candidate"])
+@pytest.mark.parametrize("outcome", ["failed", "judge_error", "replay_error"])
+async def test_retained_case_scores_distinguish_wrong_answers_from_missing_evidence(payload, role, outcome):
+    from datetime import UTC, datetime
+    from zeroth.econ.plane.backtesting.service import decide
+
+    class CaseProvider(UsageProvider):
+        last_replay_model = None
+        altered = False
+
+        async def ainvoke(self, request):
+            response = await super().ainvoke(request)
+            judge = request.output_model is not None
+            if not judge:
+                self.last_replay_model = request.model_name
+            if not self.altered and self.last_replay_model == f"openai/{role}":
+                if not judge and outcome == "replay_error":
+                    self.altered = True
+                    raise RuntimeError("private provider detail")
+                if judge and outcome != "replay_error":
+                    self.altered = True
+                    response.content = (
+                        '{"score": 0.6, "rationale": "private rationale"}'
+                        if outcome == "failed" else "private malformed judge output"
+                    )
+            return response
+
+    provider = CaseProvider()
+    result = await ManagedBacktestExecutor(provider=provider).execute(payload)
+    report = decide(payload, result, digest="bound-request", evaluated_at=datetime.now(UTC))
+    # A missing grade is not evidence that an answer was wrong. Even a tolerant
+    # quality floor must not turn an evaluation error into a review recommendation.
+    assert report.verdict == ("pass" if outcome == "failed" else "abstain")
+    evidence = report.evaluation_evidence
+    assert evidence is not None
+    assert len(evidence.cases) == 5
+    score = getattr(evidence.cases[0], role)
+    assert score.status == outcome
+    assert score.score == (0.6 if outcome == "failed" else None)
+    for side in ("incumbent", "candidate"):
+        scores = [getattr(case, side) for case in evidence.cases]
+        assert getattr(report, f"{side}_success_rate") == sum(
+            score.status == "passed" for score in scores
+        ) / len(scores)
+    assert report.candidate_error_rate == sum(
+        case.candidate.status in {"judge_error", "replay_error"} for case in evidence.cases
+    ) / len(evidence.cases)
+    assert report.provider_call_credits == provider.calls == (19 if outcome == "replay_error" else 20)
+    assert "private" not in report.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_all_incumbent_judge_errors_retain_unrun_candidate_without_extra_calls(payload):
+    class UnscorableProvider(UsageProvider):
+        async def ainvoke(self, request):
+            response = await super().ainvoke(request)
+            if request.output_model is not None:
+                response.content = "private malformed judge output"
+            return response
+
+    provider = UnscorableProvider()
+    result = await ManagedBacktestExecutor(provider=provider).execute(payload)
+    assert result.provider_calls == provider.calls == 10
+    assert result.candidate_success_rate is None
+    assert result.candidate_error_rate is None
+    assert result.reasons
+    assert all(case.incumbent.status == "judge_error" for case in result.evaluation_evidence.cases)
+    assert all(case.candidate.status == "not_run" for case in result.evaluation_evidence.cases)
+    assert all(case.candidate.score is None for case in result.evaluation_evidence.cases)
 
 
 @pytest.mark.asyncio
@@ -184,6 +267,11 @@ def test_cost_evidence_survives_http_retention_and_exact_retry(payload, tmp_path
     assert client.get("/v1/backtests", headers=headers).json() == [first.json()]
     assert provider.calls == 20
     result = first.json()
+    assert result["evaluation_evidence"]["version"] == "correctness-replay/1"
+    assert len(result["evaluation_evidence"]["cases"]) == 5
+    assert payload.instruction not in first.text
+    assert '"case_id"' not in first.text
+    assert '"rationale"' not in first.text
     if missing_usage:
         assert result["verdict"] == "abstain"
         assert result["candidate_replay_cost_usd"] is None

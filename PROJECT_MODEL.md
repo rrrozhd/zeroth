@@ -152,6 +152,14 @@ both the hosted service and self-hosted platform.
   keep their recorded method and verdict.
   Hosted experiments price observed incumbent/candidate/judge usage separately;
   missing or unsupported usage remains unresolved.
+  `econ/backtest_evidence.py` defines retained evaluator settings and paired numeric
+  scores by original case index. The hosted engine projects existing `run_eval`
+  results into that content-free object; replay and judge errors force abstention.
+  The backtest adapter/service retain it in existing report JSON. Historical
+  absence stays null, and exact retries do not run the provider again. The rubric
+  hash and evaluator version bind submitted scoring rules; provider defaults,
+  alias revisions and judge validity remain unverified. Debug score discrepancies
+  from `evaluation_evidence.cases` and the caller's digest-bound ordered inputs.
 - Caller-owned source inventories originate before delivery and close a fixed
   execution window. Missing/unexpected events, changed digests or overflow cause
   abstention; incomplete run costs make comparison CPO unavailable. The SDK is

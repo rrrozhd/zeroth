@@ -309,12 +309,14 @@ def test_backtest_abstains_without_executable_evidence(tmp_path: Path, monkeypat
 
 
 @pytest.mark.parametrize(
-    "constraints, reason",
-    [({"max_critical_error_rate": 0.01}, "critical-error evidence"),
-     ({}, "constraints.min_success_rate")],
+    "constraints, candidate_settings, reason",
+    [({"max_critical_error_rate": 0.01}, {}, "critical-error evidence"),
+     ({}, {}, "constraints.min_success_rate"),
+     ({"min_success_rate": 0.8}, {"temperature": 0.5}, "candidate settings"),
+     ({"min_success_rate": 0.8}, {"max_retries": 2}, "candidate settings")],
 )
 def test_backtest_abstains_for_constraints_the_node_replay_cannot_prove(
-    tmp_path: Path, monkeypatch, constraints, reason
+    tmp_path: Path, monkeypatch, constraints, candidate_settings, reason
 ) -> None:
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'unsupported.db'}")
     Base.metadata.create_all(engine)
@@ -334,6 +336,7 @@ def test_backtest_abstains_for_constraints_the_node_replay_cannot_prove(
     assert token is not None
     payload = _payload()
     payload["constraints"] = constraints
+    payload["candidate"].update(candidate_settings)
 
     response = TestClient(app).post(
         "/v1/backtests", headers={"Authorization": f"Bearer {token}"}, json=payload

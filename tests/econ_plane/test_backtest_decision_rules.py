@@ -58,10 +58,13 @@ def test_legacy_backtest_does_not_acquire_a_validated_method_label():
         _request(0.8), BacktestComputation(candidate_success_rate=1, savings_pct=20),
         digest="legacy", evaluated_at=datetime(2026, 9, 6, tzinfo=UTC),
     )
-    old_report = report.model_dump(exclude={"claim_class", "method_version", "limitations"})
+    old_report = report.model_dump(exclude={
+        "claim_class", "method_version", "limitations", "evaluation_evidence",
+    })
     old_report["recommended_action"] = "approve_candidate"
     restored = EconomicBacktest.model_validate(old_report)
     assert restored.claim_class == "legacy_unclassified"
     assert restored.method_version == "legacy_unversioned"
     assert restored.recommended_action == "approve_candidate"
     assert restored.savings_pct == 20
+    assert restored.evaluation_evidence is None

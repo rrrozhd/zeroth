@@ -1685,6 +1685,29 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * BacktestCaseEvidence
+         * @description Paired scores, indexed into the order bound by the request digest.
+         */
+        BacktestCaseEvidence: {
+            candidate: components["schemas"]["BacktestCaseScore"];
+            /** Case Index */
+            case_index: number;
+            incumbent: components["schemas"]["BacktestCaseScore"];
+        };
+        /**
+         * BacktestCaseScore
+         * @description One observed grade or an explicit missing-evaluation category.
+         */
+        BacktestCaseScore: {
+            /** Score */
+            score?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "passed" | "failed" | "replay_error" | "judge_error" | "not_run";
+        };
         /** BacktestCreate */
         BacktestCreate: {
             /** Baseline Version */
@@ -1704,6 +1727,36 @@ export interface components {
             node_id?: string | null;
             /** Workflow */
             workflow: string;
+        };
+        /**
+         * BacktestEvaluationEvidence
+         * @description Submitted evaluator settings and numeric results, without customer content.
+         */
+        BacktestEvaluationEvidence: {
+            /** Candidate Model */
+            candidate_model: string;
+            /** Cases */
+            cases: components["schemas"]["BacktestCaseEvidence"][];
+            /** Incumbent Model */
+            incumbent_model: string;
+            /** Judge Model */
+            judge_model: string;
+            /**
+             * Parameters
+             * @default provider_defaults
+             * @constant
+             */
+            parameters: "provider_defaults";
+            /** Pass Threshold */
+            pass_threshold: number;
+            /** Rubric Sha256 */
+            rubric_sha256: string;
+            /**
+             * Version
+             * @default correctness-replay/1
+             * @constant
+             */
+            version: "correctness-replay/1";
         };
         /** BillingURL */
         BillingURL: {
@@ -2652,6 +2705,7 @@ export interface components {
              * Format: date-time
              */
             evaluated_at: string;
+            evaluation_evidence?: components["schemas"]["BacktestEvaluationEvidence"] | null;
             /** Incumbent Model */
             incumbent_model: string | null;
             /** Incumbent Observations */

@@ -199,6 +199,66 @@
         "title": "BacktestCase",
         "type": "object"
       },
+      "BacktestCaseEvidence": {
+        "additionalProperties": false,
+        "description": "Paired scores, indexed into the order bound by the request digest.",
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/BacktestCaseScore"
+          },
+          "case_index": {
+            "exclusiveMaximum": 25.0,
+            "minimum": 0.0,
+            "title": "Case Index",
+            "type": "integer"
+          },
+          "incumbent": {
+            "$ref": "#/components/schemas/BacktestCaseScore"
+          }
+        },
+        "required": [
+          "case_index",
+          "incumbent",
+          "candidate"
+        ],
+        "title": "BacktestCaseEvidence",
+        "type": "object"
+      },
+      "BacktestCaseScore": {
+        "additionalProperties": false,
+        "description": "One observed grade or an explicit missing-evaluation category.",
+        "properties": {
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "replay_error",
+              "judge_error",
+              "not_run"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "BacktestCaseScore",
+        "type": "object"
+      },
       "BacktestCreate": {
         "additionalProperties": false,
         "properties": {
@@ -279,6 +339,65 @@
           "constraints"
         ],
         "title": "BacktestCreate",
+        "type": "object"
+      },
+      "BacktestEvaluationEvidence": {
+        "additionalProperties": false,
+        "description": "Submitted evaluator settings and numeric results, without customer content.",
+        "properties": {
+          "candidate_model": {
+            "title": "Candidate Model",
+            "type": "string"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestCaseEvidence"
+            },
+            "maxItems": 25,
+            "title": "Cases",
+            "type": "array"
+          },
+          "incumbent_model": {
+            "title": "Incumbent Model",
+            "type": "string"
+          },
+          "judge_model": {
+            "title": "Judge Model",
+            "type": "string"
+          },
+          "parameters": {
+            "const": "provider_defaults",
+            "default": "provider_defaults",
+            "title": "Parameters",
+            "type": "string"
+          },
+          "pass_threshold": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pass Threshold",
+            "type": "number"
+          },
+          "rubric_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Rubric Sha256",
+            "type": "string"
+          },
+          "version": {
+            "const": "correctness-replay/1",
+            "default": "correctness-replay/1",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incumbent_model",
+          "candidate_model",
+          "judge_model",
+          "rubric_sha256",
+          "pass_threshold",
+          "cases"
+        ],
+        "title": "BacktestEvaluationEvidence",
         "type": "object"
       },
       "BillingURL": {
@@ -2533,6 +2652,16 @@
             "format": "date-time",
             "title": "Evaluated At",
             "type": "string"
+          },
+          "evaluation_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestEvaluationEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "incumbent_model": {
             "anyOf": [

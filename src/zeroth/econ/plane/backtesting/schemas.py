@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from zeroth.econ.backtest_evidence import BacktestEvaluationEvidence
 from zeroth.econ.probabilistic import MigrationObservation
 
 
@@ -61,6 +62,7 @@ class BacktestComputation(BacktestCostEvidence):
     savings_pct: float | None = None
     provider_calls: int = Field(default=0, ge=0)
     reasons: list[str] = Field(default_factory=list)
+    evaluation_evidence: BacktestEvaluationEvidence | None = None
     incumbent_observations: list[MigrationObservation] = Field(default_factory=list, max_length=25)
     candidate_observations: list[MigrationObservation] = Field(default_factory=list, max_length=25)
     period_request_counts: list[int] = Field(default_factory=list, max_length=366)
@@ -97,3 +99,4 @@ class EconomicBacktest(BacktestCostEvidence):
     ] = "legacy_unclassified"
     method_version: str = "legacy_unversioned"
     limitations: list[str] = Field(default_factory=list)
+    evaluation_evidence: BacktestEvaluationEvidence | None = None

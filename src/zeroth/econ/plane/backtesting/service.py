@@ -60,6 +60,8 @@ def evidence_gaps(payload: BacktestCreate) -> list[str]:
             gaps.append(field)
     if not isinstance(payload.candidate.get("model"), str) or not payload.candidate.get("model"):
         gaps.append("candidate.model")
+    if set(payload.candidate) - {"model"}:
+        gaps.append("candidate settings other than model are unsupported by isolated node replay")
     if payload.constraints.min_success_rate is None:
         gaps.append("constraints.min_success_rate")
     if payload.constraints.max_cost_per_outcome_usd is not None:
@@ -107,6 +109,7 @@ def decide(
         method_version="observed-replay-policy/1",
         limitations=[
             "judge_not_calibrated",
+            "provider_defaults_and_model_alias_revisions_not_frozen",
             "projection_excludes_nontext_and_unobserved_charges",
             "no_statistical_causal_or_forecast_authorization",
         ],
@@ -130,6 +133,7 @@ def decide(
         incumbent_observations=computation.incumbent_observations,
         candidate_observations=computation.candidate_observations,
         period_request_counts=computation.period_request_counts,
+        evaluation_evidence=computation.evaluation_evidence,
         evaluated_at=evaluated_at,
         **computation.model_dump(include=set(BacktestCostEvidence.model_fields)),
     )
