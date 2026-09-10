@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.5]
+
+### Added
+
+- C05 capture recipe for AutoGen AgentChat 0.7.x
+  (`zeroth.instrumentation.autogen.ZerothChatCompletionClient`,
+  `packaging/sdk/recipes/c05_autogen`): wraps each agent's model client so every
+  `create` / `create_stream` is one charge under a declared model and provider,
+  failed, cancelled or aborted calls are unmeasured attempts, cache hits record
+  nothing, and AutoGen 0.2 / AG2 environments get an import diagnostic instead of
+  silent capture. AgentChat exposes no cache split, which the charges mark and the
+  conformance checks quantify. Verified in pinned environments at 0.7.0 and 0.7.5.
+  Still not an accepted support row.
+
 ## [0.25.9.4]
 
 ### Added

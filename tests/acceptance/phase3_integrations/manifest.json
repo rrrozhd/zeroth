@@ -208,6 +208,54 @@
         "reconciled": "expected_ledger.json v1 at both pins, v2 at current, through crews"
       },
       "reviewer": "pending independent review"
+    },
+    "C05": {
+      "setup": "Existing AutoGen AgentChat applications, Python (0.7.x maintained line)",
+      "recipe": "packaging/sdk/recipes/c05_autogen",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "autogen-agentchat": {
+          "floor": "0.7.0",
+          "current": "0.7.5",
+          "harness": null
+        },
+        "autogen-ext[openai]": {
+          "floor": "0.7.0",
+          "current": "0.7.5",
+          "harness": null
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: each agent's model client wrapped in ZerothChatCompletionClient with a declared model, provider and step; one charge per create/create_stream from CreateResult.usage; teams and termination are the framework's, the outcome the application's",
+      "cost_categories": {
+        "model": "estimated from the rate card using RequestUsage prompt/completion tokens; cache_split unavailable (see limits)",
+        "tool": "caller-asserted via run.tool_charge",
+        "unmeasured": "zero prompt and completion tokens, unlisted model, provider outside {openai, anthropic}, raised or cancelled call, stream closed before its result",
+        "not_recorded": "CreateResult.cached (AutoGen cache hit) is not a provider call"
+      },
+      "supported_modes": [
+        "AssistantAgent runs, RoundRobinGroupChat multi-agent turns with TextMention and MaxMessage termination, model_client_stream runs, asyncio.gather fan-out, application retry and fallback",
+        "missing usage unmeasured; cache hit not charged; cancellation token -> unmeasured attempt",
+        "AutoGen 0.2 / AG2 environments raise an import diagnostic naming the unsupported row"
+      ],
+      "excluded_modes": [
+        "live provider calls (NOT_RUN); tool use, handoffs and OpenAIChatCompletionClient/AnthropicChatCompletionClient themselves not exercised (fake clients)",
+        "cache split: RequestUsage carries none, so OpenAI-style inclusive prompt counts price cached tokens at the input rate (overstatement of exactly cached x (input - cache_read); the harness asserts that magnitude on the cached reference run) and Anthropic-style exclusive counts drop cached tokens",
+        "autogen-core pins protobuf 5.29 against this environment's protobuf 6.32, so every check runs in a pinned subprocess venv"
+      ],
+      "evidence": {
+        "tests": "test_c05_autogen.py (3 checks: AG2 diagnostic in the harness environment; floor and current pinned environments, each reference + modes)",
+        "clean_install": [
+          "evidence/c05_autogen-floor.json",
+          "evidence/c05_autogen-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 at both pins and v2 at current, exact on the 8 uncached runs and exact-magnitude on the cached run"
+      },
+      "reviewer": "pending independent review"
     }
   },
   "not_run": {}
