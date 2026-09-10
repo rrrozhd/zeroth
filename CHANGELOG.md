@@ -33,6 +33,150 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.10]
+
+### Added
+
+- Phase 3 G3 reviewer package (`tests/acceptance/phase3_integrations/README.md`,
+  `manifest.json`, `test_package.py`): candidate identity, per-row records with
+  verified pins, the required-failure classification, NOT_RUN legs naming the owner
+  inputs they need, follow-ups, and an integrity test. A07, A08, G3-core and
+  G3-common remain unaccepted; reviewer decision pending independent review.
+
+## [0.25.9.9]
+
+### Added
+
+- C06 capture recipe for Vercel AI SDK applications (`packaging/sdk/recipes/c06_vercel`):
+  a copy-in `capture.ts` whose step callbacks charge each physical model call from
+  the SDK's step usage, put multi-step totals on the money-free run summary, charge
+  aborted streams and rejected or timed-out calls as unmeasured attempts, and deliver
+  in order with idempotent retry and an awaitable flush; a representative application
+  with tool loops, streaming, retry, fan-out and abort signals; queued mock models; the
+  application's own pinned dependencies (ai 7.0.97). Conformance checks run from the
+  committed lock against the local server. Still not an accepted support row.
+
+## [0.25.9.8]
+
+### Added
+
+- C07 explicit-worker recipes (`packaging/sdk/recipes/c07_workers`): a standalone
+  TypeScript worker on Node built-ins that builds the same event identities,
+  metadata and exact-integer pricing as the Python contract, delivers with
+  abort timeouts and idempotent retry, awaits every delivery and can run the
+  version comparison; and a Python worker on the SDK client with bounded replay
+  of lost deliveries. Conformance checks show identical ledgers and normalised
+  decisions from both, exactly-once delivery through injected 503, dropped and
+  timed-out requests, 4xx reported without retry, and the strip-types flag path.
+  Still not an accepted support row.
+
+## [0.25.9.7]
+
+### Added
+
+- Phase 3 lifecycle conformance (`tests/acceptance/phase3_integrations/test_lifecycle.py`,
+  `faults.py`, `lifecycle_worker.py`): two tenants running the C01 application and the
+  C02 graphs concurrently with per-tenant ledgers and no cross-run rows; a worker crash
+  mid-workload whose stored rows equal its own delivered log, then a rerun delivering the
+  rest exactly once; rejected writes (402/409/422/503), a dropped connection and an outage
+  window injected by a loopback proxy, retained in `Recorder.lost` by SDK error class and
+  replayed to an exact ledger; provider and tool call counts equal with and without
+  instrumentation; adapter overhead measured and recorded as a number, not judged.
+
+## [0.25.9.6]
+
+### Fixed
+
+- `instrument_crewai` lost charges for `async_execution` tasks: the crew-to-run
+  binding was populated by a pooled bus handler that could run after the task's
+  first LLM event, and start/completion handlers for one call could be processed
+  out of order. `Crew.kickoff` is now wrapped to bind the crew to the active run
+  in the application thread, and charges are built from the completion event's
+  own fields. Six consecutive conformance passes at crewai 1.14.0 and 1.15.21.
+
+## [0.25.9.5]
+
+### Added
+
+- C05 capture recipe for AutoGen AgentChat 0.7.x
+  (`zeroth.instrumentation.autogen.ZerothChatCompletionClient`,
+  `packaging/sdk/recipes/c05_autogen`): wraps each agent's model client so every
+  `create` / `create_stream` is one charge under a declared model and provider,
+  failed, cancelled or aborted calls are unmeasured attempts, cache hits record
+  nothing, and AutoGen 0.2 / AG2 environments get an import diagnostic instead of
+  silent capture. AgentChat exposes no cache split, which the charges mark and the
+  conformance checks quantify. Verified in pinned environments at 0.7.0 and 0.7.5.
+  Still not an accepted support row.
+
+## [0.25.9.4]
+
+### Added
+
+- C04 capture recipe for CrewAI crews and flows
+  (`zeroth.instrumentation.crewai.instrument_crewai`, `packaging/sdk/recipes/c04_crewai`):
+  one listener on CrewAI's event bus charges each completed LLM call from its usage
+  and each failed call as an unmeasured attempt, counts crews, tasks and agents as
+  money-free aggregates, attributes async-execution tasks through their crew, and
+  registers idempotently. Conformance checks run in pinned environments at crewai
+  1.14.0 and 1.15.21. Still not an accepted support row.
+
+## [0.25.9.3]
+
+### Added
+
+- C03 capture recipe for the OpenAI Agents SDK
+  (`zeroth.instrumentation.openai_agents.ZerothRunHooks`,
+  `packaging/sdk/recipes/c03_openai_agents`): one charge per model call from the
+  SDK's run hooks, agent runs and handoffs as money-free aggregates, failed calls
+  charged at hooks exit, and a shared scope holder so a provider adapter on the
+  same client cannot double count. Conformance checks cover handoffs, tools,
+  failures, the double path, trace-processor coexistence and clean installs at
+  openai-agents 0.3.0 and 0.22.2. Still not an accepted support row.
+
+## [0.25.9.2]
+
+### Added
+
+- C02 capture recipe for LangGraph / LangChain applications
+  (`zeroth.instrumentation.langchain.ZerothCallbackHandler`,
+  `packaging/sdk/recipes/c02_langgraph`): one charge per observed chat-model call
+  from the framework's usage metadata, graphs and chains never charged, and a
+  context-local scope so a provider adapter on the same client and the handler
+  cannot double count. Conformance checks cover fan-out, subgraphs, interrupt and
+  resume, streaming, fallbacks, coexisting tracers and clean installs at the floor
+  and current pins. Still not an accepted support row.
+
+### Fixed
+
+- `instrument_openai` / `instrument_anthropic` now also capture the SDKs'
+  `with_raw_response.create` path, which `ChatOpenAI` and header-reading callers
+  use and which previously bypassed capture.
+
+## [0.25.9.1]
+
+### Added
+
+- C01 capture recipe for direct OpenAI/Anthropic Python SDK applications
+  (`zeroth.instrumentation.openai` / `.anthropic`, `packaging/sdk/recipes/c01_direct`):
+  every physical call is one estimated charge with retries, streams, cancellation,
+  proxies and tool cycles handled honestly; conformance checks reproduce the frozen
+  reference workload through the application and from clean installs at the floor
+  and current pins. Still not an accepted support row.
+
+## [0.25.9]
+
+### Added
+
+- Phase 3 shared capture contract for the sold SDK events: `zeroth.instrumentation.capture`
+  (one physical call, one charge; run aggregates as money-free summaries; stable event and
+  charge identity; customer-owned outcomes) and a pinned `rate_card` for the recipe-tested
+  models, priced as `estimated` and never zero for missing usage or unlisted models.
+- `tests/acceptance/phase3_integrations/`: the frozen nine-family reference workload, its
+  expected ledger, an independent reader over stored rows, and contract checks (exact
+  reconciliation for two versions, duplicate delivery, unmeasured gaps, rate-card parity
+  with the server catalog, refused identity conflicts). No compatibility row, phase or
+  release gate is accepted.
+
 ## [0.25.8.2]
 
 ### Fixed

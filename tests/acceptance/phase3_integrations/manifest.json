@@ -1,0 +1,531 @@
+{
+  "plan": "2cc41450ddb44cf2b73c4ac3dbfd4a63",
+  "candidate": {
+    "branch": "acceptance/phase-3-integrations",
+    "base": "faa162321709a5ebdcd5913c39469badc6849298",
+    "head": "b9e0bf84959956bddde0851c23ad2f15e69b53b2",
+    "commits_since_base": [
+      "b9e0bf84 evidence: re-verify lifecycle after the sticky freshness flag",
+      "966b3fc5 release: v0.25.9.9 \u2014 C06 Vercel AI SDK capture recipe",
+      "82399f37 evidence: restore lifecycle.json to the recorded run",
+      "7b5167b0 release: v0.25.9.8 \u2014 C07 explicit Python and TypeScript worker recipes",
+      "f678191a release: v0.25.9.7 \u2014 Phase 3 lifecycle conformance",
+      "7aac635c release: v0.25.9.6 \u2014 fix CrewAI attribution for async tasks",
+      "b9940e9b release: v0.25.9.5 \u2014 C05 AutoGen AgentChat capture recipe",
+      "e1c225bf release: v0.25.9.4 \u2014 C04 CrewAI capture recipe",
+      "f00ddabf release: v0.25.9.3 \u2014 C03 OpenAI Agents SDK capture recipe",
+      "90257a96 release: v0.25.9.2 \u2014 C02 LangGraph/LangChain capture recipe",
+      "c959ff46 release: v0.25.9.1 \u2014 complete release metadata",
+      "6e641da3 release: v0.25.9.1 \u2014 C01 direct OpenAI/Anthropic capture recipe",
+      "3e085011 release: v0.25.9 \u2014 Phase 3 shared capture contract and frozen conformance workload"
+    ],
+    "worktree": "/Users/dondoe/coding/zeroth-phase3"
+  },
+  "status": "G3 closure candidate for an independent reviewer; no row, phase or release gate accepted",
+  "rate_card_version": "2026-09-10/litellm-1.98.0",
+  "frozen": {
+    "workload.py": "1718c9e017d61dceadf6dc3a5740f1791841e3279432a6868bfc939a365382fd",
+    "expected_ledger.json": "07d15159f132eee359fc19f75a713d25164935b74b39c58fb4617f50377d794c",
+    "INTERFACE.md": "7eb6b8e397a817b1b001d681be125e3071defd5d6617b33975d4f1632fd553ae"
+  },
+  "rows": {
+    "C01": {
+      "setup": "Direct Python OpenAI and Anthropic SDK applications",
+      "recipe": "packaging/sdk/recipes/c01_direct",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "openai": {
+          "floor": "1.66.0",
+          "current": "3.11.0",
+          "harness": "2.54.0"
+        },
+        "anthropic": {
+          "floor": "0.40.0",
+          "current": "1.4.0",
+          "harness": "1.4.0"
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: step = run.label or operation (unique per run), attempt = SDK-internal retries + 1, event/charge id = workflow:version:run:step:attempt",
+      "cost_categories": {
+        "model": "estimated from zeroth.instrumentation.rate_card (version 2026-09-10/litellm-1.98.0); usage split retained, cached tokens subtracted from input",
+        "tool": "caller-asserted measured/estimated amount via run.tool_charge",
+        "unmeasured": "missing usage, unlisted model, undeclared non-official base URL, aborted stream, failed or retried attempt"
+      },
+      "supported_modes": [
+        "chat.completions and responses (sync/async), messages create and stream helper (sync/async)",
+        "streaming completion with include_usage; aborted/closed streams unmeasured",
+        "SDK-internal retries charged per attempt; provider exceptions charged unmeasured",
+        "tool-use cycle (two model charges + caller tool charge)",
+        "cancellation via asyncio timeout; thread-pool fan-out with copy_context",
+        "coexisting httpx event hooks and OpenTelemetry spans"
+      ],
+      "excluded_modes": [
+        "live provider calls, real request ids and invoices (NOT_RUN)",
+        "images, audio, realtime, batch, files, hosted tool charges",
+        "Azure OpenAI deployment mapping; proxy billing identity (recorded unknown unless declared)",
+        "retries preceding a final failure are not individually visible (retries_unobserved)"
+      ],
+      "evidence": {
+        "tests": "test_c01_direct.py (11 checks; harness re-run after langchain-openai raised openai to 2.54.0)",
+        "clean_install": [
+          "evidence/c01_direct-floor.json",
+          "evidence/c01_direct-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 and v2 through the application; v1 again from each clean install"
+      },
+      "reviewer": "pending independent review"
+    },
+    "C02": {
+      "setup": "Python LangGraph / LangChain agents",
+      "recipe": "packaging/sdk/recipes/c02_langgraph",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "langchain": {
+          "floor": "1.0.0",
+          "current": "1.4.0",
+          "harness": "1.3.14"
+        },
+        "langgraph": {
+          "floor": "1.0.0",
+          "current": "1.2.11",
+          "harness": "1.2.9"
+        },
+        "langchain-openai": {
+          "floor": "1.0.0",
+          "current": "1.6.2",
+          "harness": "1.6.2"
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: step = LangGraph node name (branch, branch#2) or chat_model; one charge per observed chat-model call; chains/graphs never charged; a provider adapter on the same client charges the physical call and the handler skips it (context-local scope, step name adopted)",
+      "cost_categories": {
+        "model": "estimated from the rate card using usage_metadata (cache_read subtracted from input); provider/model from response metadata",
+        "tool": "caller-asserted via run.tool_charge",
+        "unmeasured": "missing usage_metadata, unlisted model, provider outside {openai, anthropic}, raised model call"
+      },
+      "supported_modes": [
+        "multi-step graph, Send fan-out, subgraph, interrupt/resume with checkpointer, streaming with stream_usage, with_fallbacks",
+        "handler-only and handler + instrument_openai on the same ChatOpenAI client: identical ledgers",
+        "application-level retry as a new step occurrence; raised calls charged unmeasured",
+        "coexisting callback handlers (LangSmith-style stand-in) and OpenTelemetry spans"
+      ],
+      "excluded_modes": [
+        "live provider calls (NOT_RUN); ChatAnthropic and other integrations exercised only via the response-metadata contract",
+        "a node that calls a model and then interrupts re-executes on resume and is charged again (provider ran again)",
+        "raw-response streams through the provider adapter are charged by the framework hook, not the adapter",
+        "LangSmith itself not installed; represented by a stand-in handler"
+      ],
+      "evidence": {
+        "tests": "test_c02_langgraph.py (8 checks)",
+        "clean_install": [
+          "evidence/c02_langgraph-floor.json",
+          "evidence/c02_langgraph-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 and v2 through the graphs; v1 again from each clean install"
+      },
+      "reviewer": "pending independent review"
+    },
+    "C03": {
+      "setup": "OpenAI Agents SDK, Python",
+      "recipe": "packaging/sdk/recipes/c03_openai_agents",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "openai-agents": {
+          "floor": "0.3.0",
+          "current": "0.22.2",
+          "harness": "0.20.0"
+        },
+        "openai": {
+          "floor": "1.109.1",
+          "current": "3.11.0",
+          "harness": "2.54.0"
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: step = agent name per model call (planner, planner#2); one charge per on_llm_end; agent runs, turns and handoffs are aggregates on the run summary; a provider adapter on the AsyncOpenAI client behind the model provider charges the HTTP call and the hooks skip it (shared scope holder counted per call)",
+      "cost_categories": {
+        "model": "estimated from the rate card using ModelResponse.usage (cached tokens subtracted); provider from the ModelProvider that serves the model",
+        "tool": "caller-asserted via run.tool_charge",
+        "unmeasured": "usage with zero requests/tokens, unlisted model, provider outside {openai, anthropic}, model call that raised (charged at hooks exit)"
+      },
+      "supported_modes": [
+        "multiple agents, handoffs, function tools, application-level retry, asyncio.gather fan-out, application fallback",
+        "hooks-only and hooks + instrument_openai over OpenAIProvider(use_responses=True): identical ledgers",
+        "raising model call charged once as an unmeasured attempt; exception propagates",
+        "caller-added trace processor (add_trace_processor) keeps receiving spans"
+      ],
+      "excluded_modes": [
+        "live provider calls (NOT_RUN); Runner.run_streamed not exercised",
+        "LiteLLM-backed models, TypeScript Agents SDK, hosted tool charges",
+        "at floor 0.3.0 ModelResponse carries no request_id (recorded as null)",
+        "concurrent calls with only some clients instrumented may be misattributed by the shared-holder count (instrument all or none)"
+      ],
+      "evidence": {
+        "tests": "test_c03_openai_agents.py (7 checks)",
+        "clean_install": [
+          "evidence/c03_openai_agents-floor.json",
+          "evidence/c03_openai_agents-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 and v2 through the agents; v1 again from each clean install"
+      },
+      "reviewer": "pending independent review"
+    },
+    "C04": {
+      "setup": "CrewAI, Python crews and flows",
+      "recipe": "packaging/sdk/recipes/c04_crewai",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "crewai": {
+          "floor": "1.14.0",
+          "current": "1.15.21",
+          "harness": null
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: step = agent role or task name per LLM call (planner, planner#2; llm for flows); one charge per LLMCallCompletedEvent built from the event's own fields, LLMCallFailedEvent = unmeasured attempt; crews, tasks and agent executions are aggregates on the run summary; attribution by the emitter's context, with Crew.kickoff wrapped to bind crew->run synchronously in the application thread for async_execution tasks",
+      "cost_categories": {
+        "model": "estimated from the rate card using the event's usage dict (cached prompt tokens subtracted); provider from the provider/model name prefix",
+        "tool": "caller-asserted via run.tool_charge",
+        "unmeasured": "missing or zero usage, unlisted model, bare model name without default_provider, failed call"
+      },
+      "supported_modes": [
+        "sequential crews, async_execution tasks with context merge, Flow start/listen, kickoff in threads",
+        "agent retry (max_retry_limit) charged per attempt; application-level retry and fallback",
+        "two concurrent crews on two runs without leakage; idempotent instrument_crewai()",
+        "bare model names recorded unmeasured with provider unknown"
+      ],
+      "excluded_modes": [
+        "live provider calls (NOT_RUN); streaming and tool-calling LLM modes not exercised (fake LLMs answer in ReAct form)",
+        "CrewAI's dependency set conflicts with this environment's pins, so every check runs in a pinned subprocess venv (no harness-venv version)",
+        "events are dispatched on handler threads: charge insertion order is not guaranteed",
+        "Crew.kickoff is wrapped at class level (idempotent) to bind crews to runs; an application that bypasses kickoff cannot attribute async tasks"
+      ],
+      "evidence": {
+        "tests": "test_c04_crewai.py (2 checks: floor and current pinned environments, each reference + modes; six consecutive passes after the attribution repair)",
+        "clean_install": [
+          "evidence/c04_crewai-floor.json",
+          "evidence/c04_crewai-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 at both pins, v2 at current, through crews"
+      },
+      "reviewer": "pending independent review"
+    },
+    "C05": {
+      "setup": "Existing AutoGen AgentChat applications, Python (0.7.x maintained line)",
+      "recipe": "packaging/sdk/recipes/c05_autogen",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "autogen-agentchat": {
+          "floor": "0.7.0",
+          "current": "0.7.5",
+          "harness": null
+        },
+        "autogen-ext[openai]": {
+          "floor": "0.7.0",
+          "current": "0.7.5",
+          "harness": null
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: each agent's model client wrapped in ZerothChatCompletionClient with a declared model, provider and step; one charge per create/create_stream from CreateResult.usage; teams and termination are the framework's, the outcome the application's",
+      "cost_categories": {
+        "model": "estimated from the rate card using RequestUsage prompt/completion tokens; cache_split unavailable (see limits)",
+        "tool": "caller-asserted via run.tool_charge",
+        "unmeasured": "zero prompt and completion tokens, unlisted model, provider outside {openai, anthropic}, raised or cancelled call, stream closed before its result",
+        "not_recorded": "CreateResult.cached (AutoGen cache hit) is not a provider call"
+      },
+      "supported_modes": [
+        "AssistantAgent runs, RoundRobinGroupChat multi-agent turns with TextMention and MaxMessage termination, model_client_stream runs, asyncio.gather fan-out, application retry and fallback",
+        "missing usage unmeasured; cache hit not charged; cancellation token -> unmeasured attempt",
+        "AutoGen 0.2 / AG2 environments raise an import diagnostic naming the unsupported row"
+      ],
+      "excluded_modes": [
+        "live provider calls (NOT_RUN); tool use, handoffs and OpenAIChatCompletionClient/AnthropicChatCompletionClient themselves not exercised (fake clients)",
+        "cache split: RequestUsage carries none, so OpenAI-style inclusive prompt counts price cached tokens at the input rate (overstatement of exactly cached x (input - cache_read); the harness asserts that magnitude on the cached reference run) and Anthropic-style exclusive counts drop cached tokens",
+        "autogen-core pins protobuf 5.29 against this environment's protobuf 6.32, so every check runs in a pinned subprocess venv"
+      ],
+      "evidence": {
+        "tests": "test_c05_autogen.py (3 checks: AG2 diagnostic in the harness environment; floor and current pinned environments, each reference + modes)",
+        "clean_install": [
+          "evidence/c05_autogen-floor.json",
+          "evidence/c05_autogen-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 at both pins and v2 at current, exact on the 8 uncached runs and exact-magnitude on the cached run"
+      },
+      "reviewer": "pending independent review"
+    },
+    "C07": {
+      "setup": "Custom Python or TypeScript workers using explicit economic events",
+      "recipe": "packaging/sdk/recipes/c07_workers",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "python": {
+          "sdk": "zeroth-sdk source (httpx, pydantic)"
+        },
+        "typescript": {
+          "node_tested": "v26.5.0",
+          "floor": "22.6 via --experimental-strip-types (flag path exercised on the installed Node; no Node 22 binary available: NOT_RUN)",
+          "packages": "none (node:util, node:fs/promises only)"
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": "v26.5.0"
+      },
+      "identity_mapping": "INTERFACE.md by hand: event_id workflow:version:run:step:attempt, charge_id charge:+event_id, one charge per physical call, one money-free summary per run, outcomes with declared maturity; the TypeScript worker embeds a copy of the four-model rate card and prices in exact 1e-8 integer units",
+      "cost_categories": {
+        "model": "estimated from the rate card (Python: zeroth.instrumentation.rate_card; TypeScript: embedded copy, parity-tested through identical ledgers)",
+        "tool": "caller-asserted measured amount",
+        "unmeasured": "missing usage or unlisted model (cost_usd null)"
+      },
+      "supported_modes": [
+        "both workers reproduce the frozen workload for two versions with identical ledgers and identical normalised version-comparison decisions",
+        "TypeScript: fetch with AbortSignal.timeout, idempotent retry with backoff on 5xx, dropped connections and timeouts to exactly-once delivery; 4xx reported as lost without retry; all deliveries awaited before exit",
+        "Python: Recorder(raise_on_error=False) with bounded replay of recorder.lost",
+        "--experimental-strip-types path (Node 22.6+ semantics) reconciles"
+      ],
+      "excluded_modes": [
+        "live provider or hosted deployment (NOT_RUN); no actual Node 22 binary on this machine",
+        "the TypeScript rate card is a copy: drift is caught only by the parity test at the pinned SDK version",
+        "the timed-out request test holds the proxy busy, so the timeout case needs several attempts (harness artefact, documented)"
+      ],
+      "evidence": {
+        "tests": "test_c07_workers.py (5 checks)",
+        "file": "evidence/c07_workers.json",
+        "reconciled": "expected_ledger.json v1 and v2 through both workers; parity verdict abstain"
+      },
+      "reviewer": "pending independent review"
+    },
+    "C06": {
+      "setup": "TypeScript / Node applications using Vercel AI SDK",
+      "recipe": "packaging/sdk/recipes/c06_vercel",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "ai": "7.0.97",
+        "@ai-sdk/openai": "4.0.65",
+        "zod": "4.6.1",
+        "package_lock_sha256": "86e23a8dc6af1a41f0b3225e47a8d23f09d76067b36d4b9c9cb0dc795c8754c9"
+      },
+      "runtime": {
+        "python": null,
+        "os": "macOS arm64",
+        "node": "v26.5.0",
+        "floor": "22.6 via --experimental-strip-types (no Node 22 binary: NOT_RUN)"
+      },
+      "identity_mapping": "INTERFACE.md via capture.ts: onStepFinish = one charge per physical model call (answer, answer#2) from step.usage with the cache split and the server-reported model id; result.totalUsage on the money-free run summary; onAbort/onError and a rejected call() = unmeasured attempt; tool costs asserted by the application",
+      "cost_categories": {
+        "model": "estimated from an embedded copy of the four-model rate card in exact 1e-8 units",
+        "tool": "caller-asserted measured amount",
+        "unmeasured": "missing usage, unlisted model, aborted stream, rejected or timed-out call"
+      },
+      "supported_modes": [
+        "generateText, multi-step tool loop with stopWhen (each step a charge, total on the summary), streamText complete and aborted, AbortSignal.timeout, JSON retry, Promise.all fan-out",
+        "ordered idempotent delivery with retry on 5xx/network/timeout, 4xx lost without retry, flush() awaited before exit",
+        "reference workload reconciles exactly for v1 and v2; retry through 503, dropped and timed-out requests reaches exactly-once"
+      ],
+      "excluded_modes": [
+        "live provider or hosted deployment (NOT_RUN); @ai-sdk/openai installed but not exercised (mock models)",
+        "experimental_telemetry not used; no Node 22 binary on this machine",
+        "the rate card in capture.ts is a copy of the SDK's four rows (third copy after the SDK and the C07 worker); drift is caught only by the reference reconciliation",
+        "per-run delivery queues run concurrently, so a proxy hang delays unrelated deliveries (harness artefact)"
+      ],
+      "evidence": {
+        "tests": "test_c06_vercel.py (4 checks)",
+        "file": "evidence/c06_vercel.json",
+        "reconciled": "expected_ledger.json v1 and v2 through the AI SDK application"
+      },
+      "reviewer": "pending independent review"
+    }
+  },
+  "not_run": {
+    "live_provider_evidence": {
+      "status": "NOT_RUN",
+      "needs": "owner-authorized provider credentials and a spend allowance for one named model per provider; then run each recipe's reference workload against real endpoints and reconcile with the provider export as in Phase 1",
+      "rows": [
+        "contract",
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "C07"
+      ]
+    },
+    "azure_openai": {
+      "status": "NOT_RUN",
+      "needs": "an Azure deployment name to model mapping and credentials; price provenance recorded explicitly"
+    },
+    "google_gemini": {
+      "status": "NOT_RUN",
+      "needs": "a Gemini native-client or framework recipe with credentials; rate card rows for the selected models"
+    },
+    "openai_compatible_proxy_live": {
+      "status": "NOT_RUN",
+      "needs": "a real LiteLLM/proxy fixture verifying routed model, billed attempts, fallback and dedupe; offline only the identity rule (undeclared base URL stays unmeasured) is tested"
+    },
+    "independent_recipe_reviewer": {
+      "status": "NOT_RUN",
+      "needs": "a reviewer other than the executing agent to run each recipe from a clean environment without editing Zeroth, following README.md"
+    },
+    "node_22_binary": {
+      "status": "NOT_RUN",
+      "needs": "a Node 22.6+ runtime; only the --experimental-strip-types flag path on Node 26.5 was exercised"
+    },
+    "A11_overhead_threshold": {
+      "status": "NOT_RUN",
+      "needs": "owner-selected adapter-overhead SLO (D06); the measurement exists, the judgement does not"
+    },
+    "publication": {
+      "status": "NOT_RUN",
+      "needs": "an SDK release carrying zeroth.instrumentation capture modules; recipes currently install the SDK from the repository path"
+    }
+  },
+  "lifecycle": {
+    "status": "measured on the loopback server; not an accepted gate",
+    "evidence": "evidence/lifecycle.json",
+    "overhead_per_call_ms": 12.18,
+    "overhead_method": "wall-clock over 200 sequential chat.completions calls to an in-process mock provider; instrumented runs deliver one event per call synchronously over HTTP to the loopback economic server on this machine. A measurement of this setup, not a threshold verdict: the A11 adapter-overhead SLO is unset.",
+    "not_run": [
+      "hosted backend, real network partition, multi-process shutdown ordering"
+    ]
+  },
+  "required_failures": {
+    "unknown model or pricing": {
+      "contract": "tested: unlisted model stored unmeasured (pricing unknown_model)",
+      "C01": "tested: undeclared non-official base URL unmeasured (unknown_provider)",
+      "C02": "tested: providers outside the priced set unmeasured; proxied ChatOpenAI needs priced_providers=()",
+      "C03": "partially: unlisted model unmeasured by construction; not asserted in a test",
+      "C04": "tested: bare model name unmeasured, provider unknown",
+      "C05": "partially: unlisted model unmeasured by construction; not asserted",
+      "C06": "tested: unlisted model unmeasured (unknown_model)",
+      "C07": "partially: unlisted model unmeasured by construction; not asserted"
+    },
+    "denied key (401)": {
+      "contract": "NOT_RUN: the SDK maps 401 to ZerothAuthenticationError and Recorder.lost retains it like 402, but no check injects a 401",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "not exercised",
+      "C07": "not exercised"
+    },
+    "unavailable telemetry backend": {
+      "contract": "tested (lifecycle): 503 outage, dropped connection, refused writes retained and replayed",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "tested: 503/dropped/timed-out requests retried to exactly-once",
+      "C07": "tested: 503/dropped/timed-out requests retried to exactly-once; 4xx lost without retry"
+    },
+    "truncated stream": {
+      "contract": "not exercised",
+      "C01": "tested: aborted chat and messages streams unmeasured",
+      "C02": "partially: streams charged from usage; abort not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "partially: create_stream abort path implemented; only completed streams asserted",
+      "C06": "tested: aborted streamText unmeasured",
+      "C07": "not exercised"
+    },
+    "cancelled request": {
+      "contract": "not exercised",
+      "C01": "tested: asyncio timeout -> unmeasured CancelledError",
+      "C02": "not exercised",
+      "C03": "partially: raising model call charged at hooks exit; cancellation not exercised",
+      "C04": "not exercised",
+      "C05": "tested: cancellation token -> unmeasured attempt",
+      "C06": "tested: AbortSignal.timeout -> unmeasured attempt",
+      "C07": "not exercised"
+    },
+    "event replay": {
+      "contract": "tested: every event delivered twice, totals unchanged",
+      "C01": "tested: captured events re-delivered, all duplicate",
+      "C02": "tested: same",
+      "C03": "tested: same",
+      "C04": "partially: idempotent registration tested; captured-event re-delivery not exercised",
+      "C05": "not exercised",
+      "C06": "tested: retry after lost acknowledgement reports duplicate, one row",
+      "C07": "tested: same"
+    },
+    "conflicting event identity": {
+      "contract": "tested: same event_id with different usage refused 422",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "not exercised",
+      "C07": "not exercised"
+    },
+    "missing outcome": {
+      "contract": "NOT_RUN: every reference run records an outcome; missing outcomes are missing by contract and handled by the comparison's coverage floor (Phase 2 scope)",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "not exercised",
+      "C07": "not exercised"
+    },
+    "tenant mismatch": {
+      "contract": "partially (lifecycle): two tenants concurrently, every row under its own tenant; a payload naming another tenant is refused by the server (_assert_requested_tenant) but not exercised here",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "not exercised",
+      "C07": "not exercised"
+    }
+  },
+  "follow_ups": [
+    "Make tests/sdk mock-transport handlers accept httpx2.Response (or pin anthropic<1 in the conformance group) so the opt-in group does not break four existing SDK tests.",
+    "Consolidate the three copies of the four-model rate card (zeroth.instrumentation.rate_card, c07_workers/worker.ts, c06_vercel/capture.ts) behind one generated artefact; drift is currently caught only by reconciliation at the pinned litellm.",
+    "C01 README does not yet state that a with_raw_response stream is charged by the observing framework hook, not the adapter.",
+    "Lifecycle evidence timings are run-varying; the record's prose quotes 12.404 ms per call while the digest-bound evidence file holds the value of the run that was committed (see evidence/lifecycle.json).",
+    "The AgentChat cache split gap (C05) needs a provider-level capture or an upstream usage change before cached tokens can be priced exactly through that framework."
+  ],
+  "reviewer_decision": "pending independent review",
+  "acceptance": {
+    "A07": "not accepted",
+    "A08": "not accepted",
+    "G3-core": "not accepted",
+    "G3-common": "not accepted"
+  },
+  "environment_interactions": [
+    "Installing the opt-in integration-conformance dev group pulls anthropic>=1.0 and therefore httpx2; Starlette 1.3's TestClient then binds to httpx2 and returns httpx2.Response objects, so four pre-existing SDK tests that forward through TestClient inside an httpx.MockTransport fail (tests/sdk/test_calculation_inputs.py and tests/sdk/test_charge_cost_revision_access.py, sqlite and postgres variants). They pass with the default groups (which is what CI installs). Fixes: accept either httpx or httpx2 responses in those handlers, or pin anthropic<1 in the group (which would change the C01 harness version and require re-verifying C01).",
+    "The full suite in a linked worktree cannot collect tests/langgraph_release/test_candidate_compatibility.py (release/langgraph/benchmark-baseline-0.16.1.7.json exists only in the primary tree); the recorded full run used --ignore for that file."
+  ],
+  "full_suite": {
+    "command": "uv run pytest -q -p no:cacheprovider --ignore=tests/langgraph_release/test_candidate_compatibility.py (integration-conformance group installed)",
+    "result": "96 failed, 14177 passed, 13 skipped, 465 deselected, 6 errors in 1282.61s",
+    "attribution": "91 failures and all 6 errors are in release, load-release, langgraph-release, product-validation, architecture and live-evaluation gates untouched by this branch (known artifact-dependent or red-by-design gates); 1 docs failure (test_langgraph_release_docs) fails identically on the base commit faa16232; the 4 SDK failures are the httpx2/TestClient interaction above and pass without the opt-in group.",
+    "log": "/Users/dondoe/.autonomy/sessions/452d0080-2ad6-4f0a-84c6-17c7482237e9/logs/phase3-full-suite.log"
+  }
+}

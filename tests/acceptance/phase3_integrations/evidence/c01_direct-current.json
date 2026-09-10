@@ -1,0 +1,41 @@
+{
+  "row": "C01",
+  "pin": "current",
+  "requirements": [
+    "openai==3.11.0",
+    "anthropic==1.4.0"
+  ],
+  "installed": [
+    "@",
+    "annotated-types==0.8.0",
+    "anthropic==1.4.0",
+    "anyio==4.15.1",
+    "certifi==2026.7.22",
+    "docstring-parser==0.18.0",
+    "file:///Users/dondoe/coding/zeroth-phase3/packaging/sdk",
+    "h11==0.16.0",
+    "httpcore2==2.12.0",
+    "httpcore==1.0.9",
+    "httpx2==2.12.0",
+    "httpx==0.28.1",
+    "idna==3.19",
+    "jiter==0.16.0",
+    "openai==3.11.0",
+    "pydantic-core==2.46.5",
+    "pydantic==2.13.5",
+    "sniffio==1.3.1",
+    "truststore==0.10.4",
+    "typing-extensions==4.16.0",
+    "typing-inspection==0.4.4",
+    "zeroth-sdk"
+  ],
+  "report": {
+    "python": "3.12.12",
+    "openai": "3.11.0",
+    "anthropic": "1.4.0",
+    "lost": 0,
+    "version": "v1"
+  },
+  "reconciled": "expected_ledger.json v1",
+  "modes": "reference workload only; stream/retry/async/proxy/coexistence modes run at the harness environment versions"
+}

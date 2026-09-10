@@ -1,0 +1,55 @@
+{
+  "row": "C05",
+  "pin": "current",
+  "requirements": [
+    "autogen-agentchat==0.7.5",
+    "autogen-ext[openai]==0.7.5"
+  ],
+  "installed": [
+    "autogen-agentchat==0.7.5",
+    "autogen-core==0.7.5",
+    "autogen-ext==0.7.5",
+    "openai==3.11.0",
+    "protobuf==5.29.6",
+    "pydantic==2.13.5",
+    "zeroth-sdk"
+  ],
+  "reports": [
+    {
+      "python": "3.12.12",
+      "autogen_agentchat": "0.7.5",
+      "autogen_core": "0.7.5",
+      "lost": 0,
+      "version": "v1",
+      "scenario": "reference",
+      "report": {}
+    },
+    {
+      "python": "3.12.12",
+      "autogen_agentchat": "0.7.5",
+      "autogen_core": "0.7.5",
+      "lost": 0,
+      "version": "v2",
+      "scenario": "reference",
+      "report": {}
+    },
+    {
+      "python": "3.12.12",
+      "autogen_agentchat": "0.7.5",
+      "autogen_core": "0.7.5",
+      "lost": 0,
+      "version": "v1",
+      "scenario": "modes",
+      "report": {
+        "team": "TERMINATE done",
+        "stream": {
+          "text": "streamed reply",
+          "chunks": 2
+        },
+        "cancelled": "cancelled before the call"
+      }
+    }
+  ],
+  "reconciled": "expected_ledger.json v1, v2",
+  "modes": "two-agent team with TERMINATE stop and outcome, streamed run, missing usage, cache hit, cancellation token; AG2 diagnostic checked in the harness environment"
+}

@@ -1,0 +1,32 @@
+{
+  "row": "C04",
+  "pin": "floor",
+  "requirements": [
+    "crewai==1.14.0"
+  ],
+  "installed": [
+    "crewai==1.14.0",
+    "httpx==0.28.1",
+    "openai==2.54.0",
+    "pydantic==2.11.10",
+    "zeroth-sdk"
+  ],
+  "reports": [
+    {
+      "python": "3.12.12",
+      "crewai": "1.14.0",
+      "lost": 0,
+      "version": "v1",
+      "scenario": "reference"
+    },
+    {
+      "python": "3.12.12",
+      "crewai": "1.14.0",
+      "lost": 0,
+      "version": "v1",
+      "scenario": "modes"
+    }
+  ],
+  "reconciled": "expected_ledger.json v1",
+  "modes": "concurrent crews on two runs, agent retry, flow, async tasks, bare model name, idempotent registration"
+}

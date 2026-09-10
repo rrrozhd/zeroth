@@ -1,0 +1,91 @@
+{
+  "client_errors": {
+    "faulted": [
+      [
+        3,
+        402
+      ],
+      [
+        5,
+        409
+      ],
+      [
+        7,
+        422
+      ]
+    ],
+    "lost": [
+      {
+        "id": "success:summary",
+        "reason": "http 402"
+      },
+      {
+        "id": "rejection:answer:1",
+        "reason": "http 409"
+      },
+      {
+        "id": "rejection:final",
+        "reason": "http 422"
+      }
+    ],
+    "retried": false
+  },
+  "floor": {
+    "actual_node_22_binary": "NOT_RUN: not available on this machine",
+    "flag": "--experimental-strip-types",
+    "node": "v26.5.0"
+  },
+  "node": "v26.5.0",
+  "parity": {
+    "events_per_version": 34,
+    "normalised_equal": true,
+    "reason_codes": [
+      "baseline_contains_unmeasured_cost",
+      "candidate_contains_unmeasured_cost"
+    ],
+    "verdict": "abstain",
+    "versions": [
+      "v1",
+      "v2"
+    ],
+    "volatile_fields_ignored": [
+      "decision_id",
+      "evaluated_at",
+      "workflow",
+      "source_evidence",
+      "calculation_inputs"
+    ]
+  },
+  "retry": {
+    "delivered": 34,
+    "duplicates_seen_by_client": 1,
+    "events_retried": 4,
+    "faulted": [
+      [
+        2,
+        503
+      ],
+      [
+        4,
+        "drop"
+      ],
+      [
+        6,
+        503
+      ],
+      [
+        7,
+        503
+      ]
+    ],
+    "rows": 34,
+    "timed_out_index": 9
+  },
+  "standalone": {
+    "imports": [
+      "node:fs/promises",
+      "node:util"
+    ],
+    "package_json": false
+  }
+}

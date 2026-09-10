@@ -1,0 +1,90 @@
+{
+  "faults": {
+    "faulted": [
+      [
+        3,
+        402
+      ],
+      [
+        5,
+        409
+      ],
+      [
+        7,
+        422
+      ],
+      [
+        9,
+        503
+      ],
+      [
+        11,
+        "drop"
+      ],
+      [
+        13,
+        503
+      ],
+      [
+        14,
+        503
+      ],
+      [
+        15,
+        503
+      ],
+      [
+        16,
+        503
+      ]
+    ],
+    "ledger_after_replay": "exact",
+    "lost_classes": [
+      "ZerothEntitlementError",
+      "ZerothConflictError",
+      "ZerothValidationError",
+      "ZerothServerError",
+      "ZerothTransportError",
+      "ZerothServerError",
+      "ZerothServerError",
+      "ZerothServerError",
+      "ZerothServerError"
+    ],
+    "replayed_inserted": 9,
+    "requests": 34
+  },
+  "overhead": {
+    "calls": 200,
+    "instrumented_s": 2.4977,
+    "method": "wall-clock over 200 sequential chat.completions calls to an in-process mock provider; instrumented runs deliver one event per call synchronously over HTTP to the loopback economic server on this machine. A measurement of this setup, not a threshold verdict: the A11 adapter-overhead SLO is unset.",
+    "per_call_ms": 12.18,
+    "uninstrumented_s": 0.0618
+  },
+  "restart": {
+    "crashed_after": 10,
+    "duplicates_on_rerun": 10,
+    "events_total": 34,
+    "flush": "not applicable: delivery is synchronous, nothing is buffered",
+    "inserted_on_rerun": 24,
+    "rows_after_crash": 10
+  },
+  "side_effects": {
+    "equal_with_and_without": true,
+    "provider_requests": 8,
+    "tool_calls": 2
+  },
+  "tenants": {
+    "concurrent": true,
+    "models": 4,
+    "tenant-a": {
+      "executions": 24,
+      "outcomes": 10,
+      "workflow": "phase3-tenant-a"
+    },
+    "tenant-b": {
+      "executions": 24,
+      "outcomes": 10,
+      "workflow": "phase3-tenant-b"
+    }
+  }
+}
