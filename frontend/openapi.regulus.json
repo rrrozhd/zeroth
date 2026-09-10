@@ -245,6 +245,7 @@
             "enum": [
               "passed",
               "failed",
+              "unresolved",
               "replay_error",
               "judge_error",
               "not_run"
@@ -366,8 +367,11 @@
             "type": "string"
           },
           "parameters": {
-            "const": "provider_defaults",
             "default": "provider_defaults",
+            "enum": [
+              "provider_defaults",
+              "judge_max_tokens_8192"
+            ],
             "title": "Parameters",
             "type": "string"
           },
@@ -387,7 +391,8 @@
             "enum": [
               "correctness-replay/1",
               "correctness-replay/2",
-              "correctness-replay/3"
+              "correctness-replay/3",
+              "correctness-replay/4"
             ],
             "title": "Version",
             "type": "string"

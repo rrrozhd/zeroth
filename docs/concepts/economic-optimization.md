@@ -184,27 +184,46 @@ clarifications and permitted promises. Agreement on the decision field alone doe
 not establish correctness of the whole response. These input requirements do not
 establish judge calibration or replace independent held-out validation.
 
-New backtests retain `evaluation_evidence` with the catalog-resolved incumbent,
-candidate and judge model references, evaluator version `correctness-replay/3`,
-the correctness rubric hash and the existing 0.7 score threshold. The incumbent
-is also the judge. `parameters="provider_defaults"` means no parameter overrides
-were submitted; provider defaults and model-alias revisions are not frozen.
-Candidate settings other than `model` abstain before provider work; ignored
-temperature, retry or prompt settings cannot produce a comparison of that change.
+New hosted backtests use whole-answer verdicts in `correctness-replay/4`.
+The judge assesses every substantive claim and field against the workflow, case
+facts and supplied reference. A matching decision cannot excuse invented facts,
+unauthorized promises, contradictions or missing required information. Harmless
+paraphrases are acceptable; conflicting or insufficient evaluation evidence yields
+`unresolved`. This rubric requires independent validation; it is not proof that
+an LLM will apply those rules accurately.
 
-Version `correctness-replay/3` describes the reference without asserting human
-authorship. Version `/2` introduced the workflow instruction in both arms' judge
-requests; `/1` sent it only to replay and relied on context in the case input for
-judging. Historical `/1` and `/2` evidence and exact retries retain their original
-version, rubric hash and result. The 0.7 threshold and correctness criteria are
-unchanged; the new rubric hash identifies the provenance wording change.
+`evaluation_evidence` retains the catalog-resolved incumbent, candidate and judge
+model references, evaluator version and rubric hash. The configured judge is
+`openai/gpt-5.6-sol`. Comparisons with Sol or its `gpt-5.6` alias (including dated
+and `-latest` suffixes) abstain before provider calls. No dated Sol snapshot is
+currently exposed, so this model ID does not freeze future provider revisions. Distinct model identity
+removes direct self-grading; shared-provider bias and label uncertainty remain.
+Each role is priced using its own observed usage and retained catalog rates.
+Catalog quotes can differ from current promotional or cache-adjusted charges;
+these projections do not establish the provider bill.
+`parameters="judge_max_tokens_8192"` records a 8192-token judge output limit, including reasoning tokens; all other
+judge parameters and replay parameters use provider defaults (Sol reasoning is
+currently medium). Incomplete or malformed
+judge output remains an evaluation error. Candidate settings other than `model`
+abstain before provider work.
 
-Each evidence entry pairs incumbent and candidate scores by `case_index`, the
-zero-based position in the case list bound by the request digest. `passed` and
-`failed` carry a numeric judge score; `replay_error`, `judge_error` and `not_run`
-carry null. Divide passed cases by all cases to reproduce each reported success
-rate. Replay and judge errors count against that rate and also force abstention;
-they are not established wrong answers. An unrun candidate has unavailable rates.
+Each evidence entry pairs incumbent and candidate outcomes by `case_index`, the
+zero-based position in the case list bound by the request digest. `correct` maps
+to `passed`/1 and `incorrect` to `failed`/0. The retained `pass_threshold=1` describes
+this binary encoding; no numeric confidence score or calibrated cutoff determines
+the verdict. `unresolved`, `replay_error`, `judge_error` and `not_run` carry null.
+Divide passed cases by all cases to reproduce each reported success rate.
+Unresolved judgments and execution errors count against that rate and force
+abstention; they are not established wrong answers. An unrun candidate has
+unavailable rates. The existing candidate success-rate floor still applies to the
+observed fraction of correct replies.
+
+Historical `/1`, `/2` and `/3` evidence and exact retries retain their original
+version, rubric, threshold and results. `/3` changed reference-provenance wording;
+`/2` added workflow context to judge requests; `/1` relied on case input for that
+context. Those methods used numeric grading at 0.7 with the incumbent as judge.
+The legacy OSS `CorrectnessScorer` keeps that behavior.
+
 Raw case IDs, inputs, references, outputs, rationales and exception text are not
 retained in this object. Customers retain their original ordered cases for audit.
 

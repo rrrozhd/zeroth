@@ -1706,7 +1706,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "passed" | "failed" | "replay_error" | "judge_error" | "not_run";
+            status: "passed" | "failed" | "unresolved" | "replay_error" | "judge_error" | "not_run";
         };
         /** BacktestCreate */
         BacktestCreate: {
@@ -1744,9 +1744,9 @@ export interface components {
             /**
              * Parameters
              * @default provider_defaults
-             * @constant
+             * @enum {string}
              */
-            parameters: "provider_defaults";
+            parameters: "provider_defaults" | "judge_max_tokens_8192";
             /** Pass Threshold */
             pass_threshold: number;
             /** Rubric Sha256 */
@@ -1756,7 +1756,7 @@ export interface components {
              * @default correctness-replay/1
              * @enum {string}
              */
-            version: "correctness-replay/1" | "correctness-replay/2" | "correctness-replay/3";
+            version: "correctness-replay/1" | "correctness-replay/2" | "correctness-replay/3" | "correctness-replay/4";
         };
         /** BillingURL */
         BillingURL: {

@@ -23,7 +23,7 @@ class _Provider:
     async def ainvoke(self, request: ProviderRequest) -> ProviderResponse:
         self.requests.append(request)
         if request.output_model is not None:
-            return self._response(request, '{"score": 1.0, "rationale": "equivalent"}')
+            return self._response(request, '{"verdict": "correct", "rationale": "equivalent"}')
         return self._response(request, '{"total": "12.50"}')
 
 
@@ -37,8 +37,8 @@ class _RegressingProvider(_Provider):
         if request.output_model is None:
             self._last_model = request.model_name
             return self._response(request, '{"total": "12.50"}')
-        score = 0.0 if self._last_model.endswith("candidate") else 1.0
-        return self._response(request, f'{{"score": {score}, "rationale": "measured"}}')
+        verdict = "incorrect" if self._last_model.endswith("candidate") else "correct"
+        return self._response(request, json.dumps({"verdict": verdict, "rationale": "measured"}))
 
 
 def _option(model: str, cost: float) -> ModelOption:
@@ -63,6 +63,7 @@ async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(
     options = {
         "openai/incumbent": _option("incumbent", 10),
         "openai/candidate": _option("candidate", 2),
+        "openai/gpt-5.6-sol": _option("gpt-5.6-sol", 3),
     }
     monkeypatch.setattr("zeroth.econ.analytics.rightsizing.describe", options.get)
     provider = _Provider()
@@ -104,6 +105,8 @@ async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(
     ] * 2
     judges = [r for r in provider.requests if r.output_model is not None]
     assert len(judges) == 10
+    assert {r.model_name for r in judges} == {"openai/gpt-5.6-sol"}
+    assert all(r.model_params.max_tokens == 8192 for r in judges)
     contexts = [
         json.loads(r.messages[0]["content"].split("Request:\n", 1)[1].split("\n\nSupplied reference answer", 1)[0])
         for r in judges
@@ -119,6 +122,7 @@ async def test_completed_quality_regression_is_decidable_not_inconclusive(monkey
     options = {
         "openai/incumbent": _option("incumbent", 10),
         "openai/candidate": _option("candidate", 2),
+        "openai/gpt-5.6-sol": _option("gpt-5.6-sol", 3),
     }
     monkeypatch.setattr("zeroth.econ.analytics.rightsizing.describe", options.get)
     executor = executor_module.ManagedBacktestExecutor(provider=_RegressingProvider())
@@ -142,3 +146,58 @@ async def test_completed_quality_regression_is_decidable_not_inconclusive(monkey
 
     assert result.candidate_success_rate == 0
     assert result.reasons == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["answer", "content", "message"])
+async def test_hosted_judge_receives_every_field_of_structured_replies(monkeypatch, field):
+    from zeroth.econ.analytics.rightsizing_experiment import (
+        HostedBacktestCase, HostedBacktestRequest, HostedModelBacktest,
+    )
+
+    reference = {field: "Eligible", "reply": "Submit the item for inspection."}
+    output = {field: "Eligible", "reply": "Your payment has already been refunded."}
+
+    class StructuredProvider(_Provider):
+        async def ainvoke(self, request):
+            response = await super().ainvoke(request)
+            if request.output_model is None:
+                response.content = output
+            return response
+
+    monkeypatch.setattr(
+        "zeroth.econ.analytics.rightsizing.describe",
+        lambda name: _option(name.rsplit("/", 1)[-1], 3),
+    )
+    provider = StructuredProvider()
+    await HostedModelBacktest(provider).execute(HostedBacktestRequest(
+        workflow="refunds", node_id=None, incumbent_model="openai/incumbent",
+        candidate_model="openai/candidate", instruction="Eligibility does not confirm payment.",
+        cases=(HostedBacktestCase(id="case", input={"eligible": True}, expected=reference),),
+    ))
+    judges = [r for r in provider.requests if r.output_model is not None]
+    assert len(judges) == 2
+    for request in judges:
+        prompt = request.messages[0]["content"]
+        assert json.loads(prompt.split("Supplied reference answer:\n", 1)[1].split("\n\nAI answer:", 1)[0]) == reference
+        assert json.loads(prompt.split("AI answer:\n", 1)[1]) == output
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["incumbent_model", "candidate_model"])
+@pytest.mark.parametrize("model", ["gpt-5.6", "openai/gpt-5.6-sol", "azure/gpt-5.6-sol-latest"])
+async def test_hosted_judge_cannot_grade_its_own_model_family(monkeypatch, role, model):
+    from zeroth.econ.analytics.rightsizing_experiment import HostedBacktestRequest, HostedModelBacktest
+
+    monkeypatch.setattr(
+        "zeroth.econ.analytics.rightsizing.describe",
+        lambda name: _option(name.rsplit("/", 1)[-1], 3),
+    )
+    provider = _Provider()
+    models = {"incumbent_model": "openai/incumbent", "candidate_model": "openai/candidate", role: model}
+    result = await HostedModelBacktest(provider).execute(HostedBacktestRequest(
+        workflow="refunds", node_id=None, instruction="Answer.", cases=(), **models,
+    ))
+    assert result.provider_calls == 0
+    assert provider.requests == []
+    assert any("judge" in reason and "distinct" in reason for reason in result.reasons)

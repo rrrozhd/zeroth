@@ -10,7 +10,7 @@ class BacktestCaseScore(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["passed", "failed", "replay_error", "judge_error", "not_run"]
+    status: Literal["passed", "failed", "unresolved", "replay_error", "judge_error", "not_run"]
     score: float | None = Field(default=None, ge=0, le=1)
 
 
@@ -30,12 +30,13 @@ class BacktestEvaluationEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: Literal[
-        "correctness-replay/1", "correctness-replay/2", "correctness-replay/3"
+        "correctness-replay/1", "correctness-replay/2",
+        "correctness-replay/3", "correctness-replay/4",
     ] = "correctness-replay/1"
     incumbent_model: str
     candidate_model: str
     judge_model: str
     rubric_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     pass_threshold: float = Field(ge=0, le=1)
-    parameters: Literal["provider_defaults"] = "provider_defaults"
+    parameters: Literal["provider_defaults", "judge_max_tokens_8192"] = "provider_defaults"
     cases: list[BacktestCaseEvidence] = Field(max_length=25)

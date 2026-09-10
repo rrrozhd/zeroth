@@ -30,7 +30,7 @@ class UsageProvider:
             self.candidate_output if request.model_name.endswith("candidate") else 50
         )
         return ProviderResponse(
-            content='{"score": 1.0, "rationale": "correct"}' if judge else '{"answer": 1}',
+            content='{"verdict": "correct", "rationale": "correct"}' if judge else '{"answer": 1}',
             token_usage=None if self.missing_usage else TokenUsage(
                 input_tokens=input_tokens, output_tokens=output_tokens,
                 total_tokens=input_tokens + output_tokens, model_name=request.model_name,
@@ -45,7 +45,7 @@ def payload(monkeypatch):
             model=model, provider="openai", input_per_mtok_usd=rate,
             output_per_mtok_usd=rate, blended_per_mtok_usd=rate, savings_pct=0,
         )
-        for model, rate in (("incumbent", 10), ("candidate", 2))
+        for model, rate in (("incumbent", 10), ("candidate", 2), ("gpt-5.6-sol", 3))
     }
     options.update({option.model: option for option in tuple(options.values())})
     monkeypatch.setattr("zeroth.econ.analytics.rightsizing.describe", options.get)
@@ -69,7 +69,7 @@ async def test_replay_cost_uses_each_models_usage_and_excludes_judging(payload, 
     # five candidate replays at $2/M vary with actual candidate output size.
     incumbent = Decimal("0.0075")
     candidate = Decimal(5 * (100 + candidate_output) * 2) / Decimal(1_000_000)
-    judge = Decimal("0.022") * judge_scale
+    judge = Decimal("0.0066") * judge_scale
     assert result.savings_pct == pytest.approx(float((1 - candidate / incumbent) * 100))
     assert result.incumbent_replay_cost_usd == incumbent
     assert result.candidate_replay_cost_usd == candidate
@@ -78,12 +78,15 @@ async def test_replay_cost_uses_each_models_usage_and_excludes_judging(payload, 
     assert result.provider_calls == provider.calls == 20
     evidence = result.evaluation_evidence
     assert evidence is not None
-    assert evidence.version == "correctness-replay/3"
-    assert evidence.incumbent_model == evidence.judge_model == "openai/incumbent"
+    assert evidence.version == "correctness-replay/4"
+    assert evidence.incumbent_model == "openai/incumbent"
+    assert evidence.judge_model == "openai/gpt-5.6-sol"
+    assert result.pricing_snapshot[evidence.judge_model]["input_per_mtok_usd"] == "3.0"
     assert evidence.candidate_model == "openai/candidate"
-    assert evidence.parameters == "provider_defaults"
-    assert evidence.pass_threshold == 0.7
-    assert evidence.rubric_sha256 == "d1cb8f991e0e118b98c473f35adcdd712e9325b0ca6c839271e7d4578d679b0f"
+    assert evidence.parameters == "judge_max_tokens_8192"
+    assert evidence.pass_threshold == 1
+    assert len(evidence.rubric_sha256) == 64
+    assert evidence.rubric_sha256 != "d1cb8f991e0e118b98c473f35adcdd712e9325b0ca6c839271e7d4578d679b0f"
     assert [case.case_index for case in evidence.cases] == list(range(5))
     assert all(case.incumbent.score == case.candidate.score == 1 for case in evidence.cases)
     assert all(case.incumbent.status == case.candidate.status == "passed" for case in evidence.cases)
@@ -113,7 +116,7 @@ async def test_failed_replays_count_attempted_calls_without_inventing_judge_call
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ["incumbent", "candidate"])
-@pytest.mark.parametrize("outcome", ["failed", "judge_error", "replay_error"])
+@pytest.mark.parametrize("outcome", ["failed", "unresolved", "judge_error", "replay_error"])
 async def test_retained_case_scores_distinguish_wrong_answers_from_missing_evidence(payload, role, outcome):
     from datetime import UTC, datetime
     from zeroth.econ.plane.backtesting.service import decide
@@ -134,8 +137,10 @@ async def test_retained_case_scores_distinguish_wrong_answers_from_missing_evide
                 if judge and outcome != "replay_error":
                     self.altered = True
                     response.content = (
-                        '{"score": 0.6, "rationale": "private rationale"}'
-                        if outcome == "failed" else "private malformed judge output"
+                        '{"verdict": "incorrect", "rationale": "private rationale"}'
+                        if outcome == "failed" else
+                        '{"verdict": "unresolved", "rationale": "private ambiguity"}'
+                        if outcome == "unresolved" else "private malformed judge output"
                     )
             return response
 
@@ -150,14 +155,14 @@ async def test_retained_case_scores_distinguish_wrong_answers_from_missing_evide
     assert len(evidence.cases) == 5
     score = getattr(evidence.cases[0], role)
     assert score.status == outcome
-    assert score.score == (0.6 if outcome == "failed" else None)
+    assert score.score == (0 if outcome == "failed" else None)
     for side in ("incumbent", "candidate"):
         scores = [getattr(case, side) for case in evidence.cases]
         assert getattr(report, f"{side}_success_rate") == sum(
             score.status == "passed" for score in scores
         ) / len(scores)
     assert report.candidate_error_rate == sum(
-        case.candidate.status in {"judge_error", "replay_error"} for case in evidence.cases
+        case.candidate.status in {"unresolved", "judge_error", "replay_error"} for case in evidence.cases
     ) / len(evidence.cases)
     assert report.provider_call_credits == provider.calls == (19 if outcome == "replay_error" else 20)
     assert "private" not in report.model_dump_json()
@@ -190,7 +195,7 @@ async def test_catalog_resolved_bare_model_uses_the_same_pricing_identity(payloa
     result = await ManagedBacktestExecutor(provider=UsageProvider()).execute(payload)
     assert result.reasons == []
     assert result.savings_pct == 80
-    assert result.judge_cost_usd == Decimal("0.022")
+    assert result.judge_cost_usd == Decimal("0.0066")
 
 
 @pytest.mark.asyncio
@@ -268,7 +273,7 @@ def test_cost_evidence_survives_http_retention_and_exact_retry(payload, tmp_path
     assert client.get("/v1/backtests", headers=headers).json() == [first.json()]
     assert provider.calls == 20
     result = first.json()
-    assert result["evaluation_evidence"]["version"] == "correctness-replay/3"
+    assert result["evaluation_evidence"]["version"] == "correctness-replay/4"
     assert len(result["evaluation_evidence"]["cases"]) == 5
     assert payload.instruction not in first.text
     assert '"case_id"' not in first.text
@@ -285,20 +290,26 @@ def test_cost_evidence_survives_http_retention_and_exact_retry(payload, tmp_path
     # Older evidence must not acquire the new rubric or version through a read
     # or an exact retry, including when the historical version was omitted.
     old_rubric = "111bcc8c3902da65ae747039b1c02a3e5a40b9034758d5caa9e053bdd64c0b94"
-    for stored_version in ("correctness-replay/1", "correctness-replay/2", None):
-        legacy_result = {**result, "evaluation_evidence": {
+    for stored_version in ("correctness-replay/1", "correctness-replay/2", "correctness-replay/3", None):
+        legacy_evidence = {
             **result["evaluation_evidence"],
             "version": stored_version or "correctness-replay/1",
             "rubric_sha256": old_rubric,
-        }}
+            "judge_model": "openai/incumbent",
+            "parameters": "provider_defaults",
+            "pass_threshold": 0.7,
+            "cases": [{
+                **case,
+                "incumbent": {"status": "passed", "score": 0.8},
+                "candidate": {"status": "passed", "score": 0.75},
+            } for case in result["evaluation_evidence"]["cases"]],
+        }
+        legacy_result = {**result, "evaluation_evidence": legacy_evidence}
         with Session(engine) as session:
             record = session.get(EconomicBacktestRecord, result["backtest_id"])
-            stored_evidence = dict(record.report_json["evaluation_evidence"])
-            stored_evidence["rubric_sha256"] = old_rubric
+            stored_evidence = dict(legacy_evidence)
             if stored_version is None:
                 stored_evidence.pop("version")
-            else:
-                stored_evidence["version"] = stored_version
             stored_report = {**record.report_json, "evaluation_evidence": stored_evidence}
             record.report_json = stored_report
             session.commit()
