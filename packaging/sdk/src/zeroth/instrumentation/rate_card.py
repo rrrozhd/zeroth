@@ -9,6 +9,7 @@ never as zero. Recipes advertise only the listed models as priced.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 
@@ -40,8 +41,13 @@ def bare_model(model: str) -> str:
     return model.split("/", 1)[1] if "/" in model else model
 
 
+_DATE_SUFFIX = re.compile(r"-(?:\d{4}-\d{2}-\d{2}|\d{8}|latest)$")
+
+
 def rates(model: str) -> Rates | None:
-    entry = _CARD.get(bare_model(model))
+    """Rates for a model id, exact first, then its undated alias (``gpt-4.1-mini-2025-04-14``)."""
+    name = bare_model(model)
+    entry = _CARD.get(name) or _CARD.get(_DATE_SUFFIX.sub("", name))
     if entry is None:
         return None
     provider, inp, out, cache_read, cache_write = entry

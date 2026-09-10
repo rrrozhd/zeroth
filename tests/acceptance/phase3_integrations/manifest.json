@@ -11,6 +11,58 @@
     "expected_ledger.json": "07d15159f132eee359fc19f75a713d25164935b74b39c58fb4617f50377d794c",
     "INTERFACE.md": "7eb6b8e397a817b1b001d681be125e3071defd5d6617b33975d4f1632fd553ae"
   },
-  "rows": {},
+  "rows": {
+    "C01": {
+      "setup": "Direct Python OpenAI and Anthropic SDK applications",
+      "recipe": "packaging/sdk/recipes/c01_direct",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "openai": {
+          "floor": "1.66.0",
+          "current": "3.11.0",
+          "harness": "2.30.0"
+        },
+        "anthropic": {
+          "floor": "0.40.0",
+          "current": "1.4.0",
+          "harness": "1.4.0"
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: step = run.label or operation (unique per run), attempt = SDK-internal retries + 1, event/charge id = workflow:version:run:step:attempt",
+      "cost_categories": {
+        "model": "estimated from zeroth.instrumentation.rate_card (version 2026-09-10/litellm-1.98.0); usage split retained, cached tokens subtracted from input",
+        "tool": "caller-asserted measured/estimated amount via run.tool_charge",
+        "unmeasured": "missing usage, unlisted model, undeclared non-official base URL, aborted stream, failed or retried attempt"
+      },
+      "supported_modes": [
+        "chat.completions and responses (sync/async), messages create and stream helper (sync/async)",
+        "streaming completion with include_usage; aborted/closed streams unmeasured",
+        "SDK-internal retries charged per attempt; provider exceptions charged unmeasured",
+        "tool-use cycle (two model charges + caller tool charge)",
+        "cancellation via asyncio timeout; thread-pool fan-out with copy_context",
+        "coexisting httpx event hooks and OpenTelemetry spans"
+      ],
+      "excluded_modes": [
+        "live provider calls, real request ids and invoices (NOT_RUN)",
+        "images, audio, realtime, batch, files, hosted tool charges",
+        "Azure OpenAI deployment mapping; proxy billing identity (recorded unknown unless declared)",
+        "retries preceding a final failure are not individually visible (retries_unobserved)"
+      ],
+      "evidence": {
+        "tests": "test_c01_direct.py (11 checks)",
+        "clean_install": [
+          "evidence/c01_direct-floor.json",
+          "evidence/c01_direct-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 and v2 through the application; v1 again from each clean install"
+      },
+      "reviewer": "pending independent review"
+    }
+  },
   "not_run": {}
 }

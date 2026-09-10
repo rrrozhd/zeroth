@@ -27,12 +27,13 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
+from threading import Lock
 from typing import Any, Literal, Protocol
 
 from zeroth.instrumentation.rate_card import RATE_CARD_VERSION, bare_model, price, rates
 from zeroth.protocol import ExecutionEvent, OutcomeEvent
 
-Pricing = Literal["rate_card", "caller", "missing_usage", "unknown_model"]
+Pricing = Literal["rate_card", "caller", "missing_usage", "unknown_model", "unknown_provider"]
 
 
 class EventSink(Protocol):
@@ -99,14 +100,17 @@ class Run:
     workflow_version: str
     run_id: str
     _occurrences: dict[str, int] = field(default_factory=dict)
+    _label: str | None = None
+    _lock: Lock = field(default_factory=Lock)
 
     def event_id(self, step: str, attempt: int) -> str:
         return f"{self.workflow}:{self.workflow_version}:{self.run_id}:{step}:{attempt}"
 
     def step(self, name: str) -> str:
         """A step name unique within the run for repeated invocations of ``name``."""
-        count = self._occurrences.get(name, 0) + 1
-        self._occurrences[name] = count
+        with self._lock:
+            count = self._occurrences.get(name, 0) + 1
+            self._occurrences[name] = count
         return name if count == 1 else f"{name}#{count}"
 
     @contextmanager
@@ -116,6 +120,19 @@ class Run:
             yield self
         finally:
             _current.reset(token)
+
+    @contextmanager
+    def label(self, step: str) -> Iterator[None]:
+        """Name the physical calls captured inside the block (default: the operation)."""
+        previous, self._label = self._label, step
+        try:
+            yield
+        finally:
+            self._label = previous
+
+    def next_step(self, operation: str) -> str:
+        """The step name for a captured call: the active label or the operation, made unique."""
+        return self.step(self._label or operation)
 
     def charge(
         self,
@@ -128,15 +145,18 @@ class Run:
         request_id: str | None = None,
         latency_ms: int = 0,
         error: str | None = None,
+        priced: bool = True,
         recorded_at: datetime | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        """Record one physical model call; usage or model gaps stay unmeasured."""
+        """Record one physical model call; usage, model or provider gaps stay unmeasured."""
         card = rates(model)
         cost: Decimal | None = None
         pricing: Pricing
         if usage is None:
             pricing = "missing_usage"
+        elif not priced:
+            pricing = "unknown_provider"
         elif card is None:
             pricing = "unknown_model"
         else:

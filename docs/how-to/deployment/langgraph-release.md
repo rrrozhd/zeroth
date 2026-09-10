@@ -1,6 +1,6 @@
 # Deploy the LangGraph release
 
-This is the canonical clean install and operations path for Zeroth `0.25.9`.
+This is the canonical clean install and operations path for Zeroth `0.25.9.1`.
 
 The tested compatibility matrix is LangGraph `1.2.9`, Agent Server `0.11.1`,
 and Zeroth adapter `1.0`.
