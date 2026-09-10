@@ -29,6 +29,9 @@ both the hosted service and self-hosted platform.
   fresh evidence harvesting, immutable history, schedules, rollouts, and recalibration records.
 - `src/zeroth/econ/plane/reports/` renders one byte-stable PDF per decision/template version,
   serves it through tenant-authenticated APIs, and audits explicit SMTP delivery attempts.
+- `src/zeroth/service/economic_diagnostic_cli.py::render_migration_markdown` labels migration
+  estimates as unvalidated simulations and legacy verdicts/readiness as recorded values.
+  Markdown rendering preserves the stored report and the CLI's JSON transport output.
 - `packaging/sdk/src/zeroth/protocol/` duplicates the lean transport contracts without importing
   the server runtime.
 - `packaging/sdk/src/zeroth/sdk/client.py` sends typed requests and reads retained history.

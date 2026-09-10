@@ -485,7 +485,7 @@ def _unavailable(value: object, *, suffix: str = "") -> str:
 
 
 def render_migration_markdown(value: object) -> str:
-    """Render retained migration decisions with abstention and advisory state first."""
+    """Render recorded migration diagnostics without implying validated forecasts."""
     if isinstance(value, list):
         if not value:
             return "# Migration decision history\n\nNo retained decisions.\n"
@@ -519,29 +519,34 @@ def render_migration_markdown(value: object) -> str:
         "feasible" if feasible is True else "infeasible" if feasible is False else "unavailable"
     )
     lines = [
-        f"# Migration decision: {verdict}",
+        f"# Recorded migration decision: {verdict}",
         "",
-        f"**Advisory action:** {action}",
+        "Experimental scenario diagnostics. Predictive reliability is unvalidated. "
+        "Simulated savings and risk estimates do not establish future outcomes "
+        "or authorize rollout. "
+        "Recorded actions and verdicts are retained for audit.",
+        "",
+        f"**Recorded action:** {action}",
         "**Advisory-only:** this result does not change production routing.",
         "**Additional evidence required:** "
         + _unavailable(value.get("additional_cases_required"), suffix=" cases"),
         f"**Reason codes:** {', '.join(map(str, reasons)) if reasons else 'unavailable'}",
         "",
-        "## Proposed route",
+        "## Recorded proposed route",
         "",
         f"**Candidate traffic share:** {_unavailable(value.get('recommended_candidate_share'))}",
         "**Complete cohort route:** "
         + (json.dumps(routing, sort_keys=True) if routing else "unavailable"),
         "",
-        "## Forecast readiness",
+        "## Recorded forecast diagnostics",
         "",
-        f"**Calibration state:** {_unavailable(readiness.get('calibration_state'))}",
-        f"**Drift state:** {_unavailable(readiness.get('drift_state'))}",
+        f"**Recorded calibration state:** {_unavailable(readiness.get('calibration_state'))}",
+        f"**Recorded drift state:** {_unavailable(readiness.get('drift_state'))}",
         "",
-        "## Risk and economics",
+        "## Simulated risk and economics",
         "",
-        f"- Monthly cost: {_unavailable(selected.get('expected_monthly_cost_usd'))}",
-        "- Savings interval: "
+        f"- Simulated monthly cost: {_unavailable(selected.get('expected_monthly_cost_usd'))}",
+        "- Simulated savings p05-p95: "
         + _unavailable(selected.get("monthly_savings_p05_usd"))
         + " to "
         + _unavailable(selected.get("monthly_savings_p95_usd")),
@@ -555,7 +560,7 @@ def render_migration_markdown(value: object) -> str:
         "- Critical-error-rate limit: "
         + _unavailable(selected.get("minimum_critical_error_rate_limit")),
         f"- CVaR loss limit: {_unavailable(selected.get('minimum_cvar_loss_limit_usd'))}",
-        f"- Uncertainty qualification: {qualification}",
+        f"- Recorded feasibility: {qualification}",
         f"- Simulations: {_unavailable(value.get('simulations'))}",
         "",
         "## Identifiers",

@@ -177,8 +177,9 @@ def test_evaluate_uses_environment_token_and_round_trips_json(
 
 def test_abstention_markdown_is_advisory_and_evidence_first() -> None:
     rendered = cli.render_migration_markdown(decision())
-    assert rendered.startswith("# Migration decision: ABSTAIN\n")
-    assert "**Advisory action:** collect evidence" in rendered
+    assert rendered.startswith("# Recorded migration decision: ABSTAIN\n")
+    assert "**Recorded action:** collect evidence" in rendered
+    assert "Predictive reliability is unvalidated" in rendered
     assert "**Additional evidence required:** 20 cases" in rendered
     assert rendered.index("Additional evidence") < rendered.index("Candidate traffic share")
     assert "authorization" not in rendered.lower()
@@ -207,11 +208,15 @@ def test_recommendation_markdown_renders_risk_and_customer_limits() -> None:
         }
     ]
     rendered = cli.render_migration_markdown(value)
+    assert rendered.startswith("# Recorded migration decision: RECOMMEND\n")
+    assert "do not establish future outcomes or authorize rollout" in rendered
+    assert "## Simulated risk and economics" in rendered
+    assert "Simulated savings p05-p95: 10 to 20" in rendered
     assert "Quality breach probability: 0.01" in rendered
     assert "CVaR loss: 4" in rendered
     assert "Quality-drop tolerance: 0.04" in rendered
     assert "P95 latency limit: 900" in rendered
-    assert "Uncertainty qualification: feasible" in rendered
+    assert "Recorded feasibility: feasible" in rendered
 
 
 def test_markdown_preserves_actual_readiness_and_infeasible_states() -> None:
@@ -226,9 +231,10 @@ def test_markdown_preserves_actual_readiness_and_infeasible_states() -> None:
 
     rendered = cli.render_migration_markdown(value)
 
-    assert "**Calibration state:** calibrated" in rendered
-    assert "**Drift state:** warning" in rendered
-    assert "Uncertainty qualification: infeasible" in rendered
+    assert "**Recorded calibration state:** calibrated" in rendered
+    assert "**Recorded drift state:** warning" in rendered
+    assert "Predictive reliability is unvalidated" in rendered
+    assert "Recorded feasibility: infeasible" in rendered
 
 
 @pytest.mark.parametrize(
