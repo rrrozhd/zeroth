@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo/zeroth-logo.svg">
-    <img src="docs/assets/logo/zeroth-logo.svg" alt="Zeroth" width="440">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo/zeroth-logo-dark.svg">
+    <img src="docs/assets/logo/zeroth-logo-dark.svg" alt="Zeroth" width="440">
   </picture>
 </p>
 
