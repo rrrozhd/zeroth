@@ -8,11 +8,14 @@ one charge from the event's usage, named after the agent role or task, and an
 ``LLMCallFailedEvent`` becomes an unmeasured attempt. Crews, tasks and agents
 are aggregates: counted for the run summary, never charged.
 
-Attribution: CrewAI dispatches events on a handler thread with the emitter's
-context, so ``current_run()`` names the run for sequential work, flows and
-``kickoff_async``. Tasks with ``async_execution=True`` run on plain threads
-without context, so the crew that kicked off inside a run is remembered and
-those calls are attributed through their agent's crew.
+Attribution: CrewAI dispatches events on pooled handler threads with the
+emitter's context, so ``current_run()`` names the run for sequential work, flows
+and ``kickoff_async``. Tasks with ``async_execution=True`` run on plain threads
+without context, so ``instrument_crewai()`` also wraps ``Crew.kickoff`` to bind
+the crew to the run active in the application thread before any task thread
+exists; those calls are attributed through their agent's crew. Because the pool
+may process a call's completion before its start, charges are built from the
+completion event's own fields; start events only record timing.
 
 Billing identity comes from the model name only: ``provider/model`` (the
 LiteLLM form CrewAI uses) declares the provider; a bare name is recorded with
@@ -21,6 +24,7 @@ provider ``unknown`` and stays unmeasured unless ``default_provider`` is given.
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass
 from threading import Lock
 from time import perf_counter
@@ -28,11 +32,7 @@ from typing import Any
 
 from crewai.events import BaseEventListener, crewai_event_bus
 from crewai.events.types.agent_events import AgentExecutionStartedEvent
-from crewai.events.types.crew_events import (
-    CrewKickoffCompletedEvent,
-    CrewKickoffFailedEvent,
-    CrewKickoffStartedEvent,
-)
+from crewai.events.types.crew_events import CrewKickoffStartedEvent
 from crewai.events.types.llm_events import (
     LLMCallCompletedEvent,
     LLMCallFailedEvent,
@@ -46,11 +46,7 @@ PRICED_PROVIDERS = frozenset({"openai", "anthropic"})
 
 @dataclass
 class _Pending:
-    run: Run
-    step: str
     started: float
-    model: str
-    provider: str
 
 
 def _identity(model: str | None, default_provider: str | None) -> tuple[str, str]:
@@ -85,9 +81,19 @@ class ZerothCrewListener(BaseEventListener):
         self._priced = priced_providers
         self._lock = Lock()
         self._pending: dict[str, _Pending] = {}
-        self._crew_runs: dict[int, Run] = {}
+        self._crew_runs: dict[int, tuple[Any, Run]] = {}
         self._aggregates: dict[int, dict[str, Any]] = {}
         super().__init__()
+
+    def bind_crew(self, crew: Any, run: Run) -> None:
+        """Remember which run a crew kicked off in; entries die with the crew object."""
+        key = id(crew)
+        try:
+            ref = weakref.ref(crew, lambda _ref, key=key: self._crew_runs.pop(key, None))
+        except TypeError:  # pragma: no cover - crews are weak-referenceable in 1.14+
+            ref = None
+        with self._lock:
+            self._crew_runs[key] = (ref, run)
 
     def _run_for(self, event: Any) -> Run | None:
         run = current_run()
@@ -95,8 +101,11 @@ class ZerothCrewListener(BaseEventListener):
             return run
         agent = getattr(event, "from_agent", None)
         crew = getattr(agent, "crew", None)
+        if crew is None:
+            return None
         with self._lock:
-            return self._crew_runs.get(id(crew)) if crew is not None else None
+            bound = self._crew_runs.get(id(crew))
+        return bound[1] if bound is not None else None
 
     def _aggregate(self, run: Run) -> dict[str, Any]:
         return self._aggregates.setdefault(
@@ -115,19 +124,9 @@ class ZerothCrewListener(BaseEventListener):
             run = current_run()
             if run is None:
                 return
+            self.bind_crew(source, run)  # fallback when Crew.kickoff was not wrapped
             with self._lock:
-                self._crew_runs[id(source)] = run
                 self._aggregate(run)["crews"] += 1
-
-        @bus.on(CrewKickoffCompletedEvent)
-        def kickoff_completed(source, event):
-            with self._lock:
-                self._crew_runs.pop(id(source), None)
-
-        @bus.on(CrewKickoffFailedEvent)
-        def kickoff_failed(source, event):
-            with self._lock:
-                self._crew_runs.pop(id(source), None)
 
         @bus.on(TaskStartedEvent)
         def task_started(source, event):
@@ -147,54 +146,62 @@ class ZerothCrewListener(BaseEventListener):
 
         @bus.on(LLMCallStartedEvent)
         def call_started(source, event):
+            with self._lock:
+                self._pending[event.call_id] = _Pending(perf_counter())
+
+        @bus.on(LLMCallCompletedEvent)
+        def call_completed(source, event):
             run = self._run_for(event)
             if run is None:
                 return
             model, provider = _identity(event.model, self._default_provider)
-            step = run.next_step(event.agent_role or event.task_name or "llm")
-            with self._lock:
-                self._pending[event.call_id] = _Pending(run, step, perf_counter(), model, provider)
-
-        @bus.on(LLMCallCompletedEvent)
-        def call_completed(source, event):
-            pending = self._take(event)
-            if pending is None:
-                return
-            pending.run.charge(
-                pending.step, model=pending.model, usage=_usage(event.usage),
-                provider=pending.provider, priced=pending.provider in self._priced,
-                request_id=getattr(event, "response_id", None),
-                latency_ms=int((perf_counter() - pending.started) * 1000),
+            run.charge(
+                run.next_step(event.agent_role or event.task_name or "llm"), model=model,
+                usage=_usage(event.usage), provider=provider, priced=provider in self._priced,
+                request_id=getattr(event, "response_id", None), latency_ms=self._latency(event),
                 metadata={"framework": "crewai", "agent": event.agent_role,
                           "task": event.task_name},
             )
 
         @bus.on(LLMCallFailedEvent)
         def call_failed(source, event):
-            pending = self._take(event)
-            if pending is None:
+            run = self._run_for(event)
+            if run is None:
                 return
-            pending.run.charge(
-                pending.step, model=pending.model, usage=None, provider=pending.provider,
-                priced=pending.provider in self._priced, error=str(event.error)[:120],
-                latency_ms=int((perf_counter() - pending.started) * 1000),
+            model, provider = _identity(event.model, self._default_provider)
+            run.charge(
+                run.next_step(event.agent_role or event.task_name or "llm"), model=model,
+                usage=None, provider=provider, priced=provider in self._priced,
+                error=str(event.error)[:120], latency_ms=self._latency(event),
                 metadata={"framework": "crewai", "agent": event.agent_role,
                           "task": event.task_name},
             )
 
-    def _take(self, event: Any) -> _Pending | None:
+    def _latency(self, event: Any) -> int:
         with self._lock:
             pending = self._pending.pop(getattr(event, "call_id", None), None)
-            if pending is not None:
-                return pending
-            run = self._run_for(event)
-            for call_id, candidate in reversed(list(self._pending.items())):
-                if candidate.run is run:
-                    return self._pending.pop(call_id)
-        return None
+        return 0 if pending is None else int((perf_counter() - pending.started) * 1000)
 
 
 _listener: ZerothCrewListener | None = None
+
+
+def _wrap_kickoff(listener: ZerothCrewListener) -> None:
+    """Bind crew->run in the application thread, before any async task thread exists."""
+    from crewai import Crew
+
+    original = Crew.kickoff
+    if getattr(original, "_zeroth_captured", False):
+        return
+
+    def kickoff(self, *args: Any, **kwargs: Any):
+        run = current_run()
+        if run is not None:
+            listener.bind_crew(self, run)
+        return original(self, *args, **kwargs)
+
+    kickoff._zeroth_captured = True  # type: ignore[attr-defined]
+    Crew.kickoff = kickoff
 
 
 def instrument_crewai(**options: Any) -> ZerothCrewListener:
@@ -202,6 +209,7 @@ def instrument_crewai(**options: Any) -> ZerothCrewListener:
     global _listener
     if _listener is None:
         _listener = ZerothCrewListener(**options)
+        _wrap_kickoff(_listener)
     return _listener
 
 

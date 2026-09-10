@@ -45,9 +45,13 @@ with recorder.run("research-crew", "2026.09", request_id).active() as run:
   `listener.aggregates(run)` for the run summary; they are never charged.
 - **Attribution.** The listener reads the active run where the call is made.
   CrewAI delivers events with the emitter's context, so sequential crews, flows
-  and `kickoff_async` attribute directly; tasks with `async_execution=True` run
-  on plain threads, so calls are attributed through the crew that kicked off
-  inside the run. Two crews in two threads each get their own run.
+  and `kickoff_async` attribute directly. Tasks with `async_execution=True` run
+  on plain threads, so `instrument_crewai()` also wraps `Crew.kickoff` to bind
+  the crew to the run active in your thread before any task thread exists;
+  those calls are attributed through their agent's crew. Two crews in two
+  threads each get their own run. CrewAI processes events on pooled handler
+  threads, so a call's completion may be handled before its start: charges are
+  built from the completion event itself, never from pairing order.
 - **Identity.** Name models in CrewAI's `provider/model` form
   (`openai/gpt-4.1-mini`, `anthropic/claude-haiku-4-5-20251001`); that prefix is
   the declared billing provider. A bare name is recorded with provider `unknown`

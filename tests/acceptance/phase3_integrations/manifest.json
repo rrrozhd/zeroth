@@ -182,7 +182,7 @@
         "os": "macOS arm64",
         "node": null
       },
-      "identity_mapping": "INTERFACE.md: step = agent role or task name per LLM call (planner, planner#2; llm for flows); one charge per LLMCallCompletedEvent paired by call_id, LLMCallFailedEvent = unmeasured attempt; crews, tasks and agent executions are aggregates on the run summary; attribution by the emitter's context, falling back to the crew that kicked off inside the run for async_execution tasks",
+      "identity_mapping": "INTERFACE.md: step = agent role or task name per LLM call (planner, planner#2; llm for flows); one charge per LLMCallCompletedEvent built from the event's own fields, LLMCallFailedEvent = unmeasured attempt; crews, tasks and agent executions are aggregates on the run summary; attribution by the emitter's context, with Crew.kickoff wrapped to bind crew->run synchronously in the application thread for async_execution tasks",
       "cost_categories": {
         "model": "estimated from the rate card using the event's usage dict (cached prompt tokens subtracted); provider from the provider/model name prefix",
         "tool": "caller-asserted via run.tool_charge",
@@ -197,10 +197,11 @@
       "excluded_modes": [
         "live provider calls (NOT_RUN); streaming and tool-calling LLM modes not exercised (fake LLMs answer in ReAct form)",
         "CrewAI's dependency set conflicts with this environment's pins, so every check runs in a pinned subprocess venv (no harness-venv version)",
-        "events are dispatched on handler threads: charge insertion order is not guaranteed"
+        "events are dispatched on handler threads: charge insertion order is not guaranteed",
+        "Crew.kickoff is wrapped at class level (idempotent) to bind crews to runs; an application that bypasses kickoff cannot attribute async tasks"
       ],
       "evidence": {
-        "tests": "test_c04_crewai.py (2 checks: floor and current pinned environments, each reference + modes)",
+        "tests": "test_c04_crewai.py (2 checks: floor and current pinned environments, each reference + modes; six consecutive passes after the attribution repair)",
         "clean_install": [
           "evidence/c04_crewai-floor.json",
           "evidence/c04_crewai-current.json"

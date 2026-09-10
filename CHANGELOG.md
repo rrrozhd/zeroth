@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.6]
+
+### Fixed
+
+- `instrument_crewai` lost charges for `async_execution` tasks: the crew-to-run
+  binding was populated by a pooled bus handler that could run after the task's
+  first LLM event, and start/completion handlers for one call could be processed
+  out of order. `Crew.kickoff` is now wrapped to bind the crew to the active run
+  in the application thread, and charges are built from the completion event's
+  own fields. Six consecutive conformance passes at crewai 1.14.0 and 1.15.21.
+
 ## [0.25.9.5]
 
 ### Added
