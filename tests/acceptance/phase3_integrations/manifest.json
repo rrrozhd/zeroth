@@ -165,6 +165,49 @@
         "reconciled": "expected_ledger.json v1 and v2 through the agents; v1 again from each clean install"
       },
       "reviewer": "pending independent review"
+    },
+    "C04": {
+      "setup": "CrewAI, Python crews and flows",
+      "recipe": "packaging/sdk/recipes/c04_crewai",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "crewai": {
+          "floor": "1.14.0",
+          "current": "1.15.21",
+          "harness": null
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: step = agent role or task name per LLM call (planner, planner#2; llm for flows); one charge per LLMCallCompletedEvent paired by call_id, LLMCallFailedEvent = unmeasured attempt; crews, tasks and agent executions are aggregates on the run summary; attribution by the emitter's context, falling back to the crew that kicked off inside the run for async_execution tasks",
+      "cost_categories": {
+        "model": "estimated from the rate card using the event's usage dict (cached prompt tokens subtracted); provider from the provider/model name prefix",
+        "tool": "caller-asserted via run.tool_charge",
+        "unmeasured": "missing or zero usage, unlisted model, bare model name without default_provider, failed call"
+      },
+      "supported_modes": [
+        "sequential crews, async_execution tasks with context merge, Flow start/listen, kickoff in threads",
+        "agent retry (max_retry_limit) charged per attempt; application-level retry and fallback",
+        "two concurrent crews on two runs without leakage; idempotent instrument_crewai()",
+        "bare model names recorded unmeasured with provider unknown"
+      ],
+      "excluded_modes": [
+        "live provider calls (NOT_RUN); streaming and tool-calling LLM modes not exercised (fake LLMs answer in ReAct form)",
+        "CrewAI's dependency set conflicts with this environment's pins, so every check runs in a pinned subprocess venv (no harness-venv version)",
+        "events are dispatched on handler threads: charge insertion order is not guaranteed"
+      ],
+      "evidence": {
+        "tests": "test_c04_crewai.py (2 checks: floor and current pinned environments, each reference + modes)",
+        "clean_install": [
+          "evidence/c04_crewai-floor.json",
+          "evidence/c04_crewai-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 at both pins, v2 at current, through crews"
+      },
+      "reviewer": "pending independent review"
     }
   },
   "not_run": {}

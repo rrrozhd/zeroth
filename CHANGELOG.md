@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.4]
+
+### Added
+
+- C04 capture recipe for CrewAI crews and flows
+  (`zeroth.instrumentation.crewai.instrument_crewai`, `packaging/sdk/recipes/c04_crewai`):
+  one listener on CrewAI's event bus charges each completed LLM call from its usage
+  and each failed call as an unmeasured attempt, counts crews, tasks and agents as
+  money-free aggregates, attributes async-execution tasks through their crew, and
+  registers idempotently. Conformance checks run in pinned environments at crewai
+  1.14.0 and 1.15.21. Still not an accepted support row.
+
 ## [0.25.9.3]
 
 ### Added
