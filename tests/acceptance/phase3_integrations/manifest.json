@@ -257,13 +257,56 @@
         "reconciled": "expected_ledger.json v1 at both pins and v2 at current, exact on the 8 uncached runs and exact-magnitude on the cached run"
       },
       "reviewer": "pending independent review"
+    },
+    "C07": {
+      "setup": "Custom Python or TypeScript workers using explicit economic events",
+      "recipe": "packaging/sdk/recipes/c07_workers",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "python": {
+          "sdk": "zeroth-sdk source (httpx, pydantic)"
+        },
+        "typescript": {
+          "node_tested": "v26.5.0",
+          "floor": "22.6 via --experimental-strip-types (flag path exercised on the installed Node; no Node 22 binary available: NOT_RUN)",
+          "packages": "none (node:util, node:fs/promises only)"
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": "v26.5.0"
+      },
+      "identity_mapping": "INTERFACE.md by hand: event_id workflow:version:run:step:attempt, charge_id charge:+event_id, one charge per physical call, one money-free summary per run, outcomes with declared maturity; the TypeScript worker embeds a copy of the four-model rate card and prices in exact 1e-8 integer units",
+      "cost_categories": {
+        "model": "estimated from the rate card (Python: zeroth.instrumentation.rate_card; TypeScript: embedded copy, parity-tested through identical ledgers)",
+        "tool": "caller-asserted measured amount",
+        "unmeasured": "missing usage or unlisted model (cost_usd null)"
+      },
+      "supported_modes": [
+        "both workers reproduce the frozen workload for two versions with identical ledgers and identical normalised version-comparison decisions",
+        "TypeScript: fetch with AbortSignal.timeout, idempotent retry with backoff on 5xx, dropped connections and timeouts to exactly-once delivery; 4xx reported as lost without retry; all deliveries awaited before exit",
+        "Python: Recorder(raise_on_error=False) with bounded replay of recorder.lost",
+        "--experimental-strip-types path (Node 22.6+ semantics) reconciles"
+      ],
+      "excluded_modes": [
+        "live provider or hosted deployment (NOT_RUN); no actual Node 22 binary on this machine",
+        "the TypeScript rate card is a copy: drift is caught only by the parity test at the pinned SDK version",
+        "the timed-out request test holds the proxy busy, so the timeout case needs several attempts (harness artefact, documented)"
+      ],
+      "evidence": {
+        "tests": "test_c07_workers.py (5 checks)",
+        "file": "evidence/c07_workers.json",
+        "reconciled": "expected_ledger.json v1 and v2 through both workers; parity verdict abstain"
+      },
+      "reviewer": "pending independent review"
     }
   },
   "not_run": {},
   "lifecycle": {
     "status": "measured on the loopback server; not an accepted gate",
     "evidence": "evidence/lifecycle.json",
-    "overhead_per_call_ms": 17.235,
+    "overhead_per_call_ms": 10.496,
     "overhead_method": "wall-clock over 200 sequential chat.completions calls to an in-process mock provider; instrumented runs deliver one event per call synchronously over HTTP to the loopback economic server on this machine. A measurement of this setup, not a threshold verdict: the A11 adapter-overhead SLO is unset.",
     "not_run": [
       "hosted backend, real network partition, multi-process shutdown ordering"

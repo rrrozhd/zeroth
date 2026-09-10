@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.8]
+
+### Added
+
+- C07 explicit-worker recipes (`packaging/sdk/recipes/c07_workers`): a standalone
+  TypeScript worker on Node built-ins that builds the same event identities,
+  metadata and exact-integer pricing as the Python contract, delivers with
+  abort timeouts and idempotent retry, awaits every delivery and can run the
+  version comparison; and a Python worker on the SDK client with bounded replay
+  of lost deliveries. Conformance checks show identical ledgers and normalised
+  decisions from both, exactly-once delivery through injected 503, dropped and
+  timed-out requests, 4xx reported without retry, and the strip-types flag path.
+  Still not an accepted support row.
+
 ## [0.25.9.7]
 
 ### Added
