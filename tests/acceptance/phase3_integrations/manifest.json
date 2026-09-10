@@ -20,7 +20,7 @@
         "openai": {
           "floor": "1.66.0",
           "current": "3.11.0",
-          "harness": "2.30.0"
+          "harness": "2.54.0"
         },
         "anthropic": {
           "floor": "0.40.0",
@@ -54,12 +54,66 @@
         "retries preceding a final failure are not individually visible (retries_unobserved)"
       ],
       "evidence": {
-        "tests": "test_c01_direct.py (11 checks)",
+        "tests": "test_c01_direct.py (11 checks; harness re-run after langchain-openai raised openai to 2.54.0)",
         "clean_install": [
           "evidence/c01_direct-floor.json",
           "evidence/c01_direct-current.json"
         ],
         "reconciled": "expected_ledger.json v1 and v2 through the application; v1 again from each clean install"
+      },
+      "reviewer": "pending independent review"
+    },
+    "C02": {
+      "setup": "Python LangGraph / LangChain agents",
+      "recipe": "packaging/sdk/recipes/c02_langgraph",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "langchain": {
+          "floor": "1.0.0",
+          "current": "1.4.0",
+          "harness": "1.3.14"
+        },
+        "langgraph": {
+          "floor": "1.0.0",
+          "current": "1.2.11",
+          "harness": "1.2.9"
+        },
+        "langchain-openai": {
+          "floor": "1.0.0",
+          "current": "1.6.2",
+          "harness": "1.6.2"
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: step = LangGraph node name (branch, branch#2) or chat_model; one charge per observed chat-model call; chains/graphs never charged; a provider adapter on the same client charges the physical call and the handler skips it (context-local scope, step name adopted)",
+      "cost_categories": {
+        "model": "estimated from the rate card using usage_metadata (cache_read subtracted from input); provider/model from response metadata",
+        "tool": "caller-asserted via run.tool_charge",
+        "unmeasured": "missing usage_metadata, unlisted model, provider outside {openai, anthropic}, raised model call"
+      },
+      "supported_modes": [
+        "multi-step graph, Send fan-out, subgraph, interrupt/resume with checkpointer, streaming with stream_usage, with_fallbacks",
+        "handler-only and handler + instrument_openai on the same ChatOpenAI client: identical ledgers",
+        "application-level retry as a new step occurrence; raised calls charged unmeasured",
+        "coexisting callback handlers (LangSmith-style stand-in) and OpenTelemetry spans"
+      ],
+      "excluded_modes": [
+        "live provider calls (NOT_RUN); ChatAnthropic and other integrations exercised only via the response-metadata contract",
+        "a node that calls a model and then interrupts re-executes on resume and is charged again (provider ran again)",
+        "raw-response streams through the provider adapter are charged by the framework hook, not the adapter",
+        "LangSmith itself not installed; represented by a stand-in handler"
+      ],
+      "evidence": {
+        "tests": "test_c02_langgraph.py (8 checks)",
+        "clean_install": [
+          "evidence/c02_langgraph-floor.json",
+          "evidence/c02_langgraph-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 and v2 through the graphs; v1 again from each clean install"
       },
       "reviewer": "pending independent review"
     }

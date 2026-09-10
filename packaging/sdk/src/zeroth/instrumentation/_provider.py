@@ -6,6 +6,7 @@ from collections.abc import Callable
 from time import perf_counter
 from typing import Any
 
+from zeroth.instrumentation._scope import current_scope, mark_charged
 from zeroth.instrumentation.capture import Run, Usage, current_run
 
 
@@ -14,7 +15,9 @@ class Capture:
 
     def __init__(self, run: Run, operation: str, *, provider: str, priced: bool) -> None:
         self.run = run
-        self.step = run.next_step(operation)
+        scope = current_scope()
+        framework_step = scope.step if scope is not None and not scope.charged else None
+        self.step = framework_step or run.next_step(operation)
         self.provider = provider
         self.priced = priced
         self.model_hint = "unknown"
@@ -39,6 +42,7 @@ class Capture:
         if self.charged:
             return
         self.charged = True
+        mark_charged()
         self.run.charge(
             self.step, attempt=attempt, model=model, usage=usage, provider=self.provider,
             request_id=request_id, priced=self.priced, latency_ms=self._elapsed(),
@@ -50,6 +54,7 @@ class Capture:
         if self.charged:
             return
         self.charged = True
+        mark_charged()
         self.run.charge(
             self.step, attempt=attempt, model=model, usage=None, provider=self.provider,
             error="aborted", priced=self.priced, latency_ms=self._elapsed(),
@@ -62,6 +67,7 @@ class Capture:
         if self.charged:
             return
         self.charged = True
+        mark_charged()
         status = getattr(error, "status_code", None)
         self.run.charge(
             self.step, attempt=attempt, model=model, usage=None, provider=self.provider,

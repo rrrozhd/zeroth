@@ -176,6 +176,56 @@ def _settle(capture: Capture, kind: str, raw: Any, parsed: Any, model: str, stre
     return parsed
 
 
+def _captured_raw(kind: str, raw_create: Any, provider: str, priced: bool, asynchronous: bool):
+    """Capture ``with_raw_response.create``: callers such as ChatOpenAI use it for headers.
+
+    A non-stream raw call is charged from its parsed body (the SDK caches the
+    parse, so the caller's own ``parse()`` sees the same object). A raw stream is
+    returned untouched: its completion is observed by whoever iterates it, so a
+    framework hook records that charge and this adapter does not mark the scope.
+    """
+
+    def factory(original):
+        if asynchronous:
+            async def create(*args: Any, **kwargs: Any) -> Any:
+                capture = active(kind, provider, priced)
+                if capture is None:
+                    return await original(*args, **kwargs)
+                model = str(kwargs.get("model", "unknown"))
+                try:
+                    raw = await raw_create(*args, **kwargs)
+                    parsed = None if kwargs.get("stream") else raw.parse()
+                    if inspect.isawaitable(parsed):
+                        parsed = await parsed
+                except BaseException as error:
+                    capture.failed(error, model=model)
+                    raise
+                if parsed is not None:
+                    _settle(capture, kind, raw, parsed, model, False)
+                return raw
+
+            return create
+
+        def create(*args: Any, **kwargs: Any) -> Any:
+            capture = active(kind, provider, priced)
+            if capture is None:
+                return original(*args, **kwargs)
+            model = str(kwargs.get("model", "unknown"))
+            try:
+                raw = raw_create(*args, **kwargs)
+                parsed = None if kwargs.get("stream") else raw.parse()
+            except BaseException as error:
+                capture.failed(error, model=model)
+                raise
+            if parsed is not None:
+                _settle(capture, kind, raw, parsed, model, False)
+            return raw
+
+        return create
+
+    return factory
+
+
 def instrument_openai(client: Any, *, declared_provider: str | None = None) -> Any:
     """Capture chat completions and responses on an ``OpenAI``/``AsyncOpenAI`` client.
 
@@ -188,6 +238,9 @@ def instrument_openai(client: Any, *, declared_provider: str | None = None) -> A
     provider, priced = official(client, HOST, declared_provider)
     asynchronous = isinstance(client, openai.AsyncOpenAI)
     for kind, resource in (("chat", client.chat.completions), ("responses", client.responses)):
-        raw_create = resource.with_raw_response.create  # bound before create is replaced
+        raw_resource = resource.with_raw_response  # cached by the SDK; built from the original
+        raw_create = raw_resource.create  # bound before either create is replaced
         bind(resource, "create", _captured(kind, raw_create, provider, priced, asynchronous))
+        raw = _captured_raw(kind, raw_create, provider, priced, asynchronous)
+        bind(raw_resource, "create", raw)
     return client

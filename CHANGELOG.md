@@ -33,6 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.2]
+
+### Added
+
+- C02 capture recipe for LangGraph / LangChain applications
+  (`zeroth.instrumentation.langchain.ZerothCallbackHandler`,
+  `packaging/sdk/recipes/c02_langgraph`): one charge per observed chat-model call
+  from the framework's usage metadata, graphs and chains never charged, and a
+  context-local scope so a provider adapter on the same client and the handler
+  cannot double count. Conformance checks cover fan-out, subgraphs, interrupt and
+  resume, streaming, fallbacks, coexisting tracers and clean installs at the floor
+  and current pins. Still not an accepted support row.
+
+### Fixed
+
+- `instrument_openai` / `instrument_anthropic` now also capture the SDKs'
+  `with_raw_response.create` path, which `ChatOpenAI` and header-reading callers
+  use and which previously bypassed capture.
+
 ## [0.25.9.1]
 
 ### Added

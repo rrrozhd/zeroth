@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-platform"
-version = "0.25.9.1"
+version = "0.25.9.2"
 
 description = "Economic debugger and governed change evidence for production AI workflows"
 readme = "README.md"
@@ -213,6 +213,7 @@ dev = [
 # environment; each recipe project pins its own floor/current versions separately.
 integration-conformance = [
     "anthropic>=0.40,<2",
+    "langchain-openai>=1.0,<2",
 ]
 gateway-conformance = [
     "langchain==1.3.14",

@@ -217,6 +217,50 @@ def _captured_create(raw_create: Any, provider: str, priced: bool, asynchronous:
     return factory
 
 
+def _captured_raw(raw_create: Any, provider: str, priced: bool, asynchronous: bool):
+    """Capture ``messages.with_raw_response.create``; raw streams are left to the observer."""
+
+    def factory(original):
+        if asynchronous:
+            async def create(*args: Any, **kwargs: Any) -> Any:
+                capture = active("messages", provider, priced)
+                if capture is None:
+                    return await original(*args, **kwargs)
+                model = str(kwargs.get("model", "unknown"))
+                try:
+                    raw = await raw_create(*args, **kwargs)
+                    parsed = None if kwargs.get("stream") else raw.parse()
+                    if inspect.isawaitable(parsed):
+                        parsed = await parsed
+                except BaseException as error:
+                    capture.failed(error, model=model)
+                    raise
+                if parsed is not None:
+                    _settle_create(capture, raw, parsed, model, False)
+                return raw
+
+            return create
+
+        def create(*args: Any, **kwargs: Any) -> Any:
+            capture = active("messages", provider, priced)
+            if capture is None:
+                return original(*args, **kwargs)
+            model = str(kwargs.get("model", "unknown"))
+            try:
+                raw = raw_create(*args, **kwargs)
+                parsed = None if kwargs.get("stream") else raw.parse()
+            except BaseException as error:
+                capture.failed(error, model=model)
+                raise
+            if parsed is not None:
+                _settle_create(capture, raw, parsed, model, False)
+            return raw
+
+        return create
+
+    return factory
+
+
 def _captured_stream(provider: str, priced: bool):
     def factory(original):
         def stream(*args: Any, **kwargs: Any) -> Any:
@@ -243,7 +287,9 @@ def instrument_anthropic(client: Any, *, declared_provider: str | None = None) -
     provider, priced = official(client, HOST, declared_provider)
     asynchronous = isinstance(client, anthropic.AsyncAnthropic)
     resource = client.messages
-    raw_create = resource.with_raw_response.create  # bound before create is replaced
+    raw_resource = resource.with_raw_response  # cached by the SDK; built from the original
+    raw_create = raw_resource.create  # bound before either create is replaced
     bind(resource, "create", _captured_create(raw_create, provider, priced, asynchronous))
+    bind(raw_resource, "create", _captured_raw(raw_create, provider, priced, asynchronous))
     bind(resource, "stream", _captured_stream(provider, priced))
     return client
