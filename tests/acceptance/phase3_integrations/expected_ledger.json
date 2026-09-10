@@ -1,0 +1,226 @@
+{
+  "workflow": "phase3-reference",
+  "units": "1e-8 USD",
+  "versions": {
+    "v1": {
+      "runs": {
+        "delayed_outcome": {
+          "charges": 1,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 170000,
+          "model_cost_units": 170000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 2,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "duplicate_delivery": {
+          "charges": 1,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 110000,
+          "model_cost_units": 110000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "fallback": {
+          "charges": 2,
+          "unmeasured_charges": 1,
+          "measured_cost_units": 540000,
+          "model_cost_units": 540000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "missing_usage": {
+          "charges": 1,
+          "unmeasured_charges": 1,
+          "measured_cost_units": 0,
+          "model_cost_units": 0,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "parallel_calls": {
+          "charges": 3,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 289600,
+          "model_cost_units": 289600,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "rejection": {
+          "charges": 1,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 620000,
+          "model_cost_units": 620000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": false,
+          "maturity": "final"
+        },
+        "retry": {
+          "charges": 2,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 112000,
+          "model_cost_units": 112000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "success": {
+          "charges": 2,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 1470000,
+          "model_cost_units": 1470000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "tool_cost": {
+          "charges": 2,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 940000,
+          "model_cost_units": 440000,
+          "tool_cost_units": 500000,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        }
+      },
+      "totals": {
+        "runs": 9,
+        "charges": 15,
+        "unmeasured_charges": 2,
+        "measured_cost_units": 4251600,
+        "accepted_runs": 8
+      }
+    },
+    "v2": {
+      "runs": {
+        "delayed_outcome": {
+          "charges": 1,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 150000,
+          "model_cost_units": 150000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 2,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "duplicate_delivery": {
+          "charges": 1,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 90000,
+          "model_cost_units": 90000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "fallback": {
+          "charges": 2,
+          "unmeasured_charges": 1,
+          "measured_cost_units": 424000,
+          "model_cost_units": 424000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "missing_usage": {
+          "charges": 1,
+          "unmeasured_charges": 1,
+          "measured_cost_units": 0,
+          "model_cost_units": 0,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "parallel_calls": {
+          "charges": 3,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 230800,
+          "model_cost_units": 230800,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "rejection": {
+          "charges": 1,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 500000,
+          "model_cost_units": 500000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": false,
+          "maturity": "final"
+        },
+        "retry": {
+          "charges": 2,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 96000,
+          "model_cost_units": 96000,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "success": {
+          "charges": 2,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 1172400,
+          "model_cost_units": 1172400,
+          "tool_cost_units": 0,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        },
+        "tool_cost": {
+          "charges": 2,
+          "unmeasured_charges": 0,
+          "measured_cost_units": 852000,
+          "model_cost_units": 352000,
+          "tool_cost_units": 500000,
+          "summaries": 1,
+          "outcomes": 1,
+          "accepted": true,
+          "maturity": "final"
+        }
+      },
+      "totals": {
+        "runs": 9,
+        "charges": 15,
+        "unmeasured_charges": 2,
+        "measured_cost_units": 3515200,
+        "accepted_runs": 8
+      }
+    }
+  }
+}

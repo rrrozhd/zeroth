@@ -1,0 +1,16 @@
+{
+  "plan": "2cc41450ddb44cf2b73c4ac3dbfd4a63",
+  "candidate": {
+    "branch": "acceptance/phase-3-integrations",
+    "base": "faa162321709a5ebdcd5913c39469badc6849298"
+  },
+  "status": "closure candidate under construction; no row, phase or release gate accepted",
+  "rate_card_version": "2026-09-10/litellm-1.98.0",
+  "frozen": {
+    "workload.py": "1718c9e017d61dceadf6dc3a5740f1791841e3279432a6868bfc939a365382fd",
+    "expected_ledger.json": "07d15159f132eee359fc19f75a713d25164935b74b39c58fb4617f50377d794c",
+    "INTERFACE.md": "7eb6b8e397a817b1b001d681be125e3071defd5d6617b33975d4f1632fd553ae"
+  },
+  "rows": {},
+  "not_run": {}
+}

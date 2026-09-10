@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9]
+
+### Added
+
+- Phase 3 shared capture contract for the sold SDK events: `zeroth.instrumentation.capture`
+  (one physical call, one charge; run aggregates as money-free summaries; stable event and
+  charge identity; customer-owned outcomes) and a pinned `rate_card` for the recipe-tested
+  models, priced as `estimated` and never zero for missing usage or unlisted models.
+- `tests/acceptance/phase3_integrations/`: the frozen nine-family reference workload, its
+  expected ledger, an independent reader over stored rows, and contract checks (exact
+  reconciliation for two versions, duplicate delivery, unmeasured gaps, rate-card parity
+  with the server catalog, refused identity conflicts). No compatibility row, phase or
+  release gate is accepted.
+
 ## [0.25.8.2]
 
 ### Fixed
