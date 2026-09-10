@@ -24,8 +24,8 @@ Once the matching releases are available on your configured package index:
 
 ```bash
 python -m pip uninstall -y zeroth-core
-python -m pip install --no-deps --force-reinstall "zeroth-platform==0.25.9.9"
-python -m pip install "zeroth-core==0.25.9.9"
+python -m pip install --no-deps --force-reinstall "zeroth-platform==0.25.9.10"
+python -m pip install "zeroth-core==0.25.9.10"
 ```
 
 The second command reinstalls only the exact platform distribution, without

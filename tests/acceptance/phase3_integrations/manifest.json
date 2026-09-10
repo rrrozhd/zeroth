@@ -2,9 +2,26 @@
   "plan": "2cc41450ddb44cf2b73c4ac3dbfd4a63",
   "candidate": {
     "branch": "acceptance/phase-3-integrations",
-    "base": "faa162321709a5ebdcd5913c39469badc6849298"
+    "base": "faa162321709a5ebdcd5913c39469badc6849298",
+    "head": "b9e0bf84959956bddde0851c23ad2f15e69b53b2",
+    "commits_since_base": [
+      "b9e0bf84 evidence: re-verify lifecycle after the sticky freshness flag",
+      "966b3fc5 release: v0.25.9.9 \u2014 C06 Vercel AI SDK capture recipe",
+      "82399f37 evidence: restore lifecycle.json to the recorded run",
+      "7b5167b0 release: v0.25.9.8 \u2014 C07 explicit Python and TypeScript worker recipes",
+      "f678191a release: v0.25.9.7 \u2014 Phase 3 lifecycle conformance",
+      "7aac635c release: v0.25.9.6 \u2014 fix CrewAI attribution for async tasks",
+      "b9940e9b release: v0.25.9.5 \u2014 C05 AutoGen AgentChat capture recipe",
+      "e1c225bf release: v0.25.9.4 \u2014 C04 CrewAI capture recipe",
+      "f00ddabf release: v0.25.9.3 \u2014 C03 OpenAI Agents SDK capture recipe",
+      "90257a96 release: v0.25.9.2 \u2014 C02 LangGraph/LangChain capture recipe",
+      "c959ff46 release: v0.25.9.1 \u2014 complete release metadata",
+      "6e641da3 release: v0.25.9.1 \u2014 C01 direct OpenAI/Anthropic capture recipe",
+      "3e085011 release: v0.25.9 \u2014 Phase 3 shared capture contract and frozen conformance workload"
+    ],
+    "worktree": "/Users/dondoe/coding/zeroth-phase3"
   },
-  "status": "closure candidate under construction; no row, phase or release gate accepted",
+  "status": "G3 closure candidate for an independent reviewer; no row, phase or release gate accepted",
   "rate_card_version": "2026-09-10/litellm-1.98.0",
   "frozen": {
     "workload.py": "1718c9e017d61dceadf6dc3a5740f1791841e3279432a6868bfc939a365382fd",
@@ -342,14 +359,173 @@
       "reviewer": "pending independent review"
     }
   },
-  "not_run": {},
+  "not_run": {
+    "live_provider_evidence": {
+      "status": "NOT_RUN",
+      "needs": "owner-authorized provider credentials and a spend allowance for one named model per provider; then run each recipe's reference workload against real endpoints and reconcile with the provider export as in Phase 1",
+      "rows": [
+        "contract",
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "C07"
+      ]
+    },
+    "azure_openai": {
+      "status": "NOT_RUN",
+      "needs": "an Azure deployment name to model mapping and credentials; price provenance recorded explicitly"
+    },
+    "google_gemini": {
+      "status": "NOT_RUN",
+      "needs": "a Gemini native-client or framework recipe with credentials; rate card rows for the selected models"
+    },
+    "openai_compatible_proxy_live": {
+      "status": "NOT_RUN",
+      "needs": "a real LiteLLM/proxy fixture verifying routed model, billed attempts, fallback and dedupe; offline only the identity rule (undeclared base URL stays unmeasured) is tested"
+    },
+    "independent_recipe_reviewer": {
+      "status": "NOT_RUN",
+      "needs": "a reviewer other than the executing agent to run each recipe from a clean environment without editing Zeroth, following README.md"
+    },
+    "node_22_binary": {
+      "status": "NOT_RUN",
+      "needs": "a Node 22.6+ runtime; only the --experimental-strip-types flag path on Node 26.5 was exercised"
+    },
+    "A11_overhead_threshold": {
+      "status": "NOT_RUN",
+      "needs": "owner-selected adapter-overhead SLO (D06); the measurement exists, the judgement does not"
+    },
+    "publication": {
+      "status": "NOT_RUN",
+      "needs": "an SDK release carrying zeroth.instrumentation capture modules; recipes currently install the SDK from the repository path"
+    }
+  },
   "lifecycle": {
     "status": "measured on the loopback server; not an accepted gate",
     "evidence": "evidence/lifecycle.json",
-    "overhead_per_call_ms": 10.496,
+    "overhead_per_call_ms": 12.18,
     "overhead_method": "wall-clock over 200 sequential chat.completions calls to an in-process mock provider; instrumented runs deliver one event per call synchronously over HTTP to the loopback economic server on this machine. A measurement of this setup, not a threshold verdict: the A11 adapter-overhead SLO is unset.",
     "not_run": [
       "hosted backend, real network partition, multi-process shutdown ordering"
     ]
+  },
+  "required_failures": {
+    "unknown model or pricing": {
+      "contract": "tested: unlisted model stored unmeasured (pricing unknown_model)",
+      "C01": "tested: undeclared non-official base URL unmeasured (unknown_provider)",
+      "C02": "tested: providers outside the priced set unmeasured; proxied ChatOpenAI needs priced_providers=()",
+      "C03": "partially: unlisted model unmeasured by construction; not asserted in a test",
+      "C04": "tested: bare model name unmeasured, provider unknown",
+      "C05": "partially: unlisted model unmeasured by construction; not asserted",
+      "C06": "tested: unlisted model unmeasured (unknown_model)",
+      "C07": "partially: unlisted model unmeasured by construction; not asserted"
+    },
+    "denied key (401)": {
+      "contract": "NOT_RUN: the SDK maps 401 to ZerothAuthenticationError and Recorder.lost retains it like 402, but no check injects a 401",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "not exercised",
+      "C07": "not exercised"
+    },
+    "unavailable telemetry backend": {
+      "contract": "tested (lifecycle): 503 outage, dropped connection, refused writes retained and replayed",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "tested: 503/dropped/timed-out requests retried to exactly-once",
+      "C07": "tested: 503/dropped/timed-out requests retried to exactly-once; 4xx lost without retry"
+    },
+    "truncated stream": {
+      "contract": "not exercised",
+      "C01": "tested: aborted chat and messages streams unmeasured",
+      "C02": "partially: streams charged from usage; abort not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "partially: create_stream abort path implemented; only completed streams asserted",
+      "C06": "tested: aborted streamText unmeasured",
+      "C07": "not exercised"
+    },
+    "cancelled request": {
+      "contract": "not exercised",
+      "C01": "tested: asyncio timeout -> unmeasured CancelledError",
+      "C02": "not exercised",
+      "C03": "partially: raising model call charged at hooks exit; cancellation not exercised",
+      "C04": "not exercised",
+      "C05": "tested: cancellation token -> unmeasured attempt",
+      "C06": "tested: AbortSignal.timeout -> unmeasured attempt",
+      "C07": "not exercised"
+    },
+    "event replay": {
+      "contract": "tested: every event delivered twice, totals unchanged",
+      "C01": "tested: captured events re-delivered, all duplicate",
+      "C02": "tested: same",
+      "C03": "tested: same",
+      "C04": "partially: idempotent registration tested; captured-event re-delivery not exercised",
+      "C05": "not exercised",
+      "C06": "tested: retry after lost acknowledgement reports duplicate, one row",
+      "C07": "tested: same"
+    },
+    "conflicting event identity": {
+      "contract": "tested: same event_id with different usage refused 422",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "not exercised",
+      "C07": "not exercised"
+    },
+    "missing outcome": {
+      "contract": "NOT_RUN: every reference run records an outcome; missing outcomes are missing by contract and handled by the comparison's coverage floor (Phase 2 scope)",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "not exercised",
+      "C07": "not exercised"
+    },
+    "tenant mismatch": {
+      "contract": "partially (lifecycle): two tenants concurrently, every row under its own tenant; a payload naming another tenant is refused by the server (_assert_requested_tenant) but not exercised here",
+      "C01": "not exercised",
+      "C02": "not exercised",
+      "C03": "not exercised",
+      "C04": "not exercised",
+      "C05": "not exercised",
+      "C06": "not exercised",
+      "C07": "not exercised"
+    }
+  },
+  "follow_ups": [
+    "Make tests/sdk mock-transport handlers accept httpx2.Response (or pin anthropic<1 in the conformance group) so the opt-in group does not break four existing SDK tests.",
+    "Consolidate the three copies of the four-model rate card (zeroth.instrumentation.rate_card, c07_workers/worker.ts, c06_vercel/capture.ts) behind one generated artefact; drift is currently caught only by reconciliation at the pinned litellm.",
+    "C01 README does not yet state that a with_raw_response stream is charged by the observing framework hook, not the adapter.",
+    "Lifecycle evidence timings are run-varying; the record's prose quotes 12.404 ms per call while the digest-bound evidence file holds the value of the run that was committed (see evidence/lifecycle.json).",
+    "The AgentChat cache split gap (C05) needs a provider-level capture or an upstream usage change before cached tokens can be priced exactly through that framework."
+  ],
+  "reviewer_decision": "pending independent review",
+  "acceptance": {
+    "A07": "not accepted",
+    "A08": "not accepted",
+    "G3-core": "not accepted",
+    "G3-common": "not accepted"
+  },
+  "environment_interactions": [
+    "Installing the opt-in integration-conformance dev group pulls anthropic>=1.0 and therefore httpx2; Starlette 1.3's TestClient then binds to httpx2 and returns httpx2.Response objects, so four pre-existing SDK tests that forward through TestClient inside an httpx.MockTransport fail (tests/sdk/test_calculation_inputs.py and tests/sdk/test_charge_cost_revision_access.py, sqlite and postgres variants). They pass with the default groups (which is what CI installs). Fixes: accept either httpx or httpx2 responses in those handlers, or pin anthropic<1 in the group (which would change the C01 harness version and require re-verifying C01).",
+    "The full suite in a linked worktree cannot collect tests/langgraph_release/test_candidate_compatibility.py (release/langgraph/benchmark-baseline-0.16.1.7.json exists only in the primary tree); the recorded full run used --ignore for that file."
+  ],
+  "full_suite": {
+    "command": "uv run pytest -q -p no:cacheprovider --ignore=tests/langgraph_release/test_candidate_compatibility.py (integration-conformance group installed)",
+    "result": "96 failed, 14177 passed, 13 skipped, 465 deselected, 6 errors in 1282.61s",
+    "attribution": "91 failures and all 6 errors are in release, load-release, langgraph-release, product-validation, architecture and live-evaluation gates untouched by this branch (known artifact-dependent or red-by-design gates); 1 docs failure (test_langgraph_release_docs) fails identically on the base commit faa16232; the 4 SDK failures are the httpx2/TestClient interaction above and pass without the opt-in group.",
+    "log": "/Users/dondoe/.autonomy/sessions/452d0080-2ad6-4f0a-84c6-17c7482237e9/logs/phase3-full-suite.log"
   }
 }

@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.10]
+
+### Added
+
+- Phase 3 G3 reviewer package (`tests/acceptance/phase3_integrations/README.md`,
+  `manifest.json`, `test_package.py`): candidate identity, per-row records with
+  verified pins, the required-failure classification, NOT_RUN legs naming the owner
+  inputs they need, follow-ups, and an integrity test. A07, A08, G3-core and
+  G3-common remain unaccepted; reviewer decision pending independent review.
+
 ## [0.25.9.9]
 
 ### Added
