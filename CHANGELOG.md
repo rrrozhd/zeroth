@@ -33,6 +33,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.7]
+
+### Added
+
+- Phase 3 lifecycle conformance (`tests/acceptance/phase3_integrations/test_lifecycle.py`,
+  `faults.py`, `lifecycle_worker.py`): two tenants running the C01 application and the
+  C02 graphs concurrently with per-tenant ledgers and no cross-run rows; a worker crash
+  mid-workload whose stored rows equal its own delivered log, then a rerun delivering the
+  rest exactly once; rejected writes (402/409/422/503), a dropped connection and an outage
+  window injected by a loopback proxy, retained in `Recorder.lost` by SDK error class and
+  replayed to an exact ledger; provider and tool call counts equal with and without
+  instrumentation; adapter overhead measured and recorded as a number, not judged.
+
 ## [0.25.9.6]
 
 ### Fixed

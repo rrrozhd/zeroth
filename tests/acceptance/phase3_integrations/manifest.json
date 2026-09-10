@@ -259,5 +259,14 @@
       "reviewer": "pending independent review"
     }
   },
-  "not_run": {}
+  "not_run": {},
+  "lifecycle": {
+    "status": "measured on the loopback server; not an accepted gate",
+    "evidence": "evidence/lifecycle.json",
+    "overhead_per_call_ms": 17.235,
+    "overhead_method": "wall-clock over 200 sequential chat.completions calls to an in-process mock provider; instrumented runs deliver one event per call synchronously over HTTP to the loopback economic server on this machine. A measurement of this setup, not a threshold verdict: the A11 adapter-overhead SLO is unset.",
+    "not_run": [
+      "hosted backend, real network partition, multi-process shutdown ordering"
+    ]
+  }
 }

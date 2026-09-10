@@ -1,12 +1,12 @@
 [project]
 name = "zeroth-core"
-version = "0.25.9.6"
+version = "0.25.9.7"
 description = "Compatibility package for the renamed zeroth-platform distribution"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
-    "zeroth-platform==0.25.9.6",
+    "zeroth-platform==0.25.9.7",
 ]
 classifiers = [
     "Development Status :: 7 - Inactive",
