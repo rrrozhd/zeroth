@@ -19,7 +19,7 @@ so the documented version is installed from source):
 ```bash
 git clone https://github.com/rrrozhd/zeroth.git
 cd zeroth
-git checkout v0.25.9
+git checkout v0.25.9.1
 
 uv sync --extra langgraph --extra langgraph-gateway
 ```

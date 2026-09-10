@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.1]
+
+### Added
+
+- C01 capture recipe for direct OpenAI/Anthropic Python SDK applications
+  (`zeroth.instrumentation.openai` / `.anthropic`, `packaging/sdk/recipes/c01_direct`):
+  every physical call is one estimated charge with retries, streams, cancellation,
+  proxies and tool cycles handled honestly; conformance checks reproduce the frozen
+  reference workload through the application and from clean installs at the floor
+  and current pins. Still not an accepted support row.
+
 ## [0.25.9]
 
 ### Added
