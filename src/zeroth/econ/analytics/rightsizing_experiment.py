@@ -212,7 +212,7 @@ class CorrectnessScorer:
         )
 
 
-_HOSTED_JUDGE_MODEL = "openai/gpt-5.6-sol"
+_HOSTED_JUDGE_MODEL = "openai/gpt-5.6-terra"
 _JUDGE_UNRESOLVED = "judge could not resolve whole-answer correctness"
 _WHOLE_ANSWER_INSTRUCTION = (
     "Evaluate the ENTIRE AI answer against the workflow instruction, case facts and "
@@ -859,7 +859,7 @@ class HostedModelBacktest:
                 ]
             )
         if any(
-            _family(_bare_model(option.ref)) in {"gpt-5.6", "gpt-5.6-sol"}
+            _family(_bare_model(option.ref)) == _family(_bare_model(_HOSTED_JUDGE_MODEL))
             for option in (incumbent, candidate)
         ):
             return HostedBacktestResult(

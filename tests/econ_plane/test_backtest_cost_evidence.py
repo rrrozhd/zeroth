@@ -45,7 +45,7 @@ def payload(monkeypatch):
             model=model, provider="openai", input_per_mtok_usd=rate,
             output_per_mtok_usd=rate, blended_per_mtok_usd=rate, savings_pct=0,
         )
-        for model, rate in (("incumbent", 10), ("candidate", 2), ("gpt-5.6-sol", 3))
+        for model, rate in (("incumbent", 10), ("candidate", 2), ("gpt-5.6-terra", 3))
     }
     options.update({option.model: option for option in tuple(options.values())})
     monkeypatch.setattr("zeroth.econ.analytics.rightsizing.describe", options.get)
@@ -80,7 +80,7 @@ async def test_replay_cost_uses_each_models_usage_and_excludes_judging(payload, 
     assert evidence is not None
     assert evidence.version == "correctness-replay/4"
     assert evidence.incumbent_model == "openai/incumbent"
-    assert evidence.judge_model == "openai/gpt-5.6-sol"
+    assert evidence.judge_model == "openai/gpt-5.6-terra"
     assert result.pricing_snapshot[evidence.judge_model]["input_per_mtok_usd"] == "3.0"
     assert evidence.candidate_model == "openai/candidate"
     assert evidence.parameters == "judge_max_tokens_8192"

@@ -162,10 +162,10 @@ both the hosted service and self-hosted platform.
   results into that content-free object; replay and judge errors force abstention.
   Hosted `correctness-replay/4` uses `WholeAnswerScorer` in
   `econ/analytics/rightsizing_experiment.py`: workflow and complete case/reference/
-  output -> configured GPT-5.6 Sol judge -> correct/incorrect/unresolved. Correct/incorrect
+  output -> configured GPT-5.6 Terra judge -> correct/incorrect/unresolved. Correct/incorrect
   encode as 1/0; unresolved has no grade and forces abstention through the existing
   evaluation-error path, with a distinct retained status. The judge has a 8192-token
-  output cap and its own price/usage meter. Sol and its `gpt-5.6` alias stop before
+  output cap and its own price/usage meter. Same-family Terra comparisons stop before
   calls; this avoids direct self-grading but does not establish judge validity.
   Older `/1`–`/3` evidence and the OSS numeric scorer retain their original behavior.
   The backtest adapter/service retain it in existing report JSON. Historical

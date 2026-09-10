@@ -63,7 +63,7 @@ async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(
     options = {
         "openai/incumbent": _option("incumbent", 10),
         "openai/candidate": _option("candidate", 2),
-        "openai/gpt-5.6-sol": _option("gpt-5.6-sol", 3),
+        "openai/gpt-5.6-terra": _option("gpt-5.6-terra", 3),
     }
     monkeypatch.setattr("zeroth.econ.analytics.rightsizing.describe", options.get)
     provider = _Provider()
@@ -105,7 +105,7 @@ async def test_managed_executor_runs_bounded_incumbent_and_candidate_replays(
     ] * 2
     judges = [r for r in provider.requests if r.output_model is not None]
     assert len(judges) == 10
-    assert {r.model_name for r in judges} == {"openai/gpt-5.6-sol"}
+    assert {r.model_name for r in judges} == {"openai/gpt-5.6-terra"}
     assert all(r.model_params.max_tokens == 8192 for r in judges)
     contexts = [
         json.loads(r.messages[0]["content"].split("Request:\n", 1)[1].split("\n\nSupplied reference answer", 1)[0])
@@ -122,7 +122,7 @@ async def test_completed_quality_regression_is_decidable_not_inconclusive(monkey
     options = {
         "openai/incumbent": _option("incumbent", 10),
         "openai/candidate": _option("candidate", 2),
-        "openai/gpt-5.6-sol": _option("gpt-5.6-sol", 3),
+        "openai/gpt-5.6-terra": _option("gpt-5.6-terra", 3),
     }
     monkeypatch.setattr("zeroth.econ.analytics.rightsizing.describe", options.get)
     executor = executor_module.ManagedBacktestExecutor(provider=_RegressingProvider())
@@ -185,7 +185,7 @@ async def test_hosted_judge_receives_every_field_of_structured_replies(monkeypat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ["incumbent_model", "candidate_model"])
-@pytest.mark.parametrize("model", ["gpt-5.6", "openai/gpt-5.6-sol", "azure/gpt-5.6-sol-latest"])
+@pytest.mark.parametrize("model", ["gpt-5.6-terra", "openai/gpt-5.6-terra", "azure/gpt-5.6-terra-latest"])
 async def test_hosted_judge_cannot_grade_its_own_model_family(monkeypatch, role, model):
     from zeroth.econ.analytics.rightsizing_experiment import HostedBacktestRequest, HostedModelBacktest
 

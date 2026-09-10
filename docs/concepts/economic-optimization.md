@@ -177,7 +177,7 @@ The correctness judge receives the workflow `instruction` and each case's `input
 alongside its `expected` answer and replay output. Put shared policy in `instruction`
 and case-specific facts in `cases[].input`. The judge's request groups these as
 `workflow_instruction` and `case_input`; replay still receives the original input.
-The judge prompt treats `expected` as a supplied correct reference; assess its
+The judge prompt treats `expected` as supplied reference evidence; assess its
 validity and record its provenance before using it. For a task that produces both
 a decision and a customer reply, provide a complete reference covering the required facts,
 clarifications and permitted promises. Agreement on the decision field alone does
@@ -194,15 +194,15 @@ an LLM will apply those rules accurately.
 
 `evaluation_evidence` retains the catalog-resolved incumbent, candidate and judge
 model references, evaluator version and rubric hash. The configured judge is
-`openai/gpt-5.6-sol`. Comparisons with Sol or its `gpt-5.6` alias (including dated
-and `-latest` suffixes) abstain before provider calls. No dated Sol snapshot is
+`openai/gpt-5.6-terra`. Comparisons with Terra (including dated
+and `-latest` suffixes) abstain before provider calls. No dated Terra snapshot is
 currently exposed, so this model ID does not freeze future provider revisions. Distinct model identity
 removes direct self-grading; shared-provider bias and label uncertainty remain.
 Each role is priced using its own observed usage and retained catalog rates.
 Catalog quotes can differ from current promotional or cache-adjusted charges;
 these projections do not establish the provider bill.
 `parameters="judge_max_tokens_8192"` records a 8192-token judge output limit, including reasoning tokens; all other
-judge parameters and replay parameters use provider defaults (Sol reasoning is
+judge parameters and replay parameters use provider defaults (Terra reasoning is
 currently medium). Incomplete or malformed
 judge output remains an evaluation error. Candidate settings other than `model`
 abstain before provider work.
