@@ -33,6 +33,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.3]
+
+### Added
+
+- C03 capture recipe for the OpenAI Agents SDK
+  (`zeroth.instrumentation.openai_agents.ZerothRunHooks`,
+  `packaging/sdk/recipes/c03_openai_agents`): one charge per model call from the
+  SDK's run hooks, agent runs and handoffs as money-free aggregates, failed calls
+  charged at hooks exit, and a shared scope holder so a provider adapter on the
+  same client cannot double count. Conformance checks cover handoffs, tools,
+  failures, the double path, trace-processor coexistence and clean installs at
+  openai-agents 0.3.0 and 0.22.2. Still not an accepted support row.
+
 ## [0.25.9.2]
 
 ### Added

@@ -116,6 +116,55 @@
         "reconciled": "expected_ledger.json v1 and v2 through the graphs; v1 again from each clean install"
       },
       "reviewer": "pending independent review"
+    },
+    "C03": {
+      "setup": "OpenAI Agents SDK, Python",
+      "recipe": "packaging/sdk/recipes/c03_openai_agents",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "openai-agents": {
+          "floor": "0.3.0",
+          "current": "0.22.2",
+          "harness": "0.20.0"
+        },
+        "openai": {
+          "floor": "1.109.1",
+          "current": "3.11.0",
+          "harness": "2.54.0"
+        }
+      },
+      "runtime": {
+        "python": "3.12.12",
+        "os": "macOS arm64",
+        "node": null
+      },
+      "identity_mapping": "INTERFACE.md: step = agent name per model call (planner, planner#2); one charge per on_llm_end; agent runs, turns and handoffs are aggregates on the run summary; a provider adapter on the AsyncOpenAI client behind the model provider charges the HTTP call and the hooks skip it (shared scope holder counted per call)",
+      "cost_categories": {
+        "model": "estimated from the rate card using ModelResponse.usage (cached tokens subtracted); provider from the ModelProvider that serves the model",
+        "tool": "caller-asserted via run.tool_charge",
+        "unmeasured": "usage with zero requests/tokens, unlisted model, provider outside {openai, anthropic}, model call that raised (charged at hooks exit)"
+      },
+      "supported_modes": [
+        "multiple agents, handoffs, function tools, application-level retry, asyncio.gather fan-out, application fallback",
+        "hooks-only and hooks + instrument_openai over OpenAIProvider(use_responses=True): identical ledgers",
+        "raising model call charged once as an unmeasured attempt; exception propagates",
+        "caller-added trace processor (add_trace_processor) keeps receiving spans"
+      ],
+      "excluded_modes": [
+        "live provider calls (NOT_RUN); Runner.run_streamed not exercised",
+        "LiteLLM-backed models, TypeScript Agents SDK, hosted tool charges",
+        "at floor 0.3.0 ModelResponse carries no request_id (recorded as null)",
+        "concurrent calls with only some clients instrumented may be misattributed by the shared-holder count (instrument all or none)"
+      ],
+      "evidence": {
+        "tests": "test_c03_openai_agents.py (7 checks)",
+        "clean_install": [
+          "evidence/c03_openai_agents-floor.json",
+          "evidence/c03_openai_agents-current.json"
+        ],
+        "reconciled": "expected_ledger.json v1 and v2 through the agents; v1 again from each clean install"
+      },
+      "reviewer": "pending independent review"
     }
   },
   "not_run": {}
