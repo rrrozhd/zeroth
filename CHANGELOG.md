@@ -33,6 +33,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.9]
+
+### Added
+
+- C06 capture recipe for Vercel AI SDK applications (`packaging/sdk/recipes/c06_vercel`):
+  a copy-in `capture.ts` whose step callbacks charge each physical model call from
+  the SDK's step usage, put multi-step totals on the money-free run summary, charge
+  aborted streams and rejected or timed-out calls as unmeasured attempts, and deliver
+  in order with idempotent retry and an awaitable flush; a representative application
+  with tool loops, streaming, retry, fan-out and abort signals; queued mock models; the
+  application's own pinned dependencies (ai 7.0.97). Conformance checks run from the
+  committed lock against the local server. Still not an accepted support row.
+
 ## [0.25.9.8]
 
 ### Added

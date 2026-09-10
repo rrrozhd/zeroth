@@ -1,0 +1,13 @@
+{
+  "name": "c06-vercel-recipe",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Representative Vercel AI SDK application with Zeroth capture (Phase 3 recipe C06)",
+  "type": "module",
+  "engines": { "node": ">=22.6" },
+  "dependencies": {
+    "@ai-sdk/openai": "4.0.65",
+    "ai": "7.0.97",
+    "zod": "4.6.1"
+  }
+}

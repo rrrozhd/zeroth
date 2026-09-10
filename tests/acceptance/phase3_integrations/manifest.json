@@ -300,6 +300,46 @@
         "reconciled": "expected_ledger.json v1 and v2 through both workers; parity verdict abstain"
       },
       "reviewer": "pending independent review"
+    },
+    "C06": {
+      "setup": "TypeScript / Node applications using Vercel AI SDK",
+      "recipe": "packaging/sdk/recipes/c06_vercel",
+      "status": "conformance candidate; NOT an accepted support row",
+      "frameworks": {
+        "ai": "7.0.97",
+        "@ai-sdk/openai": "4.0.65",
+        "zod": "4.6.1",
+        "package_lock_sha256": "86e23a8dc6af1a41f0b3225e47a8d23f09d76067b36d4b9c9cb0dc795c8754c9"
+      },
+      "runtime": {
+        "python": null,
+        "os": "macOS arm64",
+        "node": "v26.5.0",
+        "floor": "22.6 via --experimental-strip-types (no Node 22 binary: NOT_RUN)"
+      },
+      "identity_mapping": "INTERFACE.md via capture.ts: onStepFinish = one charge per physical model call (answer, answer#2) from step.usage with the cache split and the server-reported model id; result.totalUsage on the money-free run summary; onAbort/onError and a rejected call() = unmeasured attempt; tool costs asserted by the application",
+      "cost_categories": {
+        "model": "estimated from an embedded copy of the four-model rate card in exact 1e-8 units",
+        "tool": "caller-asserted measured amount",
+        "unmeasured": "missing usage, unlisted model, aborted stream, rejected or timed-out call"
+      },
+      "supported_modes": [
+        "generateText, multi-step tool loop with stopWhen (each step a charge, total on the summary), streamText complete and aborted, AbortSignal.timeout, JSON retry, Promise.all fan-out",
+        "ordered idempotent delivery with retry on 5xx/network/timeout, 4xx lost without retry, flush() awaited before exit",
+        "reference workload reconciles exactly for v1 and v2; retry through 503, dropped and timed-out requests reaches exactly-once"
+      ],
+      "excluded_modes": [
+        "live provider or hosted deployment (NOT_RUN); @ai-sdk/openai installed but not exercised (mock models)",
+        "experimental_telemetry not used; no Node 22 binary on this machine",
+        "the rate card in capture.ts is a copy of the SDK's four rows (third copy after the SDK and the C07 worker); drift is caught only by the reference reconciliation",
+        "per-run delivery queues run concurrently, so a proxy hang delays unrelated deliveries (harness artefact)"
+      ],
+      "evidence": {
+        "tests": "test_c06_vercel.py (4 checks)",
+        "file": "evidence/c06_vercel.json",
+        "reconciled": "expected_ledger.json v1 and v2 through the AI SDK application"
+      },
+      "reviewer": "pending independent review"
     }
   },
   "not_run": {},

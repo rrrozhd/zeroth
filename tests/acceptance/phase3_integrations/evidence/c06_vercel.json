@@ -1,0 +1,61 @@
+{
+  "modes": {
+    "delivered": 13,
+    "flushed_before_exit": true,
+    "multistep": {
+      "steps": 2,
+      "text": "answer"
+    },
+    "provider_requests": 6,
+    "rows": 13,
+    "timeout_error": "TimeoutError"
+  },
+  "reference": {
+    "events_per_version": 34,
+    "lock_sha256": "86e23a8dc6af1a41f0b3225e47a8d23f09d76067b36d4b9c9cb0dc795c8754c9",
+    "node": "v26.5.0",
+    "reconciled": "v1, v2",
+    "versions": {
+      "@ai-sdk/openai": "4.0.65",
+      "ai": "7.0.97",
+      "zod": "4.6.1"
+    }
+  },
+  "retry": {
+    "events_retried": 9,
+    "faulted": [
+      [
+        2,
+        503
+      ],
+      [
+        4,
+        "drop"
+      ],
+      [
+        6,
+        503
+      ],
+      [
+        7,
+        503
+      ]
+    ],
+    "rows": 34
+  },
+  "standalone": {
+    "capture_imports": [],
+    "dependencies": {
+      "@ai-sdk/openai": "4.0.65",
+      "ai": "7.0.97",
+      "zod": "4.6.1"
+    },
+    "lock_sha256": "86e23a8dc6af1a41f0b3225e47a8d23f09d76067b36d4b9c9cb0dc795c8754c9",
+    "node": "v26.5.0",
+    "versions": {
+      "@ai-sdk/openai": "4.0.65",
+      "ai": "7.0.97",
+      "zod": "4.6.1"
+    }
+  }
+}
