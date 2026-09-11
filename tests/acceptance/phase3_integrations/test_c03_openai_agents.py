@@ -10,8 +10,11 @@ import sys
 from pathlib import Path
 
 import pytest
-from agents import RunConfig
-from agents.tracing import TracingProcessor, add_trace_processor
+
+pytest.importorskip("agents", reason="C03 needs the optional openai-agents dependency group")
+
+from agents import RunConfig  # noqa: E402
+from agents.tracing import TracingProcessor, add_trace_processor  # noqa: E402
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

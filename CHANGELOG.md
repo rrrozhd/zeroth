@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.10.1]
+
+### Fixed
+
+- The C03 OpenAI Agents SDK conformance harness now skips instead of failing
+  collection when the optional `openai-agents` dependency group is not installed.
+
 ## [0.25.9.10]
 
 ### Added
