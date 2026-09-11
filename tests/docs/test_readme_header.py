@@ -6,12 +6,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_readme_header_uses_full_lockup_in_both_themes() -> None:
+def test_readme_header_uses_svg_lockup() -> None:
     header = (ROOT / "README.md").read_text().split("## What it does", 1)[0]
     assert '<source media="(prefers-color-scheme: dark)"' in header
-    for filename in ("zeroth-lockup-v2.png", "zeroth-lockup-v2-light.jpg"):
-        assert f'docs/assets/logo/{filename}"' in header
-        assert (ROOT / "docs/assets/logo" / filename).is_file()
+    filename = "zeroth-logo-dark.svg"
+    for attribute in ("srcset", "src"):
+        assert f'{attribute}="docs/assets/logo/{filename}"' in header
+    assert (ROOT / "docs/assets/logo" / filename).is_file()
     assert 'src="docs/assets/logo/zeroth-mark-v2.png"' not in header
 
 

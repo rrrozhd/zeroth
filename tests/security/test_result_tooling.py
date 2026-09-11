@@ -1,4 +1,7 @@
-"""Fail-closed result tooling for matrix-bound security tests."""
+"""Fail-closed result tooling for matrix-bound security tests.
+
+Subprocesses pin their fixture root so node IDs do not depend on the checkout location.
+"""
 
 from __future__ import annotations
 
@@ -142,6 +145,7 @@ def test_plugin_writes_canonical_phase_outcomes_without_captured_output(tmp_path
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-results={output}",
@@ -184,6 +188,7 @@ def test_plugin_records_wasxfail_for_strict_xfail_and_nonstrict_xpass(tmp_path: 
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-results={output}",
@@ -221,6 +226,7 @@ def test_plugin_atomically_leaves_parseable_evidence_after_setup_error(tmp_path:
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-results={output}",
@@ -254,6 +260,7 @@ def test_plugin_leaves_parseable_evidence_after_keyboard_interrupt(tmp_path: Pat
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-results={output}",
@@ -296,6 +303,7 @@ def test_collection_rejects_xfail_on_a_matrix_bound_node(tmp_path: Path) -> None
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-results={output}",
@@ -328,6 +336,7 @@ def test_plugin_never_serializes_skip_or_xfail_reason_text(tmp_path: Path) -> No
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-results={output}",
@@ -355,6 +364,7 @@ def test_collection_fails_for_missing_matrix(tmp_path: Path) -> None:
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-matrix={tmp_path / 'missing.json'}",
@@ -385,6 +395,7 @@ def test_collection_fails_when_a_bound_node_is_not_collected(tmp_path: Path) -> 
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-matrix={matrix_path}",
@@ -420,6 +431,7 @@ def test_collection_matches_exact_parameterized_node_ids(tmp_path: Path) -> None
             "-m",
             "pytest",
             "-q",
+            f"--rootdir={tmp_path}",
             "-p",
             "release.security.pytest_plugin",
             f"--security-matrix={matrix_path}",

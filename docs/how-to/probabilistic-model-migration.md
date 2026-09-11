@@ -331,3 +331,10 @@ rows. Subsequent scheduled decisions use those rows for calibration and drift ch
   refresh and material-change notification rules remain separate roadmap work.
 - The first decision covers model migration. Token-capacity, retry-policy, delivery-time, and broader
   agent/prompt optimization remain separate roadmap work.
+
+
+The legacy `success_rate_lower_bound` / `success_rate_upper_bound` and
+`critical_error_rate_lower_bound` / `critical_error_rate_upper_bound` fields retain
+conservative finite-sample diagnostic envelopes. The corresponding `*_p05` and
+`*_p95` fields can be widened to include these envelopes; they are not necessarily
+raw simulation percentiles and do not establish calibrated future coverage.
