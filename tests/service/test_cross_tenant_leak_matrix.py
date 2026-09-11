@@ -484,8 +484,13 @@ def test_repository_driver_completeness_rejects_a_missing_probe(monkeypatch) -> 
 @pytest.mark.parametrize("case", ECON_CASES, ids=lambda case: case.parameter_id)
 def test_registry_generated_sqlalchemy_cross_tenant_case(case) -> None:
     engine = create_engine("sqlite://")
-    EconBase.metadata.create_all(engine)
-    exercise_sqlalchemy_case(engine, case)
+    try:
+        # Collection already built the complete schema. Clone it without sharing rows.
+        with _ECON_COLLECTION_ENGINE.connect() as source, engine.connect() as target:
+            source.connection.driver_connection.backup(target.connection.driver_connection)
+        exercise_sqlalchemy_case(engine, case)
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.parametrize("operation", list(ResourceOperation), ids=lambda item: item.value)

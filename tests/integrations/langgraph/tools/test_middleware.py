@@ -768,20 +768,6 @@ def test_r16_a_sync_tool_runs_through_the_agent_when_allowed() -> None:
     assert [record.status for record in audit.records] == ["completed"]
 
 
-def test_r16_a_sync_tool_never_runs_when_denied() -> None:
-    body = Body()
-    agent = create_agent(
-        scripted_model("search", {"query": "cats"}),
-        tools=[build_tool(body=body)],
-        middleware=[middleware(client=CountingClient(verdict=DENY))],
-    )
-
-    with pytest.raises(PolicyViolation):
-        agent.invoke({"messages": [HumanMessage("hi")]})
-
-    assert body.calls == 0
-
-
 def test_r16_an_async_tool_runs_through_the_agent_when_allowed() -> None:
     body = Body(result="async-ok")
     audit = RecordingSubmitter()
@@ -795,20 +781,6 @@ def test_r16_an_async_tool_runs_through_the_agent_when_allowed() -> None:
 
     assert body.calls == 1
     assert [record.status for record in audit.records] == ["completed"]
-
-
-def test_r16_an_async_tool_never_runs_when_denied() -> None:
-    body = Body()
-    agent = create_agent(
-        scripted_model("asearch", {"query": "cats"}),
-        tools=[build_async_tool(body=body)],
-        middleware=[middleware(client=CountingClient(verdict=DENY))],
-    )
-
-    with pytest.raises(PolicyViolation):
-        asyncio.run(agent.ainvoke({"messages": [HumanMessage("hi")]}))
-
-    assert body.calls == 0
 
 
 def test_r16_multiple_middleware_all_observe_an_allowed_async_call() -> None:

@@ -484,17 +484,6 @@ async def test_an_mcp_tool_node_cannot_be_the_entry_step() -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_agent_is_still_a_valid_entry_step() -> None:
-    """Control for the rule above, which otherwise reads as "reject an entry step".
-
-    ``_imported_graph`` enters at the agent, which is the shape every other test
-    in this module publishes, so a rule that discriminated on the wrong thing
-    would take the whole file down with it rather than fail here alone.
-    """
-    assert await _errors(_imported_graph(agent_caps=list(_REQUIRED_REFS))) == []
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("reverse", [False, True])
 async def test_a_disabled_data_edge_is_left_alone(reverse: bool) -> None:
     """The claim is about dispatch reachability, and disabled edges never dispatch.

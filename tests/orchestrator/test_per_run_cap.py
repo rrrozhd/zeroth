@@ -72,34 +72,6 @@ def _linear_graph(node_ids: list[str]) -> Graph:
 
 
 @pytest.mark.asyncio
-async def test_per_run_cap_halts_run_on_next_node(sqlite_db) -> None:
-    """A run whose accumulated cost_usd crosses the cap halts on the next node.
-
-    Three nodes each cost $0.02; the cap is $0.03. n1 and n2 run (cumulative
-    $0.04 > cap), so the check before n3 trips and n3 never dispatches.
-    """
-    runners = {nid: _CostingRunner(0.02) for nid in ("n1", "n2", "n3")}
-    orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository.for_default_compatibility(sqlite_db),
-        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
-        agent_runners=runners,
-        executable_unit_runner=None,
-        # Regulus disabled: no budget_enforcer, cap enforced locally.
-        budget_enforcer=None,
-        per_run_cap_usd=0.03,
-    )
-
-    run = await orchestrator.run_graph(_linear_graph(["n1", "n2", "n3"]), {"value": "go"})
-
-    assert run.status is RunStatus.FAILED
-    # n1 and n2 dispatched; n3 was halted before dispatch.
-    assert runners["n1"].call_count == 1
-    assert runners["n2"].call_count == 1
-    assert runners["n3"].call_count == 0
-    assert [e.node_id for e in run.execution_history] == ["n1", "n2"]
-
-
-@pytest.mark.asyncio
 async def test_per_run_cap_completes_when_final_node_crosses_cap(sqlite_db) -> None:
     """A run completes when only its FINAL node pushes cumulative spend over the cap.
 

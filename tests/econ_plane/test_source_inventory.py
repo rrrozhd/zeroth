@@ -302,12 +302,7 @@ def test_missing_step_cannot_report_partial_run_cost_as_complete(engine):
 
 def test_full_window_bound_and_overflow_abstention(engine):
     from sqlalchemy import insert
-    from zeroth.econ.plane.instrumentation.api import (
-        get_debugger_breakage,
-        get_debugger_cohorts,
-        get_debugger_report,
-        get_debugger_timeline,
-    )
+    from zeroth.econ.plane.instrumentation.api import get_debugger_report
     from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 
     ids = [f"step-{i}" for i in range(50_000)]
@@ -361,10 +356,27 @@ def test_full_window_bound_and_overflow_abstention(engine):
         assert overflow.source_delivery["candidate"].observed_executions == 50_001
         assert overflow.source_delivery["candidate"].scan_truncated
         assert overflow.candidate.unmeasured_runs == 1
-        for endpoint in (
-            get_debugger_report, get_debugger_timeline,
-            get_debugger_cohorts, get_debugger_breakage,
-        ):
+        with pytest.raises(HTTPException) as rejected:
+            get_debugger_report(
+                workflow_id="invoice", start=NOW, end=NOW + timedelta(hours=1),
+                db=db, _user=user(),
+            )
+        assert rejected.value.status_code == 422
+        assert "Narrow the time window" in rejected.value.detail
+
+
+@pytest.mark.parametrize("engine", ["sqlite"], indirect=True)
+def test_debugger_endpoints_reject_window_overflow(engine, monkeypatch):
+    from zeroth.econ.plane.debugger import service
+    from zeroth.econ.plane.instrumentation import api
+
+    # The full-size boundary is checked above; these routes share its loader.
+    monkeypatch.setattr(service, "MAX_DEBUGGER_EVENTS", 1)
+    with Session(engine) as raw:
+        db = scoped(raw)
+        for index in range(2):
+            record_execution(execution(event_id=f"event-{index}"), db, user())
+        for endpoint in (api.get_debugger_timeline, api.get_debugger_cohorts, api.get_debugger_breakage):
             with pytest.raises(HTTPException) as rejected:
                 endpoint(
                     workflow_id="invoice", start=NOW, end=NOW + timedelta(hours=1),

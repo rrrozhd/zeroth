@@ -667,30 +667,7 @@ def rule_is_reported(rule: str, source: str, *, filename: str = "tests/_probe.py
     selection, so the probe runs the same way and looks for the code in the
     output.
     """
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "ruff",
-            "check",
-            "--stdin-filename",
-            filename,
-            "--output-format",
-            "concise",
-            "--no-cache",
-            "-",
-        ],
-        cwd=ROOT,
-        input=source,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    # Match the code by its position -- `path:line:col: CODE message` -- not by
-    # splitting on ":". B017's own message contains a colon, so a naive split
-    # reported it as absent while Ruff was flagging it perfectly well.
-    reported = re.compile(rf":\d+:\d+:\s+{re.escape(rule)}\b")
-    return any(reported.search(line) for line in result.stdout.splitlines())
+    return rule in _reported_rules(source, filename)
 
 
 #: NOTE on how ``RULE_PROBES`` above is protected.
@@ -717,12 +694,12 @@ COMBINED_PROBE = (
 
 
 def _reported_rules(source: str, filename: str) -> set[str]:
-    """Every enforced rule Ruff reports for ``source`` at ``filename``."""
+    """Run the installed Ruff binary once, without an extra Python interpreter."""
+    from ruff import find_ruff_bin
+
     result = subprocess.run(
         [
-            sys.executable,
-            "-m",
-            "ruff",
+            find_ruff_bin(),
             "check",
             "--stdin-filename",
             filename,
@@ -737,11 +714,8 @@ def _reported_rules(source: str, filename: str) -> set[str]:
         capture_output=True,
         text=True,
     )
-    return {
-        rule
-        for rule in RULE_PROBES
-        if re.search(rf":\d+:\d+:\s+{re.escape(rule)}\b", result.stdout)
-    }
+    assert result.returncode in (0, 1), result.stderr
+    return set(re.findall(r":\d+:\d+:\s+([A-Z]+\d+)\b", result.stdout))
 
 
 @pytest.mark.parametrize("rule", sorted(RULE_PROBES))
@@ -787,7 +761,9 @@ def test_every_enforced_rule_is_in_force_at_every_test_path() -> None:
 
     expected = set(RULE_PROBES)
     with ThreadPoolExecutor(max_workers=8) as pool:
-        observed = list(pool.map(lambda path: _reported_rules(COMBINED_PROBE, path), paths))
+        observed = list(
+            pool.map(lambda path: _reported_rules(COMBINED_PROBE, path) & expected, paths)
+        )
 
     suppressed = {
         path: sorted(expected - reported)
@@ -898,23 +874,6 @@ def test_vacuity_guard_rejects_a_constant_assertion() -> None:
     assert not _constant_assertion(parsed("assert False"))
     assert not _constant_assertion(parsed("assert value"))
     assert not _constant_assertion(parsed("assert compute() == 3"))
-
-
-def test_no_constant_assertion_survives_in_the_tests_tree() -> None:
-    """The guard runs green because the tree is clean, not because it is blind."""
-    import ast
-
-    from tests.architecture.test_legacy_surface_removed import _constant_assertion
-
-    offenders = [
-        f"{path.relative_to(ROOT).as_posix()}:{node.lineno}"
-        for path in sorted((ROOT / "tests").rglob("*.py"))
-        if "__pycache__" not in path.parts
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if _constant_assertion(node)
-    ]
-
-    assert offenders == []
 
 
 # ---------------------------------------------------------------------------

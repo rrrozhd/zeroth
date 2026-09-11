@@ -111,6 +111,10 @@ both the hosted service and self-hosted platform.
 
 ## Testing and debugging
 
+- The shared core SQLite fixtures migrate one closed template per pytest process,
+  then copy it into each test's `tmp_path`. Every test still owns its database file
+  and connection; migration-specific tests invoke Alembic directly. Keep the
+  template free of test writes rather than sharing a writable database or session.
 - Domain: `uv run pytest tests/econ/test_probabilistic_decisioning.py
   tests/econ/test_forecast_calibration.py -q`
 - API and persistence: `uv run pytest tests/econ_plane/test_probabilistic_decision_api.py -q`

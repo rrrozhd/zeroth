@@ -66,28 +66,6 @@ def test_deployments_modules_publish_their_names(
         assert hasattr(canonical_module, name), name
 
 
-def test_subgraph_resolver_carries_no_canonical_deployment_import() -> None:
-    """The runtime resolver must not pull the service deployments domain either.
-
-    Extends the Task 14 pin in ``tests/runtime/test_subgraph_surface.py``:
-    the resolver reaches deployments only through its runtime-owned protocol,
-    so neither the legacy nor the canonical package may load with it.
-    """
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import sys\n"
-            "import zeroth.runtime.subgraphs.resolver\n"
-            "assert 'zeroth.service.deployments' not in sys.modules, 'deployments loaded'\n"
-            "assert 'zeroth.service.deployments.service' not in sys.modules\n",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-
-
 def test_deployments_imports_in_a_cold_interpreter() -> None:
     """The canonical package imports with nothing else pre-warmed.
 

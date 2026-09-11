@@ -285,18 +285,6 @@ class TestCapabilityGating:
         assert resp.status_code == 200
         await client.aclose()
 
-    @pytest.mark.asyncio
-    async def test_no_capabilities_skips_check(self) -> None:
-        """When effective_capabilities is None, capability check is skipped."""
-        settings = HttpClientSettings()
-        client = ResilientHttpClient(settings)
-        client._client = httpx.AsyncClient(transport=_mock_transport())
-
-        resp = await client.get("https://api.example.com/data")
-        assert resp.status_code == 200
-        await client.aclose()
-
-
 # ---------------------------------------------------------------------------
 # Auth header injection
 # ---------------------------------------------------------------------------

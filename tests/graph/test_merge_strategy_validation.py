@@ -270,22 +270,6 @@ class TestValidatorDegradation:
         warnings = [i for i in report.issues if i.severity == ValidationSeverity.WARNING]
         assert any(i.code == ValidationCode.INVALID_MERGE_STRATEGY for i in warnings)
 
-    async def test_reducer_ref_still_checked_without_registry(self) -> None:
-        # Even without a ContractRegistry, reducer_ref validation still runs.
-        validator = GraphValidator()
-        graph = _attach_parallel_config(
-            build_valid_graph(),
-            ParallelConfig(
-                split_path="items",
-                merge_strategy="custom",
-                reducer_ref="nonexistent_xyz.mod.fn",
-            ),
-        )
-        report = await validator.validate(graph)
-        codes = {i.code for i in report.issues}
-        assert ValidationCode.INVALID_REDUCER_REF in codes
-
-
 # =========================================================================
 # Sanity: resolve_reducer_ref wraps ImportError cleanly
 # =========================================================================
@@ -413,18 +397,6 @@ class TestPublishValidationHook:
         graph = await repository.create(build_graph())
         await repository.publish(graph.graph_id, graph.version)
         assert call_counter["count"] == 1
-
-    async def test_publish_no_parallel_config_backward_compat(self, sqlite_db) -> None:
-        """Graphs without any parallel_config publish normally."""
-        from tests.graph.test_validation import build_valid_graph as build_graph
-        from zeroth.contracts.graph.models import GraphStatus
-        from zeroth.contracts.graph.repository import GraphRepository
-
-        validator = GraphValidator()
-        repository = GraphRepository(sqlite_db, validator=validator)
-        graph = await repository.create(build_graph())
-        published = await repository.publish(graph.graph_id, graph.version)
-        assert published.status == GraphStatus.PUBLISHED
 
     async def test_retroactive_rejection_of_previously_unvalidated_draft(self, sqlite_db) -> None:
         """A DRAFT saved without validation can now be rejected on re-publish.

@@ -28,9 +28,9 @@ def _run(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _load_hooks() -> ModuleType:
-    """Import the mkdocs hook module by path, the way mkdocs itself loads it."""
-    spec = importlib.util.spec_from_file_location("zeroth_mkdocs_hooks", HOOKS)
+def _load_script(path: Path) -> ModuleType:
+    """Import a script by path, including the hook loaded this way by MkDocs."""
+    spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -79,28 +79,42 @@ def test_main_generator_uses_canonical_service_import() -> None:
     assert "from zeroth.core.service.app import create_app" not in source
 
 
-def test_main_generator_is_deterministic_and_detects_drift(tmp_path: Path) -> None:
-    first = tmp_path / "first.json"
-    second = tmp_path / "second.json"
-    assert _run(MAIN, "--out", str(first)).returncode == 0
-    assert _run(MAIN, "--out", str(second)).returncode == 0
-    assert first.read_bytes() == second.read_bytes()
-    assert _run(MAIN, "--out", str(first), "--check").returncode == 0
-    first.write_text("{}\n")
-    drift = _run(MAIN, "--out", str(first), "--check")
-    assert drift.returncode == 1
-    assert "DRIFT" in drift.stderr
+@pytest.fixture(scope="module")
+def cli_specs(tmp_path_factory: pytest.TempPathFactory) -> dict[Path, bytes]:
+    """Immutable reference bytes from one cold CLI process per generator."""
+    directory = tmp_path_factory.mktemp("openapi")
+    specs = {}
+    for script in (MAIN, REGULUS):
+        output = directory / f"{script.stem}.json"
+        result = _run(script, "--out", str(output))
+        assert result.returncode == 0, result.stderr
+        specs[script] = output.read_bytes()
+    return specs
 
 
-def test_parent_schema_exposes_proxy_but_not_mounted_regulus_routes(tmp_path: Path) -> None:
-    output = tmp_path / "main.json"
-    assert _run(MAIN, "--out", str(output)).returncode == 0
-    paths = json.loads(output.read_text())["paths"]
+@pytest.mark.parametrize("script", [MAIN, REGULUS], ids=["main", "regulus"])
+def test_generators_are_deterministic_and_detect_drift(
+    script: Path, cli_specs, tmp_path: Path, monkeypatch, capsys
+) -> None:
+    output = tmp_path / "spec.json"
+    output.write_bytes(cli_specs[script])
+    # A second cold process must independently reproduce the first process's bytes.
+    checked = _run(script, "--out", str(output), "--check")
+    assert checked.returncode == 0, checked.stderr
+    monkeypatch.setattr(sys, "argv", [str(script), "--out", str(output), "--check"])
+    output.write_text("{}\n")
+    assert _load_script(script).main() == 1
+    assert "DRIFT" in capsys.readouterr().err
+
+
+def test_parent_schema_exposes_proxy_but_not_mounted_regulus_routes(cli_specs) -> None:
+    assert "/v1/dashboard/kpis" in json.loads(cli_specs[REGULUS])["paths"]
+    paths = json.loads(cli_specs[MAIN])["paths"]
     assert "/v1/econ/regulus/dashboard/kpis" in paths
     assert not any(path.startswith("/regulus/") for path in paths)
 
 
-def test_docs_hook_generates_the_asset_the_http_api_page_links_to(tmp_path: Path) -> None:
+def test_docs_hook_generates_the_asset_the_http_api_page_links_to(tmp_path: Path, cli_specs) -> None:
     """ZER-20: a strict docs build must not depend on a prior CI generate step.
 
     ``docs/reference/http-api.md`` links to the OpenAPI asset, which is gitignored
@@ -109,14 +123,12 @@ def test_docs_hook_generates_the_asset_the_http_api_page_links_to(tmp_path: Path
     """
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    _load_hooks().on_pre_build({"docs_dir": str(docs_dir)})
+    _load_script(HOOKS).on_pre_build({"docs_dir": str(docs_dir)})
 
     asset = docs_dir / ASSET_RELPATH
     assert asset.is_file(), f"hook did not generate {ASSET_RELPATH}"
 
-    reference = tmp_path / "reference.json"
-    assert _run(MAIN, "--out", str(reference)).returncode == 0
-    assert asset.read_bytes() == reference.read_bytes(), (
+    assert asset.read_bytes() == cli_specs[MAIN], (
         "hook output drifted from the CLI generator — there must be one source of truth"
     )
 
@@ -129,7 +141,7 @@ def test_docs_hook_leaves_an_already_current_asset_untouched(tmp_path: Path) -> 
     """
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     config = {"docs_dir": str(docs_dir)}
     hooks.on_pre_build(config)
 
@@ -155,7 +167,7 @@ def test_docs_hook_substitutes_the_spec_url_for_both_url_modes(page_url, expecte
     whichever mode it was not written for -- which is how the published viewer ended up
     loading nothing.
     """
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     page = SimpleNamespace(file=SimpleNamespace(url=page_url, src_uri=SPEC_PAGE))
     output = hooks.on_post_page(_viewer_page('url: "@@ZEROTH_OPENAPI_SPEC_URL@@",'), page=page)
     assert hooks.active_spec_urls(output) == [expected]
@@ -164,7 +176,7 @@ def test_docs_hook_substitutes_the_spec_url_for_both_url_modes(page_url, expecte
 @needs_mkdocs
 def test_docs_hook_fails_the_build_when_the_spec_page_loses_its_token() -> None:
     """A hand-edited URL must abort the build, not ship a viewer that silently 404s."""
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     with pytest.raises(RuntimeError, match="ZEROTH_OPENAPI_SPEC_URL"):
         hooks.on_post_page(
             _viewer_page('url: "../assets/openapi/zeroth-platform-openapi.json",'),
@@ -188,7 +200,7 @@ def test_docs_hook_fails_the_build_when_the_spec_page_loses_its_token() -> None:
 @needs_mkdocs
 def test_docs_hook_accepts_the_spellings_a_contributor_may_write(legitimate) -> None:
     """A guard that rejects valid edits gets deleted by the next contributor."""
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     output = hooks.on_post_page(_viewer_page(legitimate), page=_spec_page())
     assert "../../assets/openapi/zeroth-platform-openapi.json" in output
 
@@ -200,7 +212,7 @@ def test_docs_hook_is_not_confused_by_apostrophes_in_prose() -> None:
     A whole-page quote scanner reads "doesn't" as an opening quote and mis-parses
     everything after it, which can make a valid binding vanish or a commented one count.
     """
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     prose = "The spec doesn't live in git; it's generated. See the note above."
     output = hooks.on_post_page(
         _viewer_page('url: "@@ZEROTH_OPENAPI_SPEC_URL@@",', prose=prose),
@@ -226,7 +238,7 @@ def test_docs_hook_rejects_a_token_that_is_present_but_not_bound(broken) -> None
     A token in a commented-out line, or on a differently-named property such as
     ``spec_url``, substitutes cleanly and still leaves Swagger UI with no URL.
     """
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     with pytest.raises(RuntimeError, match="no active `url` property"):
         hooks.on_post_page(_viewer_page(broken), page=_spec_page())
 
@@ -249,7 +261,7 @@ def test_docs_hook_tolerates_reformatting_around_the_viewer_call(formatting) -> 
     holding a URL must not be read as the start of a comment that swallows the binding
     after it.
     """
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     page = formatting.replace("{URL}", 'url: "@@ZEROTH_OPENAPI_SPEC_URL@@",')
     output = hooks.on_post_page(page, page=_spec_page())
     assert hooks.active_spec_urls(output) == ["../../assets/openapi/zeroth-platform-openapi.json"]
@@ -258,7 +270,7 @@ def test_docs_hook_tolerates_reformatting_around_the_viewer_call(formatting) -> 
 @needs_mkdocs
 def test_docs_hook_requires_the_viewer_call_itself() -> None:
     """A page whose viewer call is gone has no configuration to be correct."""
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     commented_out = (
         '<script>/* window.ui = SwaggerUIBundle({url: "@@ZEROTH_OPENAPI_SPEC_URL@@"}); */</script>'
     )
@@ -268,7 +280,7 @@ def test_docs_hook_requires_the_viewer_call_itself() -> None:
 
 def test_docs_hook_comment_stripping_keeps_url_literals_intact() -> None:
     """`//` appears inside every https:// literal, so quotes must be tracked."""
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     page = _viewer_page('url: "https://example.com/a.json",')
     assert hooks.active_spec_urls(page) == ["https://example.com/a.json"]
 
@@ -276,7 +288,7 @@ def test_docs_hook_comment_stripping_keeps_url_literals_intact() -> None:
 @needs_mkdocs
 def test_docs_hook_leaves_other_pages_alone() -> None:
     """Only the viewer page is required to carry the token."""
-    hooks = _load_hooks()
+    hooks = _load_script(HOOKS)
     page = SimpleNamespace(file=SimpleNamespace(url="concepts/graph/", src_uri="concepts/graph.md"))
     assert hooks.on_post_page("<p>no token here</p>", page=page) == "<p>no token here</p>"
 
@@ -290,18 +302,3 @@ def test_docs_hook_reuses_the_cli_generator_and_is_not_itself_published() -> Non
     assert not (ROOT / "docs" / "mkdocs_hooks.py").exists(), (
         "a hook inside docs/ would be collected and published as documentation"
     )
-
-
-def test_regulus_generator_is_deterministic_and_detects_drift(tmp_path: Path) -> None:
-    first = tmp_path / "first.json"
-    second = tmp_path / "second.json"
-    generated = _run(REGULUS, "--out", str(first))
-    assert generated.returncode == 0, generated.stderr
-    assert _run(REGULUS, "--out", str(second)).returncode == 0
-    assert first.read_bytes() == second.read_bytes()
-    assert "/v1/dashboard/kpis" in json.loads(first.read_text())["paths"]
-    assert _run(REGULUS, "--out", str(first), "--check").returncode == 0
-    first.write_text("{}\n")
-    drift = _run(REGULUS, "--out", str(first), "--check")
-    assert drift.returncode == 1
-    assert "DRIFT" in drift.stderr

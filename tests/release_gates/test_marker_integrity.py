@@ -34,9 +34,10 @@ asserted here by *executing* the selections rather than by reading them:
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -100,37 +101,6 @@ WHEEL_VENV_JOBS = {
 # ---------------------------------------------------------------------------
 
 
-def collect(*arguments: str) -> set[str]:
-    """Node ids pytest really collects for ``arguments``, from a fresh interpreter.
-
-    A subprocess, not an in-process ``pytest.main``: the point is to observe the
-    selection a *job* gets, including the ``addopts`` this session was itself
-    started with, and an in-process run inherits state from the current one.
-    """
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "--collect-only",
-            "-q",
-            "--no-header",
-            "-p",
-            "no:cacheprovider",
-            *arguments,
-        ],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode not in (0, 5):  # 5 == no tests collected, a valid answer
-        raise AssertionError(
-            f"collection failed for {arguments}:\n{result.stdout}\n{result.stderr}"
-        )
-    return {line.strip() for line in result.stdout.splitlines() if "::" in line}
-
-
 def _wheel_expression() -> str:
     """The marker expression the wheel-venv jobs pass, read from the workflows.
 
@@ -150,33 +120,62 @@ def _wheel_expression() -> str:
 
 
 class _Selections:
-    """The three tree-wide collections this module needs, gathered once, in parallel.
+    """Observe the default collection and apply pytest's selector to the same items."""
 
-    Each costs ~14 s because collection imports the tree, so they are run
-    concurrently as subprocesses and cached for the module.
-    """
+    default: set[str]
+    wheel: set[str]
+    marked: set[str]
+    not_live: set[str]
 
-    def __init__(self) -> None:
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            default, wheel, marked = pool.map(
-                lambda arguments: collect(*arguments),
-                (
-                    ("tests/",),
-                    ("-o", "addopts=", "-m", _wheel_expression(), "tests/"),
-                    ("-o", "addopts=", "-m", "dev_toolchain", "tests/"),
-                ),
-            )
-        #: What a developer and the source gate run: the project's own default.
-        self.default = default
-        #: What the wheel-venv jobs run.
-        self.wheel = wheel
-        #: Everything carrying the marker, found without any default filtering.
-        self.marked = marked
+    @pytest.hookimpl(wrapper=True, tryfirst=True)
+    def pytest_collection_modifyitems(self, config, items):
+        from _pytest.mark import deselect_by_mark
+
+        original = config.option.markexpr
+        try:
+            for name, expression in (
+                ("wheel", _wheel_expression()),
+                ("marked", "dev_toolchain"),
+                ("not_live", "not live"),
+            ):
+                selected = list(items)
+                config.option.markexpr = expression
+                deselect_by_mark(selected, config)
+                setattr(self, name, {item.nodeid for item in selected})
+        finally:
+            config.option.markexpr = original
+        yield
+        self.default = {item.nodeid for item in items}
 
 
 @pytest.fixture(scope="module")
-def selections() -> _Selections:
-    return _Selections()
+def selections(tmp_path_factory: pytest.TempPathFactory) -> _Selections:
+    # One fresh interpreter imports the tree. No marker parser or collection mock.
+    report = tmp_path_factory.mktemp("marker-selection") / "selections.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import json, sys, pytest\n"
+            "from pathlib import Path\n"
+            "from tests.release_gates.test_marker_integrity import _Selections\n"
+            "probe = _Selections()\n"
+            "code = pytest.main(['--collect-only', '-q', '-p', 'no:cacheprovider', 'tests/'], "
+            "plugins=[probe])\n"
+            "if code not in (0, 5): raise SystemExit(code)\n"
+            "Path(sys.argv[1]).write_text(json.dumps({k: sorted(v) for k, v in vars(probe).items()}))\n",
+            str(report),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    observed = _Selections()
+    for name, nodes in json.loads(report.read_text()).items():
+        setattr(observed, name, set(nodes))
+    return observed
 
 
 def _without_parametrization(node_ids: set[str]) -> set[str]:
@@ -394,17 +393,13 @@ def test_no_whole_suite_job_admits_what_the_project_default_excludes(
     )
 
 
-def test_the_widening_detector_reports_the_expression_that_was_actually_shipped() -> None:
-    """The negative fixture: the exact string the two jobs carried until now.
-
-    Scoped to the conformance directory, so the check costs one small collection
-    rather than a second sweep of the tree. If ``-m "not live"`` stops admitting
-    conformance tests there, this module's premise is wrong and it should fail.
-    """
-    conformance = "tests/langgraph_gateway/conformance"
-
-    admitted = collect("-o", "addopts=", "-m", "not live", conformance)
-    default = collect(conformance)
+def test_the_widening_detector_reports_the_expression_that_was_actually_shipped(
+    selections: _Selections,
+) -> None:
+    """The old ``not live`` expression admits real conformance tests the default excludes."""
+    conformance = "tests/langgraph_gateway/conformance/"
+    admitted = {node for node in selections.not_live if node.startswith(conformance)}
+    default = {node for node in selections.default if node.startswith(conformance)}
 
     assert admitted, "the conformance directory collects nothing -- the fixture is vacuous"
     assert default == set(), (

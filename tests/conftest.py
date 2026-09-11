@@ -47,11 +47,19 @@ def _shared_browser_session_secret_for_test_apps(monkeypatch):
     )
 
 
+@pytest.fixture(scope="session")
+def _sqlite_schema(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Migrate once; each database test gets a private copy of this closed file."""
+    path = tmp_path_factory.mktemp("sqlite-schema") / "zeroth.db"
+    run_migrations(f"sqlite:///{path}")
+    return path
+
+
 @pytest.fixture
-async def async_database(tmp_path: Path) -> AsyncSQLiteDatabase:
-    """Async SQLite database for tests. Runs Alembic migrations on a temp DB."""
+async def async_database(tmp_path: Path, _sqlite_schema: Path) -> AsyncSQLiteDatabase:
+    """Fresh migrated SQLite database, isolated from every other test."""
     db_path = str(tmp_path / "zeroth.db")
-    run_migrations(f"sqlite:///{db_path}")
+    shutil.copyfile(_sqlite_schema, db_path)
     db = AsyncSQLiteDatabase(path=db_path)
     yield db
     await db.close()

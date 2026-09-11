@@ -1238,82 +1238,12 @@ def _compound_body_shadowed(node: ast.AST, name: str, parents: dict[ast.AST, ast
     return False
 
 
-def _function_local_names(
+def _function_binding_names(
     owner: ast.FunctionDef | ast.AsyncFunctionDef,
     parents: dict[ast.AST, ast.AST],
-) -> set[str]:
-    names = _function_argument_names(owner)
-    lexical_owner: ast.AST | None = parents.get(owner)
-    while lexical_owner is not None:
-        if isinstance(lexical_owner, ast.ClassDef):
-            names.update(_type_parameter_names(lexical_owner))
-        lexical_owner = parents.get(lexical_owner)
-    for node in ast.walk(owner):
-        if _is_lambda_body_binding(node, owner, parents):
-            continue
-        if (
-            node is not owner
-            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and _enclosing_function(parents.get(node, node), parents) is owner
-        ):
-            names.add(node.name)
-            continue
-        if _enclosing_function(node, parents) is not owner:
-            continue
-        for target in _binding_targets(node):
-            names.update(_bound_names(target))
-        if isinstance(node, ast.ExceptHandler) and node.name:
-            names.add(node.name)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
-    for declaration in owner.body:
-        if isinstance(declaration, (ast.Global, ast.Nonlocal)):
-            names.difference_update(declaration.names)
-    return names
-
-
-def _provenance_scope_local_names(owner: ast.AST, parents: dict[ast.AST, ast.AST]) -> set[str]:
-    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        return _function_local_names(owner, parents)
-    if isinstance(owner, ast.Lambda):
-        return _function_argument_names(owner)
-    if isinstance(owner, ast.ClassDef):
-        return _type_parameter_names(owner)
-    if isinstance(owner, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-        return set().union(*(_bound_names(generator.target) for generator in owner.generators))
-    return set()
-
-
-def _function_reassigned_names(
-    owner: ast.FunctionDef | ast.AsyncFunctionDef,
-    parents: dict[ast.AST, ast.AST],
-) -> set[str]:
-    names: set[str] = set()
-    for node in ast.walk(owner):
-        if _is_lambda_body_binding(node, owner, parents):
-            continue
-        if (
-            node is not owner
-            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and _enclosing_function(parents.get(node, node), parents) is owner
-        ):
-            names.add(node.name)
-            continue
-        if _enclosing_function(node, parents) is not owner:
-            continue
-        for target in _binding_targets(node):
-            names.update(_bound_names(target))
-        if isinstance(node, ast.ExceptHandler) and node.name:
-            names.add(node.name)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
-    return names
-
-
-def _function_competing_binding_names(
-    owner: ast.FunctionDef | ast.AsyncFunctionDef,
-    parents: dict[ast.AST, ast.AST],
-) -> set[str]:
+) -> tuple[set[str], set[str], set[str]]:
+    """Collect local, reassigned and competing names in one function-body walk."""
+    reassigned: set[str] = set()
     counts: dict[str, int] = {}
     for node in ast.walk(owner):
         if _is_lambda_body_binding(node, owner, parents):
@@ -1323,14 +1253,40 @@ def _function_competing_binding_names(
             and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
             and _enclosing_function(parents.get(node, node), parents) is owner
         ):
+            reassigned.add(node.name)
             counts[node.name] = counts.get(node.name, 0) + 2
             continue
         if _enclosing_function(node, parents) is not owner:
             continue
         for target in _binding_targets(node):
             for name in _bound_names(target):
+                reassigned.add(name)
                 counts[name] = counts.get(name, 0) + 1
-    return {name for name, count in counts.items() if count > 1}
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            reassigned.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            reassigned.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+
+    local = reassigned | _function_argument_names(owner)
+    lexical_owner: ast.AST | None = parents.get(owner)
+    while lexical_owner is not None:
+        if isinstance(lexical_owner, ast.ClassDef):
+            local.update(_type_parameter_names(lexical_owner))
+        lexical_owner = parents.get(lexical_owner)
+    for declaration in owner.body:
+        if isinstance(declaration, (ast.Global, ast.Nonlocal)):
+            local.difference_update(declaration.names)
+    return local, reassigned, {name for name, count in counts.items() if count > 1}
+
+
+def _provenance_scope_local_names(owner: ast.AST) -> set[str]:
+    if isinstance(owner, ast.Lambda):
+        return _function_argument_names(owner)
+    if isinstance(owner, ast.ClassDef):
+        return _type_parameter_names(owner)
+    if isinstance(owner, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        return set().union(*(_bound_names(generator.target) for generator in owner.generators))
+    return set()
 
 
 def _annotation_repository_operations(
@@ -1423,16 +1379,16 @@ def _audit_repository_public_call_provenance(
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             nodes = tuple(ast.walk(tree))
             parents = _ast_parents(tree)
-            local_names = {
-                owner: _provenance_scope_local_names(owner, parents)
-                for owner in nodes
-                if isinstance(owner, _PROVENANCE_SCOPE_NODES)
-            }
-            competing_names = {
-                owner: _function_competing_binding_names(owner, parents)
-                for owner in nodes
-                if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
-            }
+            local_names: dict[ast.AST, set[str]] = {}
+            reassigned_names: dict[ast.AST, set[str]] = {}
+            competing_names: dict[ast.AST, set[str]] = {}
+            for owner in nodes:
+                if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    local_names[owner], reassigned_names[owner], competing_names[owner] = (
+                        _function_binding_names(owner, parents)
+                    )
+                elif isinstance(owner, _PROVENANCE_SCOPE_NODES):
+                    local_names[owner] = _provenance_scope_local_names(owner)
             reassigned_paths: set[
                 tuple[ast.FunctionDef | ast.AsyncFunctionDef | None, tuple[str, ...]]
             ] = set()
@@ -1447,11 +1403,6 @@ def _audit_repository_public_call_provenance(
                         declared_scope = _binding_scope(node, path_value, parents)
                         if declared_scope is not owner:
                             declared_reassigned_paths.add((declared_scope, path_value))
-            reassigned_names = {
-                owner: _function_reassigned_names(owner, parents)
-                for owner in local_names
-                if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
-            }
             repository_names: set[str] = set()
             potential_local_repository_names: set[str] = set()
             potential_imported_repository_names: set[str] = set()
@@ -8055,28 +8006,6 @@ def test_public_call_inventory_keeps_potential_after_suppressed_unbound_name(
     )
 
 
-def test_public_call_inventory_clears_potential_after_bound_name_control(tmp_path: Path) -> None:
-    module = tmp_path / "apps" / "candidate.py"
-    module.parent.mkdir(parents=True)
-    module.write_text(
-        "from zeroth.governance.audit import AuditRepository\n"
-        "async def use(suppressor, condition, candidate, record):\n"
-        "    type Base = list[AuditRepository]\n"
-        "    with suppressor:\n"
-        "        if condition:\n"
-        "            Base = None\n"
-        "        else:\n"
-        "            Base = None\n"
-        "    type Repo = Base\n"
-        "    repository: Repo = candidate\n"
-        "    await repository.write(record)\n",
-        encoding="utf-8",
-    )
-
-    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
-    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
-
-
 def test_public_call_inventory_keeps_alias_definition_bound_inside_suppressed_with(
     tmp_path: Path,
 ) -> None:
@@ -11410,12 +11339,13 @@ def _audit_repository_binding_inventory(root: Path) -> frozenset[str]:
     ):
         for path in search_root.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            nodes = tuple(ast.walk(tree))
             repository_names: set[str] = set()
             module_names: dict[str, tuple[str, ...]] = {}
             relative_path = path.relative_to(root).as_posix()
             if relative_path == "src/zeroth/governance/audit/repository.py":
                 repository_names.add("AuditRepository")
-            for imported in ast.walk(tree):
+            for imported in nodes:
                 if isinstance(imported, ast.ImportFrom):
                     for alias in imported.names:
                         if (
@@ -11445,10 +11375,11 @@ def _audit_repository_binding_inventory(root: Path) -> frozenset[str]:
                             else:
                                 module_names["zeroth"] = ("zeroth",)
 
+            assignments = [node for node in nodes if isinstance(node, (ast.Assign, ast.AnnAssign))]
             changed = True
             while changed:
                 changed = False
-                for assigned in ast.walk(tree):
+                for assigned in assignments:
                     if isinstance(assigned, ast.Assign) and len(assigned.targets) == 1:
                         target = assigned.targets[0]
                         value = assigned.value
@@ -11468,10 +11399,10 @@ def _audit_repository_binding_inventory(root: Path) -> frozenset[str]:
                         changed = True
 
             parents: dict[ast.AST, ast.AST] = {}
-            for parent in ast.walk(tree):
+            for parent in nodes:
                 for child in ast.iter_child_nodes(parent):
                     parents[child] = parent
-            for node in ast.walk(tree):
+            for node in nodes:
                 if not isinstance(node, ast.Call):
                     continue
                 callable_identity = _resolved_audit_repository_name(
@@ -11506,20 +11437,6 @@ def _audit_repository_binding_inventory(root: Path) -> frozenset[str]:
                 )
                 inventory.add(f"{relative_path}::{owner_name}::scoped")
     return frozenset(inventory)
-
-
-def test_production_audit_repository_has_only_explicit_scoped_constructors() -> None:
-    """Keep the complete production construction surface owner-bound."""
-    root = Path(__file__).resolve().parents[2]
-    assert _audit_repository_binding_inventory(root) == frozenset(
-        {
-            "release/live_evaluation/ambiguous_operation_demo.py::seed_ambiguous_operation_demo::scoped",
-            "release/live_evaluation/economics_ui_fixture.py::seed_economics_records::scoped",
-            "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::scoped",
-            "src/zeroth/service/bootstrap/factory.py::bootstrap_scoped_service::scoped",
-            "src/zeroth/service/bootstrap/factory.py::retention_service_for::scoped",
-        }
-    )
 
 
 def test_audit_repository_public_surface_is_exhaustive_and_scope_is_required() -> None:

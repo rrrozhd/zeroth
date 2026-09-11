@@ -61,9 +61,6 @@ def _settings(
 class TestCompactionStrategyProtocol:
     """Tests that all strategies satisfy the CompactionStrategy Protocol."""
 
-    def test_protocol_is_runtime_checkable(self) -> None:
-        assert isinstance(TruncationStrategy(), CompactionStrategy)
-
     def test_truncation_satisfies_protocol(self) -> None:
         assert isinstance(TruncationStrategy(), CompactionStrategy)
 
