@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.release_inputs import requires_release_inputs
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -243,6 +245,7 @@ def test_every_429_or_503_requires_rejection_evidence_and_retry_after() -> None:
     assert any("Retry-After" in error for error in errors)
 
 
+@requires_release_inputs("release/load/baseline-v1.json", "release/load/baseline-source-v1.json")
 def test_baseline_receipts_are_atomically_bound_to_the_executed_source() -> None:
     baseline = json.loads((ROOT / "release/load/baseline-v1.json").read_text())
 

@@ -8,6 +8,12 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from tests.release_inputs import requires_release_inputs
+
+requires_load_baseline = requires_release_inputs(
+    "release/load/baseline-v1.json", "release/load/baseline-source-v1.json"
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = ROOT / "release/load/baseline-v1.json"
@@ -38,6 +44,7 @@ def _pin_baseline(path: Path, baseline: dict, monkeypatch) -> None:
     monkeypatch.setattr(report, "BASELINE_DIGEST", "sha256:" + hashlib.sha256(raw).hexdigest())
 
 
+@requires_load_baseline
 def test_baseline_receipts_bind_three_distinct_fresh_service_pairs() -> None:
     from release.load.report import validate_baseline
 
@@ -60,6 +67,7 @@ def test_baseline_receipts_bind_three_distinct_fresh_service_pairs() -> None:
     )
 
 
+@requires_load_baseline
 def test_baseline_validation_rejects_a_reused_service_pair(tmp_path: Path, monkeypatch) -> None:
     from release.load.report import validate_baseline
 
@@ -78,6 +86,7 @@ def test_baseline_validation_rejects_a_reused_service_pair(tmp_path: Path, monke
     assert any("distinct fresh service instances" in error for error in errors)
 
 
+@requires_load_baseline
 def test_candidate_service_pair_must_be_distinct_from_every_baseline_pair() -> None:
     from release.load.environment import observation_digest
     from release.load.report import build_report, load_profiles

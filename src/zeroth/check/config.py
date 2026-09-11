@@ -15,6 +15,8 @@ class _StrictConfig(BaseModel):
 
 
 class TapeConfig(_StrictConfig):
+    """Curated tape location; a relative ``curated_dir`` resolves against the config file."""
+
     curated_dir: Path
 
     @field_validator("curated_dir", mode="before")
@@ -26,11 +28,15 @@ class TapeConfig(_StrictConfig):
 
 
 class ReplayConfig(_StrictConfig):
+    """Replay policy: exactly three runs with a quorum of two, the only accepted values."""
+
     runs: Literal[3]
     quorum: Literal[2]
 
 
 class FaultConfig(_StrictConfig):
+    """Fault policy: all mandatory faults always run, plus known ``additional`` faults."""
+
     required: Literal["all"]
     additional: list[str] = Field(default_factory=list)
 
@@ -44,6 +50,8 @@ class FaultConfig(_StrictConfig):
 
 
 class ReportingConfig(_StrictConfig):
+    """Verdict classes that fail the check; each of canary, block, invalid at most once."""
+
     fail_on: list[Literal["canary", "block", "invalid"]]
 
     @model_validator(mode="after")
@@ -54,6 +62,8 @@ class ReportingConfig(_StrictConfig):
 
 
 class CheckConfig(_StrictConfig):
+    """A validated ``check.v1`` file: target entrypoint plus tape, replay, fault, report policy."""
+
     version: Literal["check.v1"]
     target: str
     tapes: TapeConfig
@@ -70,6 +80,7 @@ class CheckConfig(_StrictConfig):
 
 
 def load_check_config(path: str | Path = "zeroth-check.yaml") -> CheckConfig:
+    """Load and strictly validate a check config, anchoring a relative tape dir to the file."""
     config_path = Path(path).resolve()
     loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     config = CheckConfig.model_validate(loaded)

@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from release.live_evaluation.criteria import original_acceptance_criteria
+from tests.release_inputs import requires_release_inputs
 
 
 _PROFILE = (
@@ -73,6 +74,7 @@ def test_accelerated_profile_names_only_known_original_criteria() -> None:
     assert len(profile["gates"]) == len({gate["gate_id"] for gate in profile["gates"]})
 
 
+@requires_release_inputs("release/live_evaluation/FULL_READINESS_CAMPAIGN.md")
 def test_full_readiness_document_preserves_the_accelerated_claim_boundary() -> None:
     document = _READINESS_CAMPAIGN.read_text()
 

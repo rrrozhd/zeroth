@@ -8,12 +8,16 @@ from pathlib import Path
 
 
 class MismatchClassification(StrEnum):
+    """Severity of a replay mismatch: invalid evidence, a block, or an ordinary mismatch."""
+
     INVALID = "invalid"
     BLOCK = "block"
     ORDINARY_MISMATCH = "ordinary_mismatch"
 
 
 class MismatchReason(StrEnum):
+    """Why a replay diverged from its tape; ``CLASSIFICATION`` maps each reason to a severity."""
+
     UNKNOWN_TOOL = "unknown_tool"
     EXTRA_CALL = "extra_call"
     EARLY_END = "early_end"
@@ -44,6 +48,8 @@ CLASSIFICATION = {
 
 @dataclass(frozen=True, slots=True)
 class ReplayFact:
+    """One classified replay divergence with the expected and actual fingerprints."""
+
     reason: MismatchReason
     classification: MismatchClassification
     expected_fingerprint: str | None = None
@@ -51,6 +57,8 @@ class ReplayFact:
 
 
 class ReplayMismatchError(RuntimeError):
+    """Raised when a replay diverges from its tape; ``fact`` carries the classification."""
+
     def __init__(
         self,
         reason: MismatchReason,
@@ -69,12 +77,16 @@ class ReplayMismatchError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ReplayFinish:
+    """Facts and observed action identities collected when a replay run finishes."""
+
     facts: tuple[ReplayFact, ...]
     observed_action_identities: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class QuorumSummary:
+    """How many replay runs matched the tape's safety trajectory, against the quorum."""
+
     total_runs: int
     matching_runs: int
     required_matches: int
@@ -83,6 +95,8 @@ class QuorumSummary:
 
 @dataclass(frozen=True, slots=True)
 class ReplayRunEvidence:
+    """Evidence from one replay worker slot; ``infrastructure_error`` marks a slot without any."""
+
     slot: int
     process_id: int
     checkpoint_path: Path
@@ -97,6 +111,8 @@ class ReplayRunEvidence:
 
 @dataclass(frozen=True, slots=True)
 class ReplayBatch:
+    """The three replay runs, their quorum summary and the slots lost to infrastructure errors."""
+
     runs: tuple[ReplayRunEvidence, ...]
     quorum: QuorumSummary
     invalid_slots: tuple[int, ...]

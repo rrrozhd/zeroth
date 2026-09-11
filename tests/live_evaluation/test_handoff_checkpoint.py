@@ -9,12 +9,17 @@ from release.live_evaluation.handoff_checkpoint import (
     ROOT,
     _validate_document,
 )
+from tests.release_inputs import requires_release_inputs
 
 
 @pytest.mark.parametrize(
     ("criterion_id", "filename"),
     (
-        ("handoff.discrepancy-register", "discrepancy-register.md"),
+        pytest.param(
+            "handoff.discrepancy-register",
+            "discrepancy-register.md",
+            marks=requires_release_inputs("release/live_evaluation/handoff/discrepancy-register.md"),
+        ),
         (
             "handoff.execution-and-rollback-instructions",
             "execution-and-rollback.md",

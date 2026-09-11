@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FaultName(StrEnum):
+    """Injectable fault scenarios; ``MANDATORY_FAULTS`` run for every side-effecting action."""
+
     DUPLICATE_DELIVERY = "duplicate_delivery"
     TIMEOUT_AFTER_EFFECT = "timeout_after_effect"
     CANCELLATION_AFTER_EFFECT = "cancellation_after_effect"
@@ -25,6 +27,8 @@ MANDATORY_FAULTS = (
 
 
 class FaultSpec(BaseModel):
+    """One fault to inject at one recorded occurrence of a side-effecting action."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     schema_version: Literal["fault_spec.v1"] = "fault_spec.v1"
@@ -35,6 +39,8 @@ class FaultSpec(BaseModel):
 
 
 class FaultEventKind(StrEnum):
+    """Lifecycle events a fault run records as evidence of injection and recovery."""
+
     INJECTION_ARMED = "injection_armed"
     INJECTION_REACHED = "injection_reached"
     EFFECT_MARKER_WRITTEN = "effect_marker_written"
@@ -49,6 +55,8 @@ class FaultEventKind(StrEnum):
 
 
 class FaultEvent(BaseModel):
+    """One recorded fault-lifecycle event, attributed to the process role that emitted it."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     event_id: str = Field(min_length=1)
@@ -60,6 +68,12 @@ class FaultEvent(BaseModel):
 
 
 class FaultResult(BaseModel):
+    """Verdict for one fault spec.
+
+    ``executed`` requires injection, recovery and the required event order. More than one
+    effect marker is a safety violation.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     spec: FaultSpec
@@ -72,6 +86,8 @@ class FaultResult(BaseModel):
 
 
 class FaultMatrixResult(BaseModel):
+    """Every fault result for a tape; the prerequisite fails when nothing has a side effect."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     results: tuple[FaultResult, ...]

@@ -9,6 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.release_inputs import requires_release_inputs
+
+requires_load_baseline = requires_release_inputs(
+    "release/load/baseline-v1.json", "release/load/baseline-source-v1.json"
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILES = ROOT / "release/load/profiles-v1.json"
@@ -179,6 +185,7 @@ def _report(rows: list[dict] | None = None) -> dict:
     )
 
 
+@requires_load_baseline
 def test_raw_rows_are_sufficient_to_recompute_every_release_metric() -> None:
     from release.load.report import recompute
 
@@ -309,6 +316,7 @@ def test_raw_timestamps_must_prove_the_schedule_window_and_in_flight_bound() -> 
     assert any("burst" in error and "in-flight" in error for error in errors)
 
 
+@requires_load_baseline
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -365,6 +373,7 @@ def test_missing_malformed_or_unbound_evidence_fails_closed(mutation, message: s
     assert message.lower() in "\n".join(errors).lower()
 
 
+@requires_load_baseline
 def test_thresholds_are_literal_but_match_the_pinned_baseline_derivation() -> None:
     from release.load.report import (
         BASELINE_DIGEST,
@@ -382,6 +391,7 @@ def test_thresholds_are_literal_but_match_the_pinned_baseline_derivation() -> No
         assert THRESHOLD_RULES[name] == derive_threshold(baseline, name, derivation)
 
 
+@requires_load_baseline
 def test_baseline_raw_distributions_recompute_its_performance_metrics() -> None:
     from release.load.report import baseline_distribution_metrics
 
@@ -405,6 +415,7 @@ def test_baseline_raw_distributions_recompute_its_performance_metrics() -> None:
     assert run_count >= 3
 
 
+@requires_load_baseline
 def test_report_rejects_a_malformed_candidate_identity() -> None:
     from release.load.report import build_report, load_baseline, load_profiles, observation_digest
 
@@ -424,6 +435,7 @@ def test_report_rejects_a_malformed_candidate_identity() -> None:
     assert any("candidate identity" in error for error in report["errors"])
 
 
+@requires_load_baseline
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -458,6 +470,7 @@ def test_malformed_raw_row_semantics_fail_closed_without_raising(field: str, val
     assert any("request" in error or "raw" in error for error in errors)
 
 
+@requires_load_baseline
 def test_tampering_with_the_baseline_does_not_move_thresholds(tmp_path: Path) -> None:
     from release.load.report import THRESHOLD_RULES, evaluate, validate_baseline
 
@@ -474,6 +487,7 @@ def test_tampering_with_the_baseline_does_not_move_thresholds(tmp_path: Path) ->
     assert evaluate(_report()["measurements"], baseline, THRESHOLD_RULES)
 
 
+@requires_load_baseline
 def test_a_candidate_regression_blocks_even_if_the_baseline_is_edited() -> None:
     from release.load.report import THRESHOLD_RULES, evaluate, load_baseline
 

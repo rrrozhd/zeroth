@@ -6,6 +6,13 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 
+from tests.release_inputs import requires_release_inputs
+
+pytestmark = requires_release_inputs(
+    "release/langgraph/benchmark-baseline-0.16.1.7.json",
+    "release/langgraph/benchmark-evidence.json",
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "release/langgraph/harness.py"
 
@@ -140,9 +147,10 @@ def test_threshold_literals_still_equal_their_documented_derivation() -> None:
     of silently moving the thresholds it is supposed to police.
     """
     benchmark = _benchmark_module()
+    metrics = benchmark.load_baseline()["metrics"]
 
     for name, (kind, floor, multiplier) in benchmark.THRESHOLD_DERIVATION.items():
-        derived = benchmark.BASELINE_METRICS[name] * multiplier
+        derived = metrics[name] * multiplier
         expected = derived if floor is None else max(floor, derived)
         assert benchmark.THRESHOLD_RULES[name] == {kind: expected}, name
 

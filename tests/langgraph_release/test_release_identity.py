@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.release_inputs import requires_release_inputs
+
 ROOT = Path(__file__).resolve().parents[2]
 
 #: Evidence releases that trail the package version, and why.
@@ -158,6 +160,10 @@ def test_the_drift_detector_sees_a_moved_label() -> None:
     assert match.group(1) != _package_version()
 
 
+@requires_release_inputs(
+    "release/langgraph/benchmark-baseline-0.16.1.7.json",
+    "release/langgraph/benchmark-evidence.json",
+)
 def test_a_manifest_that_disagrees_with_the_requirement_set_fails() -> None:
     """The manifest is validated, not followed -- and disagreement is caught.
 

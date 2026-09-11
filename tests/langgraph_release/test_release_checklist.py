@@ -6,6 +6,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.release_inputs import requires_release_inputs
+
+pytestmark = requires_release_inputs(
+    "release/langgraph/benchmark-baseline-0.16.1.7.json",
+    "release/langgraph/benchmark-evidence.json",
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "release/langgraph/harness.py"
 MANIFEST = ROOT / "release/langgraph/release-manifest.json"

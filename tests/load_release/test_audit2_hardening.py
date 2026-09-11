@@ -9,10 +9,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.release_inputs import requires_release_inputs
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@requires_release_inputs("release/load/baseline-v1.json", "release/load/baseline-source-v1.json")
 def test_baseline_binds_every_run_to_a_measured_base_receipt() -> None:
     baseline = json.loads((ROOT / "release/load/baseline-v1.json").read_text())
     source = baseline["source"]

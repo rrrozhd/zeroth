@@ -21,8 +21,6 @@ ROOT = Path(__file__).resolve().parents[2]
 CURRENT_RELEASE = "0.23.0"
 PREVIOUS_RELEASE = "0.16.1.7"
 BASELINE_PATH = ROOT / "release/langgraph/benchmark-baseline-0.16.1.7.json"
-BASELINE = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-BASELINE_METRICS = BASELINE["metrics"]
 
 #: The exact bytes the thresholds below were derived from.
 #:
@@ -308,10 +306,20 @@ def _hardware() -> dict[str, Any]:
     }
 
 
+def load_baseline() -> dict[str, Any]:
+    """Read the frozen baseline, an external input restored from the release archive.
+
+    Read on use, not at import: the thresholds are literals and only the report embeds
+    these bytes, so a checkout without the archive can still import this module.
+    """
+    return json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+
+
 def benchmark(samples: int, *, inject_regression: bool = False) -> dict[str, Any]:
     """Measure one real LangGraph workload through local and loopback decision paths."""
     if samples < 3:
         raise ValueError("benchmark needs at least three samples")
+    baseline = load_baseline()
     rows, orders = _measure(samples, 0.1 if inject_regression else 0.0)
     distributions = {name: [round(row[name], 6) for row in rows] for name in rows[0]}
     summary, variance, observed = distribution_statistics(distributions)
@@ -343,7 +351,7 @@ def benchmark(samples: int, *, inject_regression: bool = False) -> dict[str, Any
             "samples_checked": samples,
         },
         "hardware": _hardware(),
-        "baseline": BASELINE,
+        "baseline": baseline,
         "thresholds": THRESHOLDS,
         "observed": observed,
         "evaluation": evaluation,

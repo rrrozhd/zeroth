@@ -10,6 +10,11 @@ import pytest
 import yaml
 
 from tests.load_release.test_report import _candidate_services, _identity, _rows
+from tests.release_inputs import requires_release_inputs
+
+requires_load_baseline = requires_release_inputs(
+    "release/load/baseline-v1.json", "release/load/baseline-source-v1.json"
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +42,7 @@ def test_accepted_run_has_one_matching_later_terminal(mutation: str) -> None:
     assert any("terminal" in error.lower() for error in errors)
 
 
+@requires_load_baseline
 def test_report_rejects_self_overlap_and_environment_mismatch() -> None:
     from release.load.report import build_report, load_baseline, load_profiles
 
@@ -77,6 +83,7 @@ def test_load_gate_runs_in_the_pinned_capacity_environment() -> None:
     assert job["env"]["ZEROTH_LOAD_REDIS_VERSION"] == job["services"]["redis"]["image"]
 
 
+@requires_load_baseline
 def test_baseline_sources_are_three_distinct_base_runs() -> None:
     baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
     source = baseline["source"]

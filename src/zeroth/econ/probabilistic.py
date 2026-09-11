@@ -1223,6 +1223,10 @@ def _wilson_score_interval(
 
     ``trials`` may be fractional when an observed count profile is rescaled to ask how
     much more evidence a certificate needs; the algebra is unchanged.
+
+    Zero successes give a lower bound of exactly 0. Computed, that end cancels only to
+    within an ulp, and the residue follows the platform's ``inv_cdf`` rounding: the same
+    bound was 0.0 on arm64 and ``2**-62`` on x86-64 CI.
     """
     if (
         trials <= 0
@@ -1242,7 +1246,8 @@ def _wilson_score_interval(
         * sqrt(probability * (1 - probability) / trials + z_squared / (4 * trials * trials))
         / denominator
     )
-    return max(0.0, center - half_width), min(1.0, center + half_width)
+    low = 0.0 if successes == 0 else max(0.0, center - half_width)
+    return low, min(1.0, center + half_width)
 
 
 def _routed_rate_components(

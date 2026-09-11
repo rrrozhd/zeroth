@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-platform"
-version = "0.25.9.10.2"
+version = "0.25.9.11"
 
 description = "Economic debugger and governed change evidence for production AI workflows"
 readme = "README.md"

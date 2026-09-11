@@ -12,6 +12,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.release_inputs import requires_release_inputs
+
+requires_load_baseline = requires_release_inputs(
+    "release/load/baseline-v1.json", "release/load/baseline-source-v1.json"
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -48,6 +54,7 @@ def _archive_source_digest(revision: str) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+@requires_load_baseline
 def test_baseline_source_digest_matches_the_exact_base_archive(tmp_path: Path) -> None:
     from release.load.receipt import load_source_identity, source_digest
 
@@ -65,6 +72,7 @@ def test_baseline_source_digest_matches_the_exact_base_archive(tmp_path: Path) -
     )
 
 
+@requires_load_baseline
 def test_receipt_binds_measured_source_to_retained_git_identity(tmp_path: Path) -> None:
     from release.load.receipt import build_receipt, source_identity
 

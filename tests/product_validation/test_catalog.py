@@ -4,6 +4,12 @@ import json
 from pathlib import Path
 
 from release.product_validation.catalog import ProductValidationCatalog
+from tests.release_inputs import requires_release_inputs
+
+requires_product_evidence = requires_release_inputs(
+    "release/product_validation/evidence-index-v1.json",
+    "release/product_validation/evidence-source-map-v1.json",
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -99,6 +105,7 @@ def test_catalog_backend_operations_cover_stable_public_openapi() -> None:
     assert result.invalid_exclusions == ()
 
 
+@requires_product_evidence
 def test_product_evidence_index_targets_the_catalog_it_covers() -> None:
     catalog = ProductValidationCatalog.model_validate_json(CATALOG_PATH.read_text())
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
@@ -107,6 +114,7 @@ def test_product_evidence_index_targets_the_catalog_it_covers() -> None:
     assert index["catalog_id"] == catalog.catalog_id
 
 
+@requires_product_evidence
 def test_product_evidence_index_has_exactly_one_entry_per_catalog_capability() -> None:
     catalog = ProductValidationCatalog.model_validate_json(CATALOG_PATH.read_text())
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
@@ -116,6 +124,7 @@ def test_product_evidence_index_has_exactly_one_entry_per_catalog_capability() -
     assert set(indexed_ids) == catalog.capability_ids
 
 
+@requires_product_evidence
 def test_runs_catalogs_authorized_ambiguous_operation_resolution() -> None:
     catalog = ProductValidationCatalog.model_validate_json(CATALOG_PATH.read_text())
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
@@ -134,6 +143,7 @@ def test_runs_catalogs_authorized_ambiguous_operation_resolution() -> None:
     }.issubset(evidence["evidence_criteria"])
 
 
+@requires_product_evidence
 def test_economics_catalogs_provider_independent_measured_and_estimated_truth() -> None:
     catalog = ProductValidationCatalog.model_validate_json(CATALOG_PATH.read_text())
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
@@ -162,6 +172,7 @@ def test_economics_catalogs_provider_independent_measured_and_estimated_truth() 
     }.issubset(evidence["remaining_checkpoints"])
 
 
+@requires_product_evidence
 def test_economics_maps_native_safari_boundary_without_claiming_paid_measurement() -> None:
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
     evidence = next(
@@ -180,6 +191,7 @@ def test_economics_maps_native_safari_boundary_without_claiming_paid_measurement
     assert evidence["status"] == "blocked"
 
 
+@requires_product_evidence
 def test_templates_and_artifacts_catalog_exact_provider_independent_closure() -> None:
     catalog = ProductValidationCatalog.model_validate_json(CATALOG_PATH.read_text())
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
@@ -219,6 +231,7 @@ def test_templates_and_artifacts_catalog_exact_provider_independent_closure() ->
     ]
 
 
+@requires_product_evidence
 def test_product_evidence_index_statuses_reflect_executed_checkpoint_semantics() -> None:
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
 
@@ -244,6 +257,7 @@ def test_product_evidence_index_statuses_reflect_executed_checkpoint_semantics()
             assert entry["remaining_checkpoints"]
 
 
+@requires_product_evidence
 def test_product_evidence_index_closes_resilient_http_in_all_three_browsers() -> None:
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
     entry = next(
@@ -261,6 +275,7 @@ def test_product_evidence_index_closes_resilient_http_in_all_three_browsers() ->
     assert entry["remaining_checkpoints"] == []
 
 
+@requires_product_evidence
 def test_product_evidence_index_maps_retention_native_safari_checkpoint() -> None:
     index = json.loads(EVIDENCE_INDEX_PATH.read_text())
 

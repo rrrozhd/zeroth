@@ -12,6 +12,12 @@ from release.product_validation.evidence_mapper import (
     ProductEvidenceSourceMap,
     audit_product_evidence,
 )
+from tests.release_inputs import requires_release_inputs
+
+requires_product_evidence = requires_release_inputs(
+    "release/product_validation/evidence-index-v1.json",
+    "release/product_validation/evidence-source-map-v1.json",
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -332,6 +338,7 @@ def test_source_map_catalog_id_must_match_index(tmp_path: Path) -> None:
         )
 
 
+@requires_product_evidence
 def test_checked_in_source_map_is_versioned_and_only_seeds_exact_reviewed_sources() -> None:
     source_map = ProductEvidenceSourceMap.model_validate_json(SOURCE_MAP_PATH.read_text())
     index = json.loads((ROOT / "release/product_validation/evidence-index-v1.json").read_text())
@@ -457,6 +464,7 @@ def test_checked_in_source_map_is_versioned_and_only_seeds_exact_reviewed_source
     } == {"webhook-atomicity-product-ids-accepted-20260826-1"}
 
 
+@requires_product_evidence
 def test_checked_in_source_map_closes_provider_independent_product_surface_groups() -> None:
     source_map = ProductEvidenceSourceMap.model_validate_json(SOURCE_MAP_PATH.read_text())
     expected = {
@@ -483,6 +491,7 @@ def test_checked_in_source_map_closes_provider_independent_product_surface_group
     assert "batching.provider-economics" in source_map.unmapped
 
 
+@requires_product_evidence
 def test_checked_in_source_map_uses_dual_browser_resilient_http_evidence() -> None:
     source_map = ProductEvidenceSourceMap.model_validate_json(SOURCE_MAP_PATH.read_text())
     expected = {
@@ -509,6 +518,7 @@ def test_checked_in_source_map_uses_dual_browser_resilient_http_evidence() -> No
         assert any("webkit-1440-" in path for path in mapping.files)
 
 
+@requires_product_evidence
 def test_checked_in_source_map_closes_fresh_disposable_ui_and_runs_journeys() -> None:
     source_map = ProductEvidenceSourceMap.model_validate_json(SOURCE_MAP_PATH.read_text())
     expected = {
@@ -535,6 +545,7 @@ def test_checked_in_source_map_closes_fresh_disposable_ui_and_runs_journeys() ->
     } == {"provider-independent-ui-runs-live-accepted-20260826-1"}
 
 
+@requires_product_evidence
 def test_checked_in_source_map_repairs_exact_retention_erasure_evidence() -> None:
     source_map = ProductEvidenceSourceMap.model_validate_json(SOURCE_MAP_PATH.read_text())
     expected = {
@@ -557,6 +568,7 @@ def test_checked_in_source_map_repairs_exact_retention_erasure_evidence() -> Non
     assert expected.isdisjoint(source_map.unmapped)
 
 
+@requires_product_evidence
 def test_checked_in_source_map_repairs_exact_templates_and_artifacts_evidence() -> None:
     source_map = ProductEvidenceSourceMap.model_validate_json(SOURCE_MAP_PATH.read_text())
     expected = {
@@ -591,6 +603,7 @@ def test_checked_in_source_map_repairs_exact_templates_and_artifacts_evidence() 
     assert "templates.live-rendered-execution" in source_map.unmapped
 
 
+@requires_product_evidence
 def test_checked_in_source_map_repairs_exact_governance_economics_evidence() -> None:
     source_map = ProductEvidenceSourceMap.model_validate_json(SOURCE_MAP_PATH.read_text())
     expected = {
@@ -611,6 +624,7 @@ def test_checked_in_source_map_repairs_exact_governance_economics_evidence() -> 
     assert expected.isdisjoint(source_map.unmapped)
 
 
+@requires_product_evidence
 def test_checked_in_source_map_repairs_exact_webhook_evidence_without_aliases() -> None:
     source_map = ProductEvidenceSourceMap.model_validate_json(SOURCE_MAP_PATH.read_text())
     index = json.loads((ROOT / "release/product_validation/evidence-index-v1.json").read_text())
@@ -664,6 +678,7 @@ def test_checked_in_source_map_repairs_exact_webhook_evidence_without_aliases() 
     assert unresolved == set()
 
 
+@requires_product_evidence
 def test_checked_in_source_map_conforms_to_versioned_json_schema() -> None:
     schema = json.loads(SOURCE_MAP_SCHEMA_PATH.read_text())
     source_map = json.loads(SOURCE_MAP_PATH.read_text())

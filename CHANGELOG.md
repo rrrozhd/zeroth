@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.11]
+
+### Fixed
+
+- A checkout without the external release inputs (`release/inputs-v1.json`), which
+  is every CI runner, now collects and runs the suite. The LangGraph benchmark reads
+  its baseline on use rather than at import, and the tests that read a restored input
+  skip, naming it, until `scripts/restore_release_inputs.py` has restored it.
+- A Wilson interval over zero successes now has a lower bound of exactly 0 on every
+  platform. It was a one-ulp residue that depended on `inv_cdf` rounding: 0.0 on arm64,
+  `2**-62` on x86-64 CI.
+- Docstrings for the `zeroth.check` configuration, fault and replay models restore the
+  CI docstring-coverage gate (`interrogate`, minimum 84%) from 83.8% to 84.1%.
+
 ## [0.25.9.10.2]
 
 ### Fixed

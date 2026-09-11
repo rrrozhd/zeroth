@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from statistics import NormalDist
 
 import pytest
 
@@ -35,6 +36,17 @@ def test_bounds_are_the_predictive_envelope_and_the_percentile_fields_contain_it
     assert action.success_rate_p05 <= action.success_rate_lower_bound
     assert action.success_rate_p95 >= action.success_rate_upper_bound
     assert 0.0 <= action.success_rate_lower_bound <= action.success_rate_upper_bound <= 1.0
+
+
+def test_zero_successes_bound_below_at_exactly_zero_on_every_platform(monkeypatch):
+    """x86-64 CI computed the zero-error bound above as ``2**-62``; arm64 computed 0.0.
+
+    The residue depends on how ``inv_cdf`` rounds, so this pins a z that leaves it:
+    without the exact boundary the bound is ``2**-62`` on every machine.
+    """
+    monkeypatch.setattr(NormalDist, "inv_cdf", lambda self, p: 1.6448536269514704)
+
+    assert subject._wilson_score_interval(0, trials=1_000, confidence=0.9)[0] == 0.0
 
 
 def test_documentation_names_the_bounds_and_describes_the_percentile_fields():

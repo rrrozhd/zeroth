@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.release_inputs import requires_release_inputs
+
 ROOT = Path(__file__).resolve().parents[2]
 
 IMAGE_EXPORT_COMMAND = (
@@ -31,6 +33,10 @@ IMAGE_EXPORT_COMMAND = (
 )
 
 
+@requires_release_inputs(
+    "release/langgraph/benchmark-baseline-0.16.1.7.json",
+    "release/langgraph/benchmark-evidence.json",
+)
 def test_container_and_compatibility_contract() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
