@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.10.2]
+
+### Fixed
+
+- `requirements-image.txt` regenerated from the current lock (langchain-core 1.6.2,
+  openai 2.54.0), restoring the byte-for-byte hash-locked image contract.
+
 ## [0.25.9.10.1]
 
 ### Fixed
