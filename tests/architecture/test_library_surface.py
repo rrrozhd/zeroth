@@ -480,10 +480,13 @@ def test_immutable_legacy_capabilities_remain_available_with_recorded_signatures
         if _comparable(current["signature"]) != _comparable(capability["signature"]):
             amendment = amendments.get(capability["id"], {})
             if _has_signature_amendment(capability, current, amendments):
-                assert amendment["decision"] == "D01"
-                assert amendment["guide"] == (
-                    canonical["migration_guide"] + "#paid-product-contract-amendments"
-                )
+                if capability["id"] == "zeroth.core.econ:CorrectnessScorer":
+                    assert amendment["decision"] == "2026-09-11-api-contract-review"
+                    section = "#evaluation-context-contract-amendment"
+                else:
+                    assert amendment["decision"] == "D01"
+                    section = "#paid-product-contract-amendments"
+                assert amendment["guide"] == canonical["migration_guide"] + section
                 assert capability["id"] in guide
                 used_amendments.add(capability["id"])
                 continue

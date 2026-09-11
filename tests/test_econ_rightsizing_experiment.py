@@ -15,6 +15,7 @@ from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResp
 from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
 from zeroth.econ.analytics.rightsizing import ModelOption
 from zeroth.econ.analytics.rightsizing_experiment import (
+    CorrectnessScorer,
     EquivalenceScorer,
     build_experiment_dataset,
     build_labeled_dataset,
@@ -429,6 +430,32 @@ def _correctness_judge():
         return ProviderResponse(content=JudgeVerdict(score=score, rationale="test"))
 
     return CallableProviderAdapter(fn)
+
+
+@pytest.mark.asyncio
+async def test_correctness_instruction_adds_context_without_mutating_the_case():
+    requests = []
+
+    def judge(request):
+        requests.append(request)
+        return ProviderResponse(content=JudgeVerdict(score=1.0, rationale="test"))
+
+    case = EvalCase(id="context", input={"q": "1"}, expected="answer")
+    scorer = CorrectnessScorer(
+        CallableProviderAdapter(judge), "judge", instruction="Check the supplied facts."
+    )
+
+    result = await scorer.score("answer", case)
+
+    assert result.passed is True
+    assert case.input == {"q": "1"}
+    prompt = requests[0].messages[0]["content"]
+    request_input = json.loads(
+        prompt.split("Request:\n", 1)[1].split("\n\nSupplied reference answer", 1)[0]
+    )
+    assert request_input == {
+        "workflow_instruction": "Check the supplied facts.", "case_input": {"q": "1"},
+    }
 
 
 def test_build_labeled_dataset_keeps_only_labeled_tool_free_records():

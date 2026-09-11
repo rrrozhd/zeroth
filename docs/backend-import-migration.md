@@ -93,6 +93,38 @@ cost or final outcome maturity remains the caller's assertion, not certification
 source completeness. See `packaging/sdk/README.md` and `PROJECT_MODEL.md` in the
 repository for ingestion, migration and reader rules.
 
+### Evaluation context contract amendment
+
+The 2026-09-11 API contract review accepted the optional `instruction: str | None
+= None` keyword on `zeroth.econ.analytics:CorrectnessScorer` (legacy identity
+`zeroth.core.econ:CorrectnessScorer`). Existing positional arguments, keyword
+defaults and score/error handling remain supported. Omitting the instruction
+keeps the case input unwrapped in the judge request; supplying it adds workflow
+context alongside the case input without mutating the case.
+
+The canonical receipt uses decision `2026-09-11-api-contract-review` and binds
+the exact legacy and current signature pair. It is separate from the earlier
+D01 receipts; the immutable legacy fixture and existing mappings are unchanged.
+
+The same review records these additions to models introduced after the legacy
+snapshot. All retain empty legacy mappings and accept payloads without the new
+fields.
+
+| Canonical identity | Contract addition |
+| --- | --- |
+| `zeroth.econ.plane.backtesting.schemas:BacktestComputation` | Optional `evaluation_evidence`, defaulting to `None`. |
+| `zeroth.econ.plane.backtesting.schemas:EconomicBacktest` | Optional persisted `evaluation_evidence`, defaulting to `None` for older reports. |
+| `zeroth.econ.plane.debugger.schemas:BreakagePoint` | `method_version`, defaulting to `legacy_unversioned`. |
+| `zeroth.econ.plane.debugger.schemas:CohortPoint` | Same method-version default. |
+| `zeroth.econ.plane.debugger.schemas:EconomicDiagnosticReport` | Same method-version default, including independently versioned nested points. |
+| `zeroth.econ.plane.debugger.schemas:TimelinePoint` | Same method-version default. |
+| `zeroth.econ.plane.reconciliation.schemas:ProviderBillReport` | Same method-version default. |
+
+Older reports do not acquire evidence or a validated method label. Compatibility
+is exercised by the rightsizing experiment, backtest decision-rule, economic
+debugger and provider-bill reconciliation tests. The backend surface and signature
+exclusion tests continue to pin the visible constructors.
+
 ### Deferred structural work
 
 This cleanup does not split the oversized run repository, LangGraph tool guard,
