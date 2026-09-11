@@ -166,7 +166,6 @@ def test_retry_through_faults_reaches_exactly_once(engine, origin, tmp_path, ins
 def test_recipe_is_standalone(installed):
     package = json.loads((RECIPE / "package.json").read_text())
     assert not any("zeroth" in name for name in package["dependencies"])
-    assert "import" not in (RECIPE / "capture.ts").read_text().split("export type Usage")[0].replace("// ", "")[:0]
     capture = (RECIPE / "capture.ts").read_text()
     assert "from \"" not in capture and "require(" not in capture  # capture.ts imports nothing
     assert "python" not in capture.lower()

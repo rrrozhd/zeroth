@@ -59,3 +59,10 @@ def test_candidate_identity_and_lifecycle_are_recorded():
     assert m["candidate"]["commits_since_base"]
     assert isinstance(m["lifecycle"]["overhead_per_call_ms"], float) and m["lifecycle"]["overhead_method"]
     assert (HERE / m["lifecycle"]["evidence"]).exists()
+
+
+def test_install_records_preserve_requirements_without_local_paths():
+    for path in (HERE / "evidence").glob("c0[123]*.json"):
+        installed = json.loads(path.read_text())["installed"]
+        assert "zeroth-sdk @ file:${REPO_ROOT}/packaging/sdk" in installed, path.name
+        assert all(entry != "@" and "file:///" not in entry for entry in installed), path.name

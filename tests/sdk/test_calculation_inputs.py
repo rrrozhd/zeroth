@@ -39,8 +39,9 @@ def test_sdk_http_history_and_node_preserve_exact_portable_costs(engine, client)
             ))
 
     def forward(request):
-        return client.request(request.method, request.url.path, params=request.url.params,
-                              headers=dict(request.headers), content=request.read())
+        response = client.request(request.method, request.url.path, params=request.url.params,
+                                  headers=dict(request.headers), content=request.read())
+        return httpx.Response(response.status_code, headers=response.headers, content=response.content)
 
     with httpx.Client(transport=httpx.MockTransport(forward)) as transport:
         sdk = ZerothClient(api_key=mint_econ_service_token(), base_url="http://testserver", http_client=transport)

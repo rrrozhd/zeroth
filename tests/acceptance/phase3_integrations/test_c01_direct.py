@@ -317,7 +317,7 @@ def test_clean_install_reconciles_the_reference_workload(engine, origin, tmp_pat
     assert ledger.read(engine, workload.WORKFLOW)["v1"] == EXPECTED["v1"]
     frozen = subprocess.run(
         ["uv", "pip", "freeze", "--python", str(python)], check=True, capture_output=True, text=True
-    ).stdout.split()
+    ).stdout.replace(HERE.parents[2].resolve().as_uri(), "file:${REPO_ROOT}").splitlines()
     evidence = HERE / "evidence"
     evidence.mkdir(exist_ok=True)
     (evidence / f"c01_direct-{pin}.json").write_text(json.dumps({

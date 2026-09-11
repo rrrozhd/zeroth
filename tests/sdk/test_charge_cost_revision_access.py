@@ -44,10 +44,11 @@ def test_sdk_revision_uses_real_project_key_roles_and_tenant_scope(engine, clien
     client.app.dependency_overrides.pop(get_cloud_scoped_db)
 
     def forward(request):
-        return client.request(
+        response = client.request(
             request.method, request.url.path, params=request.url.params,
             headers=dict(request.headers), content=request.read(),
         )
+        return httpx.Response(response.status_code, headers=response.headers, content=response.content)
 
     with httpx.Client(transport=httpx.MockTransport(forward)) as transport:
         sdk = ZerothClient(api_key=keys["Analyst"], base_url="http://testserver", http_client=transport)

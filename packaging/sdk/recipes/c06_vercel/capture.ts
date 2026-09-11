@@ -115,18 +115,15 @@ export class Capture {
 
   /** Callbacks to spread into generateText / streamText: every finished step is a charge. */
   callbacks(name: string, model: string) {
-    let pending: string | null = null;
     return {
       onStepFinish: (step: any) => {
-        pending = null;
         this.charge(this.step(name), { model: step.response?.modelId ?? model, usage: usageFromStep(step.usage),
           requestId: step.response?.id ?? null, stream: step.usage && (step as any).stream ? "complete" : null });
       },
-      onAbort: () => { this.charge(pending ?? this.step(name), { model, usage: null, error: "aborted", stream: "aborted" }); pending = null; },
+      onAbort: () => { this.charge(this.step(name), { model, usage: null, error: "aborted", stream: "aborted" }); },
       onError: (event: any) => {
         const error = event?.error;
-        this.charge(pending ?? this.step(name), { model, usage: null, error: error?.name ?? String(error), stream: "aborted" });
-        pending = null;
+        this.charge(this.step(name), { model, usage: null, error: error?.name ?? String(error), stream: "aborted" });
       },
     };
   }

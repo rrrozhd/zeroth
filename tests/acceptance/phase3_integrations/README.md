@@ -1,16 +1,16 @@
 # Phase 3 — customer integrations: G3 reviewer package
 
 **Reviewer decision: pending independent review.** Nothing here is accepted:
-A07, A08, G3-core and G3-common stay open in `PROGRESS.md`. This package
-exists so a reviewer other than the executing agent can reproduce every row's
-evidence from a clean environment and decide.
+A07, A08, G3-core and G3-common remain unaccepted in `manifest.json`.
+This package lets an independent reviewer reproduce every row's evidence
+from a clean environment.
 
 ## Candidate
 
-`manifest.json["candidate"]` binds the branch (`acceptance/phase-3-integrations`
-in `/Users/dondoe/coding/zeroth-phase3`, cut from local main `faa16232`, G2
-accepted at `14e54f40`), the head commit and every commit since the base. All
-work is unpushed. The sold contract (`zeroth.protocol` events to
+`manifest.json["candidate"]` records the original integration branch
+(`acceptance/phase-3-integrations`), its base `faa16232`, head commit and
+commits since the base. These identify the recorded candidate, not the current
+checkout. The SDK contract (`zeroth.protocol` events to
 `/v1/executions` and `/v1/outcomes`), the server's ingestion, schemas and
 pricing are unchanged; everything lives in the SDK source tree, the recipe
 projects and this harness.
@@ -27,9 +27,10 @@ projects and this harness.
    installation and change guide; each has a `check.*` driver that reproduces
    the frozen workload against any Zeroth deployment without this test suite.
 
-Two evidence files carry run-varying values (`evidence/lifecycle.json`
-timings, `evidence/c07_workers.json` client-observed duplicates); re-running
-their tests rewrites them, which does not change any claim.
+The tests rewrite evidence files with the current environment's package list,
+timings and client-observed duplicates. Review those changes before retaining a
+new run. Installed-package records use `${REPO_ROOT}` for the repository location
+so they do not retain a developer's absolute checkout path.
 
 ## The shared contract
 
@@ -102,11 +103,11 @@ mapping, a reviewer, a runtime, a D06 decision, a release).
 
 ## Full suite and environment interactions
 
-`manifest.json["full_suite"]` records the full pytest run for this candidate
-(14,177 passed; 96 failures and 6 errors) with attribution: the release, load,
-LangGraph-release, product-validation, architecture and live-evaluation gates
-that fail are untouched by this branch and fail on the base commit or need
-artifacts absent from a linked worktree. Four SDK tests fail only when the
-opt-in `integration-conformance` group is installed, because anthropic ≥ 1.0
-brings `httpx2` and Starlette's `TestClient` then returns `httpx2.Response`
-objects; `manifest.json["environment_interactions"]` states the two fixes.
+`manifest.json["full_suite"]` preserves the original candidate's reported pytest
+result (14,177 passed; 96 failures and 6 errors) and failure attribution. Its
+original log is not included in this repository; it is not a current test result.
+
+CI installs all dependency groups, including `integration-conformance`.
+That group brings `httpx2` through anthropic ≥ 1.0, and Starlette's `TestClient`
+then returns `httpx2.Response` objects. The SDK test forwarding handlers convert
+these responses to `httpx.Response` before returning them to `httpx.MockTransport`.
