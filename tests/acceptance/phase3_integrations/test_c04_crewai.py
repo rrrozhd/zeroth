@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -76,9 +77,9 @@ def test_clean_install_reconciles_reference_and_modes(engine, origin, tmp_path, 
         rows = charges(engine, f"modes-concurrent-{label}")
         assert [r.event_metadata["usage"]["input_tokens"] for r in rows] == [100], label
         assert rows[0].event_metadata["agent"] == "planner"
-    retry = charges(engine, "modes-retry")
-    assert [(r.cost_measurement, r.event_metadata["error"]) for r in retry] == [
-        ("unmeasured", "transient"), ("estimated", None)]
+    retry = charges(engine, "modes-retry")  # handler threads again: the attempts land in either order
+    assert Counter((r.cost_measurement, r.event_metadata["error"]) for r in retry) == Counter(
+        [("unmeasured", "transient"), ("estimated", None)])
     flow = charges(engine, "modes-flow")  # events are dispatched on handler threads: order-free
     assert sorted(r.step_id for r in flow) == ["llm", "llm#2"]
     assert sorted(r.event_metadata["usage"]["input_tokens"] for r in flow) == [30, 40]

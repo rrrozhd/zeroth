@@ -111,8 +111,8 @@ def test_typescript_worker_retries_retryable_faults_to_exactly_once(engine, orig
     assert report["returncode"] == 0, report["stderr"]
     assert report["lost"] == [] and report["delivered"] == EVENTS_PER_VERSION
     # proxy indices count retries too: events 2 (503), 3 (drop), 4 (503, 503) and 5 (timeout) were
-    # retried; the timed-out request keeps the proxy busy for 2 s, so its retries also time out
-    # until it clears, which is why the timeout case may need several attempts.
+    # retried; the hang holds only the timed-out request, so its retry is not stalled behind it,
+    # and faulty() waits until the abandoned request has landed as a replay-safe duplicate.
     assert sum(1 for n in report["attempts"].values() if n > 1) == 4
     assert 2 <= max(report["attempts"].values()) <= 7
     assert ledger.read(engine, "phase3-worker-ts-faults")["v1"] == EXPECTED["v1"]

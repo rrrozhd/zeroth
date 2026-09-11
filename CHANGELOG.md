@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output validation failures now follow the configured validation retry.
 - Release checks measure the installed platform and verify immutable image identity.
 
+## [0.25.9.11.1]
+
+### Fixed
+
+- CI installs Poppler for the decision-report PDF render check, which fails rather than
+  skips without it.
+- Phase-3 C04 compares CrewAI retry charges without assuming an arrival order, which
+  CrewAI's threaded event dispatch does not guarantee.
+- The phase-3 fault proxy hangs only the scheduled request instead of every concurrent
+  one, and waits for abandoned requests to land. C06 gives its nine concurrent delivery
+  queues a 3 s client timeout; at 500 ms a slow runner lost events.
+
 ## [0.25.9.11]
 
 ### Fixed

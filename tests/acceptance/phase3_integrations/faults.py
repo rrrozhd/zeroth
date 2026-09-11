@@ -4,6 +4,11 @@ The schedule decides per request (1-based index): ``"pass"`` forwards it,
 an integer answers with that status without forwarding, ``"drop"`` closes the
 connection without a reply. Faults never reach the server, so a faulted event
 is exactly as absent from the ledger as a lost one in production.
+
+A schedule that sleeps delays only its own request, so a hung delivery times out
+alone instead of stalling every concurrent one. ``faulty`` returns only after every
+request it accepted has finished, so a request the client abandoned still reaches
+the server before the caller inspects the ledger.
 """
 
 from __future__ import annotations
@@ -25,14 +30,28 @@ class Proxy:
         self.count = 0
         self.faulted: list[tuple[int, int | str]] = []
         self._lock = threading.Lock()
+        self._settled = threading.Condition(self._lock)
+        self._in_flight = 0
 
     def decide(self) -> tuple[int, int | str]:
         with self._lock:
             self.count += 1
-            action = self.schedule(self.count)
-            if action != "pass":
-                self.faulted.append((self.count, action))
-            return self.count, action
+            index = self.count
+            self._in_flight += 1
+        action = self.schedule(index)
+        if action != "pass":
+            with self._lock:
+                self.faulted.append((index, action))
+        return index, action
+
+    def finished(self) -> None:
+        with self._settled:
+            self._in_flight -= 1
+            self._settled.notify_all()
+
+    def settle(self, timeout: float) -> bool:
+        with self._settled:
+            return self._settled.wait_for(lambda: self._in_flight == 0, timeout)
 
 
 def _handler(proxy: Proxy):
@@ -51,7 +70,13 @@ def _handler(proxy: Proxy):
         def _relay(self):
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else b""
-            _, action = proxy.decide()
+            try:
+                _, action = proxy.decide()
+                self._answer(action, body)
+            finally:
+                proxy.finished()
+
+        def _answer(self, action: int | str, body: bytes):
             if action == "drop":
                 self.close_connection = True
                 self.connection.shutdown(socket.SHUT_RDWR)
@@ -89,6 +114,7 @@ def faulty(origin: str, schedule: Schedule) -> Iterator[tuple[str, Proxy]]:
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}", proxy
+        assert proxy.settle(timeout=30), "a proxied request is still in flight"
     finally:
         server.shutdown()
         server.server_close()

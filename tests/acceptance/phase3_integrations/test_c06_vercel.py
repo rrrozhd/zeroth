@@ -147,17 +147,18 @@ def test_retry_through_faults_reaches_exactly_once(engine, origin, tmp_path, ins
 
     def schedule(index: int):
         if index == 9:
-            time.sleep(2)
+            time.sleep(5)  # outlasts the client's 3 s timeout: abandoned, retried, and still lands
         return table.get(index, "pass")
 
     with faults.faulty(origin, schedule) as (proxy_origin, proxy):
-        report = run_check(proxy_origin, workload_json, workflow="phase3-vercel-faults", retries=6, timeout_ms=500)
+        report = run_check(proxy_origin, workload_json, workflow="phase3-vercel-faults", retries=6, timeout_ms=3000)
     assert report["returncode"] == 0, report["stderr"]
     assert report["lost"] == [] and report["delivered"] == EVENTS_PER_VERSION
-    # the nine per-run delivery queues run concurrently, so the proxy's 2 s hang also times out
-    # unrelated deliveries; at least the four scheduled faults were retried, and exactly-once
-    # holds by the row count and the ledger below
-    assert report["retried"] >= 4
+    # the nine per-run delivery queues share one loopback server; at 500 ms their queueing alone
+    # timed deliveries out on CI until events were lost, so the timeout leaves that headroom.
+    # Each scheduled fault and the abandoned request cost one more request, whichever events they
+    # hit; faulty() waited for the abandoned one, and exactly-once holds by the rows and ledger below
+    assert proxy.count >= EVENTS_PER_VERSION + len(table) + 1
     assert ledger.read(engine, "phase3-vercel-faults")["v1"] == EXPECTED["v1"]
     assert rows(engine, "phase3-vercel-faults") == EVENTS_PER_VERSION
     record("retry", {"faulted": proxy.faulted, "events_retried": report["retried"], "rows": EVENTS_PER_VERSION})

@@ -67,6 +67,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The decision-report PDF check renders through pdfinfo/pdftoppm and fails,
+      # rather than skips, when Poppler is absent.
+      - name: Install Poppler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+
       - name: Run the suite (shard ${{ matrix.group }} of 4)
         run: |
           uv sync --all-groups --all-extras
