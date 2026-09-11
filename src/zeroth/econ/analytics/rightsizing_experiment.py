@@ -48,7 +48,6 @@ from zeroth.eval.models import CaseResult, EvalCase, EvalDataset, Score
 from zeroth.eval.runner import run_eval
 from zeroth.eval.scorers import JudgeVerdict, LLMJudgeScorer
 from zeroth.governance.audit.models import NodeAuditRecord
-from zeroth.runtime.agents.models import ModelParams
 from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 
 # Fields that commonly hold "the answer" in a node's output snapshot. The default agent
@@ -262,12 +261,12 @@ class WholeAnswerScorer:
             reference=json.dumps(case.expected, default=str),
             candidate=json.dumps(output, default=str),
         )
-        request = ProviderRequest(
-            model_name=_HOSTED_JUDGE_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            model_params=ModelParams(max_tokens=8192),
-            output_model=WholeAnswerVerdict,
-        )
+        request = ProviderRequest.model_validate({
+            "model_name": _HOSTED_JUDGE_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "model_params": {"max_tokens": 8192},
+            "output_model": WholeAnswerVerdict,
+        })
         try:
             response = await self._provider.ainvoke(request)
             verdict = (
